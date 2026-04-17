@@ -109,6 +109,7 @@ export class RunScheduledAssistantActionService {
         payloadText: input.payloadText
       }),
       attachments: [],
+      modelRoleOverride: "system_tool",
       currentTimeIso: new Date(input.runAtMs).toISOString()
     });
   }

@@ -66,6 +66,12 @@ export class UpdateTelegramIntegrationConfigService {
       }
       output.defaultParseMode = source.defaultParseMode;
     }
+    if ("defaultDeepModeEnabled" in source) {
+      if (typeof source.defaultDeepModeEnabled !== "boolean") {
+        throw new BadRequestException("defaultDeepModeEnabled must be boolean.");
+      }
+      output.defaultDeepModeEnabled = source.defaultDeepModeEnabled;
+    }
     if ("inboundUserMessagesEnabled" in source) {
       if (typeof source.inboundUserMessagesEnabled !== "boolean") {
         throw new BadRequestException("inboundUserMessagesEnabled must be boolean.");
@@ -137,6 +143,9 @@ export class UpdateTelegramIntegrationConfigService {
     if (input.defaultParseMode !== undefined) {
       nextConfig.defaultParseMode = input.defaultParseMode;
     }
+    if (input.defaultDeepModeEnabled !== undefined) {
+      nextConfig.defaultDeepModeEnabled = input.defaultDeepModeEnabled;
+    }
     if (input.groupReplyMode !== undefined) {
       nextConfig.groupReplyMode = input.groupReplyMode;
     }
@@ -170,6 +179,7 @@ export class UpdateTelegramIntegrationConfigService {
         changedFields: {
           autoCompactionEnabled: input.autoCompactionEnabled !== undefined,
           defaultParseMode: input.defaultParseMode !== undefined,
+          defaultDeepModeEnabled: input.defaultDeepModeEnabled !== undefined,
           inboundUserMessagesEnabled: input.inboundUserMessagesEnabled !== undefined,
           outboundAssistantMessagesEnabled: input.outboundAssistantMessagesEnabled !== undefined,
           groupReplyMode: input.groupReplyMode !== undefined,

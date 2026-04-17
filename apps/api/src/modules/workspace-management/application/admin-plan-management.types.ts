@@ -67,6 +67,9 @@ export type AdminPlanInput = {
   };
   contextPolicy: AdminPlanContextPolicy;
   primaryModelKey: string | null;
+  premiumModelKey: string | null;
+  reasoningModelKey: string | null;
+  retrievalModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
@@ -96,6 +99,9 @@ export type AdminPlanState = {
   };
   contextPolicy: AdminPlanContextPolicy;
   primaryModelKey: string | null;
+  premiumModelKey: string | null;
+  reasoningModelKey: string | null;
+  retrievalModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];

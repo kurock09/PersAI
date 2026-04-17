@@ -279,6 +279,9 @@ function ConnectedView({
   const [configOpen, setConfigOpen] = useState(false);
   const [autoCompactionEnabled, setAutoCompactionEnabled] = useState(config.autoCompactionEnabled);
   const [parseMode, setParseMode] = useState(config.defaultParseMode);
+  const [defaultDeepModeEnabled, setDefaultDeepModeEnabled] = useState(
+    config.defaultDeepModeEnabled
+  );
   const [inbound, setInbound] = useState(config.inboundUserMessagesEnabled);
   const [outbound, setOutbound] = useState(config.outboundAssistantMessagesEnabled);
   const [groupReplyMode, setGroupReplyMode] = useState<"mention_reply" | "all_messages">(
@@ -317,12 +320,14 @@ function ConnectedView({
   useEffect(() => {
     setAutoCompactionEnabled(config.autoCompactionEnabled);
     setParseMode(config.defaultParseMode);
+    setDefaultDeepModeEnabled(config.defaultDeepModeEnabled);
     setInbound(config.inboundUserMessagesEnabled);
     setOutbound(config.outboundAssistantMessagesEnabled);
     setGroupReplyMode(config.groupReplyMode);
     setNotes(config.notes ?? "");
   }, [
     config.autoCompactionEnabled,
+    config.defaultDeepModeEnabled,
     config.defaultParseMode,
     config.groupReplyMode,
     config.inboundUserMessagesEnabled,
@@ -358,6 +363,7 @@ function ConnectedView({
       const payload: AssistantTelegramConfigUpdateRequest = {
         autoCompactionEnabled,
         defaultParseMode: parseMode,
+        defaultDeepModeEnabled,
         inboundUserMessagesEnabled: inbound,
         outboundAssistantMessagesEnabled: outbound,
         notes: notes.trim() || null,
@@ -376,6 +382,7 @@ function ConnectedView({
     }
   }, [
     autoCompactionEnabled,
+    defaultDeepModeEnabled,
     getToken,
     groupReplyMode,
     inbound,
@@ -631,6 +638,12 @@ function ConnectedView({
                 checked={autoCompactionEnabled}
                 onChange={setAutoCompactionEnabled}
                 description={t("autoCompactionDesc")}
+              />
+              <Toggle
+                label={t("deepModeDefault")}
+                checked={defaultDeepModeEnabled}
+                onChange={setDefaultDeepModeEnabled}
+                description={t("deepModeDefaultDesc")}
               />
               <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
               <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />

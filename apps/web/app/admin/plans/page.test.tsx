@@ -36,6 +36,9 @@ function createPlanState(): AdminPlanState {
       workspaceStorageBytesLimit: null
     },
     primaryModelKey: "gpt-5.4",
+    premiumModelKey: "gpt-5.4",
+    reasoningModelKey: "gpt-5.4-mini",
+    retrievalModelKey: "gpt-5.4-nano",
     videoGenerateModelKey: "sora-2-pro",
     runtimeTierDefault: "paid_shared_restricted",
     contextPolicy: {
@@ -68,8 +71,14 @@ describe("admin plans page helpers", () => {
     const draft = planToDraft(createPlanState());
     expect(draft.videoGenerateModelKey).toBe("sora-2-pro");
     expect(draft.sharedCompactionSummaryBudgetTokens).toBe("");
+    expect(draft.premiumModelKey).toBe("gpt-5.4");
+    expect(draft.reasoningModelKey).toBe("gpt-5.4-mini");
+    expect(draft.retrievalModelKey).toBe("gpt-5.4-nano");
 
     expect(draftToPayload(draft).videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
+    expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
+    expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");
     expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
     expect(
       draftToPayload({

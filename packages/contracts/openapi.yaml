@@ -3611,6 +3611,7 @@ components:
       required:
         - autoCompactionEnabled
         - defaultParseMode
+        - defaultDeepModeEnabled
         - inboundUserMessagesEnabled
         - outboundAssistantMessagesEnabled
         - groupReplyMode
@@ -3623,6 +3624,8 @@ components:
           enum:
             - plain_text
             - markdown
+        defaultDeepModeEnabled:
+          type: boolean
         inboundUserMessagesEnabled:
           type: boolean
         outboundAssistantMessagesEnabled:
@@ -3794,6 +3797,8 @@ components:
           enum:
             - plain_text
             - markdown
+        defaultDeepModeEnabled:
+          type: boolean
         inboundUserMessagesEnabled:
           type: boolean
         outboundAssistantMessagesEnabled:
@@ -4233,6 +4238,7 @@ components:
         - surface
         - surfaceThreadKey
         - title
+        - deepModeEnabled
         - archivedAt
         - lastMessageAt
         - createdAt
@@ -4251,6 +4257,8 @@ components:
         title:
           type: string
           nullable: true
+        deepModeEnabled:
+          type: boolean
         archivedAt:
           type: string
           format: date-time
@@ -4417,12 +4425,13 @@ components:
           nullable: true
     AssistantWebChatRenameRequest:
       type: object
-      required:
-        - title
+      minProperties: 1
       properties:
         title:
           type: string
           nullable: true
+        deepModeEnabled:
+          type: boolean
     AssistantWebChatDeleteRequest:
       type: object
       required:
@@ -4681,6 +4690,15 @@ components:
         primaryModelKey:
           type: string
           nullable: true
+        premiumModelKey:
+          type: string
+          nullable: true
+        reasoningModelKey:
+          type: string
+          nullable: true
+        retrievalModelKey:
+          type: string
+          nullable: true
         videoGenerateModelKey:
           type: string
           enum:
@@ -4787,6 +4805,15 @@ components:
         contextPolicy:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
         primaryModelKey:
+          type: string
+          nullable: true
+        premiumModelKey:
+          type: string
+          nullable: true
+        reasoningModelKey:
+          type: string
+          nullable: true
+        retrievalModelKey:
           type: string
           nullable: true
         videoGenerateModelKey:

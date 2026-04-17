@@ -34,6 +34,7 @@ const WEB_SEARCH_MAX_COUNT = 20;
 const KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
 const MEMORY_WRITE_MAX_CHARS = 500;
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
+const ROUTE_CONTROL_TOOL_CODE = "route_control";
 
 export function projectRuntimeNativeTools(
   bundle: AssistantRuntimeBundle,
@@ -88,6 +89,10 @@ export function projectRuntimeNativeTools(
   const quotaStatusPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "quota_status");
   if (quotaStatusPolicy !== null) {
     projectedTools.push(createQuotaStatusToolDefinition(quotaStatusPolicy));
+  }
+  const routeControlPolicy = resolveAllowedModelVisibleToolPolicy(bundle, ROUTE_CONTROL_TOOL_CODE);
+  if (routeControlPolicy !== null) {
+    projectedTools.push(createRouteControlToolDefinition(routeControlPolicy));
   }
   const knowledgeSearchPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "knowledge_search");
   if (projectedKnowledgeSearchSources.length > 0 && knowledgeSearchPolicy !== null) {
@@ -267,6 +272,29 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           description:
             "Optional tool code to inspect one quota-governed tool. Leave unset to return all daily tool counters plus the current quota bucket snapshot."
+        }
+      }
+    }
+  };
+}
+
+function createRouteControlToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
+  return {
+    name: ROUTE_CONTROL_TOOL_CODE,
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Hidden route helper. Call this before answering when you need internal guidance about whether to stay on the current reply path, escalate to a deeper reply model, or steer the next step toward internal knowledge or live web lookup."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        reason: {
+          type: "string",
+          description:
+            "Optional short note explaining why route guidance is needed, such as short follow-up ambiguity, likely need for live facts, or higher-stakes reasoning."
         }
       }
     }

@@ -33,6 +33,7 @@ export interface PrepareAssistantInboundTurnInput {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  deepModeEnabled?: boolean;
 }
 
 export interface PreparedAssistantInboundTurn {
@@ -96,13 +97,23 @@ export class PrepareAssistantInboundTurnService {
       });
     }
 
-    const chat = existingChat
-      ? existingChat
-      : await this.reserveWebChatUnderCap({
-          assistant,
-          surfaceThreadKey: input.surfaceThreadKey,
-          title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null)
-        });
+    const chat =
+      existingChat !== null
+        ? input.surface === "web_chat" &&
+          input.deepModeEnabled !== undefined &&
+          existingChat.deepModeEnabled !== input.deepModeEnabled
+          ? await this.assistantChatRepository
+              .updateChat(existingChat.id, {
+                deepModeEnabled: input.deepModeEnabled
+              })
+              .then((updated) => updated ?? existingChat)
+          : existingChat
+        : await this.reserveWebChatUnderCap({
+            assistant,
+            surfaceThreadKey: input.surfaceThreadKey,
+            title: input.title ?? (input.message.trim().slice(0, 50).replace(/\s+/g, " ") || null),
+            deepModeEnabled: input.deepModeEnabled ?? false
+          });
 
     const userMessage = await this.assistantChatRepository.createMessage({
       chatId: chat.id,
@@ -156,6 +167,7 @@ export class PrepareAssistantInboundTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        deepModeEnabled: chat.deepModeEnabled,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -188,6 +200,7 @@ export class PrepareAssistantInboundTurnService {
     assistant: Assistant;
     surfaceThreadKey: string;
     title: string | null;
+    deepModeEnabled: boolean;
   }) {
     const config = loadApiConfig(process.env);
     const result = await this.assistantChatRepository.getOrCreateWebChatBySurfaceThreadUnderCap({
@@ -197,6 +210,7 @@ export class PrepareAssistantInboundTurnService {
       surface: "web",
       surfaceThreadKey: params.surfaceThreadKey,
       title: params.title,
+      deepModeEnabled: params.deepModeEnabled,
       activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
     });
 

@@ -166,6 +166,7 @@ describe("StreamNativeWebChatTurnService", () => {
           attachments: [],
           userTimezone: "UTC",
           currentTimeIso: "2026-04-11T13:00:00.000Z",
+          modelRoleOverride: "premium_reply",
           providerOverride: "anthropic",
           modelOverride: "claude-sonnet-4-5"
         })
@@ -173,6 +174,7 @@ describe("StreamNativeWebChatTurnService", () => {
 
       assert.equal(capturedUrl, "http://runtime.local/api/v1/turns/stream");
       assert.equal(capturedBody?.idempotencyKey, "user-msg-1");
+      assert.equal(capturedBody?.modelRoleOverride, "premium_reply");
       assert.equal(capturedBody?.providerOverride, "anthropic");
       assert.equal(capturedBody?.modelOverride, "claude-sonnet-4-5");
       assert.equal((capturedBody?.bundle as Record<string, unknown>)?.bundleId, "spec-1");

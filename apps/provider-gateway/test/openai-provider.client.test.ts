@@ -746,6 +746,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     providerKey: "openai",
     modelKey: "gpt-image-1",
     inputTokens: 30,
+    cachedInputTokens: null,
     outputTokens: 60,
     totalTokens: 90
   });
@@ -787,6 +788,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     providerKey: "openai",
     modelKey: "gpt-image-1",
     inputTokens: 24,
+    cachedInputTokens: null,
     outputTokens: 48,
     totalTokens: 72
   });

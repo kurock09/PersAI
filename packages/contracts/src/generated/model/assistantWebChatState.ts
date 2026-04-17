@@ -13,6 +13,7 @@ export interface AssistantWebChatState {
   surfaceThreadKey: string;
   /** @nullable */
   title: string | null;
+  deepModeEnabled: boolean;
   /** @nullable */
   archivedAt: string | null;
   /** @nullable */

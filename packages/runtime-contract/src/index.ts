@@ -105,12 +105,44 @@ export interface RuntimeInboundMessage {
   receivedAt: IsoTimestamp;
 }
 
+export const PERSAI_RUNTIME_MODEL_ROLES = [
+  "normal_reply",
+  "premium_reply",
+  "reasoning",
+  "system_tool",
+  "retrieval",
+  "tool_worker"
+] as const;
+
+export type PersaiRuntimeModelRole = (typeof PERSAI_RUNTIME_MODEL_ROLES)[number];
+
 export interface RuntimeUsageSnapshot {
   providerKey: string | null;
   modelKey: string | null;
   inputTokens: number | null;
+  cachedInputTokens?: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+}
+
+export interface RuntimeUsageAccountingEntry {
+  stepType: string;
+  modelRole: PersaiRuntimeModelRole | null;
+  providerKey: string | null;
+  modelKey: string | null;
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  toolCode?: string | null;
+}
+
+export interface RuntimeUsageAccounting {
+  inputTokens: number | null;
+  cachedInputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  entries: RuntimeUsageAccountingEntry[];
 }
 
 export interface RuntimeToolPolicy {
@@ -987,6 +1019,8 @@ export interface RuntimeTurnRequest {
   bundle: RuntimeBundleRef;
   conversation: RuntimeConversationAddress;
   message: RuntimeInboundMessage;
+  deepMode?: boolean;
+  modelRoleOverride?: PersaiRuntimeModelRole;
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
 }
@@ -998,6 +1032,7 @@ export interface RuntimeTurnResult {
   artifacts: RuntimeOutputArtifact[];
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
+  usageAccounting?: RuntimeUsageAccounting;
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
 }
@@ -1070,6 +1105,7 @@ export interface ProviderGatewayToolExchange {
 }
 
 export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
+  "role_selection",
   "main_turn",
   "tool_loop_followup",
   "manual_compaction",
@@ -1489,6 +1525,7 @@ export interface RuntimeSharedCompactionToolResult {
   summaryText: string | null;
   summaryPayload: Record<string, unknown> | null;
   reusableInLaterTurns: boolean;
+  usage: RuntimeUsageSnapshot | null;
 }
 
 export interface RuntimeCompactionResult {

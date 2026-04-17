@@ -239,7 +239,12 @@ export class ManageAdminPlansService {
     if (existing !== null) {
       throw new ConflictException("Plan code already exists.");
     }
-    await this.assertPrimaryModelKeyAvailable(input.primaryModelKey);
+    await this.assertModelKeysAvailable([
+      input.primaryModelKey,
+      input.premiumModelKey,
+      input.reasoningModelKey,
+      input.retrievalModelKey
+    ]);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
     await this.bumpConfigGenerationService.execute();
@@ -283,7 +288,12 @@ export class ManageAdminPlansService {
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
-    await this.assertPrimaryModelKeyAvailable(input.primaryModelKey);
+    await this.assertModelKeysAvailable([
+      input.primaryModelKey,
+      input.premiumModelKey,
+      input.reasoningModelKey,
+      input.retrievalModelKey
+    ]);
     await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
@@ -417,6 +427,9 @@ export class ManageAdminPlansService {
       },
       contextPolicy,
       primaryModelKey: toNullableString(parsed.primaryModelKey),
+      premiumModelKey: toNullableString(parsed.premiumModelKey),
+      reasoningModelKey: toNullableString(parsed.reasoningModelKey),
+      retrievalModelKey: toNullableString(parsed.retrievalModelKey),
       videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
     };
@@ -491,6 +504,9 @@ export class ManageAdminPlansService {
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
         contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
+        ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
+        ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
+        ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
         ...(input.videoGenerateModelKey !== null
           ? { videoGenerateModelKey: input.videoGenerateModelKey }
           : {}),
@@ -535,19 +551,21 @@ export class ManageAdminPlansService {
     };
   }
 
-  private async assertPrimaryModelKeyAvailable(primaryModelKey: string | null): Promise<void> {
-    if (primaryModelKey === null) {
-      return;
-    }
+  private async assertModelKeysAvailable(modelKeys: Array<string | null>): Promise<void> {
     const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
     const catalog = [
       ...settings.availableModelsByProvider.openai,
       ...settings.availableModelsByProvider.anthropic
     ];
-    if (!catalog.includes(primaryModelKey)) {
-      throw new BadRequestException(
-        "primaryModelKey must be selected from Runtime Admin available models."
-      );
+    for (const modelKey of modelKeys) {
+      if (modelKey === null) {
+        continue;
+      }
+      if (!catalog.includes(modelKey)) {
+        throw new BadRequestException(
+          `"${modelKey}" must be selected from Runtime Admin available models.`
+        );
+      }
     }
   }
 
@@ -611,6 +629,9 @@ export class ManageAdminPlansService {
       },
       contextPolicy,
       primaryModelKey: toNullableString(billingHints.primaryModelKey),
+      premiumModelKey: toNullableString(billingHints.premiumModelKey),
+      reasoningModelKey: toNullableString(billingHints.reasoningModelKey),
+      retrievalModelKey: toNullableString(billingHints.retrievalModelKey),
       videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({

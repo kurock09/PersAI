@@ -68,6 +68,7 @@ describe("RunScheduledAssistantActionService", () => {
     assert.equal(sendService.calls.length, 1);
     assert.equal(sendService.calls[0]?.userMessageId, BASE_USER_MESSAGE_ID);
     assert.equal(sendService.calls[0]?.surfaceThreadKey, SURFACE_THREAD_KEY);
+    assert.equal(sendService.calls[0]?.modelRoleOverride, "system_tool");
     const userMessage = sendService.calls[0]?.userMessage;
     assert.equal(typeof userMessage, "string");
     assert.match(

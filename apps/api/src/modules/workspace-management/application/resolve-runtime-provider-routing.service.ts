@@ -53,6 +53,9 @@ export class ResolveRuntimeProviderRoutingService {
     runtimeProviderProfile?: RuntimeProviderProfileState;
     secretRefs?: unknown | null;
     planPrimaryModelKey?: string | null;
+    planPremiumModelKey?: string | null;
+    planReasoningModelKey?: string | null;
+    planRetrievalModelKey?: string | null;
   }): RuntimeProviderRoutingState {
     const { effectiveCapabilities, policyEnvelope } = params;
     const runtimeProviderProfile =
@@ -80,8 +83,16 @@ export class ResolveRuntimeProviderRoutingService {
       runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.fallback : null;
     const primaryProviderKey = managedPrimary?.provider ?? "platform_managed_default";
     const planModelKey = params.planPrimaryModelKey?.trim() || null;
+    const planPremiumModelKey = params.planPremiumModelKey?.trim() || null;
+    const planReasoningModelKey = params.planReasoningModelKey?.trim() || null;
+    const planRetrievalModelKey = params.planRetrievalModelKey?.trim() || null;
     const primaryModelKey =
       planModelKey ?? managedPrimary?.model ?? override.primaryModelKey ?? null;
+    const premiumModelKey = planPremiumModelKey ?? primaryModelKey ?? managedPrimary?.model ?? null;
+    const reasoningModelKey = planReasoningModelKey ?? premiumModelKey ?? primaryModelKey ?? null;
+    const systemToolModelKey = managedPrimary?.model ?? primaryModelKey;
+    const retrievalModelKey =
+      planRetrievalModelKey ?? systemToolModelKey ?? primaryModelKey ?? null;
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const fallbackModelKey =
       managedFallback?.model ?? override.fallbackModelKey ?? managedPrimary?.model ?? null;
@@ -118,6 +129,28 @@ export class ResolveRuntimeProviderRoutingService {
         planCode: effectiveCapabilities.derivedFrom.planCode
       },
       userFacingProviderPickerEnabled: false,
+      modelSlots: {
+        normalReply: {
+          providerKey: primaryProviderKey,
+          modelKey: primaryModelKey
+        },
+        premiumReply: {
+          providerKey: primaryProviderKey,
+          modelKey: premiumModelKey
+        },
+        reasoning: {
+          providerKey: primaryProviderKey,
+          modelKey: reasoningModelKey
+        },
+        systemTool: {
+          providerKey: primaryProviderKey,
+          modelKey: systemToolModelKey
+        },
+        retrieval: {
+          providerKey: primaryProviderKey,
+          modelKey: retrievalModelKey
+        }
+      },
       primaryPath: {
         providerKey: primaryProviderKey,
         modelKey: primaryModelKey,

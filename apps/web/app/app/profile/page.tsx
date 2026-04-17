@@ -41,6 +41,7 @@ export default function ProfilePage() {
     text: string;
   } | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarRefreshKey, setAvatarRefreshKey] = useState(0);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -94,6 +95,7 @@ export default function ProfilePage() {
       try {
         await user.setProfileImage({ file });
         await user.reload();
+        setAvatarRefreshKey((value) => value + 1);
         setAvatarFeedback({ type: "ok", text: t("avatarSaved") });
         setAvatarPreviewUrl((previous) => {
           if (previous) {
@@ -149,7 +151,11 @@ export default function ProfilePage() {
     user.username?.[0] ??
     t("unnamedUser").charAt(0)
   ).toUpperCase();
-  const profileImage = avatarPreviewUrl ?? user.imageUrl;
+  const profileImage =
+    avatarPreviewUrl ??
+    (user.hasImage && user.imageUrl
+      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${avatarRefreshKey}`
+      : null);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
@@ -169,7 +175,7 @@ export default function ProfilePage() {
         <div className="rounded-2xl border border-border bg-surface p-5">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
             <div className="relative">
-              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-3xl bg-accent/20 text-2xl font-bold text-accent">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-surface-raised text-2xl font-bold text-accent shadow-sm">
                 {profileImage ? (
                   <img src={profileImage} alt="" className="h-full w-full object-cover" />
                 ) : (

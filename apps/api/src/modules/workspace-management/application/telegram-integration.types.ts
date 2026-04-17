@@ -49,6 +49,7 @@ export type TelegramIntegrationState = {
     settings: {
       autoCompactionEnabled: boolean;
       defaultParseMode: "plain_text" | "markdown";
+      defaultDeepModeEnabled: boolean;
       inboundUserMessagesEnabled: boolean;
       outboundAssistantMessagesEnabled: boolean;
       groupReplyMode: "mention_reply" | "all_messages";
@@ -70,6 +71,7 @@ export type TelegramSecretRevokeInput = {
 export type TelegramConfigUpdateInput = {
   autoCompactionEnabled?: boolean;
   defaultParseMode?: "plain_text" | "markdown";
+  defaultDeepModeEnabled?: boolean;
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
   groupReplyMode?: "mention_reply" | "all_messages";

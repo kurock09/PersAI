@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import { Prisma } from "@prisma/client";
 import type {
   RuntimeBundleRef,
   RuntimeTurnRequest,
@@ -12,7 +13,10 @@ import {
 } from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
-import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
+import {
+  MaterializeAssistantPublishedVersionService,
+  type AssistantRuntimeArtifacts
+} from "./materialize-assistant-published-version.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { toAssistantInboundHttpException } from "./assistant-inbound-error";
 import {
@@ -62,6 +66,8 @@ function resolvePreviewTurnPrompt(runtimeBundle: {
   );
 }
 
+const PREVIEW_MATERIALIZATION_ALGORITHM_VERSION = 1;
+
 @Injectable()
 export class PreviewAssistantSetupService {
   constructor(
@@ -79,58 +85,67 @@ export class PreviewAssistantSetupService {
       throw new NotFoundException("Assistant does not exist for this user.");
     }
 
-    const latestVersion = await this.assistantPublishedVersionRepository.findLatestByAssistantId(
-      assistant.id
-    );
     const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
     const draftVoiceProfile = applyAssistantGenderVoiceDefaults({
       assistantGender,
       voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
     });
-    const previewVersion: AssistantPublishedVersion = {
-      id: randomUUID(),
+    const previewVersion = await this.assistantPublishedVersionRepository.create({
       assistantId: assistant.id,
-      version: (latestVersion?.version ?? 0) + 1,
+      publishedByUserId: userId,
       snapshotDisplayName: assistant.draftDisplayName,
       snapshotInstructions: assistant.draftInstructions,
       snapshotTraits: assistant.draftTraits,
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
       snapshotAssistantGender: assistantGender,
-      snapshotVoiceProfile: draftVoiceProfile,
-      publishedByUserId: userId,
-      createdAt: new Date()
-    };
-    const artifacts = await this.materializeAssistantPublishedVersionService.buildRuntimeArtifacts(
-      assistant,
-      previewVersion
-    );
-
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: assistant.workspaceId },
-      select: { timezone: true }
+      snapshotVoiceProfile: draftVoiceProfile
     });
 
-    const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(artifacts.layers);
-    const result = await this.previewSetupTurnNative({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      userId,
-      previewPublishedVersionId: previewVersion.id,
-      runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
-      runtimeBundleDocument: artifacts.runtimeBundleDocument,
-      runtimeBundleHash: artifacts.runtimeBundleHash,
-      userMessage: resolvePreviewTurnPrompt(artifacts.runtimeBundle),
-      userTimezone: workspace?.timezone ?? "UTC",
-      currentTimeIso: new Date().toISOString()
-    }).catch((error: unknown) => {
-      throw toAssistantInboundHttpException(error);
-    });
+    try {
+      const artifacts =
+        await this.materializeAssistantPublishedVersionService.buildRuntimeArtifacts(
+          assistant,
+          previewVersion
+        );
+      const previewMaterializedSpec = await this.persistPreviewMaterializedSpec({
+        assistantId: assistant.id,
+        previewVersion,
+        artifacts
+      });
 
-    return {
-      message: result.assistantMessage,
-      respondedAt: result.respondedAt
-    };
+      const workspace = await this.prisma.workspace.findUnique({
+        where: { id: assistant.workspaceId },
+        select: { timezone: true }
+      });
+
+      const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(artifacts.layers);
+      const result = await this.previewSetupTurnNative({
+        assistantId: assistant.id,
+        workspaceId: assistant.workspaceId,
+        userId,
+        previewPublishedVersionId: previewVersion.id,
+        previewMaterializedSpecId: previewMaterializedSpec.id,
+        runtimeTier: runtimeAssignment?.effectiveTier ?? "free_shared_restricted",
+        runtimeBundleDocument: artifacts.runtimeBundleDocument,
+        runtimeBundleHash: artifacts.runtimeBundleHash,
+        userMessage: resolvePreviewTurnPrompt(artifacts.runtimeBundle),
+        userTimezone: workspace?.timezone ?? "UTC",
+        currentTimeIso: new Date().toISOString()
+      }).catch((error: unknown) => {
+        throw toAssistantInboundHttpException(error);
+      });
+
+      return {
+        message: result.assistantMessage,
+        respondedAt: result.respondedAt
+      };
+    } finally {
+      await this.cleanupPreviewMaterialization({
+        assistantId: assistant.id,
+        previewPublishedVersionId: previewVersion.id
+      }).catch(() => undefined);
+    }
   }
 
   private async previewSetupTurnNative(input: {
@@ -138,6 +153,7 @@ export class PreviewAssistantSetupService {
     workspaceId: string;
     userId: string;
     previewPublishedVersionId: string;
+    previewMaterializedSpecId: string;
     runtimeTier: RuntimeTier;
     runtimeBundleDocument: string;
     runtimeBundleHash: string | null;
@@ -176,7 +192,7 @@ export class PreviewAssistantSetupService {
       {
         bundle: bundleRef,
         bundleDocument,
-        materializedSpecId: `preview:${input.previewPublishedVersionId}`,
+        materializedSpecId: input.previewMaterializedSpecId,
         runtimeTier: input.runtimeTier
       },
       timeoutMs
@@ -246,8 +262,79 @@ export class PreviewAssistantSetupService {
         locale: null,
         timezone: input.userTimezone,
         receivedAt: input.currentTimeIso
-      }
+      },
+      modelRoleOverride: "premium_reply"
     };
+  }
+
+  private async persistPreviewMaterializedSpec(input: {
+    assistantId: string;
+    previewVersion: AssistantPublishedVersion;
+    artifacts: AssistantRuntimeArtifacts;
+  }): Promise<{ id: string }> {
+    return this.prisma.assistantMaterializedSpec.upsert({
+      where: { publishedVersionId: input.previewVersion.id },
+      create: {
+        assistantId: input.assistantId,
+        publishedVersionId: input.previewVersion.id,
+        sourceAction: "publish",
+        algorithmVersion: PREVIEW_MATERIALIZATION_ALGORITHM_VERSION,
+        materializedAtConfigGeneration: input.artifacts.currentConfigGeneration,
+        layers: input.artifacts.layers as Prisma.InputJsonValue,
+        runtimeBundle: input.artifacts.runtimeBundle as unknown as Prisma.InputJsonValue,
+        assistantConfig: input.artifacts.assistantConfig as Prisma.InputJsonValue,
+        assistantWorkspace: input.artifacts.assistantWorkspace as Prisma.InputJsonValue,
+        layersDocument: input.artifacts.layersDocument,
+        runtimeBundleDocument: input.artifacts.runtimeBundleDocument,
+        runtimeBundleHash: input.artifacts.runtimeBundleHash,
+        assistantConfigDocument: input.artifacts.assistantConfigDocument,
+        assistantWorkspaceDocument: input.artifacts.assistantWorkspaceDocument,
+        contentHash: input.artifacts.contentHash
+      },
+      update: {
+        assistantId: input.assistantId,
+        sourceAction: "publish",
+        algorithmVersion: PREVIEW_MATERIALIZATION_ALGORITHM_VERSION,
+        materializedAtConfigGeneration: input.artifacts.currentConfigGeneration,
+        layers: input.artifacts.layers as Prisma.InputJsonValue,
+        runtimeBundle: input.artifacts.runtimeBundle as unknown as Prisma.InputJsonValue,
+        assistantConfig: input.artifacts.assistantConfig as Prisma.InputJsonValue,
+        assistantWorkspace: input.artifacts.assistantWorkspace as Prisma.InputJsonValue,
+        layersDocument: input.artifacts.layersDocument,
+        runtimeBundleDocument: input.artifacts.runtimeBundleDocument,
+        runtimeBundleHash: input.artifacts.runtimeBundleHash,
+        assistantConfigDocument: input.artifacts.assistantConfigDocument,
+        assistantWorkspaceDocument: input.artifacts.assistantWorkspaceDocument,
+        contentHash: input.artifacts.contentHash
+      },
+      select: { id: true }
+    });
+  }
+
+  private async cleanupPreviewMaterialization(input: {
+    assistantId: string;
+    previewPublishedVersionId: string;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.runtimeBundleState.deleteMany({
+        where: {
+          assistantId: input.assistantId,
+          publishedVersionId: input.previewPublishedVersionId
+        }
+      });
+      await tx.assistantMaterializedSpec.deleteMany({
+        where: {
+          assistantId: input.assistantId,
+          publishedVersionId: input.previewPublishedVersionId
+        }
+      });
+      await tx.assistantPublishedVersion.deleteMany({
+        where: {
+          assistantId: input.assistantId,
+          id: input.previewPublishedVersionId
+        }
+      });
+    });
   }
 
   private async invalidatePreviewBundleBestEffort(input: {

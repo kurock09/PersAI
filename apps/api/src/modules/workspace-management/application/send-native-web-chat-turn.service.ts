@@ -34,6 +34,8 @@ export interface SendNativeWebChatTurnInput {
   attachments: RuntimeAttachmentRef[];
   userTimezone?: string;
   currentTimeIso?: string;
+  deepMode?: RuntimeTurnRequest["deepMode"];
+  modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
 }
@@ -113,6 +115,10 @@ export class SendNativeWebChatTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
+      ...(input.modelRoleOverride === undefined
+        ? {}
+        : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };

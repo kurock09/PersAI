@@ -12,7 +12,8 @@ import type {
   CreateAssistantChatInput,
   CreateAssistantChatMessageInput,
   GetOrCreateWebChatUnderCapInput,
-  GetOrCreateWebChatUnderCapResult
+  GetOrCreateWebChatUnderCapResult,
+  UpdateAssistantChatInput
 } from "../../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
@@ -28,7 +29,8 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
         workspaceId: input.workspaceId,
         surface: input.surface,
         surfaceThreadKey: input.surfaceThreadKey,
-        title: input.title
+        title: input.title,
+        deepModeEnabled: input.deepModeEnabled ?? false
       }
     });
 
@@ -105,7 +107,8 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
                 workspaceId: input.workspaceId,
                 surface: "web",
                 surfaceThreadKey: input.surfaceThreadKey,
-                title: input.title
+                title: input.title,
+                deepModeEnabled: input.deepModeEnabled ?? false
               }
             });
 
@@ -212,7 +215,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     };
   }
 
-  async renameChat(chatId: string, title: string | null): Promise<AssistantChat | null> {
+  async updateChat(chatId: string, input: UpdateAssistantChatInput): Promise<AssistantChat | null> {
     const existingChat = await this.prisma.assistantChat.findUnique({
       where: { id: chatId },
       select: { id: true }
@@ -224,7 +227,10 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
 
     const chat = await this.prisma.assistantChat.update({
       where: { id: chatId },
-      data: { title }
+      data: {
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.deepModeEnabled === undefined ? {} : { deepModeEnabled: input.deepModeEnabled })
+      }
     });
 
     return this.mapChatToDomain(chat);
@@ -360,6 +366,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       surface: chat.surface,
       surfaceThreadKey: chat.surfaceThreadKey,
       title: chat.title,
+      deepModeEnabled: chat.deepModeEnabled,
       archivedAt: chat.archivedAt,
       lastMessageAt: chat.lastMessageAt,
       createdAt: chat.createdAt,

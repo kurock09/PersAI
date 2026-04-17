@@ -49,24 +49,28 @@ The following remain active program items and move under ADR-073 governance:
 
 ### 3. Create/recreate path audit
 
-Current setup truth is functionally correct but not yet product-clean:
+The first lifecycle polish wave is now complete on the active path:
 
-- setup preview and final create both call `postOnboarding`
-- setup preview and final create both call `postAssistantCreate`
-- preview persists draft state before previewing, but uploaded custom avatar stays local-only until final publish
-- recreate uses `reset -> wizard -> create fallback to existing assistant`, not a first-class shared lifecycle pipeline
-- final create still uses hard navigation to `/app/chat` instead of the cleaner route/state transition path
+- setup preview no longer repeats the full onboarding/create/draft write wave during final publish
+- reset now clears native runtime-state rows before deleting materialized specs and published versions
+- preview and welcome prompts are split into separate admin-managed first-turn templates
+- welcome chat creation is explicit after publish/recreate instead of being inferred from empty history
+- setup now detects an existing assistant up front and enters an explicit `recover` / `recreate` path instead of hiding that branch behind `POST /assistant` `409 already existed`
 
-This is acceptable for the current baseline but not the desired long-term product path.
+Residual architecture notes remain, but they are no longer blockers for this polish slice:
+
+- setup preview still keeps an uploaded custom avatar local until final publish instead of round-tripping it through a persisted preview asset
+- final create/recover behavior is still orchestrated by the explicit frontend wizard path rather than one separate backend lifecycle command
 
 ### 4. User UI audit
 
-The active user UI is operational, but the next polish slice must improve:
+The first user UI polish wave is now complete on the active path:
 
-- setup flow coherence between preview, create, recreate, and reset
-- honest loading/error states around preview, publish, and post-publish routing
-- avatar consistency between local preview, runtime preview, and final assistant state
-- clearer lifecycle states when an assistant is draft, applying, failed, or live
+- assistant settings now have denser, more balanced desktop/mobile layout and clearer save/action affordances
+- chat/sidebar UX now has explicit deletion feedback, smaller context-pressure UX, collapsed integrations, and paged memory/task surfaces
+- custom account/auth surfaces now support profile edits, avatar upload, password change, and a real custom forgot-password flow
+
+Future user-surface work should now follow the remaining lifecycle/economics program rather than staying as a separate top-priority polish track.
 
 ### 5. Memory, knowledge, and search audit
 
@@ -80,13 +84,13 @@ The active runtime already has a real PersAI-owned knowledge layer, but it is st
 
 ### 6. Model routing and reasoning audit
 
-The active system already materializes structured provider routing, but execution does not yet match the full contract:
+The active system already materializes structured provider routing, and the admin surface already owns a default model path, but execution does not yet match the desired plan-scoped contract:
 
 - `runtimeProviderRouting.primaryPath` is real and used
 - `fallbackMatrix` is materialized but not fully executed by runtime turn logic
-- repo-level `use_smart_model` policy does not yet exist
-- there is no explicit reasoning-mode policy layer
-- there is no explicit cheap-model versus premium-model routing discipline per tariff
+- there is no explicit per-plan slot contract for ordinary conversation, deeper/premium replies, and hidden system/tool work
+- there is no explicit rule that the main reply agent may orchestrate internal steps while keeping raw model choice hidden except for an optional deeper-thinking mode
+- turn-level usage accounting does not yet make `input`, `cached input`, and `output` costs first-class across all internal calls
 
 ### 7. Cache and prompt-economy audit
 
@@ -95,15 +99,17 @@ The active path already has bundle caching and compaction reuse, but not the ful
 - runtime bundle warm/cache exists
 - durable compaction reuse exists
 - idempotent turn replay exists
-- provider-native cached input blocks are not yet integrated as a first-class product/runtime policy
+- provider-native cached input, especially OpenAI prompt caching where the active provider supports it, is not yet the primary prompt-economy target
+- prompt assembly does not yet maximize a large stable cached prefix plus a smaller dynamic tail
 - there is no explicit stable cache layer for tariff-global prompts, user profile blocks, KB summary blocks, or reusable long-lived context blocks
 
 ### 8. Tool orchestration audit
 
-The active runtime has a real bounded tool loop, but not yet the final split between thinking and execution:
+The active runtime has a real bounded tool loop, but not yet the final split between conversation, hidden utility work, and execution:
 
 - the main runtime model plans and executes tool calls in one bounded loop
 - inline tools and worker tools are already separated operationally
+- simple background steps such as query rewrite, summary/compaction, selection, rerank, or tool-argument preparation do not yet have one explicit hidden system/tool-model contract
 - there is no dedicated deterministic tool-runner layer for low-thinking operations such as `tts`, `web`, `image`, quota checks, and policy/accounting enforcement
 
 ## Decision
@@ -188,87 +194,85 @@ The target polish rules are:
 - no hidden recreate semantics inside an ordinary create call
 - no misleading “assistant is ready” state before runtime/apply state actually is ready
 
-### B. Smart-model routing target
+### B. Plan-scoped model contract target
 
-PersAI adopts an explicit `use_smart_model` policy layer.
+PersAI adopts a plan-scoped model contract rather than hard-coded model ids or public model pickers.
 
-This policy must stay **catalog-driven and admin-managed**, not hard-coded to one vendor or one fixed model lineup in code.
+This contract must stay **catalog-driven and admin-managed**, not hard-coded to one vendor or one fixed lineup in code.
 
 The source of truth is:
 
 - admin-managed available model catalog
 - admin-managed provider settings
-- plan-level model policy and eligibility
+- plan-level model slots and eligibility
 - assistant/runtime routing policy derived from those settings
 
-ADR-073 therefore defines **model roles**, not fixed model ids.
+Active plans should be able to define distinct slots such as:
 
-The policy decides:
+- `normalReplyModel`
+- `premiumReplyModel`
+- `reasoningModel`
+- `systemToolModel`
+- `retrievalModel` when a provider offers a search/retrieval-specialized model
 
-- default model role for the turn
-- whether the turn stays on an economical/default path or escalates to a higher-capability path
-- whether reasoning mode is permitted or required
-- whether the task should stay on the main assistant path or hand off to the deterministic tool runner
+During a turn, the main user-facing reply agent remains the orchestrator. It decides whether the current step is:
 
-Decision inputs may include:
+- the normal user reply path
+- a deeper/premium or reasoning path
+- hidden system/tool work such as rewrite, compaction, rerank, selection, or tool preparation
 
-- tariff
-- user-visible task class
-- context size
-- retrieval burden
-- tool requirements
-- premium budget consumption
-- quality risk of a cheap answer
+This is not a giant all-purpose trigger router. Most work types should be known by the pipeline step that requested the model, and only ambiguous user-facing turns should need a small bounded classifier or an explicit deeper-thinking mode.
 
-Model-role examples that may exist per plan:
+The runtime then resolves the concrete model from the active plan slot instead of hard-coding model ids in code.
 
-- `defaultModel`
-- `premiumModel`
-- `reasoningEligibleModel`
-- `toolPlanningModel`
-- `backgroundEconomyModel`
+User-facing UX should stay simple:
 
-Which concrete model id fills each role must come from admin UI and plan configuration, not from hard-coded architecture rules.
+- ordinary chat should not expose raw model choice
+- the only acceptable surface override is an explicit deeper-thinking mode if the product wants it
+- hidden system/tool model use stays invisible unless the product later exposes economics diagnostics
 
-### C. Cache and context target
+### C. Prompt-cache-first context target
 
-PersAI adopts four stable cache families:
+PersAI should treat provider-native cached input as the primary savings lever, with OpenAI Prompt Caching as the current cost target wherever the active provider and request shape support it.
 
-- `cache_id_global_preset`
-  - tariff-level stable system instructions and policy framing
-- `cache_id_user_profile`
-  - user identity, preferences, long-lived style/settings
-- `cache_id_kb_*`
-  - stable KB digests, document summaries, or reusable knowledge blocks
-- `cache_id_summary_*`
-  - reusable project/week/session summaries
+Stable prompt families should be assembled so that a large exact prefix can be reused between turns:
 
-Live context remains only for:
+- tariff/global system framing
+- user profile and long-lived identity/style blocks
+- reusable summary blocks
+- reusable KB digest or document-summary blocks
+
+The dynamic tail should remain small and volatile:
 
 - recent turn messages
 - immediate task state
 - bounded retrieved excerpts
 - temporary execution metadata
 
-Provider-native cached input must be used wherever the provider and request shape support it, especially for:
+Exact-prefix rules matter. Stable blocks should be ordered, versioned, and invalidated deliberately so provider-native caching can actually hit instead of being defeated by avoidable prompt churn.
 
-- tariff-global stable instructions
-- long-lived user profile blocks
-- reusable KB digest blocks
-- reusable summary blocks
-- repeated long-form analysis prompts that share the same stable prefix
+Ordinary user turns, setup/runtime preview, assistant-side scheduled follow-ups, and premium long-form analysis should all follow this same prefix-first cache policy rather than inventing separate prompt-economy rules.
 
-Ordinary user turns, setup/runtime preview, assistant-side scheduled follow-ups, and premium long-form analysis should all use the same cache policy instead of inventing separate prompt-economy rules.
+Cache architecture is therefore not just a PersAI-owned store; it is prompt assembly, invalidation, and observability designed to maximize `cached_tokens` while preserving warmth, continuity, and relevance.
 
-### D. Knowledge and embedding target
+### D. Knowledge correction and retrieval-model target
 
-PersAI will move from pattern-only retrieval to a hybrid knowledge stack:
+ADR-073 first corrects the current truth:
 
-1. ingest and chunk documents
-2. generate embeddings for chunks and summary blocks
-3. run lexical + vector retrieval
-4. rerank with bounded hybrid scoring
-5. inject only the best 3 to 5 references or excerpt windows into the final prompt
+- active retrieval is still `pattern_only`
+- current reranking is still heuristic
+- the repo must stop implying that full hybrid embedding retrieval is already live
+
+After that correction, PersAI will move toward a hybrid knowledge stack:
+
+1. keep reference-first, bounded fetch semantics
+2. add an optional specialized retrieval/search model path for query rewrite, search planning, candidate selection, and rerank where provider capability justifies it
+3. generate embeddings for chunks and durable summary blocks
+4. run lexical + vector retrieval
+5. rerank with bounded hybrid scoring
+6. inject only the best 3 to 5 references or excerpt windows into the final prompt
+
+The specialized retrieval model is not the main conversational agent. It is a hidden knowledge-side helper owned by the runtime/tool path.
 
 Budget rules:
 
@@ -277,7 +281,34 @@ Budget rules:
 - the final prompt receives bounded excerpts, not full corpora
 - cacheable knowledge blocks should be reused instead of rebuilt every turn
 
-### E. Reasoning-mode target
+### E. Hidden system/tool model and turn-economics target
+
+PersAI keeps one admin-managed hidden system/tool model slot for cheap background work that does not need the full user-facing conversational model.
+
+Eligible work may include:
+
+- summary and compaction
+- query rewrite
+- retrieval candidate selection or rerank assistance
+- structured extraction
+- tool-argument preparation
+- quota or policy helpers where model use is still justified
+
+The admin surface already owns the default model path; ADR-073 extends that idea into an explicit system/tool contract at the plan/runtime level.
+
+Every internal call must emit enough usage data to measure economics honestly:
+
+- model slot and resolved model id
+- step type
+- input tokens
+- cached input tokens
+- output tokens
+- per-call estimated cost
+- per-user-turn totals across all internal calls
+
+This accounting must treat input and output separately, because they are priced differently, and must sum the hidden work rather than pretending the final user reply is the whole cost story.
+
+### F. Reasoning-mode target
 
 Reasoning mode is not the default path.
 
@@ -306,7 +337,9 @@ The `use_smart_model` policy should escalate when one or more of the following a
 
 Reasoning must stay limited on lower tiers and quota-governed on paid tiers.
 
-### F. Deterministic tool-runner target
+An explicit deeper-thinking user mode is acceptable. Raw model pickers are not.
+
+### G. Deterministic tool-runner target
 
 PersAI introduces a system-side execution layer for tools that do not require creative reasoning.
 
@@ -324,70 +357,77 @@ The main assistant decides **what** to do. The deterministic tool runner decides
 
 ### Trial
 
-- default model role: cheapest acceptable model from the admin-approved catalog
-- premium escalation: rare, narrow, and strongly gated
-- reasoning: off by default
-- cache: global preset plus minimal user profile cache
-- retrieval: low token budget, few excerpts, no premium escalation without explicit policy allowance
+- normal reply slot: cheapest acceptable conversational model from the admin-approved catalog
+- premium/reasoning slots: mostly off or narrowly gated
+- hidden system/tool slot: economical background model for rewrite, summary, or tool prep when policy allows it
+- cache: provider-native cached prefix plus minimal profile/summary blocks
+- retrieval: current `pattern_only` truth until hybrid lands, with the smallest excerpt budget
 
 ### Free
 
-- default model role: economical general-purpose model selected from the admin-approved catalog
-- premium escalation: exceptional only
-- reasoning: off except tightly bounded special cases if the plan allows it
-- cache: global preset plus user profile cache
-- retrieval: bounded hybrid retrieval once available, but with smaller excerpt budget than paid tiers
+- normal reply slot: economical general-purpose conversational model selected from the admin-approved catalog
+- premium/reasoning slots: exceptional only
+- hidden system/tool slot: economical background model allowed for internal utility work
+- cache: provider-native cached prefix plus user profile cache
+- retrieval: bounded search path with smaller excerpt budget than paid tiers
 
 ### Base
 
-- default model role: standard-quality general-purpose model selected from the admin-approved catalog
-- premium escalation: allowed for clearly complex tasks, document synthesis, and higher-risk user asks
-- reasoning: limited and quota-governed
-- cache: all major cache families enabled
-- retrieval: full bounded hybrid retrieval with conservative token budgets
+- normal reply slot: standard-quality conversational model selected from the admin-approved catalog
+- premium reply slot: allowed for clearly complex tasks, document synthesis, and higher-risk user asks
+- reasoning slot: limited and quota-governed
+- hidden system/tool slot: enabled for internal utility work and lower-cost background steps
+- cache: all major stable prefix families enabled
+- retrieval: bounded hybrid path with conservative token budgets once landed
 
 ### PRO
 
-- default model role: high-quality general-purpose model selected from the admin-approved catalog
-- premium escalation: broader and more available for complex turns and premium workflows
-- reasoning: available for selected high-value tasks, still policy-governed rather than always-on
-- cache: all cache families enabled, plus larger reusable summaries and KB blocks
+- normal reply slot: high-quality conversational model selected from the admin-approved catalog
+- premium/reasoning slots: broader and more available for complex turns and premium workflows
+- hidden system/tool slot: enabled with larger background budgets
+- cache: all major stable prefix families enabled, plus larger reusable summaries and KB blocks
 - retrieval: full hybrid path with the highest excerpt and synthesis budget among standard tiers
 
 ## Economics versus quality
 
 ### Savings come from
 
-- cache reuse instead of resending stable prompt text
-- embeddings plus bounded excerpts instead of whole-document injection
-- explicit smart-model escalation instead of defaulting every turn onto the highest-cost model
+- provider-native cached input reuse for large stable prompt prefixes
+- hidden system/tool-model use for cheap background steps
+- specialized retrieval-model assistance plus bounded excerpts instead of whole-document injection
+- explicit premium/reasoning escalation instead of defaulting every turn onto the highest-cost model
 - deterministic tool execution for low-thinking work
 - bounded reasoning usage instead of blanket deep-thinking
 
 ### Quality is protected by
 
-- escalating to the higher-capability model role only when the task actually needs it
-- keeping profile, summary, and KB context structured instead of dropping it
-- using hybrid retrieval rather than pure cheap lexical matching
-- keeping the user-facing assistant personality and memory continuity on the premium-quality path
-- exposing honest UX states when the system switches into a richer analysis mode
+- keeping the main user-facing reply on the plan's conversational or premium slot instead of exposing the background utility model
+- keeping profile, summary, and KB context structured so the cached prefix preserves continuity instead of flattening personality
+- using honest retrieval truth now and hybrid retrieval later rather than overselling current lexical behavior
+- escalating to the higher-capability slot only when the task actually needs it
+- exposing at most a simple deeper-thinking mode instead of raw model pickers
 
 ## First-wave priorities
 
-The first implementation wave after ADR-073 approval is:
+The first implementation wave after ADR-073 approval is grouped into larger slices:
 
-1. **Assistant lifecycle cleanup**
-   - unify preview/create/recreate pipeline
-   - remove duplicate setup writes where possible
-   - make reset/recreate semantics explicit
-2. **User UI polish**
-   - tighten setup states, publish transition, avatar consistency, and lifecycle honesty
-3. **Smart-model contract**
-   - add explicit routing policy for cheap/default/premium/reasoning paths
-4. **Cache architecture**
-   - land stable cache-layer contract for tariff/user/profile/summary/KB blocks
-5. **Knowledge architecture correction**
-   - align product/runtime truth around current pattern-only retrieval, then implement real hybrid embedding retrieval without pretending it already exists
+1. **Assistant lifecycle closeout** (in progress)
+   - explicit recreate/recover path is now first-class on the wizard entry path
+   - hidden `POST /assistant` `409 already existed` happy-path fallback is removed
+   - finish one backend-owned preview/create/recover/reset lifecycle contract
+   - close the uploaded-avatar preview truth gap
+2. **User UI polish** (completed)
+   - settings/chat/sidebar/profile/auth polish landed on the active native path
+   - future UI changes should now be driven by the remaining lifecycle/economics work
+3. **Economics Slice A - plan-scoped model slots and turn accounting**
+   - define plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work
+   - land honest per-turn accounting for `input`, `cached input`, `output`, and summed cost
+4. **Economics Slice B - prompt-cache-first context architecture**
+   - maximize provider-native cached input with large stable prefixes
+   - formalize stable profile/summary/KB blocks plus invalidation/versioning rules
+5. **Economics Slice C - knowledge correction and retrieval-model path**
+   - align docs/product/runtime truth around current `pattern_only` retrieval
+   - add specialized retrieval-model assistance where justified, then land real hybrid embedding retrieval
 
 ## Second-wave priorities
 
@@ -415,11 +455,12 @@ ADR-073 does not:
 | Program item                               | Status    | Notes                                                                             |
 | ------------------------------------------ | --------- | --------------------------------------------------------------------------------- |
 | ADR-072 Step 18 closeout                   | completed | Native baseline is live and active-path cleanup is complete                       |
-| Create/recreate lifecycle polish           | planned   | First active product-surface slice under ADR-073                                  |
-| User UI polish                             | planned   | Follows lifecycle cleanup, stays aligned with native runtime truth                |
-| Smart-model routing and reasoning policy   | planned   | No repo-wide `use_smart_model` exists yet                                         |
-| Cache-layer architecture                   | planned   | Bundle cache exists; provider-native cached input and stable prompt caches do not |
-| Hybrid embedding-based knowledge retrieval | planned   | Current active retrieval remains `pattern_only` plus heuristic rerank             |
+| Create/recreate lifecycle polish           | completed   | Preview/create dedupe, reset cleanup, preview/welcome split, explicit recover/recreate wizard path, redirect-loop fix, and gender-safe default voice selection are now landed on the active path |
+| User UI polish                             | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path       |
+| Smart-model and plan-slot contract         | planned   | No explicit per-plan normal/premium/system-tool slot contract or runtime selection policy exists yet |
+| Prompt-cache-first context architecture    | planned   | Bundle cache exists; provider-native cached input and stable cached prompt prefixes do not |
+| Knowledge correction and retrieval-model path | planned | Current active retrieval remains `pattern_only` plus heuristic rerank, and no specialized retrieval-model contract exists yet |
+| Hidden system/tool model and turn economics | planned  | Hidden background model use and `input`/`cached input`/`output` accounting are not yet first-class |
 | Step 19 scale hardening                    | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers    |
 | Step 15a native web TTS output             | deferred  | Not part of the first active polish/economics wave                                |
 | Step 20 isolated sandbox                   | deferred  | Remains after scale hardening and outside the ordinary active path                |
@@ -474,6 +515,12 @@ Current ADR-073 execution order:
 4. Step 19 scale/deploy-recovery hardening
 5. deferred Step 15a native web voice output
 6. deferred Step 20 sandbox and attach-by-ref follow-through
+
+Inside item 3, keep these as the active economics tracks:
+1. plan-scoped `normal`, `premium/reasoning`, `system/tool`, and optional retrieval-specialized model slots
+2. provider-native cached-input-first prompt assembly with large stable prefixes and measured `cached_tokens`
+3. knowledge truth correction around current `pattern_only` retrieval before claiming hybrid behavior
+4. turn-level token/cost accounting across `input`, `cached input`, and `output`
 
 When resuming:
 - first identify the current unfinished slice under ADR-073

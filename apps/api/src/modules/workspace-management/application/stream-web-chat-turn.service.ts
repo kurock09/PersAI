@@ -62,6 +62,7 @@ export interface StreamWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  deepModeEnabled?: boolean;
   clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
@@ -164,7 +165,8 @@ export class StreamWebChatTurnService {
       surface: "web_chat",
       surfaceThreadKey: request.surfaceThreadKey,
       message: request.message,
-      ...(request.title !== undefined ? { title: request.title } : {})
+      ...(request.title !== undefined ? { title: request.title } : {}),
+      ...(request.deepModeEnabled === undefined ? {} : { deepModeEnabled: request.deepModeEnabled })
     });
     return {
       mode: "prepared",
@@ -222,6 +224,7 @@ export class StreamWebChatTurnService {
       attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
+      deepMode: prepared.chat.deepModeEnabled,
       ...(prepared.quotaDegradeModelOverride
         ? {
             providerOverride: prepared.quotaDegradeModelOverride.provider,
@@ -420,6 +423,7 @@ export class StreamWebChatTurnService {
             surface: refreshedChat.surface,
             surfaceThreadKey: refreshedChat.surfaceThreadKey,
             title: refreshedChat.title,
+            deepModeEnabled: refreshedChat.deepModeEnabled,
             archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
             lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
             createdAt: refreshedChat.createdAt.toISOString(),
@@ -483,6 +487,8 @@ export class StreamWebChatTurnService {
     attachments: StreamNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
+    deepMode?: StreamNativeWebChatTurnInput["deepMode"];
+    modelRoleOverride?: StreamNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
   }): StreamNativeWebChatTurnInput {
@@ -498,6 +504,10 @@ export class StreamWebChatTurnService {
       attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
+      ...(input.modelRoleOverride === undefined
+        ? {}
+        : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
@@ -605,6 +615,7 @@ export class StreamWebChatTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        deepModeEnabled: chat.deepModeEnabled,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -686,6 +697,7 @@ export class StreamWebChatTurnService {
           surface: refreshedChat.surface,
           surfaceThreadKey: refreshedChat.surfaceThreadKey,
           title: refreshedChat.title,
+          deepModeEnabled: refreshedChat.deepModeEnabled,
           archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
           lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
           createdAt: refreshedChat.createdAt.toISOString(),

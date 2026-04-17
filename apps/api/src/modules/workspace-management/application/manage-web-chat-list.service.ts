@@ -27,8 +27,9 @@ import type {
   AssistantWebChatMessageState
 } from "./web-chat.types";
 
-export interface RenameWebChatRequest {
-  title: string | null;
+export interface UpdateWebChatRequest {
+  title?: string | null;
+  deepModeEnabled?: boolean;
 }
 
 export interface DeleteWebChatRequest {
@@ -48,6 +49,7 @@ function toChatState(chat: {
   surface: "web" | "telegram";
   surfaceThreadKey: string;
   title: string | null;
+  deepModeEnabled: boolean;
   archivedAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
@@ -59,6 +61,7 @@ function toChatState(chat: {
     surface: chat.surface,
     surfaceThreadKey: chat.surfaceThreadKey,
     title: chat.title,
+    deepModeEnabled: chat.deepModeEnabled,
     archivedAt: chat.archivedAt?.toISOString() ?? null,
     lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
     createdAt: chat.createdAt.toISOString(),
@@ -84,28 +87,41 @@ export class ManageWebChatListService {
     private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService
   ) {}
 
-  parseRenameInput(payload: unknown): RenameWebChatRequest {
+  parseUpdateInput(payload: unknown): UpdateWebChatRequest {
     if (typeof payload !== "object" || payload === null) {
-      throw new BadRequestException("Rename payload must be an object.");
+      throw new BadRequestException("Chat update payload must be an object.");
     }
 
     const body = payload as Record<string, unknown>;
-    const title = body.title;
-    if (title === null) {
-      return { title: null };
-    }
-    if (typeof title !== "string") {
-      throw new BadRequestException("title must be a string or null.");
+    const output: UpdateWebChatRequest = {};
+
+    if ("title" in body) {
+      const title = body.title;
+      if (title === null) {
+        output.title = null;
+      } else if (typeof title !== "string") {
+        throw new BadRequestException("title must be a string or null.");
+      } else {
+        const normalized = title.trim();
+        if (normalized.length === 0) {
+          throw new BadRequestException("title must be non-empty when provided as string.");
+        }
+        output.title = normalized;
+      }
     }
 
-    const normalized = title.trim();
-    if (normalized.length === 0) {
-      throw new BadRequestException("title must be non-empty when provided as string.");
+    if ("deepModeEnabled" in body) {
+      if (typeof body.deepModeEnabled !== "boolean") {
+        throw new BadRequestException("deepModeEnabled must be boolean.");
+      }
+      output.deepModeEnabled = body.deepModeEnabled;
     }
 
-    return {
-      title: normalized
-    };
+    if (Object.keys(output).length === 0) {
+      throw new BadRequestException("At least one chat update field is required.");
+    }
+
+    return output;
   }
 
   parseDeleteInput(payload: unknown): DeleteWebChatRequest {
@@ -147,10 +163,10 @@ export class ManageWebChatListService {
     return items;
   }
 
-  async renameChat(
+  async updateChat(
     userId: string,
     chatId: string,
-    request: RenameWebChatRequest
+    request: UpdateWebChatRequest
   ): Promise<AssistantWebChatListItemState> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
@@ -162,14 +178,14 @@ export class ManageWebChatListService {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
 
-    const renamed = await this.assistantChatRepository.renameChat(chatId, request.title);
-    if (renamed === null) {
+    const updated = await this.assistantChatRepository.updateChat(chatId, request);
+    if (updated === null) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
 
     const metadata = await this.assistantChatRepository.getChatListMetadata(chatId);
     return {
-      chat: toChatState(renamed),
+      chat: toChatState(updated),
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview
     };

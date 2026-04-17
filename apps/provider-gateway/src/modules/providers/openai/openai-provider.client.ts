@@ -178,6 +178,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                   providerKey: "openai",
                   modelKey: input.model,
                   inputTokens: response.usage.input_tokens ?? null,
+                  cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
                   outputTokens: response.usage.output_tokens ?? null,
                   totalTokens: response.usage.total_tokens ?? null
                 },
@@ -203,6 +204,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 providerKey: "openai",
                 modelKey: input.model,
                 inputTokens: response.usage.input_tokens ?? null,
+                cachedInputTokens: response.usage.input_tokens_details?.cached_tokens ?? null,
                 outputTokens: response.usage.output_tokens ?? null,
                 totalTokens: response.usage.total_tokens ?? null
               },
@@ -676,6 +678,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           providerKey: "openai",
           modelKey: model,
           inputTokens: usage.input_tokens ?? null,
+          cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? null,
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };
@@ -697,6 +700,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           providerKey: "openai",
           modelKey: model,
           inputTokens: usage.input_tokens ?? null,
+          cachedInputTokens: null,
           outputTokens: usage.output_tokens ?? null,
           totalTokens: usage.total_tokens ?? null
         };

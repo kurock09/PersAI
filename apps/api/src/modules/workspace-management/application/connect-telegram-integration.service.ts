@@ -131,6 +131,7 @@ export class ConnectTelegramIntegrationService {
       config: {
         autoCompactionEnabled: true,
         defaultParseMode: "plain_text",
+        defaultDeepModeEnabled: false,
         groupReplyMode: "mention_reply",
         notes: null
       },

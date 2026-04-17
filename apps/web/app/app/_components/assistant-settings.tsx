@@ -867,45 +867,64 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     <div>
       {/* 1. Character — hero */}
       <Section icon={<Sparkles className="h-4 w-4" />} title={t("character")}>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px]">
-          <div className="rounded-2xl border border-border bg-surface-raised p-4">
-            <div className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-              <button
-                type="button"
-                onClick={() => setEmojiPickerOpen((o) => !o)}
-                className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
-                title={t("changeAvatar")}
-              >
-                {avatarUploading ? (
-                  <Loader2 className="h-6 w-6 animate-spin text-accent" />
-                ) : avatarPreviewBlobUrl ? (
-                  <img
-                    src={avatarPreviewBlobUrl}
-                    alt="Avatar"
-                    className="h-full w-full object-cover"
+        <div className="flex flex-col gap-3">
+          <div className="rounded-2xl border border-border/70 bg-surface p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+              <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => setEmojiPickerOpen((o) => !o)}
+                  className="flex h-16 w-16 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                  title={t("changeAvatar")}
+                >
+                  {avatarUploading ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                  ) : avatarPreviewBlobUrl ? (
+                    <img
+                      src={avatarPreviewBlobUrl}
+                      alt="Avatar"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : draftAvatarUrl ? (
+                    <AssistantAvatar
+                      avatarUrl={draftAvatarUrl}
+                      size="md"
+                      className="h-full w-full rounded-2xl"
+                    />
+                  ) : (
+                    draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <input
+                    type="text"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder={t("assistantNamePlaceholder")}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
                   />
-                ) : draftAvatarUrl ? (
-                  <AssistantAvatar
-                    avatarUrl={draftAvatarUrl}
-                    size="md"
-                    className="h-full w-full rounded-2xl"
-                  />
-                ) : (
-                  draftAvatarEmoji || <Sparkles className="h-7 w-7 text-accent" />
-                )}
-              </button>
-              <div className="min-w-0 flex-1">
-                <input
-                  type="text"
-                  value={draftName}
-                  onChange={(e) => setDraftName(e.target.value)}
-                  placeholder={t("assistantNamePlaceholder")}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                />
-                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
-                  <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                  <span>{statusLabel}</span>
+                  <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
+                    <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+                    <span>{statusLabel}</span>
+                  </div>
                 </div>
+              </div>
+              <div className="flex shrink-0 gap-2 lg:w-[220px] lg:flex-col">
+                <ActionButton
+                  icon={<Rocket className="h-3.5 w-3.5" />}
+                  label={t("save")}
+                  onClick={() => void handleSaveAndApply()}
+                  busy={saving}
+                  variant="primary"
+                  className="flex-1 justify-center lg:w-full"
+                />
+                <ActionButton
+                  icon={<Sparkles className="h-3.5 w-3.5" />}
+                  label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
+                  onClick={() => setEditingPersonality(!editingPersonality)}
+                  busy={false}
+                  className="flex-1 justify-center lg:w-full"
+                />
               </div>
             </div>
             {emojiPickerOpen && (
@@ -945,23 +964,6 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
               </div>
             )}
           </div>
-          <div className="flex flex-col gap-2">
-            <ActionButton
-              icon={<Rocket className="h-3.5 w-3.5" />}
-              label={t("save")}
-              onClick={() => void handleSaveAndApply()}
-              busy={saving}
-              variant="primary"
-              className="w-full justify-center"
-            />
-            <ActionButton
-              icon={<Sparkles className="h-3.5 w-3.5" />}
-              label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
-              onClick={() => setEditingPersonality(!editingPersonality)}
-              busy={false}
-              className="w-full justify-center"
-            />
-          </div>
         </div>
         <input
           ref={fileInputRef}
@@ -994,188 +996,125 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         <FeedbackLine fb={saveFb} />
 
         {editingPersonality && (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <div className="rounded-xl border border-border bg-surface-raised p-4">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-text">{t("characterBasicsTitle")}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                      {t("characterBasicsHelp")}
-                    </p>
-                  </div>
+          <div className="mt-4 rounded-2xl border border-border/70 bg-surface px-5 py-5">
+            <div>
+              <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("behaviorHelp")}</p>
+              <textarea
+                value={draftInstructions}
+                onChange={(e) => setDraftInstructions(e.target.value)}
+                placeholder={t("behaviorPlaceholder")}
+                rows={8}
+                className="mt-3 min-h-[240px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+              />
+            </div>
 
-                  <div>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
-                      {t("assistantGenderLabel")}
-                    </p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {ASSISTANT_GENDER_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setDraftAssistantGender(opt.value)}
-                          className={cn(
-                            "min-h-[42px] rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                            draftAssistantGender === opt.value
-                              ? "border-accent bg-accent/10 text-accent"
-                              : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
-                          )}
-                        >
-                          {tp(opt.labelKey)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-border/70 bg-surface p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-medium text-text">{t("voice")}</p>
-                        <p className="mt-1 text-xs text-text-muted">{t("voiceSimpleHelp")}</p>
-                      </div>
-                      <span className="rounded-full bg-surface-raised px-2.5 py-1 text-[10px] text-text-muted">
-                        {t("voiceLocale", { locale: draftVoiceProfile.defaultLocale })}
-                      </span>
-                    </div>
-                    {voiceSettingsError && (
-                      <p className="mt-2 text-[11px] text-destructive">{voiceSettingsError}</p>
+            <div className="mt-5 border-t border-border/70 pt-5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-text-subtle">
+                {t("assistantGenderLabel")}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {ASSISTANT_GENDER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDraftAssistantGender(opt.value)}
+                    className={cn(
+                      "min-h-[40px] min-w-[120px] rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                      draftAssistantGender === opt.value
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
                     )}
-                    {primaryVoiceProviderId === "elevenlabs" && (
-                      <label className="mt-3 block">
-                        <span className="mb-1 block text-[11px] text-text-muted">
-                          {t("voiceBaseVoice")}
-                        </span>
-                        <select
-                          value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
-                          onChange={(e) =>
-                            setDraftVoiceProfile((prev) => ({
-                              ...prev,
-                              elevenlabs: {
-                                voiceId: e.target.value === "" ? null : e.target.value
-                              }
-                            }))
-                          }
-                          disabled={
-                            voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
-                          }
-                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
-                        >
-                          <option value="">{t("voiceChooseBaseVoice")}</option>
-                          {elevenLabsSelectOptions.map((voice) => (
-                            <option key={voice.value} value={voice.value}>
-                              {voice.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-2 text-[11px] text-text-subtle">
-                          {voiceSettingsLoading
-                            ? t("voiceElevenlabsLoading")
-                            : voiceSettings?.elevenlabs?.loadState === "not_configured"
-                              ? t("voiceElevenlabsNotConfigured")
-                              : voiceSettings?.elevenlabs?.loadState === "unavailable"
-                                ? (voiceSettings.elevenlabs.warning ??
-                                  t("voiceElevenlabsUnavailable"))
-                                : filteredElevenLabsVoiceOptions.length === 0
-                                  ? t("voiceNoVoicesForGender")
-                                  : t("voiceGenderFilterHint")}
-                        </p>
-                      </label>
-                    )}
-                    {primaryVoiceProviderId === "yandex" && (
-                      <label className="mt-3 block">
-                        <span className="mb-1 block text-[11px] text-text-muted">
-                          {t("voiceBaseVoice")}
-                        </span>
-                        <select
-                          value={draftVoiceProfile.yandex.voice ?? ""}
-                          onChange={(e) =>
-                            setDraftVoiceProfile((prev) => ({
-                              ...prev,
-                              yandex: {
-                                ...prev.yandex,
-                                voice:
-                                  e.target.value === ""
-                                    ? null
-                                    : (e.target
-                                        .value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
-                              }
-                            }))
-                          }
-                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                        >
-                          {yandexVoiceOptions.map((voice) => (
-                            <option key={voice.value} value={voice.value}>
-                              {voice.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-2 text-[11px] text-text-subtle">
-                          {t("voiceGenderFilterHint")}
-                        </p>
-                      </label>
-                    )}
-                    {primaryVoiceProviderId === "openai" && (
-                      <label className="mt-3 block">
-                        <span className="mb-1 block text-[11px] text-text-muted">
-                          {t("voiceBaseVoice")}
-                        </span>
-                        <select
-                          value={draftVoiceProfile.openai.voice ?? ""}
-                          onChange={(e) =>
-                            setDraftVoiceProfile((prev) => ({
-                              ...prev,
-                              openai: {
-                                voice:
-                                  e.target.value === ""
-                                    ? null
-                                    : (e.target
-                                        .value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
-                              }
-                            }))
-                          }
-                          className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
-                        >
-                          {openAiVoiceOptions.map((voice) => (
-                            <option key={voice.value} value={voice.value}>
-                              {voice.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="mt-2 text-[11px] text-text-subtle">
-                          {t("voiceGenderFilterHint")}
-                        </p>
-                      </label>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-border bg-surface-raised p-4">
-                <div className="flex items-start gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-text">{t("behaviorTitle")}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                      {t("behaviorHelp")}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3 rounded-lg border border-border/70 bg-surface p-3">
-                  <p className="text-[11px] leading-relaxed text-text-subtle">
-                    {t("behaviorExample")}
-                  </p>
-                </div>
-                <textarea
-                  value={draftInstructions}
-                  onChange={(e) => setDraftInstructions(e.target.value)}
-                  placeholder={t("behaviorPlaceholder")}
-                  rows={8}
-                  className="mt-3 min-h-[240px] w-full resize-y rounded-lg border border-border bg-surface px-3 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
-                />
+                  >
+                    {tp(opt.labelKey)}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-surface-raised p-4">
+            <div className="mt-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-text">{t("voice")}</span>
+                {primaryVoiceProviderId === "elevenlabs" && (
+                  <select
+                    value={draftVoiceProfile.elevenlabs.voiceId ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        elevenlabs: {
+                          voiceId: e.target.value === "" ? null : e.target.value
+                        }
+                      }))
+                    }
+                    disabled={
+                      voiceSettingsLoading || voiceSettings?.elevenlabs?.loadState !== "ready"
+                    }
+                    className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none focus:border-border-strong disabled:opacity-60"
+                  >
+                    <option value="">
+                      {voiceSettingsLoading ? t("voiceLoading") : t("voiceChooseBaseVoice")}
+                    </option>
+                    {elevenLabsSelectOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {primaryVoiceProviderId === "yandex" && (
+                  <select
+                    value={draftVoiceProfile.yandex.voice ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        yandex: {
+                          ...prev.yandex,
+                          voice:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as (typeof YANDEX_VOICE_OPTIONS)[number]["value"])
+                        }
+                      }))
+                    }
+                    className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    {yandexVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {primaryVoiceProviderId === "openai" && (
+                  <select
+                    value={draftVoiceProfile.openai.voice ?? ""}
+                    onChange={(e) =>
+                      setDraftVoiceProfile((prev) => ({
+                        ...prev,
+                        openai: {
+                          voice:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as (typeof OPENAI_VOICE_OPTIONS)[number]["value"])
+                        }
+                      }))
+                    }
+                    className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none focus:border-border-strong"
+                  >
+                    {openAiVoiceOptions.map((voice) => (
+                      <option key={voice.value} value={voice.value}>
+                        {voice.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </label>
+              {voiceSettingsError && (
+                <p className="mt-2 text-xs text-destructive">{voiceSettingsError}</p>
+              )}
+            </div>
+
+            <div className="mt-5 border-t border-border/70 pt-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-text">{t("traitControlsTitle")}</p>
@@ -1184,7 +1123,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 <button
                   type="button"
                   onClick={() => setShowTraitControls((open) => !open)}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface-raised px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                 >
                   <SlidersHorizontal className="h-3.5 w-3.5" />
                   {showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
@@ -1192,12 +1131,12 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
               </div>
 
               {showTraitControls && (
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="mt-4 divide-y divide-border/60 rounded-xl border border-border/70 bg-surface-raised px-4">
                   {TRAIT_SLIDERS.map(({ key, labelLeftKey, labelRightKey }) => (
-                    <div key={key} className="rounded-lg border border-border/70 bg-surface p-3">
+                    <div key={key} className="py-3">
                       <div className="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-[11px]">
                         <span className="truncate text-text-muted">{tp(labelLeftKey)}</span>
-                        <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] text-text-subtle">
+                        <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
                           {draftTraits[key] ?? 50}
                         </span>
                         <span className="truncate text-right text-text-muted">

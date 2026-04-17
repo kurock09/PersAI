@@ -164,6 +164,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           providerKey: "anthropic",
           modelKey: input.model,
           inputTokens,
+          cachedInputTokens: null,
           outputTokens,
           totalTokens
         },
@@ -413,6 +414,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       providerKey: "anthropic",
       modelKey: model,
       inputTokens,
+      cachedInputTokens: null,
       outputTokens,
       totalTokens:
         inputTokens === null && outputTokens === null

@@ -25,6 +25,8 @@ import {
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 
+const HIDDEN_RUNTIME_TOOL_NAMES = new Set(["route_control"]);
+
 export interface StreamNativeWebChatTurnInput {
   assistantId: string;
   publishedVersionId: string;
@@ -37,6 +39,8 @@ export interface StreamNativeWebChatTurnInput {
   attachments: RuntimeAttachmentRef[];
   userTimezone?: string;
   currentTimeIso?: string;
+  deepMode?: RuntimeTurnRequest["deepMode"];
+  modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
 }
@@ -119,6 +123,10 @@ export class StreamNativeWebChatTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
+      ...(input.modelRoleOverride === undefined
+        ? {}
+        : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
@@ -167,6 +175,9 @@ export class StreamNativeWebChatTurnService {
             };
             continue;
           case "tool_started":
+            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+              continue;
+            }
             yield {
               type: "tool",
               toolPhase: "start",
@@ -175,6 +186,9 @@ export class StreamNativeWebChatTurnService {
             };
             continue;
           case "tool_finished":
+            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+              continue;
+            }
             yield {
               type: "tool",
               toolPhase: "end",

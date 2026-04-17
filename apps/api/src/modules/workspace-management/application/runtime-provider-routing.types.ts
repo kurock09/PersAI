@@ -6,6 +6,28 @@ export type RuntimeProviderRoutingState = {
     planCode: string | null;
   };
   userFacingProviderPickerEnabled: false;
+  modelSlots: {
+    normalReply: {
+      providerKey: string;
+      modelKey: string | null;
+    };
+    premiumReply: {
+      providerKey: string;
+      modelKey: string | null;
+    };
+    reasoning: {
+      providerKey: string;
+      modelKey: string | null;
+    };
+    systemTool: {
+      providerKey: string;
+      modelKey: string | null;
+    };
+    retrieval: {
+      providerKey: string;
+      modelKey: string | null;
+    };
+  };
   primaryPath: {
     providerKey: string;
     modelKey: string | null;

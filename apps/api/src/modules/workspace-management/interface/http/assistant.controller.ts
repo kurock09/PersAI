@@ -838,8 +838,8 @@ export class AssistantController {
     chat: AssistantWebChatListItemState;
   }> {
     const userId = this.resolveRequestUserId(req);
-    const input = this.manageWebChatListService.parseRenameInput(body);
-    const chat = await this.manageWebChatListService.renameChat(userId, chatId, input);
+    const input = this.manageWebChatListService.parseUpdateInput(body);
+    const chat = await this.manageWebChatListService.updateChat(userId, chatId, input);
 
     return {
       requestId: req.requestId ?? null,

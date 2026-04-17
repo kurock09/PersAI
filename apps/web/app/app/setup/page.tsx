@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
+import type { AssistantLifecycleState } from "@persai/contracts";
 import {
   ArrowRight,
   ArrowLeft,
@@ -20,13 +21,16 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { LandingLocaleSwitcher } from "@/app/_components/landing-locale-switcher";
+import { useAppDataContext } from "../_components/app-shell";
 import {
   getAssistant,
+  getAssistantVoiceSettings,
   patchAssistantDraft,
   postAssistantCreate,
   postAssistantPublish,
   postAssistantSetupPreview,
-  uploadAssistantAvatar
+  uploadAssistantAvatar,
+  type AssistantVoiceSettingsState
 } from "../assistant-api-client";
 import { getMe, postOnboarding } from "../me-api-client";
 import {
@@ -34,11 +38,17 @@ import {
   DEFAULT_TRAITS,
   PERSONA_PRESETS,
   TRAIT_SLIDERS,
-  traitPreviewLabel,
   type AssistantGender,
   type PersonaPreset,
   type TraitKey
 } from "../_components/assistant-persona";
+import {
+  filterVoiceOptions,
+  OPENAI_VOICE_OPTIONS,
+  resolveDefaultOpenAiVoiceOption,
+  resolveDefaultYandexVoiceOption,
+  YANDEX_VOICE_OPTIONS
+} from "../_components/assistant-voice-options";
 
 const AVATARS = [
   { id: "nova", emoji: "🌟", label: "Nova" },
@@ -56,6 +66,7 @@ const AVATARS = [
 ];
 
 type Gender = "male" | "female" | "other" | null;
+type SetupMode = "create" | "recover" | "recreate";
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: "male", label: "Male" },
@@ -72,10 +83,93 @@ function detectTimezone(): string {
 }
 
 const STEP_COUNT = 4;
+const DEFAULT_SETUP_VOICE_PROFILE: AssistantLifecycleState["draft"]["voiceProfile"] = {
+  schema: "persai.assistantVoiceProfile.v1",
+  defaultLocale: "ru-RU",
+  deliveryKind: "voice_note",
+  elevenlabs: {
+    voiceId: null
+  },
+  yandex: {
+    voice: "marina",
+    role: null
+  },
+  openai: {
+    voice: "sage"
+  }
+};
 
 function normalizeBirthdayForDateInput(value: string | null | undefined): string {
   if (!value) return "";
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value.slice(0, 10);
+}
+
+function findAvatarIdByEmoji(emoji: string | null | undefined): string | null {
+  if (!emoji) return null;
+  return AVATARS.find((avatar) => avatar.emoji === emoji)?.id ?? null;
+}
+
+function resolveSetupMode(assistant: AssistantLifecycleState | null): SetupMode {
+  if (assistant === null) return "create";
+  const draft = assistant.draft;
+  const hasDraftContent =
+    (draft.displayName?.trim().length ?? 0) > 0 ||
+    (draft.instructions?.trim().length ?? 0) > 0 ||
+    draft.avatarEmoji !== null ||
+    draft.avatarUrl !== null ||
+    draft.assistantGender !== null ||
+    (draft.traits !== null && draft.traits !== undefined && Object.keys(draft.traits).length > 0);
+  return hasDraftContent ? "recover" : "recreate";
+}
+
+function resolveSetupVoiceProfile(input: {
+  assistantGender: AssistantGender;
+  existingVoiceProfile: AssistantLifecycleState["draft"]["voiceProfile"] | null | undefined;
+  voiceSettings: AssistantVoiceSettingsState | null;
+}): AssistantLifecycleState["draft"]["voiceProfile"] {
+  const base = input.existingVoiceProfile ?? DEFAULT_SETUP_VOICE_PROFILE;
+  const allowedYandexVoices = filterVoiceOptions(YANDEX_VOICE_OPTIONS, input.assistantGender);
+  const allowedOpenAiVoices = filterVoiceOptions(OPENAI_VOICE_OPTIONS, input.assistantGender);
+  const nextYandexVoice = allowedYandexVoices.some((voice) => voice.value === base.yandex.voice)
+    ? base.yandex.voice
+    : resolveDefaultYandexVoiceOption(input.assistantGender);
+  const nextOpenAiVoice = allowedOpenAiVoices.some((voice) => voice.value === base.openai.voice)
+    ? base.openai.voice
+    : resolveDefaultOpenAiVoiceOption(input.assistantGender);
+
+  const loadedElevenLabsVoices = input.voiceSettings?.elevenlabs?.voices ?? [];
+  const allowedElevenLabsVoices =
+    input.assistantGender === "neutral"
+      ? loadedElevenLabsVoices
+      : loadedElevenLabsVoices.filter((voice) => voice.gender === input.assistantGender);
+  const fallbackElevenLabsVoice =
+    allowedElevenLabsVoices[0]?.voiceId ?? loadedElevenLabsVoices[0]?.voiceId ?? null;
+  const currentElevenLabsVoiceId = base.elevenlabs.voiceId;
+  const nextElevenLabsVoiceId =
+    currentElevenLabsVoiceId &&
+    loadedElevenLabsVoices.some((voice) => voice.voiceId === currentElevenLabsVoiceId) &&
+    (input.assistantGender === "neutral" ||
+      allowedElevenLabsVoices.some((voice) => voice.voiceId === currentElevenLabsVoiceId))
+      ? currentElevenLabsVoiceId
+      : fallbackElevenLabsVoice;
+
+  return {
+    schema: "persai.assistantVoiceProfile.v1",
+    defaultLocale: base.defaultLocale?.trim()
+      ? base.defaultLocale
+      : DEFAULT_SETUP_VOICE_PROFILE.defaultLocale,
+    deliveryKind: base.deliveryKind === "audio" ? "audio" : "voice_note",
+    elevenlabs: {
+      voiceId: nextElevenLabsVoiceId
+    },
+    yandex: {
+      voice: nextYandexVoice,
+      role: null
+    },
+    openai: {
+      voice: nextOpenAiVoice
+    }
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -85,6 +179,7 @@ function normalizeBirthdayForDateInput(value: string | null | undefined): string
 export default function SetupWizardPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const appData = useAppDataContext();
   const t = useTranslations("setup");
   const tp = useTranslations("persona");
   const locale = useLocale();
@@ -102,6 +197,7 @@ export default function SetupWizardPage() {
   const [selectedAvatar, setSelectedAvatar] = useState<string | null>(null);
   const [customAvatarFile, setCustomAvatarFile] = useState<File | null>(null);
   const [customAvatarPreviewUrl, setCustomAvatarPreviewUrl] = useState<string | null>(null);
+  const [persistedAvatarUrl, setPersistedAvatarUrl] = useState<string | null>(null);
   const [assistantGender, setAssistantGender] = useState<AssistantGender>("neutral");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +214,20 @@ export default function SetupWizardPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const previewDraftPersistedRef = useRef(false);
+  const autoPreviewStepRef = useRef<number | null>(null);
+  const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
+  const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
+  const [setupMode, setSetupMode] = useState<SetupMode>("create");
+  const currentAvatarPreviewUrl = customAvatarPreviewUrl ?? persistedAvatarUrl;
+  const setupVoiceProfile = useMemo(
+    () =>
+      resolveSetupVoiceProfile({
+        assistantGender,
+        existingVoiceProfile: existingAssistant?.draft.voiceProfile,
+        voiceSettings
+      }),
+    [assistantGender, existingAssistant?.draft.voiceProfile, voiceSettings]
+  );
 
   useEffect(() => {
     setTimezone(detectTimezone());
@@ -129,8 +239,36 @@ export default function SetupWizardPage() {
 
         const existing = await getAssistant(token);
         if (existing && existing.runtimeApply.status === "succeeded") {
+          await appData.reload();
           router.replace("/app");
           return;
+        }
+        setExistingAssistant(existing);
+        setSetupMode(resolveSetupMode(existing));
+        if (existing?.draft.displayName) {
+          setAssistantName(existing.draft.displayName);
+        }
+        if (existing?.draft.instructions) {
+          setAssistantNotes(existing.draft.instructions);
+          setSelectedPresetKey("custom");
+        }
+        if (existing?.draft.traits) {
+          setTraits(existing.draft.traits as Record<TraitKey, number>);
+        }
+        if (existing?.draft.assistantGender) {
+          setAssistantGender(existing.draft.assistantGender as AssistantGender);
+        }
+        if (existing?.draft.avatarEmoji) {
+          setSelectedAvatar(findAvatarIdByEmoji(existing.draft.avatarEmoji));
+        }
+        if (existing?.draft.avatarUrl) {
+          setPersistedAvatarUrl(existing.draft.avatarUrl);
+        }
+        try {
+          const nextVoiceSettings = await getAssistantVoiceSettings(token);
+          setVoiceSettings(nextVoiceSettings);
+        } catch {
+          setVoiceSettings(null);
         }
 
         const me = await getMe(token);
@@ -143,11 +281,12 @@ export default function SetupWizardPage() {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [getToken, router]);
+  }, [appData, getToken, router]);
 
   // Auto-apply first preset when entering step 2, reset when gender changes
   useEffect(() => {
     if (step !== 2) return;
+    if (setupMode === "recover") return;
     const genderKey = assistantGender ?? "neutral";
     if (presetInitGenderRef.current === genderKey && selectedPresetKey !== null) return;
     presetInitGenderRef.current = genderKey;
@@ -163,7 +302,7 @@ export default function SetupWizardPage() {
         locale
       )
     );
-  }, [step, assistantGender]); // intentionally omits preset deps — runs only on step/gender change
+  }, [assistantGender, setupMode, step]); // intentionally omits preset deps — runs only on step/gender change
 
   useEffect(() => {
     return () => {
@@ -178,10 +317,10 @@ export default function SetupWizardPage() {
     if (step === 1)
       return (
         assistantName.trim().length >= 2 &&
-        (selectedAvatar !== null || customAvatarPreviewUrl !== null)
+        (selectedAvatar !== null || currentAvatarPreviewUrl !== null)
       );
     return true;
-  }, [step, userName, gender, timezone, assistantName, selectedAvatar, customAvatarPreviewUrl]);
+  }, [step, userName, gender, timezone, assistantName, selectedAvatar, currentAvatarPreviewUrl]);
 
   const avatarObj = useMemo(() => AVATARS.find((a) => a.id === selectedAvatar), [selectedAvatar]);
 
@@ -194,6 +333,7 @@ export default function SetupWizardPage() {
       }
       setCustomAvatarFile(file);
       setCustomAvatarPreviewUrl(URL.createObjectURL(file));
+      setPersistedAvatarUrl(null);
       setSelectedAvatar(null);
     },
     [customAvatarPreviewUrl]
@@ -259,15 +399,19 @@ export default function SetupWizardPage() {
   const persistDraftForPreview = useCallback(async () => {
     await postOnboarding(await resolveSetupToken(true), buildOnboardingPayload());
 
-    await postAssistantCreate(await resolveSetupToken(true));
+    if (existingAssistant === null) {
+      const createdAssistant = await postAssistantCreate(await resolveSetupToken(true));
+      setExistingAssistant(createdAssistant);
+    }
 
     await patchAssistantDraft(await resolveSetupToken(true), {
       displayName: assistantName.trim(),
       instructions: assistantNotes.trim(),
       traits,
       avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
-      avatarUrl: null,
-      assistantGender
+      avatarUrl: customAvatarFile ? null : avatarObj?.emoji ? null : persistedAvatarUrl,
+      assistantGender,
+      voiceProfile: setupVoiceProfile
     });
     previewDraftPersistedRef.current = true;
   }, [
@@ -277,7 +421,10 @@ export default function SetupWizardPage() {
     avatarObj,
     buildOnboardingPayload,
     customAvatarFile,
+    existingAssistant,
+    persistedAvatarUrl,
     resolveSetupToken,
+    setupVoiceProfile,
     traits
   ]);
 
@@ -297,7 +444,12 @@ export default function SetupWizardPage() {
   }, [persistDraftForPreview, resolveSetupToken, t]);
 
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 3) {
+      autoPreviewStepRef.current = null;
+      return;
+    }
+    if (autoPreviewStepRef.current === step) return;
+    autoPreviewStepRef.current = step;
     void loadRuntimePreview();
   }, [loadRuntimePreview, step]);
 
@@ -322,12 +474,22 @@ export default function SetupWizardPage() {
       }
 
       await postAssistantPublish(await resolveSetupToken(true));
+      await appData.reload();
       router.replace("/app/chat?thread=welcome&welcome=1");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("createFailed"));
       setCreating(false);
     }
-  }, [customAvatarFile, persistDraftForPreview, resolveSetupToken, router, t]);
+  }, [appData, customAvatarFile, persistDraftForPreview, resolveSetupToken, router, t]);
+
+  const setupModeTitle = setupMode === "recover" ? t("recoverModeTitle") : t("recreateModeTitle");
+  const setupModeBody = setupMode === "recover" ? t("recoverModeBody") : t("recreateModeBody");
+  const submitActionLabel =
+    setupMode === "recover"
+      ? t("recoverAssistant")
+      : setupMode === "recreate"
+        ? t("recreateAssistant")
+        : t("createAssistant");
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-bg">
@@ -358,199 +520,340 @@ export default function SetupWizardPage() {
 
       {/* Content — scrollable only inside */}
       <div className="flex flex-1 items-start justify-center overflow-y-auto px-6 py-8">
-        <AnimatePresence mode="wait">
-          {/* ===== Step 0: About you ===== */}
-          {step === 0 && (
-            <StepContainer key="step-0">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step0Title")}</h1>
-              <p className="mt-3 text-base text-text-muted">{t("step0Subtitle")}</p>
+        <div className="w-full max-w-5xl">
+          {setupMode !== "create" && (
+            <div className="mx-auto mb-6 max-w-4xl rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left">
+              <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
+            </div>
+          )}
+          <AnimatePresence mode="wait">
+            {/* ===== Step 0: About you ===== */}
+            {step === 0 && (
+              <StepContainer key="step-0">
+                <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step0Title")}</h1>
+                <p className="mt-3 text-base text-text-muted">{t("step0Subtitle")}</p>
 
-              <div className="mt-8 w-full max-w-sm space-y-4">
-                {/* User name */}
-                <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
-                    <User className="h-3.5 w-3.5" />
-                    {t("yourName")}
-                  </label>
-                  <input
-                    type="text"
-                    value={userName}
-                    onChange={(e) => setUserName(e.target.value)}
-                    placeholder={t("namePlaceholder")}
-                    maxLength={40}
-                    autoFocus
-                    className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
-                  />
+                <div className="mt-8 w-full max-w-sm space-y-4">
+                  {/* User name */}
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                      <User className="h-3.5 w-3.5" />
+                      {t("yourName")}
+                    </label>
+                    <input
+                      type="text"
+                      value={userName}
+                      onChange={(e) => setUserName(e.target.value)}
+                      placeholder={t("namePlaceholder")}
+                      maxLength={40}
+                      autoFocus
+                      className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                    />
+                  </div>
+
+                  {/* Birthday */}
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                      <Calendar className="h-3.5 w-3.5" />
+                      {t("birthday")}
+                    </label>
+                    <input
+                      type="date"
+                      value={birthday}
+                      onChange={(e) => setBirthday(e.target.value)}
+                      className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent [color-scheme:dark]"
+                    />
+                  </div>
+
+                  {/* Gender */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-text-muted">
+                      {t("gender")}
+                    </label>
+                    <div className="flex gap-2">
+                      {GENDER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setGender(opt.value)}
+                          className={cn(
+                            "flex-1 cursor-pointer rounded-xl border py-2.5 text-sm font-medium transition-all",
+                            gender === opt.value
+                              ? "border-accent bg-accent/10 text-accent"
+                              : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
+                          )}
+                        >
+                          {t(
+                            opt.value === "male"
+                              ? "genderMale"
+                              : opt.value === "female"
+                                ? "genderFemale"
+                                : "genderOther"
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Timezone */}
+                  <div>
+                    <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+                      <Globe className="h-3.5 w-3.5" />
+                      {t("timezone")}
+                    </label>
+                    <TimezoneSelect value={timezone} onChange={setTimezone} />
+                  </div>
+                </div>
+              </StepContainer>
+            )}
+
+            {/* ===== Step 1: Assistant identity ===== */}
+            {step === 1 && (
+              <StepContainer key="step-1">
+                <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step1Title")}</h1>
+                <p className="mt-3 text-base text-text-muted">{t("step1Subtitle")}</p>
+
+                {/* Assistant name */}
+                <input
+                  type="text"
+                  value={assistantName}
+                  onChange={(e) => setAssistantName(e.target.value)}
+                  placeholder={t("assistantNamePlaceholder")}
+                  maxLength={40}
+                  autoFocus
+                  className="mt-8 w-full max-w-sm rounded-xl border border-border bg-surface-raised px-5 py-3.5 text-center text-lg font-medium text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                />
+
+                {/* Avatars */}
+                <div className="mt-6 grid grid-cols-4 gap-2.5 sm:grid-cols-7">
+                  {AVATARS.map((av) => (
+                    <button
+                      key={av.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedAvatar(av.id);
+                        setPersistedAvatarUrl(null);
+                        if (customAvatarPreviewUrl?.startsWith("blob:")) {
+                          URL.revokeObjectURL(customAvatarPreviewUrl);
+                        }
+                        setCustomAvatarFile(null);
+                        setCustomAvatarPreviewUrl(null);
+                      }}
+                      className={cn(
+                        "flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 p-2.5 transition-all",
+                        selectedAvatar === av.id && customAvatarPreviewUrl === null
+                          ? "border-accent bg-accent/10 scale-105"
+                          : "border-transparent bg-surface-raised hover:bg-surface-hover hover:border-border-strong"
+                      )}
+                    >
+                      <span className="text-2xl">{av.emoji}</span>
+                      <span className="text-[9px] font-medium text-text-muted">{av.label}</span>
+                    </button>
+                  ))}
+
+                  {/* Upload */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className={cn(
+                      "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-2.5 transition-all",
+                      currentAvatarPreviewUrl
+                        ? "border-accent bg-accent/10"
+                        : "border-border-strong bg-surface-raised hover:bg-surface-hover hover:border-accent/50"
+                    )}
+                  >
+                    {currentAvatarPreviewUrl ? (
+                      <img
+                        src={currentAvatarPreviewUrl}
+                        alt="Custom"
+                        className="h-7 w-7 rounded-full object-cover"
+                      />
+                    ) : (
+                      <Upload className="h-5 w-5 text-text-subtle" />
+                    )}
+                    <span className="text-[9px] font-medium text-text-muted">
+                      {currentAvatarPreviewUrl ? t("yours") : t("upload")}
+                    </span>
+                  </button>
                 </div>
 
-                {/* Birthday */}
-                <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
-                    <Calendar className="h-3.5 w-3.5" />
-                    {t("birthday")}
+                <div className="mt-6 w-full max-w-md space-y-2">
+                  <label className="block text-xs font-medium text-text-muted">
+                    {t("assistantGender")}
                   </label>
-                  <input
-                    type="date"
-                    value={birthday}
-                    onChange={(e) => setBirthday(e.target.value)}
-                    className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent [color-scheme:dark]"
-                  />
-                </div>
-
-                {/* Gender */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-text-muted">
-                    {t("gender")}
-                  </label>
-                  <div className="flex gap-2">
-                    {GENDER_OPTIONS.map((opt) => (
+                  <div className="grid grid-cols-3 gap-2">
+                    {ASSISTANT_GENDER_OPTIONS.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => setGender(opt.value)}
+                        onClick={() => setAssistantGender(opt.value)}
                         className={cn(
-                          "flex-1 cursor-pointer rounded-xl border py-2.5 text-sm font-medium transition-all",
-                          gender === opt.value
+                          "rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
+                          assistantGender === opt.value
                             ? "border-accent bg-accent/10 text-accent"
                             : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
                         )}
                       >
-                        {t(
-                          opt.value === "male"
-                            ? "genderMale"
-                            : opt.value === "female"
-                              ? "genderFemale"
-                              : "genderOther"
-                        )}
+                        {tp(opt.labelKey)}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Timezone */}
-                <div>
-                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-text-muted">
-                    <Globe className="h-3.5 w-3.5" />
-                    {t("timezone")}
-                  </label>
-                  <TimezoneSelect value={timezone} onChange={setTimezone} />
-                </div>
-              </div>
-            </StepContainer>
-          )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </StepContainer>
+            )}
 
-          {/* ===== Step 1: Assistant identity ===== */}
-          {step === 1 && (
-            <StepContainer key="step-1">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">{t("step1Title")}</h1>
-              <p className="mt-3 text-base text-text-muted">{t("step1Subtitle")}</p>
-
-              {/* Assistant name */}
-              <input
-                type="text"
-                value={assistantName}
-                onChange={(e) => setAssistantName(e.target.value)}
-                placeholder={t("assistantNamePlaceholder")}
-                maxLength={40}
-                autoFocus
-                className="mt-8 w-full max-w-sm rounded-xl border border-border bg-surface-raised px-5 py-3.5 text-center text-lg font-medium text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
-              />
-
-              {/* Avatars */}
-              <div className="mt-6 grid grid-cols-4 gap-2.5 sm:grid-cols-7">
-                {AVATARS.map((av) => (
-                  <button
-                    key={av.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedAvatar(av.id);
-                      if (customAvatarPreviewUrl?.startsWith("blob:")) {
-                        URL.revokeObjectURL(customAvatarPreviewUrl);
-                      }
-                      setCustomAvatarFile(null);
-                      setCustomAvatarPreviewUrl(null);
-                    }}
-                    className={cn(
-                      "flex cursor-pointer flex-col items-center gap-1 rounded-xl border-2 p-2.5 transition-all",
-                      selectedAvatar === av.id && customAvatarPreviewUrl === null
-                        ? "border-accent bg-accent/10 scale-105"
-                        : "border-transparent bg-surface-raised hover:bg-surface-hover hover:border-border-strong"
+            {/* ===== Step 2: Personality ===== */}
+            {step === 2 && (
+              <StepContainer key="step-2" className="max-w-5xl">
+                <div className="w-full">
+                  <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
+                    <div className="relative mb-1 inline-flex flex-col items-center lg:items-start">
+                      <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface text-4xl shadow-[0_0_48px_rgba(102,187,106,0.18)]">
+                        {currentAvatarPreviewUrl ? (
+                          <img
+                            src={currentAvatarPreviewUrl}
+                            alt={assistantName}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span>{avatarObj?.emoji ?? "🤖"}</span>
+                        )}
+                      </div>
+                      <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                      </span>
+                    </div>
+                    {assistantName && (
+                      <p className="mt-2.5 text-sm font-medium text-text-muted">{assistantName}</p>
                     )}
-                  >
-                    <span className="text-2xl">{av.emoji}</span>
-                    <span className="text-[9px] font-medium text-text-muted">{av.label}</span>
-                  </button>
-                ))}
+                    <h1 className="mt-5 text-3xl font-bold text-text sm:text-4xl">
+                      {t("step2Title")}
+                    </h1>
+                    <p className="mt-2 max-w-2xl text-base text-text-muted">
+                      {t("step2Subtitle", { name: assistantName })}
+                    </p>
+                  </div>
 
-                {/* Upload */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed p-2.5 transition-all",
-                    customAvatarPreviewUrl
-                      ? "border-accent bg-accent/10"
-                      : "border-border-strong bg-surface-raised hover:bg-surface-hover hover:border-accent/50"
-                  )}
-                >
-                  {customAvatarPreviewUrl ? (
-                    <img
-                      src={customAvatarPreviewUrl}
-                      alt="Custom"
-                      className="h-7 w-7 rounded-full object-cover"
-                    />
-                  ) : (
-                    <Upload className="h-5 w-5 text-text-subtle" />
-                  )}
-                  <span className="text-[9px] font-medium text-text-muted">
-                    {customAvatarPreviewUrl ? t("yours") : t("upload")}
-                  </span>
-                </button>
-              </div>
+                  <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-end">
+                    <div className="space-y-6">
+                      <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                        <p className="mb-2.5 text-xs font-medium text-text-muted">
+                          {t("presetSectionLabel")}
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {currentPresets.map((preset) => (
+                            <button
+                              key={preset.key}
+                              type="button"
+                              onClick={() => applyPreset(preset)}
+                              className={cn(
+                                "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
+                                selectedPresetKey === preset.key
+                                  ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                                  : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
+                              )}
+                            >
+                              {tp(preset.labelKey)}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={handleCustomPreset}
+                            className={cn(
+                              "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
+                              selectedPresetKey === "custom"
+                                ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
+                                : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
+                            )}
+                          >
+                            {t("presetCustom")}
+                          </button>
+                        </div>
+                        <p className="mt-2 min-h-[1.25rem] text-[11px] text-text-subtle">
+                          {selectedPresetKey === "custom"
+                            ? t("presetCustomDesc")
+                            : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
+                              ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
+                              : ""}
+                        </p>
+                      </div>
 
-              <div className="mt-6 w-full max-w-md space-y-2">
-                <label className="block text-xs font-medium text-text-muted">
-                  {t("assistantGender")}
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {ASSISTANT_GENDER_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setAssistantGender(opt.value)}
-                      className={cn(
-                        "rounded-xl border px-3 py-2.5 text-sm font-medium transition-all",
-                        assistantGender === opt.value
-                          ? "border-accent bg-accent/10 text-accent"
-                          : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
-                      )}
-                    >
-                      {tp(opt.labelKey)}
-                    </button>
-                  ))}
+                      <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                        <p className="mb-4 text-xs font-medium text-text-muted">{t("fineTune")}</p>
+                        <div className="space-y-4">
+                          {TRAIT_SLIDERS.map((trait) => (
+                            <div key={trait.key}>
+                              <div className="mb-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs font-medium">
+                                <span className="truncate text-text-muted">
+                                  {tp(trait.labelLeftKey)}
+                                </span>
+                                <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
+                                  {traits[trait.key]}
+                                </span>
+                                <span className="truncate text-right text-text-muted">
+                                  {tp(trait.labelRightKey)}
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={10}
+                                value={traits[trait.key]}
+                                onChange={(e) => updateTrait(trait.key, Number(e.target.value))}
+                                className="w-full cursor-pointer accent-accent"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                      <label className="block text-xs font-medium text-text-muted">
+                        {t("describeCharacter")}
+                      </label>
+                      <textarea
+                        value={assistantNotes}
+                        onChange={(e) => setAssistantNotes(e.target.value)}
+                        rows={10}
+                        className="mt-2 min-h-[320px] w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
+                        placeholder={t("instructionPlaceholder")}
+                      />
+                      <p className="mt-2 text-[11px] text-text-subtle">{t("instructionHint")}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </StepContainer>
+            )}
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-            </StepContainer>
-          )}
+            {/* ===== Step 3: Preview ===== */}
+            {step === 3 && (
+              <StepContainer key="step-3" className="max-w-4xl">
+                <h1 className="text-3xl font-bold text-text sm:text-4xl">
+                  {t("step3Title", { name: assistantName })}
+                </h1>
+                <p className="mt-3 text-base text-text-muted">{t("step3Subtitle")}</p>
+                <p className="mt-2 max-w-md text-center text-xs text-text-subtle">
+                  {t("previewPromptHint")}
+                </p>
 
-          {/* ===== Step 2: Personality ===== */}
-          {step === 2 && (
-            <StepContainer key="step-2" className="max-w-5xl">
-              <div className="w-full">
-                <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-                  <div className="relative mb-1 inline-flex flex-col items-center lg:items-start">
-                    <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface text-4xl shadow-[0_0_48px_rgba(102,187,106,0.18)]">
-                      {customAvatarPreviewUrl ? (
+                {/* Simulated chat */}
+                <div className="mt-8 w-full max-w-3xl rounded-3xl border border-border bg-surface p-6 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-7">
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl overflow-hidden">
+                      {currentAvatarPreviewUrl ? (
                         <img
-                          src={customAvatarPreviewUrl}
+                          src={currentAvatarPreviewUrl}
                           alt={assistantName}
                           className="h-full w-full object-cover"
                         />
@@ -558,196 +861,52 @@ export default function SetupWizardPage() {
                         <span>{avatarObj?.emoji ?? "🤖"}</span>
                       )}
                     </div>
-                    <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent">
-                      <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                    </span>
-                  </div>
-                  {assistantName && (
-                    <p className="mt-2.5 text-sm font-medium text-text-muted">{assistantName}</p>
-                  )}
-                  <h1 className="mt-5 text-3xl font-bold text-text sm:text-4xl">
-                    {t("step2Title")}
-                  </h1>
-                  <p className="mt-2 max-w-2xl text-base text-text-muted">
-                    {t("step2Subtitle", { name: assistantName })}
-                  </p>
-                </div>
-
-                <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-start">
-                  <div className="space-y-6">
-                    <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                      <p className="mb-2.5 text-xs font-medium text-text-muted">
-                        {t("presetSectionLabel")}
-                      </p>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {currentPresets.map((preset) => (
-                          <button
-                            key={preset.key}
-                            type="button"
-                            onClick={() => applyPreset(preset)}
-                            className={cn(
-                              "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
-                              selectedPresetKey === preset.key
-                                ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                                : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
-                            )}
-                          >
-                            {tp(preset.labelKey)}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={handleCustomPreset}
-                          className={cn(
-                            "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
-                            selectedPresetKey === "custom"
-                              ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                              : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
-                          )}
-                        >
-                          {t("presetCustom")}
-                        </button>
-                      </div>
-                      <p className="mt-2 min-h-[1.25rem] text-[11px] text-text-subtle">
-                        {selectedPresetKey === "custom"
-                          ? t("presetCustomDesc")
-                          : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
-                            ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
-                            : ""}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
+                      <p className="text-[10px] text-text-subtle">
+                        {t("introducingTo", { user: userName || "you" })}
                       </p>
                     </div>
-
-                    <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                      <p className="mb-4 text-xs font-medium text-text-muted">{t("fineTune")}</p>
-                      <div className="space-y-4">
-                        {TRAIT_SLIDERS.map((trait) => (
-                          <div key={trait.key}>
-                            <div className="mb-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs font-medium">
-                              <span className="truncate text-text-muted">
-                                {tp(trait.labelLeftKey)}
-                              </span>
-                              <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] text-text-subtle">
-                                {traits[trait.key]}
-                              </span>
-                              <span className="truncate text-right text-text-muted">
-                                {tp(trait.labelRightKey)}
-                              </span>
-                            </div>
-                            <input
-                              type="range"
-                              min={0}
-                              max={100}
-                              step={10}
-                              value={traits[trait.key]}
-                              onChange={(e) => updateTrait(trait.key, Number(e.target.value))}
-                              className="w-full cursor-pointer accent-accent"
-                            />
-                          </div>
-                        ))}
+                  </div>
+                  <div className="rounded-2xl bg-surface-raised px-5 py-4 sm:px-6 sm:py-5">
+                    {previewLoading ? (
+                      <div className="flex min-h-[120px] items-center gap-3 py-2">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                        <p className="text-sm text-text-muted">{t("previewLoading")}</p>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                    <label className="block text-xs font-medium text-text-muted">
-                      {t("describeCharacter")}
-                    </label>
-                    <textarea
-                      value={assistantNotes}
-                      onChange={(e) => setAssistantNotes(e.target.value)}
-                      rows={10}
-                      className="mt-2 min-h-[320px] w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
-                      placeholder={t("instructionPlaceholder")}
-                    />
-                    <p className="mt-2 text-[11px] text-text-subtle">{t("instructionHint")}</p>
-                  </div>
-                </div>
-              </div>
-            </StepContainer>
-          )}
-
-          {/* ===== Step 3: Preview ===== */}
-          {step === 3 && (
-            <StepContainer key="step-3">
-              <h1 className="text-3xl font-bold text-text sm:text-4xl">
-                {t("step3Title", { name: assistantName })}
-              </h1>
-              <p className="mt-3 text-base text-text-muted">{t("step3Subtitle")}</p>
-              <p className="mt-2 max-w-md text-center text-xs text-text-subtle">
-                {t("previewPromptHint")}
-              </p>
-
-              {/* Simulated chat */}
-              <div className="mt-8 w-full max-w-md rounded-2xl border border-border bg-surface p-6 text-left">
-                <div className="mb-4 flex items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xl overflow-hidden">
-                    {customAvatarPreviewUrl ? (
-                      <img
-                        src={customAvatarPreviewUrl}
-                        alt={assistantName}
-                        className="h-full w-full object-cover"
-                      />
                     ) : (
-                      <span>{avatarObj?.emoji ?? "🤖"}</span>
+                      <p className="min-h-[120px] text-base leading-relaxed text-text sm:min-h-[140px]">
+                        {runtimePreview || t("previewNotReady")}
+                      </p>
                     )}
                   </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
-                    <p className="text-[10px] text-text-subtle">
-                      {t("introducingTo", { user: userName || "you" })}
-                    </p>
-                  </div>
                 </div>
-                <div className="rounded-xl bg-surface-raised px-4 py-3">
-                  {previewLoading ? (
-                    <div className="flex items-center gap-3 py-2">
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                      <p className="text-sm text-text-muted">{t("previewLoading")}</p>
-                    </div>
-                  ) : (
-                    <p className="text-sm leading-relaxed text-text">
-                      {runtimePreview || t("previewNotReady")}
-                    </p>
-                  )}
-                </div>
-              </div>
 
-              {/* Trait pills */}
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {TRAIT_SLIDERS.map((trait) => (
-                  <span
-                    key={trait.key}
-                    className="rounded-full bg-surface-raised px-3 py-1 text-[10px] font-medium text-text-muted"
-                  >
-                    {tp(traitPreviewLabel(trait.key, traits[trait.key]))}
-                  </span>
-                ))}
-              </div>
+                {assistantGender && (
+                  <p className="mt-3 text-xs text-text-subtle">
+                    {t("identity", { gender: assistantGender })}
+                  </p>
+                )}
 
-              {assistantGender && (
-                <p className="mt-3 text-xs text-text-subtle">
-                  {t("identity", { gender: assistantGender })}
-                </p>
-              )}
+                <button
+                  type="button"
+                  onClick={() => void loadRuntimePreview()}
+                  disabled={previewLoading || creating}
+                  className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
+                >
+                  <RefreshCcw className={cn("h-4 w-4", previewLoading && "animate-spin")} />
+                  {t("refreshPreview")}
+                </button>
 
-              <button
-                type="button"
-                onClick={() => void loadRuntimePreview()}
-                disabled={previewLoading || creating}
-                className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:opacity-50"
-              >
-                <RefreshCcw className={cn("h-4 w-4", previewLoading && "animate-spin")} />
-                {t("refreshPreview")}
-              </button>
+                {(previewError || error) && (
+                  <p className="mt-4 text-sm text-destructive">{previewError ?? error}</p>
+                )}
 
-              {(previewError || error) && (
-                <p className="mt-4 text-sm text-destructive">{previewError ?? error}</p>
-              )}
-
-              <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
-            </StepContainer>
-          )}
-        </AnimatePresence>
+                <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
+              </StepContainer>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Footer */}
@@ -796,7 +955,7 @@ export default function SetupWizardPage() {
               ) : (
                 <>
                   <Sparkles className="h-4 w-4" />
-                  {t("createAssistant")}
+                  {submitActionLabel}
                   <ChevronRight className="h-4 w-4" />
                 </>
               )}

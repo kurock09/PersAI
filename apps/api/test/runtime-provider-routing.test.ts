@@ -58,6 +58,11 @@ async function run(): Promise<void> {
   assert.equal(resolved.schema, "persai.runtimeProviderRouting.v1");
   assert.equal(resolved.userFacingProviderPickerEnabled, false);
   assert.equal(resolved.primaryPath.modelKey, "text_premium_primary");
+  assert.equal(resolved.modelSlots.normalReply.modelKey, "text_premium_primary");
+  assert.equal(resolved.modelSlots.premiumReply.modelKey, "text_premium_primary");
+  assert.equal(resolved.modelSlots.reasoning.modelKey, "text_premium_primary");
+  assert.equal(resolved.modelSlots.systemTool.modelKey, "text_premium_primary");
+  assert.equal(resolved.modelSlots.retrieval.modelKey, "text_premium_primary");
   assert.equal(resolved.primaryPath.active, true);
   assert.equal(
     resolved.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")?.target
@@ -157,11 +162,19 @@ async function run(): Promise<void> {
           model: "claude-sonnet-4-5"
         }
       }
-    }
+    },
+    planPremiumModelKey: "gpt-5.4",
+    planReasoningModelKey: "gpt-5.4-mini",
+    planRetrievalModelKey: "gpt-5.4-nano"
   });
 
   assert.equal(adminManaged.primaryPath.providerKey, "openai");
   assert.equal(adminManaged.primaryPath.modelKey, "gpt-5.4");
+  assert.equal(adminManaged.modelSlots.normalReply.modelKey, "gpt-5.4");
+  assert.equal(adminManaged.modelSlots.premiumReply.modelKey, "gpt-5.4");
+  assert.equal(adminManaged.modelSlots.reasoning.modelKey, "gpt-5.4-mini");
+  assert.equal(adminManaged.modelSlots.systemTool.modelKey, "gpt-5.4");
+  assert.equal(adminManaged.modelSlots.retrieval.modelKey, "gpt-5.4-nano");
   assert.equal(
     adminManaged.fallbackMatrix.find((item) => item.trigger === "provider_failure_or_timeout")
       ?.target.providerKey,

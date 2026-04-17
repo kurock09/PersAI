@@ -30,6 +30,12 @@ export interface AdminPlanState {
   /** @nullable */
   primaryModelKey?: string | null;
   /** @nullable */
+  premiumModelKey?: string | null;
+  /** @nullable */
+  reasoningModelKey?: string | null;
+  /** @nullable */
+  retrievalModelKey?: string | null;
+  /** @nullable */
   videoGenerateModelKey?: AdminPlanStateVideoGenerateModelKey;
   /** @nullable */
   runtimeTierDefault?: AdminPlanStateRuntimeTierDefault;

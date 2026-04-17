@@ -69,6 +69,11 @@ async function run(): Promise<void> {
   setApiEnv();
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+  const deletedRuntimeBundleStates: string[] = [];
+  const deletedMaterializedSpecs: string[] = [];
+  const deletedPublishedVersions: string[] = [];
+  const previewVersionId = "preview-pub-8";
+  const previewSpecId = "preview-spec-8";
 
   const assistantRepository: AssistantRepository = {
     findById: async () => assistant,
@@ -83,7 +88,20 @@ async function run(): Promise<void> {
   };
 
   const publishedVersionRepository: AssistantPublishedVersionRepository = {
-    create: async () => latestVersion,
+    create: async () => ({
+      id: previewVersionId,
+      assistantId: assistant.id,
+      version: 8,
+      snapshotDisplayName: assistant.draftDisplayName,
+      snapshotInstructions: assistant.draftInstructions,
+      snapshotTraits: assistant.draftTraits,
+      snapshotAvatarEmoji: assistant.draftAvatarEmoji,
+      snapshotAvatarUrl: assistant.draftAvatarUrl,
+      snapshotAssistantGender: assistant.draftAssistantGender,
+      snapshotVoiceProfile: null,
+      publishedByUserId: assistant.userId,
+      createdAt: new Date("2026-04-03T00:00:00.000Z")
+    }),
     findLatestByAssistantId: async () => latestVersion,
     findById: async () => latestVersion
   };
@@ -95,6 +113,7 @@ async function run(): Promise<void> {
     ) => {
       assert.equal(runtimeAssistant.id, assistant.id);
       assert.equal(previewVersion.assistantId, assistant.id);
+      assert.equal(previewVersion.id, previewVersionId);
       assert.equal(previewVersion.version, 8);
       assert.equal(previewVersion.snapshotDisplayName, "Mira");
       return {
@@ -122,13 +141,48 @@ async function run(): Promise<void> {
     }
   } as MaterializeAssistantPublishedVersionService;
 
+  const transactionClient = {
+    runtimeBundleState: {
+      deleteMany: async ({ where }: { where: { publishedVersionId?: string } }) => {
+        if (where.publishedVersionId) {
+          deletedRuntimeBundleStates.push(where.publishedVersionId);
+        }
+        return { count: 1 };
+      }
+    },
+    assistantMaterializedSpec: {
+      deleteMany: async ({ where }: { where: { publishedVersionId?: string } }) => {
+        if (where.publishedVersionId) {
+          deletedMaterializedSpecs.push(where.publishedVersionId);
+        }
+        return { count: 1 };
+      }
+    },
+    assistantPublishedVersion: {
+      deleteMany: async ({ where }: { where: { id?: string } }) => {
+        if (where.id) {
+          deletedPublishedVersions.push(where.id);
+        }
+        return { count: 1 };
+      }
+    }
+  };
+
   const prisma = {
     appUser: {
       findUnique: async () => ({ displayName: "Alex" })
     },
     workspace: {
       findUnique: async () => ({ timezone: "Europe/Moscow" })
-    }
+    },
+    assistantMaterializedSpec: {
+      upsert: async ({ where }: { where: { publishedVersionId: string } }) => {
+        assert.equal(where.publishedVersionId, previewVersionId);
+        return { id: previewSpecId };
+      }
+    },
+    $transaction: async <T>(callback: (tx: typeof transactionClient) => Promise<T>): Promise<T> =>
+      callback(transactionClient)
   } as WorkspaceManagementPrismaService;
 
   globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -206,8 +260,10 @@ async function run(): Promise<void> {
     );
     assert.equal(requests[0]?.body?.runtimeTier, "free_shared_restricted");
     assert.equal(requests[0]?.body?.bundleDocument, "{}");
+    assert.equal(requests[0]?.body?.materializedSpecId, previewSpecId);
     assert.equal(requests[1]?.url, "http://runtime.local/api/v1/turns/create");
     assert.equal(requests[1]?.body?.runtimeTier, "free_shared_restricted");
+    assert.equal(requests[1]?.body?.modelRoleOverride, "premium_reply");
     assert.equal(
       (requests[1]?.body?.message as Record<string, unknown>)?.text,
       "Show Mira's character to Alex."
@@ -217,6 +273,9 @@ async function run(): Promise<void> {
       "Europe/Moscow"
     );
     assert.equal((requests[2]?.body as Record<string, unknown>)?.assistantId, assistant.id);
+    assert.deepEqual(deletedRuntimeBundleStates, [previewVersionId]);
+    assert.deepEqual(deletedMaterializedSpecs, [previewVersionId]);
+    assert.deepEqual(deletedPublishedVersions, [previewVersionId]);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -677,8 +677,15 @@ function ChatListItem({
         )}
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-xs font-medium">
-            {item.chat.title ?? item.chat.surfaceThreadKey}
+          <span className="flex items-center gap-1.5">
+            <span className="min-w-0 truncate text-xs font-medium">
+              {item.chat.title ?? item.chat.surfaceThreadKey}
+            </span>
+            {item.chat.deepModeEnabled && (
+              <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                {t("deepModeBadge")}
+              </span>
+            )}
           </span>
           {item.lastMessagePreview && (
             <span className="block truncate text-[11px] text-text-subtle">

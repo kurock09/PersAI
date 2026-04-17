@@ -1,5 +1,92 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-073 economics architecture refresh
+
+### What changed
+
+1. `docs/ADR/073-post-adr072-residue-and-polish-program.md` now preserves the updated four-part economics direction explicitly instead of leaving it as informal chat context:
+   - plan-scoped model slots for `normal`, `premium/reasoning`, `system/tool`, and optional retrieval-specialized work
+   - prompt-cache-first context assembly with provider-native cached input as the main savings lever and OpenAI prompt caching called out as the current primary target where supported
+   - knowledge correction around the honest current `pattern_only` retrieval baseline plus a later retrieval-specialized model path and hybrid retrieval rollout
+   - hidden system/tool-model usage accounting across `input`, `cached input`, and `output` for the full user turn
+2. The ADR smart-model section was rewritten away from a vague cheap/default/premium abstraction toward a plan-scoped contract: the main reply agent stays the orchestrator, raw model choice stays out of ordinary UX, and only an explicit deeper-thinking mode remains acceptable on the surface if product wants it.
+3. The ADR cache section now frames provider-native cached input as the primary economics target, with PersAI-side context assembly responsible for keeping a large stable cached prefix while preserving warmth, continuity, and relevance.
+4. The ADR execution plan and `docs/ROADMAP.md` near-term focus were regrouped into larger economics slices so follow-up work does not fragment into tiny disconnected tasks.
+
+### Current active slice
+
+- `ADR-073 - memory, knowledge, cache, and smart-model economics`
+
+### Current active step
+
+- `Economics planning baseline refreshed; next step is Economics Slice A (plan-scoped model slots and turn accounting)`
+
+### Files touched
+
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint` (`fails` on pre-existing `apps/web/app/app/setup/page.tsx:39` unused `traitPreviewLabel`)
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. This pass updates ADR/program truth only; it does not yet prove any new runtime behavior for plan-scoped model slots, provider-native cached input, retrieval-specialized model use, or turn-level hidden-work accounting.
+2. The ADR now names OpenAI prompt caching as the current primary savings target where supported, but the long-term architecture still needs to stay provider-aware and admin-managed rather than hard-coded to one vendor lineup.
+
+### Next recommended step
+
+1. Start `Economics Slice A` as one bounded implementation slice: define the plan-scoped model-slot contract (`normal`, `premium/reasoning`, `system/tool`, optional retrieval-specialized), wire honest per-turn usage accounting for `input` / `cached input` / `output`, and keep user-facing UX limited to ordinary chat plus an optional deeper-thinking mode.
+
+## 2026-04-17 - ADR-073 explicit recreate/recover path
+
+### What changed
+
+1. `apps/web/app/app/assistant-api-client.ts` no longer hides `POST /assistant` conflicts by catching `409` and silently falling back to `GET /assistant`. Ordinary create now fails honestly if the control plane says the assistant already exists.
+2. `apps/web/app/app/setup/page.tsx` now resolves lifecycle mode explicitly on entry. If the user already has an assistant, the wizard enters a visible `recover` or `recreate` path, preloads existing draft state when present, skips `POST /assistant` during preview/publish for that branch, and keeps the CTA/copy honest instead of pretending an ordinary fresh create is happening.
+3. `apps/web/app/app/setup/page.test.tsx` now covers both explicit existing-assistant branches: recovering a saved draft and recreating after reset without relying on the old hidden `409 already existed` fallback.
+4. `docs/ADR/073-post-adr072-residue-and-polish-program.md`, `docs/ROADMAP.md`, and `docs/CHANGELOG.md` now mark the explicit recreate/recover path as landed while keeping the remaining lifecycle residue honest: one explicit backend lifecycle contract and the local-only uploaded-avatar preview truth still remain open.
+
+### Current active slice
+
+- `ADR-073 - create/recreate lifecycle polish`
+
+### Current active step
+
+- `Explicit recreate/recover path landed; remaining lifecycle residue is the backend lifecycle contract plus uploaded-avatar preview truth`
+
+### Files touched
+
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/setup/page.tsx`
+- `apps/web/app/app/setup/page.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web test -- app/app/setup/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. The user-visible lifecycle path is now honest, but preview/create/recover/reset are still orchestrated from the frontend across several API calls rather than one backend-owned lifecycle command.
+2. Uploaded custom avatars still become runtime truth only at the final publish step, so preview can still diverge from the eventual persisted avatar when the user uploads a new image during setup.
+
+### Next recommended step
+
+1. Finish the remaining lifecycle residue by moving preview/create/recover/reset behind one explicit backend lifecycle contract and by closing the last local-only uploaded-avatar truth gap before shifting fully to ADR-073 memory/knowledge/cache/model-routing economics.
+
 ## 2026-04-17 - ADR-073 user UI polish big slice
 
 ### What changed

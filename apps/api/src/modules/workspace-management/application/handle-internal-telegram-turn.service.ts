@@ -155,6 +155,17 @@ export class HandleInternalTelegramTurnService {
         throw new NotFoundException("Workspace does not exist for this assistant.");
       }
       trace.stage("workspace_loaded");
+      const telegramBinding = await this.bindingRepository.findByAssistantProviderSurface(
+        resolved.assistantId,
+        "telegram",
+        "telegram_bot"
+      );
+      const defaultDeepModeEnabled =
+        telegramBinding !== null &&
+        telegramBinding.config !== null &&
+        typeof telegramBinding.config === "object" &&
+        !Array.isArray(telegramBinding.config) &&
+        (telegramBinding.config as Record<string, unknown>).defaultDeepModeEnabled === true;
 
       const rawAttachments = await input.loadRawAttachments(resolved.assistantId);
       if (rawAttachments.length > 0) {
@@ -224,7 +235,8 @@ export class HandleInternalTelegramTurnService {
           userMessage: input.message,
           attachments: runtimeAttachments,
           userTimezone: workspace.timezone,
-          currentTimeIso
+          currentTimeIso,
+          deepMode: defaultDeepModeEnabled
         },
         {
           onTool: input.onRuntimeTool

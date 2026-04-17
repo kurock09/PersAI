@@ -8,6 +8,7 @@ export type AssistantChat = {
   surface: AssistantChatSurface;
   surfaceThreadKey: string;
   title: string | null;
+  deepModeEnabled: boolean;
   archivedAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;

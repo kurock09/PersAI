@@ -87,6 +87,7 @@ type RuntimeTransportMeta = {
 
 export interface ChatSendOptions {
   addToKnowledgeBase?: boolean | undefined;
+  deepModeEnabled?: boolean | undefined;
 }
 
 type LiveActivitySource = "tool" | "compaction" | "runtime";
@@ -600,7 +601,14 @@ export function useChat(threadKey: string): UseChatReturn {
       try {
         await streamAssistantWebChatTurn(
           token,
-          { surfaceThreadKey: threadKey, message: trimmed, clientTurnId },
+          {
+            surfaceThreadKey: threadKey,
+            message: trimmed,
+            clientTurnId,
+            ...(options?.deepModeEnabled === undefined
+              ? {}
+              : { deepModeEnabled: options.deepModeEnabled })
+          },
           {
             onStarted: ({ chat }) => {
               const c = chat as { id?: string } | null;

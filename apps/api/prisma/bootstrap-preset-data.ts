@@ -1,4 +1,5 @@
 const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
+  | "route_control"
   | "summarize_context"
   | "compact_context"
   | "memory_write"
@@ -7,6 +8,7 @@ const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
   | "knowledge_fetch",
   string
 > = {
+  route_control: "route",
   summarize_context: "sumctx",
   compact_context: "cmpctx",
   memory_write: "memw",
@@ -17,6 +19,7 @@ const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
 
 export function buildSyntheticToolMetadataPromptTemplateId(
   toolCode:
+    | "route_control"
     | "summarize_context"
     | "compact_context"
     | "memory_write"
@@ -46,6 +49,8 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 {{user_block}}
 
 {{identity_block}}
+
+{{route_control_block}}
 
 {{tools_block}}
 
@@ -155,7 +160,11 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
     "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:
-    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps."
+    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps.",
+  [buildSyntheticToolMetadataPromptTemplateId("route_control", "description")]:
+    "Hidden routing helper that decides whether the next step should stay ordinary, escalate to premium or reasoning, and whether internal knowledge or live web lookup should guide the answer.",
+  [buildSyntheticToolMetadataPromptTemplateId("route_control", "usage_guidance")]:
+    "Call this before answering when the turn is ambiguous, high-stakes, depends on short follow-up context, or likely needs stronger routing than the default normal path. Keep it hidden from the user."
 };
 
 export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {

@@ -7,5 +7,6 @@
 
 export interface AssistantWebChatRenameRequest {
   /** @nullable */
-  title: string | null;
+  title?: string | null;
+  deepModeEnabled?: boolean;
 }

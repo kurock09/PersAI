@@ -2,8 +2,19 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { AlertCircle, AlertTriangle, X, Pencil, Check, Loader2, Scissors } from "lucide-react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  X,
+  Pencil,
+  Check,
+  Loader2,
+  MessageSquare,
+  Scissors,
+  Sparkles
+} from "lucide-react";
 import { useTranslations } from "next-intl";
+import { cn } from "@/app/lib/utils";
 import { ChatMessageBubble } from "./chat-message";
 import { ChatInput } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
@@ -18,6 +29,7 @@ import type { UseChatReturn } from "./use-chat";
 interface ChatAreaProps {
   chat: UseChatReturn;
   title?: string | undefined;
+  deepModeEnabled?: boolean | undefined;
   assistantReady?: boolean | undefined;
   assistantName?: string | undefined;
   assistantAvatarUrl?: string | undefined;
@@ -29,6 +41,7 @@ interface ChatAreaProps {
 export function ChatArea({
   chat,
   title,
+  deepModeEnabled = false,
   assistantReady = true,
   assistantName,
   assistantAvatarUrl,
@@ -43,14 +56,15 @@ export function ChatArea({
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [deepMode, setDeepMode] = useState(deepModeEnabled);
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
 
   const sendPrompt = useCallback(
     (text: string, files?: File[]) => {
-      if (assistantReady) void chat.send(text, files);
+      if (assistantReady) void chat.send(text, files, { deepModeEnabled: deepMode });
     },
-    [assistantReady, chat]
+    [assistantReady, chat, deepMode]
   );
 
   const handleDoNotRemember = useCallback(
@@ -194,47 +208,78 @@ export function ChatArea({
     setCompactionBannerSnoozedUntilCount(0);
   }, [chat.chatId]);
 
+  useEffect(() => {
+    setDeepMode(deepModeEnabled);
+  }, [chat.chatId, deepModeEnabled]);
+
+  const handleDeepModeChange = useCallback(
+    async (enabled: boolean) => {
+      setDeepMode(enabled);
+      if (!chat.chatId) {
+        return;
+      }
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+      try {
+        await patchAssistantWebChat(token, chat.chatId, { deepModeEnabled: enabled });
+        onTitleChanged?.();
+      } catch {
+        setDeepMode(!enabled);
+      }
+    },
+    [chat.chatId, getToken, onTitleChanged]
+  );
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="flex items-center border-b border-border px-3 py-2 md:px-5 md:py-3">
-        {editing ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <input
-              ref={inputRef}
-              type="text"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void commitEdit();
-                if (e.key === "Escape") setEditing(false);
-              }}
-              onBlur={() => void commitEdit()}
-              maxLength={80}
-              className="min-w-0 flex-1 rounded-md border border-accent bg-surface-raised px-2 py-1 text-sm font-semibold text-text outline-none"
-            />
-            <button
-              type="button"
-              onClick={() => void commitEdit()}
-              className="cursor-pointer rounded p-1 text-accent transition-colors hover:bg-surface-hover"
-            >
-              <Check className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : (
-          <div className="group flex min-w-0 flex-1 items-center gap-1.5">
-            <h1 className="truncate text-sm font-semibold text-text">{displayTitle}</h1>
-            {canEdit && (
+      <header className="border-b border-border px-3 py-2 md:px-5 md:py-3">
+        <div className="mx-auto flex max-w-3xl items-start gap-3">
+          {editing ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void commitEdit();
+                  if (e.key === "Escape") setEditing(false);
+                }}
+                onBlur={() => void commitEdit()}
+                maxLength={80}
+                className="min-w-0 flex-1 rounded-md border border-accent bg-surface-raised px-2 py-1 text-sm font-semibold text-text outline-none"
+              />
               <button
                 type="button"
-                onClick={startEdit}
-                className="shrink-0 cursor-pointer rounded p-1 text-text-subtle opacity-0 transition-all hover:bg-surface-hover hover:text-text-muted group-hover:opacity-100"
+                onClick={() => void commitEdit()}
+                className="cursor-pointer rounded p-1 text-accent transition-colors hover:bg-surface-hover"
               >
-                <Pencil className="h-3 w-3" />
+                <Check className="h-3.5 w-3.5" />
               </button>
-            )}
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="group flex min-w-0 flex-1 items-center gap-1.5">
+              <h1 className="truncate text-sm font-semibold text-text">{displayTitle}</h1>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="shrink-0 cursor-pointer rounded p-1 text-text-subtle opacity-0 transition-all hover:bg-surface-hover hover:text-text-muted group-hover:opacity-100"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
+          <ChatModeToggle
+            enabled={deepMode}
+            disabled={!assistantReady || chat.isStreaming}
+            onChange={(enabled) => void handleDeepModeChange(enabled)}
+          />
+        </div>
       </header>
 
       {/* Messages */}
@@ -407,7 +452,12 @@ export function ChatArea({
         </div>
       )}
       <ChatInput
-        onSend={(text, files, options) => void chat.send(text, files, options)}
+        onSend={(text, files, options) =>
+          void chat.send(text, files, {
+            ...(options ?? {}),
+            ...(deepMode ? { deepModeEnabled: true } : {})
+          })
+        }
         onTranscribeVoice={async (blob, filename) => {
           const token = await getToken();
           if (!token) throw new Error("Not authenticated.");
@@ -418,6 +468,63 @@ export function ChatArea({
         isStreaming={chat.isStreaming}
         disabled={!assistantReady}
       />
+    </div>
+  );
+}
+
+function ChatModeToggle({
+  enabled,
+  disabled,
+  onChange
+}: {
+  enabled: boolean;
+  disabled?: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  const t = useTranslations("chat");
+
+  return (
+    <div className="shrink-0">
+      <div className="inline-flex rounded-2xl border border-border bg-surface-raised p-1 shadow-sm">
+        <button
+          type="button"
+          aria-pressed={!enabled}
+          disabled={disabled}
+          onClick={() => onChange(false)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+            !enabled ? "bg-bg text-text shadow-sm" : "text-text-muted hover:text-text",
+            disabled && "cursor-not-allowed opacity-50"
+          )}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span>{t("modeNormalLabel")}</span>
+        </button>
+        <button
+          type="button"
+          aria-pressed={enabled}
+          disabled={disabled}
+          onClick={() => onChange(true)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+            enabled
+              ? "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 text-white shadow-sm"
+              : "text-text-muted hover:text-text",
+            disabled && "cursor-not-allowed opacity-50"
+          )}
+        >
+          <Sparkles className={cn("h-3.5 w-3.5", enabled && "animate-pulse")} />
+          <span>{t("modeDeepLabel")}</span>
+        </button>
+      </div>
+      <p
+        className={cn(
+          "mt-1 text-right text-[10px]",
+          enabled ? "text-amber-600 dark:text-amber-300" : "text-text-subtle"
+        )}
+      >
+        {enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
+      </p>
     </div>
   );
 }

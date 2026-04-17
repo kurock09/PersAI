@@ -10,6 +10,7 @@ import type { TelegramIntegrationConfigSettingsGroupReplyMode } from "./telegram
 export interface TelegramIntegrationConfigSettings {
   autoCompactionEnabled: boolean;
   defaultParseMode: TelegramIntegrationConfigSettingsDefaultParseMode;
+  defaultDeepModeEnabled: boolean;
   inboundUserMessagesEnabled: boolean;
   outboundAssistantMessagesEnabled: boolean;
   groupReplyMode: TelegramIntegrationConfigSettingsGroupReplyMode;

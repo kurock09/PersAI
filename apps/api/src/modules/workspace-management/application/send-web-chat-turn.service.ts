@@ -48,6 +48,7 @@ export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
   title?: string | null;
+  deepModeEnabled?: boolean;
   clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
@@ -145,6 +146,16 @@ export class SendWebChatTurnService {
     const surfaceThreadKey = body.surfaceThreadKey;
     const message = body.message;
     const title = normalizeOptionalTitle(body.title);
+    const deepModeEnabled =
+      body.deepModeEnabled === undefined
+        ? undefined
+        : body.deepModeEnabled === true
+          ? true
+          : body.deepModeEnabled === false
+            ? false
+            : (() => {
+                throw new BadRequestException("deepModeEnabled must be boolean or omitted.");
+              })();
     const clientTurnId = normalizeOptionalClientTurnId(body.clientTurnId);
     const welcomeTurn = body.welcomeTurn === true;
 
@@ -162,6 +173,7 @@ export class SendWebChatTurnService {
       surfaceThreadKey: surfaceThreadKey.trim(),
       message: welcomeTurn ? WELCOME_TURN_SENTINEL : (message as string).trim(),
       ...(title !== undefined ? { title } : {}),
+      ...(deepModeEnabled === undefined ? {} : { deepModeEnabled }),
       ...(clientTurnId !== undefined ? { clientTurnId } : {}),
       ...(welcomeTurn ? { welcomeTurn: true } : {}),
       ...(welcomeLocale !== undefined ? { welcomeLocale } : {})
@@ -198,7 +210,10 @@ export class SendWebChatTurnService {
         surface: "web_chat",
         surfaceThreadKey: request.surfaceThreadKey,
         message: request.message,
-        ...(request.title !== undefined ? { title: request.title } : {})
+        ...(request.title !== undefined ? { title: request.title } : {}),
+        ...(request.deepModeEnabled === undefined
+          ? {}
+          : { deepModeEnabled: request.deepModeEnabled })
       });
       preparedAssistantId = prepared.assistantId;
       trace.stage("prepared");
@@ -222,6 +237,7 @@ export class SendWebChatTurnService {
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
+        deepMode: prepared.chat.deepModeEnabled,
         ...(prepared.quotaDegradeModelOverride
           ? {
               providerOverride: prepared.quotaDegradeModelOverride.provider,
@@ -422,6 +438,7 @@ export class SendWebChatTurnService {
         surface: chat.surface,
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
+        deepModeEnabled: chat.deepModeEnabled,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -469,6 +486,8 @@ export class SendWebChatTurnService {
     attachments: SendNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
+    deepMode?: SendNativeWebChatTurnInput["deepMode"];
+    modelRoleOverride?: SendNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
     modelOverride?: string;
   }): SendNativeWebChatTurnInput {
@@ -484,6 +503,10 @@ export class SendWebChatTurnService {
       attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
+      ...(input.modelRoleOverride === undefined
+        ? {}
+        : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };

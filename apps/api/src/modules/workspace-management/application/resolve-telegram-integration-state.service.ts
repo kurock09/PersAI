@@ -81,6 +81,7 @@ export class ResolveTelegramIntegrationStateService {
       telegramMetadata = resolveTelegramBindingMetadataState(refreshedMetadata);
     }
     const defaultParseMode = config?.defaultParseMode === "markdown" ? "markdown" : "plain_text";
+    const defaultDeepModeEnabled = config?.defaultDeepModeEnabled === true;
     const autoCompactionEnabled = config?.autoCompactionEnabled !== false;
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
@@ -140,6 +141,7 @@ export class ResolveTelegramIntegrationStateService {
         settings: {
           autoCompactionEnabled,
           defaultParseMode,
+          defaultDeepModeEnabled,
           inboundUserMessagesEnabled,
           outboundAssistantMessagesEnabled,
           groupReplyMode:

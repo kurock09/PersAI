@@ -126,6 +126,7 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   soul: string;
   user: string;
   identity: string;
+  routeControl: string | null;
   tools: string;
   agents: string;
   heartbeat: string;
@@ -216,6 +217,7 @@ export function createAssistantRuntimeBundle(
         soul: input.promptDocuments.soul,
         user: input.promptDocuments.user,
         identity: input.promptDocuments.identity,
+        routeControl: null,
         tools: input.promptDocuments.tools,
         agents: input.promptDocuments.agents,
         heartbeat: input.promptDocuments.heartbeat

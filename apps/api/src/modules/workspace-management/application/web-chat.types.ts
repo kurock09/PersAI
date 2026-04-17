@@ -8,6 +8,7 @@ export interface AssistantWebChatState {
   surface: AssistantChatSurfaceState;
   surfaceThreadKey: string;
   title: string | null;
+  deepModeEnabled: boolean;
   archivedAt: string | null;
   lastMessageAt: string | null;
   createdAt: string;

@@ -76,6 +76,9 @@ export type PlanDraft = {
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
   primaryModelKey: string;
+  premiumModelKey: string;
+  reasoningModelKey: string;
+  retrievalModelKey: string;
   videoGenerateModelKey: VideoGenerateModelDraft;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
@@ -262,6 +265,9 @@ function emptyDraft(): PlanDraft {
     workspaceStorageMb: "",
     ...applyContextPolicyPreset("balanced"),
     primaryModelKey: "",
+    premiumModelKey: "",
+    reasoningModelKey: "",
+    retrievalModelKey: "",
     videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
@@ -305,6 +311,9 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     autoCompactionWeb: plan.contextPolicy.autoCompactionWeb,
     autoCompactionTelegram: plan.contextPolicy.autoCompactionTelegram,
     primaryModelKey: plan.primaryModelKey ?? "",
+    premiumModelKey: plan.premiumModelKey ?? "",
+    reasoningModelKey: plan.reasoningModelKey ?? "",
+    retrievalModelKey: plan.retrievalModelKey ?? "",
     videoGenerateModelKey: toVideoGenerateModelDraft(plan.videoGenerateModelKey),
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
@@ -394,6 +403,9 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       autoCompactionTelegram: draft.autoCompactionTelegram
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
+    premiumModelKey: toNullable(draft.premiumModelKey),
+    reasoningModelKey: toNullable(draft.reasoningModelKey),
+    retrievalModelKey: toNullable(draft.retrievalModelKey),
     videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
     runtimeTierDefault: draft.runtimeTierDefault,
     toolActivations: draft.toolActivations.map((ta) => ({
@@ -930,33 +942,65 @@ function PlanForm({
               </label>
             </div>
           </Sec>
-          <Sec label="AI model">
-            <select
-              value={draft.primaryModelKey}
-              onChange={(e) => onPatch({ primaryModelKey: e.target.value })}
-              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-            >
-              <option value="">platform default</option>
-              {availableModelKeys.length > 0
-                ? Object.entries(
-                    availableModelKeys.reduce<Record<string, string[]>>(
-                      (acc, { provider, model }) => {
-                        (acc[provider] ??= []).push(model);
-                        return acc;
-                      },
-                      {}
-                    )
-                  ).map(([provider, models]) => (
-                    <optgroup key={provider} label={provider}>
-                      {models.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))
-                : null}
-            </select>
+          <Sec label="AI model slots">
+            <div className="grid gap-2">
+              {[
+                {
+                  label: "Normal reply",
+                  value: draft.primaryModelKey,
+                  patch: (value: string) => onPatch({ primaryModelKey: value }),
+                  placeholder: "platform default"
+                },
+                {
+                  label: "Premium reply",
+                  value: draft.premiumModelKey,
+                  patch: (value: string) => onPatch({ premiumModelKey: value }),
+                  placeholder: "normal reply"
+                },
+                {
+                  label: "Reasoning",
+                  value: draft.reasoningModelKey,
+                  patch: (value: string) => onPatch({ reasoningModelKey: value }),
+                  placeholder: "premium reply"
+                },
+                {
+                  label: "Retrieval helper",
+                  value: draft.retrievalModelKey,
+                  patch: (value: string) => onPatch({ retrievalModelKey: value }),
+                  placeholder: "system/runtime default"
+                }
+              ].map((slot) => (
+                <label key={slot.label} className="grid gap-1">
+                  <span className="text-[11px] font-medium text-text">{slot.label}</span>
+                  <select
+                    value={slot.value}
+                    onChange={(e) => slot.patch(e.target.value)}
+                    className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  >
+                    <option value="">{slot.placeholder}</option>
+                    {availableModelKeys.length > 0
+                      ? Object.entries(
+                          availableModelKeys.reduce<Record<string, string[]>>(
+                            (acc, { provider, model }) => {
+                              (acc[provider] ??= []).push(model);
+                              return acc;
+                            },
+                            {}
+                          )
+                        ).map(([provider, models]) => (
+                          <optgroup key={provider} label={provider}>
+                            {models.map((m) => (
+                              <option key={`${slot.label}-${m}`} value={m}>
+                                {m}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))
+                      : null}
+                  </select>
+                </label>
+              ))}
+            </div>
           </Sec>
         </div>
       </div>
@@ -1297,10 +1341,13 @@ function PlanCardReadOnly({
                   </div>
                 </div>
               </Sec>
-              <Sec label="AI model">
-                <span className="text-[10px] text-text-subtle">
-                  {plan.primaryModelKey ?? "platform default"}
-                </span>
+              <Sec label="AI model slots">
+                <div className="space-y-0.5 text-[10px] text-text-subtle">
+                  <div>Normal: {plan.primaryModelKey ?? "platform default"}</div>
+                  <div>Premium: {plan.premiumModelKey ?? "normal reply"}</div>
+                  <div>Reasoning: {plan.reasoningModelKey ?? "premium reply"}</div>
+                  <div>Retrieval: {plan.retrievalModelKey ?? "system/runtime default"}</div>
+                </div>
               </Sec>
               <Sec label="Video model">
                 <span className="text-[10px] text-text-subtle">

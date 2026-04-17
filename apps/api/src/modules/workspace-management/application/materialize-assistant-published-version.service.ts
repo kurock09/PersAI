@@ -116,25 +116,35 @@ function toDeterministicDocument(value: unknown): string {
   return JSON.stringify(sortKeysDeep(value), null, 2);
 }
 
-export function resolveAllowedPlanPrimaryModelKey(params: {
+function resolveAllowedPlanModelKey(params: {
   runtimeProviderProfile: RuntimeProviderProfileState;
-  planPrimaryModelKey: string | null;
+  planModelKey: string | null;
 }): string | null {
-  const planPrimaryModelKey = params.planPrimaryModelKey?.trim() || null;
-  if (planPrimaryModelKey === null) {
+  const planModelKey = params.planModelKey?.trim() || null;
+  if (planModelKey === null) {
     return null;
   }
   if (
     params.runtimeProviderProfile.mode !== "admin_managed" ||
     params.runtimeProviderProfile.primary === null
   ) {
-    return planPrimaryModelKey;
+    return planModelKey;
   }
   const providerCatalog =
     params.runtimeProviderProfile.availableModelsByProvider[
       params.runtimeProviderProfile.primary.provider
     ] ?? [];
-  return providerCatalog.includes(planPrimaryModelKey) ? planPrimaryModelKey : null;
+  return providerCatalog.includes(planModelKey) ? planModelKey : null;
+}
+
+export function resolveAllowedPlanPrimaryModelKey(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  planPrimaryModelKey: string | null;
+}): string | null {
+  return resolveAllowedPlanModelKey({
+    runtimeProviderProfile: params.runtimeProviderProfile,
+    planModelKey: params.planPrimaryModelKey
+  });
 }
 
 export function resolveAllowedPlanVideoGenerateModelKey(
@@ -254,6 +264,27 @@ export class MaterializeAssistantPublishedVersionService {
       runtimeProviderProfile,
       planPrimaryModelKey: rawPlanPrimaryModelKey
     });
+    const rawPlanPremiumModelKey = await this.resolvePlanPremiumModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planPremiumModelKey = resolveAllowedPlanModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanPremiumModelKey
+    });
+    const rawPlanReasoningModelKey = await this.resolvePlanReasoningModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planReasoningModelKey = resolveAllowedPlanModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanReasoningModelKey
+    });
+    const rawPlanRetrievalModelKey = await this.resolvePlanRetrievalModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planRetrievalModelKey = resolveAllowedPlanModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanRetrievalModelKey
+    });
     const rawPlanVideoGenerateModelKey = await this.resolvePlanVideoGenerateModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
@@ -263,6 +294,21 @@ export class MaterializeAssistantPublishedVersionService {
     if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
       this.logger.warn(
         `Skipping stale plan primary model "${rawPlanPrimaryModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
+    if (rawPlanPremiumModelKey !== null && planPremiumModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan premium model "${rawPlanPremiumModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
+    if (rawPlanReasoningModelKey !== null && planReasoningModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan reasoning model "${rawPlanReasoningModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
+    if (rawPlanRetrievalModelKey !== null && planRetrievalModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan retrieval model "${rawPlanRetrievalModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
       );
     }
     if (rawPlanVideoGenerateModelKey !== null && planVideoGenerateModelKey === null) {
@@ -287,7 +333,10 @@ export class MaterializeAssistantPublishedVersionService {
       effectiveCapabilities,
       policyEnvelope: governance.policyEnvelope,
       runtimeProviderProfile,
-      planPrimaryModelKey
+      planPrimaryModelKey,
+      planPremiumModelKey,
+      planReasoningModelKey,
+      planRetrievalModelKey
     });
     const assistantCapabilityEnvelope = this.resolveAssistantCapabilityEnvelopeService.execute({
       effectiveCapabilities,
@@ -666,6 +715,30 @@ export class MaterializeAssistantPublishedVersionService {
   }
 
   private async resolvePlanPrimaryModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "primaryModelKey");
+  }
+
+  private async resolvePlanPremiumModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "premiumModelKey");
+  }
+
+  private async resolvePlanReasoningModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "reasoningModelKey");
+  }
+
+  private async resolvePlanRetrievalModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "retrievalModelKey");
+  }
+
+  private async resolvePlanBillingHintString(
+    planCode: string | null,
+    key:
+      | "primaryModelKey"
+      | "premiumModelKey"
+      | "reasoningModelKey"
+      | "retrievalModelKey"
+      | "videoGenerateModelKey"
+  ): Promise<string | null> {
     if (planCode === null) {
       return null;
     }
@@ -681,31 +754,13 @@ export class MaterializeAssistantPublishedVersionService {
       return null;
     }
     const record = hints as Record<string, unknown>;
-    return typeof record.primaryModelKey === "string" && record.primaryModelKey.trim().length > 0
-      ? record.primaryModelKey.trim()
+    return typeof record[key] === "string" && record[key].trim().length > 0
+      ? record[key].trim()
       : null;
   }
 
   private async resolvePlanVideoGenerateModelKey(planCode: string | null): Promise<string | null> {
-    if (planCode === null) {
-      return null;
-    }
-    const plan = await this.prisma.planCatalogPlan.findUnique({
-      where: { code: planCode },
-      select: { billingProviderHints: true }
-    });
-    if (plan === null) {
-      return null;
-    }
-    const hints = plan.billingProviderHints;
-    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
-      return null;
-    }
-    const record = hints as Record<string, unknown>;
-    return typeof record.videoGenerateModelKey === "string" &&
-      record.videoGenerateModelKey.trim().length > 0
-      ? record.videoGenerateModelKey.trim()
-      : null;
+    return this.resolvePlanBillingHintString(planCode, "videoGenerateModelKey");
   }
 
   private async resolvePlanRuntimeTierDefault(

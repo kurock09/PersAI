@@ -43,8 +43,8 @@ export interface AppData {
   isAdmin: boolean;
   isLoading: boolean;
   error: string | null;
-  reload: () => void;
-  reloadChats: () => void;
+  reload: () => Promise<void>;
+  reloadChats: () => Promise<void>;
 }
 
 export function useAppData(): AppData {
@@ -128,7 +128,7 @@ export function useAppData(): AppData {
     isAdmin,
     isLoading,
     error,
-    reload: () => void loadAll(),
-    reloadChats: () => void reloadChats()
+    reload: loadAll,
+    reloadChats
   };
 }

@@ -20,6 +20,7 @@ export interface ResolvedTelegramChannelRuntimeConfig {
   outbound: boolean;
   groupReplyMode: "mention_reply" | "all_messages";
   parseMode: string;
+  defaultDeepModeEnabled: boolean;
   accessMode: string;
   ownerClaimStatus: string;
   ownerClaimCode: string | null;
@@ -111,6 +112,7 @@ export class ResolveTelegramChannelRuntimeConfigService {
         typeof bindingConfig.defaultParseMode === "string"
           ? bindingConfig.defaultParseMode
           : "plain_text",
+      defaultDeepModeEnabled: bindingConfig.defaultDeepModeEnabled === true,
       accessMode: metadata.telegramAccessMode,
       ownerClaimStatus: metadata.telegramOwnerClaimStatus,
       ownerClaimCode: metadata.telegramOwnerClaimCode,

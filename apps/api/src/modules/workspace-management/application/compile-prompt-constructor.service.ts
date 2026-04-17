@@ -46,7 +46,10 @@ export class CompilePromptConstructorService {
         params.publishedVersion,
         params.promptTemplates.identity ?? null
       ),
-      tools: this.generateToolsPrompt(params.toolPolicies, params.promptTemplates.tools ?? null),
+      tools: this.generateToolsPrompt(
+        params.toolPolicies.filter((tool) => tool.toolCode !== "route_control"),
+        params.promptTemplates.tools ?? null
+      ),
       agents: this.generateAgentsPrompt(params.promptTemplates.agents ?? null),
       heartbeat: this.generateHeartbeatPrompt(params.promptTemplates.heartbeat ?? null),
       preview: this.generatePreviewPrompt(
@@ -76,6 +79,7 @@ export class CompilePromptConstructorService {
       soul: promptDocuments.soul,
       user: promptDocuments.user,
       identity: promptDocuments.identity,
+      routeControl: this.generateRouteControlPrompt(params.toolPolicies),
       tools: promptDocuments.tools,
       agents: promptDocuments.agents,
       heartbeat: promptDocuments.heartbeat
@@ -230,6 +234,13 @@ export class CompilePromptConstructorService {
     return catalog;
   }
 
+  private generateRouteControlPrompt(toolPolicies: RuntimeToolPolicy[]): string | null {
+    const catalog = buildRuntimeToolPoliciesMarkdown(
+      toolPolicies.filter((tool) => tool.toolCode === "route_control")
+    );
+    return catalog.length > 0 ? catalog : null;
+  }
+
   private generateAgentsPrompt(template: string | null): string {
     return this.normalizeOptionalText(template) ?? "";
   }
@@ -252,6 +263,7 @@ export class CompilePromptConstructorService {
         soul_block: ordinarySections.soul,
         user_block: ordinarySections.user,
         identity_block: ordinarySections.identity,
+        route_control_block: ordinarySections.routeControl,
         tools_block: ordinarySections.tools,
         agents_block: ordinarySections.agents,
         heartbeat_block: ordinarySections.heartbeat
@@ -267,6 +279,7 @@ export class CompilePromptConstructorService {
       this.normalizeOptionalText(ordinarySections.soul),
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),
+      this.normalizeOptionalText(ordinarySections.routeControl),
       this.normalizeOptionalText(ordinarySections.tools),
       this.normalizeOptionalText(ordinarySections.agents),
       this.normalizeOptionalText(ordinarySections.heartbeat)

@@ -200,6 +200,7 @@ export interface AssistantWebChatStreamPayload {
   message: string;
   clientTurnId?: string;
   title?: string | null;
+  deepModeEnabled?: boolean;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
 }
@@ -983,9 +984,7 @@ export async function getAssistant(token: string): Promise<AssistantLifecycleSta
   }
 }
 
-export async function postAssistantCreate(
-  token: string
-): Promise<{ assistant: AssistantLifecycleState; alreadyExisted: boolean }> {
+export async function postAssistantCreate(token: string): Promise<AssistantLifecycleState> {
   try {
     const response = await postAssistantCreateContract({
       headers: getAuthHeaders(token)
@@ -1000,12 +999,8 @@ export async function postAssistantCreate(
       throw new Error("Unexpected non-success response for POST /assistant.");
     }
 
-    return { assistant: response.data.assistant, alreadyExisted: false };
+    return response.data.assistant;
   } catch (error) {
-    if (error instanceof ContractsApiError && error.status === 409) {
-      const existing = await getAssistant(token);
-      if (existing) return { assistant: existing, alreadyExisted: true };
-    }
     throw new Error(toErrorMessage(error));
   }
 }

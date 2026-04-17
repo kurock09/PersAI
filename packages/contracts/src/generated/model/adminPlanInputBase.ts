@@ -29,6 +29,12 @@ export interface AdminPlanInputBase {
   /** @nullable */
   primaryModelKey?: string | null;
   /** @nullable */
+  premiumModelKey?: string | null;
+  /** @nullable */
+  reasoningModelKey?: string | null;
+  /** @nullable */
+  retrievalModelKey?: string | null;
+  /** @nullable */
   videoGenerateModelKey?: AdminPlanInputBaseVideoGenerateModelKey;
   /** @nullable */
   runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;

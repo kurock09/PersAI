@@ -25,6 +25,8 @@ import {
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 
+const HIDDEN_RUNTIME_TOOL_NAMES = new Set(["route_control"]);
+
 export interface SendNativeTelegramTurnInput {
   assistantId: string;
   publishedVersionId: string;
@@ -38,6 +40,7 @@ export interface SendNativeTelegramTurnInput {
   attachments: RuntimeAttachmentRef[];
   userTimezone?: string;
   currentTimeIso?: string;
+  deepMode?: RuntimeTurnRequest["deepMode"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
 }
@@ -131,6 +134,7 @@ export class SendNativeTelegramTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
@@ -170,6 +174,9 @@ export class SendNativeTelegramTurnService {
           case "text_delta":
             continue;
           case "tool_started":
+            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+              continue;
+            }
             await callbacks?.onTool?.({
               phase: "start",
               toolName: event.toolName,
@@ -178,6 +185,9 @@ export class SendNativeTelegramTurnService {
             });
             continue;
           case "tool_finished":
+            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+              continue;
+            }
             await callbacks?.onTool?.({
               phase: "end",
               toolName: event.toolName,

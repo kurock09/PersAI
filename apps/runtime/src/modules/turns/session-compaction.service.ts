@@ -12,7 +12,8 @@ import type {
   RuntimeCompactionRequest,
   RuntimeCompactionResult,
   RuntimeSharedCompactionToolResult,
-  RuntimeSessionSummary
+  RuntimeSessionSummary,
+  RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import { type RuntimeSessionLease, SessionLeaseService } from "../sessions/session-lease.service";
@@ -38,6 +39,28 @@ type ProviderSelection = {
   provider: NativeManagedProvider;
   model: string;
 };
+
+function mergeUsageSnapshots(
+  current: RuntimeUsageSnapshot | null,
+  next: RuntimeUsageSnapshot | null
+): RuntimeUsageSnapshot | null {
+  if (current === null) {
+    return next;
+  }
+  if (next === null) {
+    return current;
+  }
+  const sum = (left: number | null, right: number | null): number | null =>
+    left === null && right === null ? null : (left ?? 0) + (right ?? 0);
+  return {
+    providerKey: current.providerKey ?? next.providerKey,
+    modelKey: current.modelKey ?? next.modelKey,
+    inputTokens: sum(current.inputTokens, next.inputTokens),
+    cachedInputTokens: sum(current.cachedInputTokens ?? null, next.cachedInputTokens ?? null),
+    outputTokens: sum(current.outputTokens, next.outputTokens),
+    totalTokens: sum(current.totalTokens, next.totalTokens)
+  };
+}
 
 type SharedCompactionTrigger = "manual_compaction" | "auto_compaction";
 
@@ -288,7 +311,7 @@ export class SessionCompactionService {
         messages: compactionSource.messages,
         summaryCharBudget
       });
-      if (validatedOutput === null) {
+      if (validatedOutput.normalizedSummary === null) {
         return this.buildCompactionResult({
           toolCode: input.toolCode,
           action: "skipped",
@@ -310,7 +333,8 @@ export class SessionCompactionService {
           summaryText: null,
           summaryPayload: null,
           preservedRecentTurns: contextHydration.keepRecentMinimum,
-          reusableInLaterTurns: false
+          reusableInLaterTurns: false,
+          usage: validatedOutput.usage
         });
       }
       const normalizedSummary = validatedOutput.normalizedSummary;
@@ -361,7 +385,8 @@ export class SessionCompactionService {
         summaryText: normalizedSummary.summaryText,
         summaryPayload: normalizedSummary.payload,
         preservedRecentTurns: contextHydration.keepRecentMinimum,
-        reusableInLaterTurns: input.persistSummary
+        reusableInLaterTurns: input.persistSummary,
+        usage: validatedOutput.usage
       });
     } finally {
       if (input.input.heldLease === undefined) {
@@ -446,9 +471,11 @@ export class SessionCompactionService {
   }): Promise<{
     normalizedSummary: NonNullable<
       ReturnType<typeof normalizeReusableCompactionStateFromModelOutput>["parsed"]
-    >;
-  } | null> {
+    > | null;
+    usage: RuntimeUsageSnapshot | null;
+  }> {
     let retryReason: ReusableSharedCompactionOutputRejectionReason | null = null;
+    let usage: RuntimeUsageSnapshot | null = null;
     for (let attempt = 1; attempt <= SHARED_COMPACTION_MAX_ATTEMPTS; attempt += 1) {
       const providerResult = await this.providerGatewayClientService.generateText(
         this.buildProviderRequest({
@@ -456,6 +483,7 @@ export class SessionCompactionService {
           retryReason
         })
       );
+      usage = mergeUsageSnapshots(usage, providerResult.usage);
       if (providerResult.stopReason !== "completed" || providerResult.text === null) {
         throw new ServiceUnavailableException(
           "Shared compaction provider call did not return a completed summary."
@@ -478,7 +506,8 @@ export class SessionCompactionService {
           );
         }
         return {
-          normalizedSummary: normalizedSummary.parsed
+          normalizedSummary: normalizedSummary.parsed,
+          usage
         };
       }
 
@@ -491,11 +520,24 @@ export class SessionCompactionService {
       );
     }
 
-    return null;
+    return {
+      normalizedSummary: null,
+      usage
+    };
   }
 
   private resolveProviderSelection(bundle: AssistantRuntimeBundle): ProviderSelection {
     const routing = this.asObject(bundle.runtime.runtimeProviderRouting);
+    const modelSlots = this.asObject(routing?.modelSlots);
+    const systemTool = this.asObject(modelSlots?.systemTool);
+    const providerFromSystemTool = this.asNativeManagedProvider(systemTool?.providerKey);
+    const modelFromSystemTool = this.asNonEmptyString(systemTool?.modelKey);
+    if (providerFromSystemTool !== null && modelFromSystemTool !== null) {
+      return {
+        provider: providerFromSystemTool,
+        model: modelFromSystemTool
+      };
+    }
     const primaryPath = this.asObject(routing?.primaryPath);
     if (primaryPath !== null) {
       if (primaryPath.active === false) {
@@ -543,6 +585,7 @@ export class SessionCompactionService {
     summaryPayload: Record<string, unknown> | null;
     preservedRecentTurns: number | null;
     reusableInLaterTurns: boolean;
+    usage?: RuntimeUsageSnapshot | null;
   }): RuntimeCompactionResult {
     return {
       compacted: input.compacted,
@@ -561,7 +604,8 @@ export class SessionCompactionService {
         preservedRecentTurns: input.preservedRecentTurns,
         summaryText: input.summaryText,
         summaryPayload: input.summaryPayload,
-        reusableInLaterTurns: input.reusableInLaterTurns
+        reusableInLaterTurns: input.reusableInLaterTurns,
+        usage: input.usage ?? null
       }
     };
   }

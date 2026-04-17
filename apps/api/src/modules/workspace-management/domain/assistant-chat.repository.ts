@@ -10,6 +10,7 @@ export type CreateAssistantChatInput = {
   surface: AssistantChatSurface;
   surfaceThreadKey: string;
   title: string | null;
+  deepModeEnabled?: boolean;
 };
 
 export type GetOrCreateWebChatUnderCapInput = CreateAssistantChatInput & {
@@ -33,6 +34,11 @@ export type AssistantChatListMetadata = {
   lastMessagePreview: string | null;
 };
 
+export type UpdateAssistantChatInput = {
+  title?: string | null;
+  deepModeEnabled?: boolean;
+};
+
 export interface AssistantChatRepository {
   createChat(input: CreateAssistantChatInput): Promise<AssistantChat>;
   findOrCreateChatBySurfaceThread(input: CreateAssistantChatInput): Promise<AssistantChat>;
@@ -51,7 +57,7 @@ export interface AssistantChatRepository {
   ): Promise<number>;
   listChatsByAssistantId(assistantId: string): Promise<AssistantChat[]>;
   getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
-  renameChat(chatId: string, title: string | null): Promise<AssistantChat | null>;
+  updateChat(chatId: string, input: UpdateAssistantChatInput): Promise<AssistantChat | null>;
   archiveChat(chatId: string): Promise<AssistantChat | null>;
   hardDeleteChat(chatId: string, assistantId: string): Promise<boolean>;
   createMessage(input: CreateAssistantChatMessageInput): Promise<AssistantChatMessage>;

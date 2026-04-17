@@ -81,9 +81,10 @@ async function run(): Promise<void> {
     );
 
     const listed = await service.list("admin-user");
-    assert.equal(listed.length, 7);
-    assert.equal(listed[0]?.toolCode, "summarize_context");
-    assert.equal(listed[6]?.toolCode, "web_search");
+    assert.equal(listed.length, 8);
+    assert.equal(listed[0]?.toolCode, "route_control");
+    assert.equal(listed[1]?.toolCode, "summarize_context");
+    assert.equal(listed[7]?.toolCode, "web_search");
 
     const updated = await service.update("admin-user", "web_search", {
       modelDescription: "Search current public web information.",

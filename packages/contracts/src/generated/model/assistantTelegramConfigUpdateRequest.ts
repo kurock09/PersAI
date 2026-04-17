@@ -10,6 +10,7 @@ import type { AssistantTelegramConfigUpdateRequestGroupReplyMode } from "./assis
 export interface AssistantTelegramConfigUpdateRequest {
   autoCompactionEnabled?: boolean;
   defaultParseMode?: AssistantTelegramConfigUpdateRequestDefaultParseMode;
+  defaultDeepModeEnabled?: boolean;
   inboundUserMessagesEnabled?: boolean;
   outboundAssistantMessagesEnabled?: boolean;
   groupReplyMode?: AssistantTelegramConfigUpdateRequestGroupReplyMode;

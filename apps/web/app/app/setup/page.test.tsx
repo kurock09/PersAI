@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantLifecycleState } from "@persai/contracts";
@@ -14,6 +14,11 @@ const routerMocks = vi.hoisted(() => ({
   replace: vi.fn()
 }));
 
+const appDataMocks = vi.hoisted(() => ({
+  reload: vi.fn(),
+  reloadChats: vi.fn()
+}));
+
 const meApiMocks = vi.hoisted(() => ({
   getMe: vi.fn(),
   postOnboarding: vi.fn()
@@ -21,6 +26,7 @@ const meApiMocks = vi.hoisted(() => ({
 
 const assistantApiMocks = vi.hoisted(() => ({
   getAssistant: vi.fn(),
+  getAssistantVoiceSettings: vi.fn(),
   postAssistantCreate: vi.fn(),
   patchAssistantDraft: vi.fn(),
   postAssistantSetupPreview: vi.fn(),
@@ -36,6 +42,10 @@ vi.mock("@clerk/nextjs", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMocks
+}));
+
+vi.mock("../_components/app-shell", () => ({
+  useAppDataContext: () => appDataMocks
 }));
 
 vi.mock("framer-motion", () => ({
@@ -62,6 +72,7 @@ vi.mock("../assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
+    getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
     postAssistantSetupPreview: assistantApiMocks.postAssistantSetupPreview,
@@ -143,6 +154,41 @@ function makeAssistantState(): AssistantLifecycleState {
   };
 }
 
+function makeResetAssistantState(): AssistantLifecycleState {
+  const assistant = makeAssistantState();
+  return {
+    ...assistant,
+    draft: {
+      ...assistant.draft,
+      displayName: null,
+      instructions: null,
+      traits: null,
+      avatarEmoji: null,
+      avatarUrl: null,
+      assistantGender: null
+    },
+    latestPublishedVersion: null
+  };
+}
+
+function makeRecoverableAssistantState(): AssistantLifecycleState {
+  const assistant = makeAssistantState();
+  return {
+    ...assistant,
+    runtimeApply: {
+      ...assistant.runtimeApply,
+      status: "failed"
+    },
+    draft: {
+      ...assistant.draft,
+      displayName: "Recovered Nova",
+      instructions: "Stay concise and warm.",
+      avatarEmoji: "🌟",
+      assistantGender: "female"
+    }
+  };
+}
+
 function makeMeResponse() {
   return {
     requestId: "req-1",
@@ -193,6 +239,34 @@ function makeMeResponse() {
   };
 }
 
+function makeVoiceSettings() {
+  return {
+    schema: "persai.assistantVoiceSettings.v1" as const,
+    primaryProviderId: "elevenlabs" as const,
+    elevenlabs: {
+      configured: true,
+      loadState: "ready" as const,
+      voices: [
+        {
+          voiceId: "male-voice",
+          name: "Adam",
+          gender: "male" as const,
+          category: null,
+          previewUrl: null
+        },
+        {
+          voiceId: "female-voice",
+          name: "Bella",
+          gender: "female" as const,
+          category: null,
+          previewUrl: null
+        }
+      ],
+      warning: null
+    }
+  };
+}
+
 describe("SetupWizardPage", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", {
@@ -202,12 +276,10 @@ describe("SetupWizardPage", () => {
     });
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.getAssistant.mockResolvedValue(null);
+    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue(makeVoiceSettings());
     meApiMocks.getMe.mockResolvedValue(makeMeResponse());
     meApiMocks.postOnboarding.mockResolvedValue(makeMeResponse());
-    assistantApiMocks.postAssistantCreate.mockResolvedValue({
-      assistant: makeAssistantState(),
-      alreadyExisted: false
-    });
+    assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantState());
     assistantApiMocks.patchAssistantDraft.mockResolvedValue(makeAssistantState());
     assistantApiMocks.postAssistantSetupPreview.mockResolvedValue({
       message: "Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.",
@@ -217,12 +289,15 @@ describe("SetupWizardPage", () => {
       avatarUrl: "https://example.com/avatar.png"
     });
     assistantApiMocks.postAssistantPublish.mockResolvedValue(makeAssistantState());
+    appDataMocks.reload.mockResolvedValue(undefined);
+    appDataMocks.reloadChats.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
+    cleanup();
     cleanupLocation();
     vi.unstubAllGlobals();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   function renderWithIntl(ui: ReactNode) {
@@ -289,7 +364,19 @@ describe("SetupWizardPage", () => {
         displayName: "Nova",
         assistantGender: "female",
         avatarEmoji: null,
-        avatarUrl: null
+        avatarUrl: null,
+        voiceProfile: expect.objectContaining({
+          elevenlabs: {
+            voiceId: "female-voice"
+          },
+          yandex: {
+            voice: "marina",
+            role: null
+          },
+          openai: {
+            voice: "marin"
+          }
+        })
       })
     );
     expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledWith(
@@ -317,6 +404,7 @@ describe("SetupWizardPage", () => {
       })
     );
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   }, 10000);
 
@@ -363,7 +451,83 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
+  });
+
+  it("recovers an existing draft explicitly without retrying assistant creation", async () => {
+    clerkMocks.getToken
+      .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-onboarding-preview")
+      .mockResolvedValueOnce("token-patch-preview")
+      .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-publish");
+    assistantApiMocks.getAssistant.mockResolvedValue(makeRecoverableAssistantState());
+
+    renderWithIntl(<SetupWizardPage />);
+
+    expect(await screen.findByText("Recover existing draft")).toBeInTheDocument();
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+
+    expect(await screen.findByDisplayValue("Recovered Nova")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(
+      await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /recover assistant/i }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+
+    expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses an explicit recreate path after reset without relying on a 409 fallback", async () => {
+    clerkMocks.getToken
+      .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-onboarding-preview")
+      .mockResolvedValueOnce("token-patch-preview")
+      .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-publish");
+    assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());
+
+    renderWithIntl(<SetupWizardPage />);
+
+    expect(await screen.findByText("Recreate existing assistant")).toBeInTheDocument();
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+
+    fireEvent.change(screen.getByPlaceholderText(/name — e\.g\./i), {
+      target: { value: "Nova Rebuilt" }
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Female" }).at(-1)!);
+    fireEvent.click(
+      screen
+        .getAllByRole("button")
+        .find(
+          (button) => button.textContent?.includes("Nova") && button.textContent?.includes("🌟")
+        )!
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(
+      await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /recreate assistant/i }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
+    });
+
+    expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
+    expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -27,6 +27,7 @@ type SyntheticPromptToolOverrideMap = Record<
 >;
 
 const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMode"]> = {
+  route_control: "inline",
   summarize_context: "inline",
   compact_context: "inline",
   memory_write: "inline",
