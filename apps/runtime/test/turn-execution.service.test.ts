@@ -1456,7 +1456,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     compactionToolCode: null
   });
   assert.equal(providerGatewayClient.calls[0]?.promptCache?.retention, "in_memory");
-  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /^ps1:oc:[a-f0-9]{32}:b\d{2}$/);
+  assert.match(
+    providerGatewayClient.calls[0]?.promptCache?.key ?? "",
+    /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
+  );
   assert.ok((providerGatewayClient.calls[0]?.promptCache?.key?.length ?? 0) <= 64);
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
@@ -1633,7 +1636,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key ?? "",
     /^ps1:rc:[a-f0-9]{32}:b\d{2}$/
   );
-  assert.ok((providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key?.length ?? 0) <= 64);
+  assert.ok(
+    (providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key?.length ?? 0) <= 64
+  );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
   assert.equal(
     providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
@@ -2412,7 +2417,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     refreshedMessagesAfterCompaction
   );
   assert.equal(hydratedStableBlockTokens.length, 2);
-  assert.match(providerGatewayClient.calls.at(-1)?.promptCache?.key ?? "", /^ps1:oc:[a-f0-9]{32}:b\d{2}$/);
+  assert.match(
+    providerGatewayClient.calls.at(-1)?.promptCache?.key ?? "",
+    /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
+  );
   assert.ok((providerGatewayClient.calls.at(-1)?.promptCache?.key?.length ?? 0) <= 64);
   assert.notEqual(
     providerGatewayClient.calls.at(-1)?.promptCache?.key,

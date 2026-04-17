@@ -594,10 +594,7 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     compactionToolCode: "compact_context"
   });
   assert.equal(providerGateway.requests[0]?.promptCache?.retention, "in_memory");
-  assert.match(
-    providerGateway.requests[0]?.promptCache?.key ?? "",
-    /^ps1:sc:[a-f0-9]{32}:b\d{2}$/
-  );
+  assert.match(providerGateway.requests[0]?.promptCache?.key ?? "", /^ps1:sc:[a-f0-9]{32}:b\d{2}$/);
   assert.ok((providerGateway.requests[0]?.promptCache?.key?.length ?? 0) <= 64);
   assert.deepEqual(
     providerGateway.requests[0]?.outputSchema,
