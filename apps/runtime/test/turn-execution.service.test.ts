@@ -1456,15 +1456,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     compactionToolCode: null
   });
   assert.equal(providerGatewayClient.calls[0]?.promptCache?.retention, "in_memory");
-  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /^persai:ordinary_chat:/);
-  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /:b\d{2}$/);
-  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /:ordinary_prompt\.v1\./);
-  assert.match(
-    providerGatewayClient.calls[0]?.promptCache?.key ?? "",
-    new RegExp(
-      `ordinary_prompt\\.v1\\.${bundleRegistry.entry?.parsedBundle.promptConstructor.ordinary.stablePrefix?.hash ?? ""}`
-    )
-  );
+  assert.match(providerGatewayClient.calls[0]?.promptCache?.key ?? "", /^ps1:oc:[a-f0-9]{32}:b\d{2}$/);
+  assert.ok((providerGatewayClient.calls[0]?.promptCache?.key?.length ?? 0) <= 64);
   assert.deepEqual(
     providerGatewayClient.calls[0]?.tools?.map((tool) => tool.name),
     [
@@ -1638,8 +1631,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key ?? "",
-    /^persai:route_control:[a-f0-9]{64}:b\d{2}$/
+    /^ps1:rc:[a-f0-9]{32}:b\d{2}$/
   );
+  assert.ok((providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key?.length ?? 0) <= 64);
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
   assert.equal(
     providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
@@ -2418,9 +2412,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     refreshedMessagesAfterCompaction
   );
   assert.equal(hydratedStableBlockTokens.length, 2);
-  for (const token of hydratedStableBlockTokens) {
-    assert.match(providerGatewayClient.calls.at(-1)?.promptCache?.key ?? "", new RegExp(token));
-  }
+  assert.match(providerGatewayClient.calls.at(-1)?.promptCache?.key ?? "", /^ps1:oc:[a-f0-9]{32}:b\d{2}$/);
+  assert.ok((providerGatewayClient.calls.at(-1)?.promptCache?.key?.length ?? 0) <= 64);
   assert.notEqual(
     providerGatewayClient.calls.at(-1)?.promptCache?.key,
     providerGatewayClient.calls.at(-2)?.promptCache?.key
@@ -2565,19 +2558,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.streamCalls[0]?.promptCache?.retention, "in_memory");
   assert.match(
     providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
-    /^persai:ordinary_chat:/
+    /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
   );
-  assert.match(providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "", /:b\d{2}$/);
-  assert.match(
-    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
-    /:ordinary_prompt\.v1\./
-  );
-  assert.match(
-    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
-    new RegExp(
-      `ordinary_prompt\\.v1\\.${bundleRegistry.entry?.parsedBundle.promptConstructor.ordinary.stablePrefix?.hash ?? ""}`
-    )
-  );
+  assert.ok((providerGatewayClient.streamCalls[0]?.promptCache?.key?.length ?? 0) <= 64);
   assert.deepEqual(
     providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
     [

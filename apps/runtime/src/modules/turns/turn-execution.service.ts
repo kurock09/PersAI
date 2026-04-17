@@ -88,6 +88,7 @@ type ProviderSelection = {
 };
 
 const PROMPT_CACHE_KEY_BUCKETS = 8;
+const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 
 type UserFacingTurnModelRole = Extract<
@@ -2352,14 +2353,15 @@ export class TurnExecutionService {
               })
             )
             .digest("hex");
+    const identityToken = stablePrefixToken ?? this.computePromptCacheIdentityHash(input.bundle);
     return {
-      key: [
-        `persai:${input.family}`,
-        stablePrefixToken ?? this.computePromptCacheIdentityHash(input.bundle),
-        ...hydratedStableBlockTokens,
-        ...(variantHash === null ? [] : [variantHash]),
-        `b${this.computePromptCacheBucket(input.bundle.metadata.assistantId)}`
-      ].join(":"),
+      key: this.buildOpenAIPromptCacheKey({
+        bundle: input.bundle,
+        family: input.family,
+        identityToken,
+        hydratedStableBlockTokens,
+        variantHash
+      }),
       retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
     };
   }
@@ -2396,6 +2398,42 @@ export class TurnExecutionService {
         ].join(":")
       )
       .digest("hex");
+  }
+
+  private buildOpenAIPromptCacheKey(input: {
+    bundle: AssistantRuntimeBundle;
+    family: string;
+    identityToken: string;
+    hydratedStableBlockTokens: string[];
+    variantHash: string | null;
+  }): string {
+    const digest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          family: input.family,
+          identityToken: input.identityToken,
+          hydratedStableBlockTokens: input.hydratedStableBlockTokens,
+          variantHash: input.variantHash
+        })
+      )
+      .digest("hex")
+      .slice(0, PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH);
+    return `ps1:${this.resolvePromptCacheFamilyAlias(input.family)}:${digest}:b${this.computePromptCacheBucket(
+      input.bundle.metadata.assistantId
+    )}`;
+  }
+
+  private resolvePromptCacheFamilyAlias(family: string): string {
+    switch (family) {
+      case "ordinary_chat":
+        return "oc";
+      case "deep_chat":
+        return "dc";
+      case "route_control":
+        return "rc";
+      default:
+        return "uk";
+    }
   }
 
   private computePromptCacheBucket(source: string): string {

@@ -362,6 +362,9 @@ export class ProviderTextGenerationService {
     ) {
       throw new BadRequestException("promptCache.key must be a non-empty string when provided");
     }
+    if (typeof promptCache.key === "string" && promptCache.key.length > 64) {
+      throw new BadRequestException("promptCache.key must be at most 64 characters when provided");
+    }
     if (
       promptCache.retention !== undefined &&
       !PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS.includes(promptCache.retention)

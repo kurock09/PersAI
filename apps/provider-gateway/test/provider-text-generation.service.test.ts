@@ -369,6 +369,24 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
       service.generateText({
         ...createRequest("openai"),
         promptCache: {
+          key: "x".repeat(65),
+          retention: "in_memory"
+        },
+        messages: [
+          {
+            role: "user",
+            content: "hello"
+          }
+        ]
+      }),
+    /promptCache.key must be at most 64 characters when provided/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateText({
+        ...createRequest("openai"),
+        promptCache: {
           retention: "forever" as "in_memory"
         },
         messages: [

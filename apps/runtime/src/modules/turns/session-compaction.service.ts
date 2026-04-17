@@ -76,6 +76,7 @@ const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
 const SHARED_COMPACTION_MAX_ATTEMPTS = 2;
 const SHARED_COMPACTION_MAX_OUTPUT_TOKENS = 1_200;
 const SHARED_COMPACTION_PROMPT_CACHE_BUCKETS = 8;
+const SHARED_COMPACTION_PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 
 @Injectable()
@@ -540,9 +541,7 @@ export class SessionCompactionService {
       return undefined;
     }
     return {
-      key: `persai:shared_compaction:${this.computePromptCacheIdentityHash(bundle)}:b${this.computePromptCacheBucket(
-        bundle.metadata.assistantId
-      )}`,
+      key: this.buildOpenAIPromptCacheKey(bundle),
       retention: DEFAULT_OPENAI_PROMPT_CACHE_RETENTION
     };
   }
@@ -559,6 +558,19 @@ export class SessionCompactionService {
         ].join(":")
       )
       .digest("hex");
+  }
+
+  private buildOpenAIPromptCacheKey(bundle: AssistantRuntimeBundle): string {
+    const digest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          family: "shared_compaction",
+          identityHash: this.computePromptCacheIdentityHash(bundle)
+        })
+      )
+      .digest("hex")
+      .slice(0, SHARED_COMPACTION_PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH);
+    return `ps1:sc:${digest}:b${this.computePromptCacheBucket(bundle.metadata.assistantId)}`;
   }
 
   private computePromptCacheBucket(source: string): string {

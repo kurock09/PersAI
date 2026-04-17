@@ -596,8 +596,9 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(providerGateway.requests[0]?.promptCache?.retention, "in_memory");
   assert.match(
     providerGateway.requests[0]?.promptCache?.key ?? "",
-    /^persai:shared_compaction:[a-f0-9]{64}:b\d{2}$/
+    /^ps1:sc:[a-f0-9]{32}:b\d{2}$/
   );
+  assert.ok((providerGateway.requests[0]?.promptCache?.key?.length ?? 0) <= 64);
   assert.deepEqual(
     providerGateway.requests[0]?.outputSchema,
     REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA
