@@ -2,6 +2,8 @@
 
 This document defines the current verification baseline for the active PersAI-native path.
 
+ADR-072 is closed for the native migration baseline through Step 18. Any follow-through work on create/recreate polish, memory/knowledge economics, Step 19 scale hardening, Step 15a, or Step 20 should also be checked against `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Required repo checks
 
 Run these before calling a change clean:

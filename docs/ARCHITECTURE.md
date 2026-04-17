@@ -11,6 +11,8 @@ PersAI is a modular monolith control plane plus two internal execution services:
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
+ADR-072 is the historical migration ADR through the Step 18 native-path closeout. The active follow-through program after that baseline now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Core boundaries
 
 ### Control plane

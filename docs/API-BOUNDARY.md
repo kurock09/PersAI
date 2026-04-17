@@ -4,6 +4,8 @@ This document describes the current active PersAI request boundaries.
 
 For exact request and response schemas, use `packages/contracts/openapi.yaml` and the generated client/types in `packages/contracts/src/generated`.
 
+ADR-072 is closed for the active migration baseline through Step 18. Current follow-through after that native-path baseline is tracked in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Public product APIs
 
 Primary public API surface:

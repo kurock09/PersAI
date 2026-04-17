@@ -10,6 +10,8 @@ Use this mode when you want local `apps/web` against the live dev API without re
 
 This guide validates the active PersAI-native path only. It does not rely on any OpenClaw service.
 
+ADR-072 is closed for the active migration baseline through Step 18. Current follow-through after that baseline is tracked in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Preconditions
 
 - kube context points to the target dev cluster

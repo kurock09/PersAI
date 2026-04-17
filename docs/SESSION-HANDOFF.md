@@ -1,5 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-073 residue and polish baseline
+
+### What changed
+
+1. Added `docs/ADR/073-post-adr072-residue-and-polish-program.md` as the active post-ADR-072 program ADR. It now owns the ordered follow-through after the Step 18 native-path closeout: create/recreate lifecycle polish, user UI polish, memory/knowledge/cache/model-routing economics, Step 19 scale hardening, and the deferred Step 15a/Step 20 work.
+2. Marked active source-of-truth docs and runbooks so they stop treating ADR-072 as if it is still the live execution program. ADR-072 now carries an explicit historical status note, while current README/architecture/API/data-model/product/test/runbook docs point future work at ADR-073.
+3. Cleaned `docs/ROADMAP.md` back to one active roadmap instead of keeping the newer native-path summary at the top and a stale historical roadmap body underneath it.
+4. Updated GitHub Actions workflow versions in `.github/workflows/ci.yml` and `.github/workflows/dev-image-publish.yml` to remove the current Node 20 JavaScript action-runtime deprecation warnings without changing the CI/build contract.
+
+### Current active slice
+
+- `ADR-073 - post-ADR-072 residue and polish program`
+
+### Current active step
+
+- `Create/recreate lifecycle polish and cost/quality architecture follow-through`
+
+### Files touched
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/dev-image-publish.yml`
+- `AGENTS.md`
+- `README.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/PRODUCT.md`
+- `docs/ROADMAP.md`
+- `docs/TEST-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `infra/dev/gke/RUNBOOK.md`
+- `infra/dev/gke/README.md`
+- `infra/dev/gitops/README.md`
+
+### Verification run
+
+- `corepack pnpm exec prettier --check ".github/workflows/*.{yml,yaml}"`
+
+### Risks / notes
+
+1. ADR-073 is intentionally a wide program ADR. Future implementation slices should stay bounded and use ADR-073 as ordering/governance, not as permission to mix many code changes into one delivery.
+2. Current active retrieval is still `pattern_only` plus heuristic rerank. ADR-073 now says that explicitly; it does not claim vector/embedding retrieval or provider-native cached input are already live.
+3. Workflow updates remove the known deprecation warnings for the currently flagged JavaScript actions, but the actual proof point is the next GitHub Actions run rather than a local parser-only check.
+
+### Next recommended step
+
+1. Execute the first ADR-073 product slice on the real setup/create/recreate path: remove duplicated setup writes where justified, tighten preview/final-create truth, and make lifecycle states more honest before jumping to larger retrieval or sandbox work.
+
 ## 2026-04-17 - ADR-072 Step 18 closeout status sync
 
 ### What changed

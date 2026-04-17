@@ -2,6 +2,8 @@
 
 This directory contains the active GitOps wiring for the `persai-dev` environment.
 
+ADR-072 remains the historical native-migration ADR through the Step 18 closeout. The active follow-through program after that baseline now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Deploy path
 
 1. Argo CD project: `infra/dev/gitops/argocd/project-dev.yaml`

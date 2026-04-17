@@ -2,6 +2,8 @@
 
 This runbook defines the current manual bootstrap, reset, and verification procedure for the PersAI-native `persai-dev` environment.
 
+ADR-072 remains the historical migration ADR through the Step 18 native-path closeout. The active follow-through program for lifecycle polish, cost/quality architecture, and deferred Step 19/15a/20 work now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Prerequisites
 
 - `gcloud` authenticated to the target GCP project

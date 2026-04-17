@@ -2,6 +2,8 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
+ADR-072 remains the historical migration record through the Step 18 native-path closeout. The active post-closeout program now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Control-plane ownership
 
 PersAI is the source of truth for:

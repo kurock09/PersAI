@@ -13,6 +13,8 @@ The active product path is:
 
 OpenClaw is not part of the active product/runtime path.
 
+ADR-072 records how the native product/runtime baseline replaced the legacy path through Step 18. The active follow-through program for lifecycle polish, memory/knowledge economics, and deferred runtime work now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+
 ## Core product principles
 
 - canonical assistant, chat, governance, and quota truth lives in PersAI
