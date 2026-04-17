@@ -488,7 +488,8 @@ export class TurnExecutionService {
                   acceptedTurn,
                   input,
                   toolCall,
-                  input.idempotencyKey
+                  input.idempotencyKey,
+                  signal
                 );
               } catch (error) {
                 yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -499,6 +500,9 @@ export class TurnExecutionService {
               durableCompactionExecuted =
                 durableCompactionExecuted ||
                 outcome.sharedCompaction?.durableStatePersisted === true;
+              if (toolCall.name === ROUTE_CONTROL_TOOL_CODE) {
+                this.disableRouteControlForRemainingTurn(execution);
+              }
               routeControl = outcome.routeControl ?? routeControl;
               yield this.createToolFinishedStreamEvent(
                 acceptedTurn,
@@ -1409,6 +1413,9 @@ export class TurnExecutionService {
         this.applyToolExecutionOutcome(turnState, outcome);
         durableCompactionExecuted =
           durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
+        if (toolCall.name === ROUTE_CONTROL_TOOL_CODE) {
+          this.disableRouteControlForRemainingTurn(execution);
+        }
         if (outcome.routeControl !== undefined) {
           this.applyRouteControlOutcome(execution, input, outcome.routeControl);
         }
@@ -1436,7 +1443,8 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeTurnRequest,
     toolCall: ProviderGatewayToolCall,
-    currentUserMessageId: string | null
+    currentUserMessageId: string | null,
+    signal?: AbortSignal
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -1530,7 +1538,7 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case ROUTE_CONTROL_TOOL_CODE:
-        return this.executeRouteControlTool(execution, acceptedTurn, input, toolCall);
+        return this.executeRouteControlTool(execution, acceptedTurn, input, toolCall, signal);
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
@@ -1655,7 +1663,8 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution,
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeTurnRequest,
-    toolCall: ProviderGatewayToolCall
+    toolCall: ProviderGatewayToolCall,
+    signal?: AbortSignal
   ): Promise<ToolExecutionOutcome> {
     const routeControlReason = this.readRouteControlReason(toolCall.arguments);
     if (routeControlReason instanceof Error) {
@@ -1693,7 +1702,8 @@ export class TurnExecutionService {
           providerSelection: chooserSelection,
           hydratedMessages: execution.providerRequest.messages,
           routeControlReason
-        })
+        }),
+        signal === undefined ? undefined : { signal }
       );
       if (chooserResult.stopReason !== "completed") {
         this.logger.warn(
@@ -2373,28 +2383,58 @@ export class TurnExecutionService {
         ? execution.selectedModelRole
         : routeControl.modelRole;
     execution.selectedModelRole = nextModelRole;
+    const providerSelection = this.resolveProviderSelectionForExecution(
+      execution,
+      input,
+      nextModelRole
+    );
+    execution.providerRequest = this.buildProviderRequest(
+      execution.bundle,
+      providerSelection,
+      execution.providerRequest.messages,
+      execution.projectedTools,
+      execution.selectedLookupStrategy,
+      execution.deepModeEnabled
+    );
+  }
 
-    const providerSelection =
-      input.providerOverride !== undefined && input.modelOverride !== undefined
-        ? {
-            provider: input.providerOverride,
-            model: input.modelOverride.trim()
-          }
-        : this.resolveProviderSelection(execution.bundle, {
-            modelRoleOverride: nextModelRole
-          });
-
-    execution.providerRequest = {
-      ...execution.providerRequest,
-      provider: providerSelection.provider,
-      model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(
-        execution.bundle,
-        execution.projectedTools,
-        execution.selectedLookupStrategy,
-        execution.deepModeEnabled
-      )
+  private disableRouteControlForRemainingTurn(execution: PreparedTurnExecution): void {
+    const nextTools = execution.projectedTools.tools.filter(
+      (tool) => tool.name !== ROUTE_CONTROL_TOOL_CODE
+    );
+    if (nextTools.length === execution.projectedTools.tools.length) {
+      return;
+    }
+    execution.projectedTools = {
+      ...execution.projectedTools,
+      tools: nextTools
     };
+    execution.providerRequest = this.buildProviderRequest(
+      execution.bundle,
+      {
+        provider: execution.providerRequest.provider,
+        model: execution.providerRequest.model
+      },
+      execution.providerRequest.messages,
+      execution.projectedTools,
+      execution.selectedLookupStrategy,
+      execution.deepModeEnabled
+    );
+  }
+
+  private resolveProviderSelectionForExecution(
+    execution: PreparedTurnExecution,
+    input: RuntimeTurnRequest,
+    nextModelRole: PersaiRuntimeModelRole
+  ): ProviderSelection {
+    return input.providerOverride !== undefined && input.modelOverride !== undefined
+      ? {
+          provider: input.providerOverride,
+          model: input.modelOverride.trim()
+        }
+      : this.resolveProviderSelection(execution.bundle, {
+          modelRoleOverride: nextModelRole
+        });
   }
 
   private readRouteControlReason(argumentsObject: Record<string, unknown>): string | null | Error {

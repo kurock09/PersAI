@@ -10,7 +10,8 @@
    - browser API routing now ignores `NEXT_PUBLIC_API_BASE_URL=localhost` on the client and falls back to same-origin `/api/v1`, so live `persai.dev` no longer tries to call the user's localhost when that env is mis-set in the deployed web bundle.
    - `route_control` planner structured output now sends a valid schema (`reason` included in `required`) and no longer leaks raw provider/internal planner failure text back into the user-visible model path.
    - dangerous-action step-up challenge parsing now accepts `admin.plan.delete`, so deleting a plan no longer fails before the actual delete request is even sent.
-3. Final user-surface polish for the current web shell also landed: chat header mode toggle is now slimmer and left-aligned beside the title, the sidebar deep-mode badge wording is now `Умнее` / `Smarter`, and Clerk avatar rendering now has cache-busting plus a safe initials fallback instead of showing a broken image when the remote avatar fails.
+3. ADR-073 knowledge/retrieval guidance is now sharper: knowledge-side helper work should resolve from the active plan's `retrieval` slot when available, and retrieval helper calls should avoid the full conversational system/persona shell, carrying only the smallest task-specific contract needed for rewrite, ranking, selection, or schema conformance so retrieval does not burn extra prompt tokens without adding value.
+4. Final user-surface polish for the current web shell also landed: chat header mode toggle is now slimmer and left-aligned beside the title, the sidebar deep-mode badge wording is now `Умнее` / `Smarter`, and Clerk avatar rendering now has cache-busting plus a safe initials fallback instead of showing a broken image when the remote avatar fails.
 
 ### Current active slice
 

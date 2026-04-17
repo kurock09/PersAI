@@ -79,7 +79,8 @@ export class ProviderGatewayClientService {
   }
 
   async generateText(
-    input: ProviderGatewayTextGenerateRequest
+    input: ProviderGatewayTextGenerateRequest,
+    options?: { signal?: AbortSignal }
   ): Promise<ProviderGatewayTextGenerateResult> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
@@ -94,7 +95,8 @@ export class ProviderGatewayClientService {
         },
         body: JSON.stringify(input)
       },
-      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS,
+      options?.signal
     );
     if (!response.ok) {
       throw this.toGatewayException(response);
@@ -409,11 +411,12 @@ export class ProviderGatewayClientService {
   private async fetchJson(
     url: string,
     init: RequestInit,
-    timeoutMs: number
+    timeoutMs: number,
+    externalSignal?: AbortSignal
   ): Promise<JsonResponse> {
-    const { signal, dispose } = this.createTimedSignal(timeoutMs);
+    const { signal, dispose } = this.createTimedSignal(timeoutMs, externalSignal);
     try {
-      const response = await this.fetchWithSignal(url, init, signal, timeoutMs);
+      const response = await this.fetchWithSignal(url, init, signal, timeoutMs, externalSignal);
       return {
         ok: response.ok,
         status: response.status,

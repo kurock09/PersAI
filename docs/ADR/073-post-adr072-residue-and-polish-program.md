@@ -276,12 +276,16 @@ After that correction, PersAI will move toward a hybrid knowledge stack:
 
 The specialized retrieval model is not the main conversational agent. It is a hidden knowledge-side helper owned by the runtime/tool path.
 
+When this helper path is used, the runtime should resolve the model from the active plan's `retrievalModel` slot when that slot exists, rather than from a hard-coded vendor/model choice or the ordinary reply path.
+
 Budget rules:
 
 - retrieval is reference-first
 - summaries beat raw document dumps
 - the final prompt receives bounded excerpts, not full corpora
 - cacheable knowledge blocks should be reused instead of rebuilt every turn
+- retrieval-side helper calls should avoid the full conversational system prompt and persona shell whenever possible
+- retrieval-side helper calls should carry only the smallest task contract needed for rewrite, ranking, selection, or schema conformance, so PersAI does not waste tokens on user-facing prompt framing where it adds no retrieval value
 
 ### E. Hidden system/tool model and turn-economics target
 

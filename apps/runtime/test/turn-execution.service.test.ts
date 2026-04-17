@@ -879,8 +879,10 @@ class FakeProviderGatewayClientService {
   ];
 
   async generateText(
-    input: ProviderGatewayTextGenerateRequest
+    input: ProviderGatewayTextGenerateRequest,
+    options?: { signal?: AbortSignal }
   ): Promise<ProviderGatewayTextGenerateResult> {
+    void options;
     this.calls.push(input);
     if (this.error !== null) {
       throw this.error;
@@ -1582,6 +1584,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-4.1");
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
+  assert.equal(
+    providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
+      (tool) => tool.name === "route_control"
+    ),
+    false
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[chooserCallOffset + 2]?.systemPrompt ?? "",
+    /## Route Control/
+  );
   assert.equal(chooserCompleted.usageAccounting?.inputTokens, 17);
   assert.equal(chooserCompleted.usageAccounting?.cachedInputTokens, 1);
   assert.equal(chooserCompleted.usageAccounting?.outputTokens, 28);
@@ -1803,12 +1815,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const retrievalHintToolNames =
     providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.tools?.map((tool) => tool.name) ??
     [];
-  assert.equal(retrievalHintToolNames.includes("route_control"), true);
+  assert.equal(retrievalHintToolNames.includes("route_control"), false);
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
   assert.match(
     providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
     /Turn Route Guidance[\s\S]*Use internal assistant-owned knowledge or memory tools before answering/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
+    /## Route Control/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
@@ -1906,9 +1922,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
+  assert.equal(
+    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.tools?.some(
+      (tool) => tool.name === "route_control"
+    ),
+    false
+  );
   assert.match(
     providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
     /Turn Route Guidance[\s\S]*Use live web lookup before answering/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
+    /## Route Control/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
