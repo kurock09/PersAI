@@ -84,13 +84,14 @@ The active runtime already has a real PersAI-owned knowledge layer, but it is st
 
 ### 6. Model routing and reasoning audit
 
-The active system already materializes structured provider routing, and the admin surface already owns a default model path, but execution does not yet match the desired plan-scoped contract:
+The active system now has the first real plan-scoped routing baseline from Economics Slice A:
 
-- `runtimeProviderRouting.primaryPath` is real and used
-- `fallbackMatrix` is materialized but not fully executed by runtime turn logic
-- there is no explicit per-plan slot contract for ordinary conversation, deeper/premium replies, and hidden system/tool work
-- there is no explicit rule that the main reply agent may orchestrate internal steps while keeping raw model choice hidden except for an optional deeper-thinking mode
-- turn-level usage accounting does not yet make `input`, `cached input`, and `output` costs first-class across all internal calls
+- `runtimeProviderRouting.primaryPath` and `fallbackMatrix` are real and still materialized
+- the runtime now resolves explicit plan-scoped slots for `normal`, `premium`, `reasoning`, hidden `system/tool`, and optional `retrieval` helper work
+- the main reply path can call hidden `route_control` for ambiguous turns while keeping raw model choice out of ordinary UX
+- explicit deeper-thinking mode is live on the user surface without introducing raw model pickers
+- turn-level usage accounting now records `input`, `cached input`, and `output` usage across internal model calls
+- remaining economics gaps now move to prompt-cache-first context architecture and the later retrieval/embedding follow-through, not the Slice A slot/accounting contract itself
 
 ### 7. Cache and prompt-economy audit
 
@@ -105,12 +106,13 @@ The active path already has bundle caching and compaction reuse, but not the ful
 
 ### 8. Tool orchestration audit
 
-The active runtime has a real bounded tool loop, but not yet the final split between conversation, hidden utility work, and execution:
+The active runtime has a real bounded tool loop and now also has the first explicit hidden utility-model contract from Economics Slice A:
 
-- the main runtime model plans and executes tool calls in one bounded loop
+- the main runtime model still plans and executes tool calls in one bounded loop
 - inline tools and worker tools are already separated operationally
-- simple background steps such as query rewrite, summary/compaction, selection, rerank, or tool-argument preparation do not yet have one explicit hidden system/tool-model contract
-- there is no dedicated deterministic tool-runner layer for low-thinking operations such as `tts`, `web`, `image`, quota checks, and policy/accounting enforcement
+- hidden system/tool-model work now has an explicit contract for planning/selection-style tasks such as `route_control`
+- the current architecture keeps tools visible when policy allows them and uses hidden route guidance instead of hard-hiding tools from the model
+- a more isolated deterministic tool-runner layer for every low-thinking operation is still later follow-through rather than already-finished repo truth
 
 ## Decision
 
@@ -419,13 +421,14 @@ The first implementation wave after ADR-073 approval is grouped into larger slic
 2. **User UI polish** (completed)
    - settings/chat/sidebar/profile/auth polish landed on the active native path
    - future UI changes should now be driven by the remaining lifecycle/economics work
-3. **Economics Slice A - plan-scoped model slots and turn accounting**
-   - define plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work
-   - land honest per-turn accounting for `input`, `cached input`, `output`, and summed cost
-4. **Economics Slice B - prompt-cache-first context architecture**
+3. **Economics Slice A - plan-scoped model slots and turn accounting** (completed; ready for deploy/live validation)
+   - plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work are landed on the active path
+   - hidden `route_control` plus explicit deeper-thinking mode now steer ambiguous turns without exposing raw model pickers
+   - honest per-turn accounting now records `input`, `cached input`, `output`, and per-call totals across internal model work
+4. **Economics Slice B - prompt-cache-first context architecture** (next active step)
    - maximize provider-native cached input with large stable prefixes
    - formalize stable profile/summary/KB blocks plus invalidation/versioning rules
-5. **Economics Slice C - knowledge correction and retrieval-model path**
+5. **Economics Slice C - knowledge correction and retrieval-model path** (planned)
    - align docs/product/runtime truth around current `pattern_only` retrieval
    - add specialized retrieval-model assistance where justified, then land real hybrid embedding retrieval
 
@@ -452,18 +455,18 @@ ADR-073 does not:
 
 ## Execution ledger
 
-| Program item                               | Status    | Notes                                                                             |
-| ------------------------------------------ | --------- | --------------------------------------------------------------------------------- |
-| ADR-072 Step 18 closeout                   | completed | Native baseline is live and active-path cleanup is complete                       |
-| Create/recreate lifecycle polish           | completed   | Preview/create dedupe, reset cleanup, preview/welcome split, explicit recover/recreate wizard path, redirect-loop fix, and gender-safe default voice selection are now landed on the active path |
-| User UI polish                             | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path       |
-| Smart-model and plan-slot contract         | planned   | No explicit per-plan normal/premium/system-tool slot contract or runtime selection policy exists yet |
-| Prompt-cache-first context architecture    | planned   | Bundle cache exists; provider-native cached input and stable cached prompt prefixes do not |
-| Knowledge correction and retrieval-model path | planned | Current active retrieval remains `pattern_only` plus heuristic rerank, and no specialized retrieval-model contract exists yet |
-| Hidden system/tool model and turn economics | planned  | Hidden background model use and `input`/`cached input`/`output` accounting are not yet first-class |
-| Step 19 scale hardening                    | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers    |
-| Step 15a native web TTS output             | deferred  | Not part of the first active polish/economics wave                                |
-| Step 20 isolated sandbox                   | deferred  | Remains after scale hardening and outside the ordinary active path                |
+| Program item                                  | Status    | Notes                                                                                                                                                                                            |
+| --------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ADR-072 Step 18 closeout                      | completed | Native baseline is live and active-path cleanup is complete                                                                                                                                      |
+| Create/recreate lifecycle polish              | completed | Preview/create dedupe, reset cleanup, preview/welcome split, explicit recover/recreate wizard path, redirect-loop fix, and gender-safe default voice selection are now landed on the active path |
+| User UI polish                                | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path                                                                                                                      |
+| Smart-model and plan-slot contract            | completed | Plan-scoped normal/premium/reasoning/system-tool/retrieval slots, hidden `route_control`, and deeper-thinking mode are now landed on the active path                                             |
+| Prompt-cache-first context architecture       | planned   | Bundle cache exists; provider-native cached input and stable cached prompt prefixes do not                                                                                                       |
+| Knowledge correction and retrieval-model path | planned   | Current active retrieval remains `pattern_only` plus heuristic rerank, and no specialized retrieval-model contract exists yet                                                                    |
+| Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                 |
+| Step 19 scale hardening                       | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers                                                                                                                   |
+| Step 15a native web TTS output                | deferred  | Not part of the first active polish/economics wave                                                                                                                                               |
+| Step 20 isolated sandbox                      | deferred  | Remains after scale hardening and outside the ordinary active path                                                                                                                               |
 
 ## Consequences
 

@@ -154,13 +154,20 @@ async function readJsonErrorMessage(response: Response, fallbackMessage: string)
 }
 
 function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
+    if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+      const normalized = fromEnv.trim().replace(/\/$/, "");
+      if (!/^https?:\/\/(?:localhost|127(?:\.\d{1,3}){3})(?::\d+)?(?:\/|$)/i.test(normalized)) {
+        return normalized;
+      }
+    }
+    return "/api/v1";
+  }
+
   const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim().replace(/\/$/, "");
-  }
-
-  if (typeof window !== "undefined") {
-    return "/api/v1";
   }
 
   return "http://localhost:3001/api/v1";

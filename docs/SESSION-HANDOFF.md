@@ -1,5 +1,81 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-073 Economics Slice A ready + live hardening follow-through
+
+### What changed
+
+1. `Economics Slice A` is now honestly marked as landed in repo-truth docs. `docs/ADR/073-post-adr072-residue-and-polish-program.md` and `docs/ROADMAP.md` now treat plan-scoped `normal` / `premium` / `reasoning` / hidden `system-tool` / optional `retrieval` slots, hidden `route_control`, explicit deeper-thinking mode, and per-call `input` / `cached input` / `output` accounting as complete on the active path, with `Slice B` prompt-cache-first context architecture now the next active economics step.
+2. Live hardening fixes were applied across the active path:
+   - Unicode-hyphen model ids now normalize to ASCII `-` across admin runtime settings, plan model keys, runtime routing, inbound model overrides, control-plane warmup, and provider-gateway catalog matching, so `gpt-5.4-mini` / `gpt-5.4-nano` stop failing just because a copied catalog entry used `U+2011`.
+   - browser API routing now ignores `NEXT_PUBLIC_API_BASE_URL=localhost` on the client and falls back to same-origin `/api/v1`, so live `persai.dev` no longer tries to call the user's localhost when that env is mis-set in the deployed web bundle.
+   - `route_control` planner structured output now sends a valid schema (`reason` included in `required`) and no longer leaks raw provider/internal planner failure text back into the user-visible model path.
+   - dangerous-action step-up challenge parsing now accepts `admin.plan.delete`, so deleting a plan no longer fails before the actual delete request is even sent.
+3. Final user-surface polish for the current web shell also landed: chat header mode toggle is now slimmer and left-aligned beside the title, the sidebar deep-mode badge wording is now `Умнее` / `Smarter`, and Clerk avatar rendering now has cache-busting plus a safe initials fallback instead of showing a broken image when the remote avatar fails.
+
+### Current active slice
+
+- `ADR-073 - Economics Slice B (prompt-cache-first context architecture)`
+
+### Current active step
+
+- `Slice A is code-ready and documented; next step is stable-prefix cached-input architecture with deliberate prompt block invalidation/versioning`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/model-key-normalization.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-assistant-inbound-runtime-context.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-provider-profile.ts`
+- `apps/api/src/modules/workspace-management/application/sync-provider-gateway-warmup.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-security.controller.ts`
+- `apps/api/test/admin-security.controller.test.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/api/test/sync-provider-gateway-warmup.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/model-key-normalization.ts`
+- `apps/provider-gateway/src/modules/providers/provider-text-generation.service.ts`
+- `apps/provider-gateway/src/modules/providers/provider-warmup.service.ts`
+- `apps/provider-gateway/test/provider-text-generation.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/sidebar.tsx`
+- `apps/web/app/app/profile/page.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/sync-provider-gateway-warmup.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-security.controller.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-text-generation.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts`
+
+### Risks / notes
+
+1. `Economics Slice A` is now honest repo truth, but live cluster behavior still depends on a fresh deploy/apply using the new code rather than the currently running pods.
+2. OpenAI account truth from live probes is now clearer: `gpt-5.4-mini` / `gpt-5.4-nano` are valid model ids for the current live key, but `gpt-5.1-mini` / `gpt-5.1-nano` are not and should not remain in the admin-managed catalog.
+3. `Slice B` and `Slice C` are still open: provider-native cached-input-first prompt assembly is not yet landed, and retrieval still remains `pattern_only` plus heuristic rerank rather than full hybrid embeddings/vector retrieval.
+
+### Next recommended step
+
+1. Start `ADR-073 Economics Slice B` as one bounded slice: formalize stable prompt blocks, versioning/invalidation, and large exact cached prefixes so provider-native `cached_tokens` becomes the next real savings lever after Slice A routing/accounting.
+
 ## 2026-04-17 - ADR-073 economics architecture refresh
 
 ### What changed
@@ -17457,7 +17533,7 @@ The current preview path was already wired to the admin-managed onboarding promp
 2. **Runtime bundle now materializes separate first-turn fields:** `apps/api` now compiles:
    - `promptConstructor.onboarding.previewTurnPrompt`
    - `promptConstructor.onboarding.welcomeTurnPrompt`
-   while keeping `firstTurnPrompt` and `promptDocuments.bootstrap` only as welcome-oriented legacy compatibility aliases.
+     while keeping `firstTurnPrompt` and `promptDocuments.bootstrap` only as welcome-oriented legacy compatibility aliases.
 
 3. **Setup preview now uses the preview-only prompt:** `PreviewAssistantSetupService` now feeds the native preview turn with `previewTurnPrompt`, so step-3 preview is a character/tone test instead of pretending to be the literal first live welcome chat.
 

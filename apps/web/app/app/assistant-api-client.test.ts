@@ -63,6 +63,7 @@ function createSseResponse(chunks: string[]): Response {
 afterEach(() => {
   vi.restoreAllMocks();
   global.fetch = ORIGINAL_FETCH;
+  delete process.env.NEXT_PUBLIC_API_BASE_URL;
 });
 
 describe("admin rollout client", () => {
@@ -370,6 +371,30 @@ describe("streamAssistantWebChatTurn", () => {
           message: "Hello",
           clientTurnId: "turn-1"
         })
+      })
+    );
+  });
+
+  it("ignores localhost NEXT_PUBLIC_API_BASE_URL in the browser and falls back to same-origin api", async () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "http://localhost:3001/api/v1";
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      {}
+    );
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/v1/assistant/chat/web/stream",
+      expect.objectContaining({
+        method: "POST"
       })
     );
   });

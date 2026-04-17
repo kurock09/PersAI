@@ -175,6 +175,21 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
   assert.equal(openaiClient.calls.length, 1);
   assert.equal(anthropicClient.calls.length, 0);
 
+  warmupService.snapshot.providers[0] = {
+    ...warmupService.snapshot.providers[0]!,
+    catalogModels: ["gpt‑5.4-mini"]
+  };
+  const normalizedCatalogResult = await service.generateText({
+    ...createRequest("openai"),
+    model: "gpt-5.4-mini"
+  });
+  assert.equal(normalizedCatalogResult.text, "openai-result");
+  assert.equal(openaiClient.calls.length, 2);
+  warmupService.snapshot.providers[0] = {
+    ...warmupService.snapshot.providers[0]!,
+    catalogModels: ["gpt-5.4"]
+  };
+
   const multimodalResult = await service.generateText({
     ...createRequest("openai"),
     messages: [
@@ -202,7 +217,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
     ]
   });
   assert.equal(multimodalResult.text, "openai-result");
-  assert.equal(openaiClient.calls.length, 2);
+  assert.equal(openaiClient.calls.length, 3);
 
   const anthropicResult = await service.generateText(createRequest("anthropic"));
   assert.equal(anthropicResult.text, "anthropic-result");

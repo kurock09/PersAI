@@ -6,6 +6,7 @@ import {
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
+import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA = "persai.adminRuntimeProviderSettings.v1";
@@ -116,7 +117,7 @@ function normalizeProvider(value: unknown, path: string): ManagedRuntimeProvider
 }
 
 function normalizeModel(value: unknown, path: string): string {
-  const normalized = asNonEmptyString(value);
+  const normalized = toNormalizedNonEmptyModelKey(value);
   if (normalized === null) {
     throw new Error(`${path} must be a non-empty string.`);
   }
@@ -276,13 +277,13 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
 
   const primary = {
     provider: params.settings.primaryProvider,
-    model: params.settings.primaryModel
+    model: normalizeModelKey(params.settings.primaryModel)
   } satisfies PlatformRuntimeProviderSelection;
   const fallback =
     params.settings.fallbackProvider !== null && params.settings.fallbackModel !== null
       ? {
           provider: params.settings.fallbackProvider,
-          model: params.settings.fallbackModel
+          model: normalizeModelKey(params.settings.fallbackModel)
         }
       : null;
   const availableModelsByProvider = normalizeAvailableModelsByProvider(

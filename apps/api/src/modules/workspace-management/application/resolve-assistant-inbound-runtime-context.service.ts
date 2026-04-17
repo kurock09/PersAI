@@ -15,6 +15,7 @@ import {
   type RuntimeTier
 } from "./runtime-assignment";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
+import { normalizeModelKey } from "./model-key-normalization";
 
 type RuntimeModelOverride = {
   provider: "openai" | "anthropic";
@@ -47,7 +48,7 @@ function parseRuntimeModelOverrideFromRuntimeBundle(
   }
   return {
     provider: target.target.providerKey,
-    model: target.target.modelKey.trim()
+    model: normalizeModelKey(target.target.modelKey)
   };
 }
 

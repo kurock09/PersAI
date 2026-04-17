@@ -198,7 +198,7 @@ const TURN_MODEL_ROLE_SELECTION_OUTPUT_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["role", "lookupStrategy"],
+    required: ["role", "lookupStrategy", "reason"],
     properties: {
       role: {
         type: "string",
@@ -1755,7 +1755,7 @@ export class TurnExecutionService {
         toolCode: ROUTE_CONTROL_TOOL_CODE,
         action: "skipped",
         reason: "planner_failed",
-        warning: error instanceof Error ? error.message : String(error),
+        warning: null,
         modelRole: execution.selectedModelRole,
         lookupStrategy: execution.selectedLookupStrategy
       });

@@ -1,5 +1,6 @@
 export const RUNTIME_PROVIDER_PROFILE_SCHEMA = "persai.runtimeProviderProfile.v1";
 export const RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA = "persai.runtimeProviderCredentialRefs.v1";
+import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export type ManagedRuntimeProvider = "openai" | "anthropic";
 export type RuntimeCredentialSecretRefSource = "env" | "file" | "exec" | "persai";
@@ -120,7 +121,7 @@ function normalizeManagedRuntimeProvider(value: unknown, path: string): ManagedR
 }
 
 function normalizeModelId(value: unknown, path: string): string {
-  const normalized = asNonEmptyString(value);
+  const normalized = toNormalizedNonEmptyModelKey(value);
   if (normalized === null) {
     throw new Error(`${path} must be a non-empty string.`);
   }
@@ -153,14 +154,14 @@ function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailabl
     }
     const deduped = new Set<string>();
     for (const entry of models) {
-      const model = asNonEmptyString(entry);
+      const model = toNormalizedNonEmptyModelKey(entry);
       if (model === null) {
         continue;
       }
       if (model.length > MAX_MODEL_LENGTH || containsControlCharacters(model)) {
         continue;
       }
-      deduped.add(model);
+      deduped.add(normalizeModelKey(model));
     }
     result[provider] = Array.from(deduped);
   }

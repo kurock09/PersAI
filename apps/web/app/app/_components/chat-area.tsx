@@ -235,8 +235,14 @@ export function ChatArea({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="border-b border-border px-3 py-2 md:px-5 md:py-3">
-        <div className="mx-auto flex max-w-3xl items-start gap-3">
+      <header className="border-b border-border px-3 py-2 md:px-5">
+        <div className="mx-auto flex max-w-3xl items-center gap-2.5">
+          <ChatModeToggle
+            enabled={deepMode}
+            disabled={!assistantReady || chat.isStreaming}
+            onChange={(enabled) => void handleDeepModeChange(enabled)}
+          />
+          <span className="shrink-0 text-sm font-medium text-text-subtle">/</span>
           {editing ? (
             <div className="flex min-w-0 flex-1 items-center gap-1.5">
               <input
@@ -262,7 +268,9 @@ export function ChatArea({
             </div>
           ) : (
             <div className="group flex min-w-0 flex-1 items-center gap-1.5">
-              <h1 className="truncate text-sm font-semibold text-text">{displayTitle}</h1>
+              <h1 className="truncate text-[15px] font-semibold text-text md:text-base">
+                {displayTitle}
+              </h1>
               {canEdit && (
                 <button
                   type="button"
@@ -274,11 +282,6 @@ export function ChatArea({
               )}
             </div>
           )}
-          <ChatModeToggle
-            enabled={deepMode}
-            disabled={!assistantReady || chat.isStreaming}
-            onChange={(enabled) => void handleDeepModeChange(enabled)}
-          />
         </div>
       </header>
 
@@ -485,19 +488,22 @@ function ChatModeToggle({
 
   return (
     <div className="shrink-0">
-      <div className="inline-flex rounded-2xl border border-border bg-surface-raised p-1 shadow-sm">
+      <div
+        className="inline-flex rounded-xl border border-border bg-surface-raised p-0.5 shadow-sm"
+        title={enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
+      >
         <button
           type="button"
           aria-pressed={!enabled}
           disabled={disabled}
           onClick={() => onChange(false)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+            "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
             !enabled ? "bg-bg text-text shadow-sm" : "text-text-muted hover:text-text",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >
-          <MessageSquare className="h-3.5 w-3.5" />
+          <MessageSquare className="h-3 w-3" />
           <span>{t("modeNormalLabel")}</span>
         </button>
         <button
@@ -506,25 +512,17 @@ function ChatModeToggle({
           disabled={disabled}
           onClick={() => onChange(true)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[11px] font-semibold transition-all",
+            "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
             enabled
               ? "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 text-white shadow-sm"
               : "text-text-muted hover:text-text",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >
-          <Sparkles className={cn("h-3.5 w-3.5", enabled && "animate-pulse")} />
+          <Sparkles className={cn("h-3 w-3", enabled && "animate-pulse")} />
           <span>{t("modeDeepLabel")}</span>
         </button>
       </div>
-      <p
-        className={cn(
-          "mt-1 text-right text-[10px]",
-          enabled ? "text-amber-600 dark:text-amber-300" : "text-text-subtle"
-        )}
-      >
-        {enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
-      </p>
     </div>
   );
 }

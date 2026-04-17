@@ -20,7 +20,7 @@ Primary execution order:
 
 1. create/recreate lifecycle polish (`in progress`; explicit recreate/recover path landed, but one backend lifecycle contract plus preview-avatar truth still remain)
 2. user UI polish on the active native path (`completed`)
-3. memory, knowledge, cache, and model-routing cost architecture (`next active step`)
+3. memory, knowledge, cache, and model-routing cost architecture (`Slice A completed`; `Slice B` prompt-cache-first context architecture is the next active step)
 4. Step 19 scale and deploy-recovery hardening
 5. deferred Step 15a native web voice output
 6. deferred Step 20 sandbox and attach-by-ref follow-through
@@ -28,8 +28,8 @@ Primary execution order:
 ## Near-term focus
 
 1. Finish the remaining lifecycle residue by moving preview/create/recover/reset behind one explicit backend lifecycle contract and by removing the last local-only uploaded-avatar truth gap
-2. Start the memory/knowledge/cache/model-routing economics wave as three larger slices: plan-scoped model slots plus turn accounting, prompt-cache-first context assembly, and knowledge correction plus retrieval-model follow-through
-3. Keep that economics wave honest about the current baseline (`pattern_only` retrieval, heuristic rerank, no explicit plan-scoped slot contract yet, provider-native cached input not yet first-class)
+2. Continue the memory/knowledge/cache/model-routing economics wave after Slice A completion by landing Slice B prompt-cache-first context assembly and then Slice C knowledge correction plus retrieval-model follow-through
+3. Keep that economics wave honest about the current baseline (`pattern_only` retrieval and heuristic rerank are still current truth; provider-native cached input is not yet first-class even though Slice A routing/accounting is now landed)
 4. Close Step 19 so routine deploys and restarts recover without normal-ops fleet-wide `reapply all`
 5. Keep deferred runtime work (`Step 15a`, `Step 20`, `max_ru`) behind the active lifecycle/economics and scale program
 

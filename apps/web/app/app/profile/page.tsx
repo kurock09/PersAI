@@ -42,6 +42,7 @@ export default function ProfilePage() {
   } | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [avatarRefreshKey, setAvatarRefreshKey] = useState(0);
+  const [profileImageBroken, setProfileImageBroken] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -157,6 +158,10 @@ export default function ProfilePage() {
       ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${avatarRefreshKey}`
       : null);
 
+  useEffect(() => {
+    setProfileImageBroken(false);
+  }, [profileImage]);
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <button
@@ -176,8 +181,13 @@ export default function ProfilePage() {
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
             <div className="relative">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-surface-raised text-2xl font-bold text-accent shadow-sm">
-                {profileImage ? (
-                  <img src={profileImage} alt="" className="h-full w-full object-cover" />
+                {profileImage && !profileImageBroken ? (
+                  <img
+                    src={profileImage}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={() => setProfileImageBroken(true)}
+                  />
                 ) : (
                   initials
                 )}

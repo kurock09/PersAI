@@ -9,6 +9,7 @@ import {
 } from "@persai/runtime-contract";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
+import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { ProviderWarmupService } from "./provider-warmup.service";
 
 @Injectable()
@@ -49,7 +50,7 @@ export class ProviderTextGenerationService {
   }
 
   private assertValidRequest(input: ProviderGatewayTextGenerateRequest): void {
-    if (input.model.trim().length === 0) {
+    if (toNormalizedNonEmptyModelKey(input.model) === null) {
       throw new BadRequestException("model must be a non-empty string");
     }
     if (input.messages.length === 0) {
@@ -78,10 +79,9 @@ export class ProviderTextGenerationService {
     if (!providerState || providerState.state !== "ready") {
       throw new ServiceUnavailableException(`Provider "${input.provider}" is not ready.`);
     }
-    if (
-      providerState.catalogModels.length > 0 &&
-      !providerState.catalogModels.includes(input.model.trim())
-    ) {
+    const requestedModelKey = normalizeModelKey(input.model);
+    const catalogModelKeys = providerState.catalogModels.map((model) => normalizeModelKey(model));
+    if (catalogModelKeys.length > 0 && !catalogModelKeys.includes(requestedModelKey)) {
       throw new BadRequestException(
         `Model "${input.model}" is not present in the warmed provider catalog for "${input.provider}".`
       );

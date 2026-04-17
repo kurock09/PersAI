@@ -11,14 +11,14 @@ async function run(): Promise<void> {
   const parsed = parseUpdatePlatformRuntimeProviderSettingsInput({
     primary: {
       provider: "openai",
-      model: "gpt-5.4"
+      model: "gpt‑5.4"
     },
     fallback: {
       provider: "anthropic",
       model: "claude-sonnet-4-5"
     },
     availableModelsByProvider: {
-      openai: ["gpt-5.4"],
+      openai: ["gpt‑5.4", "gpt‑5.4-mini"],
       anthropic: ["claude-sonnet-4-5"]
     },
     providerKeys: {
@@ -29,7 +29,8 @@ async function run(): Promise<void> {
 
   assert.equal(parsed.primary.provider, "openai");
   assert.equal(parsed.fallback?.provider, "anthropic");
-  assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4"]);
+  assert.equal(parsed.primary.model, "gpt-5.4");
+  assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
 
@@ -62,23 +63,25 @@ async function run(): Promise<void> {
   const settings = buildPlatformRuntimeProviderSettingsState({
     settings: {
       primaryProvider: "openai",
-      primaryModel: "gpt-5.4",
+      primaryModel: "gpt‑5.4",
       fallbackProvider: "anthropic",
       fallbackModel: "claude-sonnet-4-5",
       availableModelsByProvider: {
-        openai: ["gpt-5.4"],
+        openai: ["gpt‑5.4", "gpt‑5.4-mini"],
         anthropic: ["claude-sonnet-4-5"]
       }
     },
     providerKeys
   });
   assert.equal(settings.mode, "global_settings");
+  assert.equal(settings.primary?.model, "gpt-5.4");
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
+  assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);
   assert.equal(profile.mode, "admin_managed");
   assert.deepEqual(profile.availableModelsByProvider, {
-    openai: ["gpt-5.4"],
+    openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"]
   });
   assert.equal(profile.primary.provider, "openai");

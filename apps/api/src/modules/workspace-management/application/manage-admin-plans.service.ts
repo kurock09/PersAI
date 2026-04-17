@@ -37,6 +37,7 @@ import {
 } from "./context-hydration-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
+import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -426,10 +427,10 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       contextPolicy,
-      primaryModelKey: toNullableString(parsed.primaryModelKey),
-      premiumModelKey: toNullableString(parsed.premiumModelKey),
-      reasoningModelKey: toNullableString(parsed.reasoningModelKey),
-      retrievalModelKey: toNullableString(parsed.retrievalModelKey),
+      primaryModelKey: toNormalizedNonEmptyModelKey(parsed.primaryModelKey),
+      premiumModelKey: toNormalizedNonEmptyModelKey(parsed.premiumModelKey),
+      reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
+      retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
       videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
     };
@@ -628,10 +629,10 @@ export class ManageAdminPlansService {
         )
       },
       contextPolicy,
-      primaryModelKey: toNullableString(billingHints.primaryModelKey),
-      premiumModelKey: toNullableString(billingHints.premiumModelKey),
-      reasoningModelKey: toNullableString(billingHints.reasoningModelKey),
-      retrievalModelKey: toNullableString(billingHints.retrievalModelKey),
+      primaryModelKey: toNormalizedNonEmptyModelKey(billingHints.primaryModelKey),
+      premiumModelKey: toNormalizedNonEmptyModelKey(billingHints.premiumModelKey),
+      reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
+      retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
       videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({

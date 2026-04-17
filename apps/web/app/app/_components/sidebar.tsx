@@ -405,6 +405,7 @@ function UserMenu() {
   const { signOut } = useClerk();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [avatarBroken, setAvatarBroken] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -417,7 +418,16 @@ function UserMenu() {
   }, [open]);
 
   const initials = (user?.firstName?.[0] ?? user?.username?.[0] ?? "U").toUpperCase();
-  const avatarUrl = user?.imageUrl;
+  const avatarVersion =
+    user?.updatedAt instanceof Date ? user.updatedAt.getTime() : (user?.updatedAt ?? "");
+  const avatarUrl =
+    user?.imageUrl && user.imageUrl.trim().length > 0
+      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${String(avatarVersion)}`
+      : null;
+
+  useEffect(() => {
+    setAvatarBroken(false);
+  }, [avatarUrl]);
 
   return (
     <div ref={ref} className="relative">
@@ -426,8 +436,13 @@ function UserMenu() {
         onClick={() => setOpen((o) => !o)}
         className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-accent/20 text-xs font-semibold text-accent transition-colors hover:bg-accent/30 overflow-hidden"
       >
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+        {avatarUrl && !avatarBroken ? (
+          <img
+            src={avatarUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            onError={() => setAvatarBroken(true)}
+          />
         ) : (
           initials
         )}
@@ -682,7 +697,7 @@ function ChatListItem({
               {item.chat.title ?? item.chat.surfaceThreadKey}
             </span>
             {item.chat.deepModeEnabled && (
-              <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+              <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
                 {t("deepModeBadge")}
               </span>
             )}

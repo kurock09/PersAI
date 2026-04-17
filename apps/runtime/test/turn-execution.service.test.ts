@@ -1576,6 +1576,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[chooserCallOffset + 1]?.outputSchema?.name,
     "turn_execution_plan"
   );
+  assert.deepEqual(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.outputSchema?.schema.required,
+    ["role", "lookupStrategy", "reason"]
+  );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-4.1");
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
   assert.equal(chooserCompleted.usageAccounting?.inputTokens, 17);

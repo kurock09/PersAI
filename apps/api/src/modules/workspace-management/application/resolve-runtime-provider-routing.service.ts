@@ -5,6 +5,7 @@ import {
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
+import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -29,18 +30,9 @@ function parseRoutingPolicyOverride(policyEnvelope: unknown): RoutingPolicyOverr
       typeof routing?.schema === "string" && routing.schema.trim().length > 0
         ? routing.schema.trim()
         : null,
-    primaryModelKey:
-      typeof routing?.primaryModelKey === "string" && routing.primaryModelKey.trim().length > 0
-        ? routing.primaryModelKey.trim()
-        : null,
-    fallbackModelKey:
-      typeof routing?.fallbackModelKey === "string" && routing.fallbackModelKey.trim().length > 0
-        ? routing.fallbackModelKey.trim()
-        : null,
-    degradeModelKey:
-      typeof routing?.degradeModelKey === "string" && routing.degradeModelKey.trim().length > 0
-        ? routing.degradeModelKey.trim()
-        : null,
+    primaryModelKey: toNormalizedNonEmptyModelKey(routing?.primaryModelKey),
+    fallbackModelKey: toNormalizedNonEmptyModelKey(routing?.fallbackModelKey),
+    degradeModelKey: toNormalizedNonEmptyModelKey(routing?.degradeModelKey),
     disableFallback: routing?.disableFallback === true
   };
 }
@@ -82,26 +74,36 @@ export class ResolveRuntimeProviderRoutingService {
     const managedFallback =
       runtimeProviderProfile.mode === "admin_managed" ? runtimeProviderProfile.fallback : null;
     const primaryProviderKey = managedPrimary?.provider ?? "platform_managed_default";
-    const planModelKey = params.planPrimaryModelKey?.trim() || null;
-    const planPremiumModelKey = params.planPremiumModelKey?.trim() || null;
-    const planReasoningModelKey = params.planReasoningModelKey?.trim() || null;
-    const planRetrievalModelKey = params.planRetrievalModelKey?.trim() || null;
+    const planModelKey = toNormalizedNonEmptyModelKey(params.planPrimaryModelKey);
+    const planPremiumModelKey = toNormalizedNonEmptyModelKey(params.planPremiumModelKey);
+    const planReasoningModelKey = toNormalizedNonEmptyModelKey(params.planReasoningModelKey);
+    const planRetrievalModelKey = toNormalizedNonEmptyModelKey(params.planRetrievalModelKey);
     const primaryModelKey =
-      planModelKey ?? managedPrimary?.model ?? override.primaryModelKey ?? null;
-    const premiumModelKey = planPremiumModelKey ?? primaryModelKey ?? managedPrimary?.model ?? null;
+      planModelKey ??
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ??
+      override.primaryModelKey ??
+      null;
+    const premiumModelKey =
+      planPremiumModelKey ??
+      primaryModelKey ??
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null);
     const reasoningModelKey = planReasoningModelKey ?? premiumModelKey ?? primaryModelKey ?? null;
-    const systemToolModelKey = managedPrimary?.model ?? primaryModelKey;
+    const systemToolModelKey =
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ?? primaryModelKey;
     const retrievalModelKey =
       planRetrievalModelKey ?? systemToolModelKey ?? primaryModelKey ?? null;
     const fallbackProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const fallbackModelKey =
-      managedFallback?.model ?? override.fallbackModelKey ?? managedPrimary?.model ?? null;
+      (managedFallback?.model ? normalizeModelKey(managedFallback.model) : null) ??
+      override.fallbackModelKey ??
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ??
+      null;
     const degradeProviderKey = managedFallback?.provider ?? primaryProviderKey;
     const degradeModelKey =
-      managedFallback?.model ??
+      (managedFallback?.model ? normalizeModelKey(managedFallback.model) : null) ??
       override.degradeModelKey ??
       primaryModelKey ??
-      managedPrimary?.model ??
+      (managedPrimary?.model ? normalizeModelKey(managedPrimary.model) : null) ??
       null;
     const blockedByCommon: Array<
       "fallback_disabled_by_policy" | "no_interactive_surface_allowed" | "text_media_not_allowed"

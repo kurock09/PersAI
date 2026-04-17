@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import { AdminSecurityController } from "../src/modules/workspace-management/interface/http/admin-security.controller";
+
+async function run(): Promise<void> {
+  const issuedActions: string[] = [];
+  const auditEvents: Array<Record<string, unknown>> = [];
+  const controller = new AdminSecurityController(
+    {
+      issueStepUpChallenge: async (_userId: string, action: string) => {
+        issuedActions.push(action);
+        return {
+          context: {
+            workspaceId: "ws-1",
+            roles: ["business_admin"],
+            hasLegacyOwnerFallback: false
+          },
+          challenge: {
+            token: "step-up-token",
+            expiresAt: "2026-04-17T21:00:00.000Z"
+          }
+        };
+      }
+    } as never,
+    {
+      execute: async (event: Record<string, unknown>) => {
+        auditEvents.push(event);
+      }
+    } as never
+  );
+
+  const response = await controller.createStepUpChallenge(
+    {
+      requestId: "req-1",
+      resolvedAppUser: { id: "user-1" }
+    } as never,
+    { action: "admin.plan.delete" }
+  );
+
+  assert.equal(issuedActions[0], "admin.plan.delete");
+  assert.equal(response.challenge.action, "admin.plan.delete");
+  assert.equal(response.challenge.token, "step-up-token");
+  assert.equal(auditEvents[0]?.eventCode, "admin.step_up_challenge_issued");
+  assert.equal((auditEvents[0]?.details as Record<string, unknown>).action, "admin.plan.delete");
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

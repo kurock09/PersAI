@@ -2,6 +2,7 @@ import { loadApiConfig } from "@persai/config";
 import { Injectable } from "@nestjs/common";
 import { AssistantRuntimeError, type AssistantRuntimeErrorCode } from "./assistant-runtime.facade";
 import type { AssistantMaterializedSpec } from "../domain/assistant-materialized-spec.entity";
+import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 type ProviderGatewayWarmupStatus = "skipped_unconfigured" | "warmed";
 type ManagedRuntimeProvider = "openai" | "anthropic";
@@ -22,10 +23,7 @@ function normalizeModelList(value: unknown): string[] {
   }
   const deduped = new Set<string>();
   for (const entry of value) {
-    if (typeof entry !== "string") {
-      continue;
-    }
-    const normalized = entry.trim();
+    const normalized = toNormalizedNonEmptyModelKey(entry);
     if (!normalized) {
       continue;
     }

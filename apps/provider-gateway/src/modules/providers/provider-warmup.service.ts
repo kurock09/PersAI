@@ -3,6 +3,7 @@ import type { ProviderGatewayConfig } from "@persai/config";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
+import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import type {
   ProviderCatalogByProvider,
   ProviderCatalogSource,
@@ -30,10 +31,7 @@ function normalizeModelList(value: unknown): string[] {
   }
   const deduped = new Set<string>();
   for (const entry of value) {
-    if (typeof entry !== "string") {
-      continue;
-    }
-    const normalized = entry.trim();
+    const normalized = toNormalizedNonEmptyModelKey(entry);
     if (!normalized) {
       continue;
     }

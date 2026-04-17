@@ -16,7 +16,7 @@ function createMaterializedSpec(): AssistantMaterializedSpec {
         governance: {
           runtimeProviderProfile: {
             availableModelsByProvider: {
-              openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.4"],
+              openai: ["gpt-5.4", "gpt‑5.4-mini", "gpt-5.4"],
               anthropic: ["claude-sonnet-4-5"]
             }
           }
