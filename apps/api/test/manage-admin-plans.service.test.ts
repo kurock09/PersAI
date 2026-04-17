@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
 import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
 
-function createService(): ManageAdminPlansService {
+function createService(overrides?: {
+  planCatalogRepository?: object;
+  appendAssistantAuditEventService?: object;
+  adminAuthorizationService?: object;
+  bumpConfigGenerationService?: object;
+  resolvePlatformRuntimeProviderSettingsService?: object;
+}): ManageAdminPlansService {
   return new ManageAdminPlansService(
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never
+    (overrides?.planCatalogRepository ?? {}) as never,
+    (overrides?.appendAssistantAuditEventService ?? {}) as never,
+    (overrides?.adminAuthorizationService ?? {}) as never,
+    (overrides?.bumpConfigGenerationService ?? {}) as never,
+    (overrides?.resolvePlatformRuntimeProviderSettingsService ?? {}) as never
   );
 }
 
@@ -114,6 +120,51 @@ async function run(): Promise<void> {
   });
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
   assert.equal(state.contextPolicy.preset, "balanced");
+  const normalizedState = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        toolActivations: Array<{ toolCode: string; displayName: string }>;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-2",
+    code: "knowledge",
+    displayName: "Knowledge",
+    description: null,
+    status: "active",
+    billingProviderHints: null,
+    entitlementModel: null,
+    toolActivations: [
+      {
+        toolCode: "memory_search",
+        displayName: "Memory Search",
+        toolClass: "utility",
+        policyClass: "plan_managed",
+        activationStatus: "active",
+        dailyCallLimit: null
+      },
+      {
+        toolCode: "memory_get",
+        displayName: "Memory Get",
+        toolClass: "utility",
+        policyClass: "plan_managed",
+        activationStatus: "active",
+        dailyCallLimit: null
+      }
+    ],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.deepEqual(
+    normalizedState.toolActivations.map((tool) => [tool.toolCode, tool.displayName]),
+    [
+      ["memory_search", "Knowledge Search"],
+      ["memory_get", "Knowledge Fetch"]
+    ]
+  );
 
   const parsedWithSummaryBudget = service.parseUpdateInput({
     displayName: "Starter",
@@ -366,6 +417,80 @@ async function run(): Promise<void> {
     (error) =>
       error instanceof BadRequestException &&
       error.message.includes('"persai_workspace_attach" is not plan-managed')
+  );
+
+  let deletedCode: string | null = null;
+  let bumped = 0;
+  let auditedCode: string | null = null;
+  const deleteService = createService({
+    planCatalogRepository: {
+      async getDeleteImpactByCode(code: string) {
+        return code === "legacy"
+          ? {
+              isDefaultRegistrationPlan: false,
+              workspaceSubscriptionCount: 0,
+              assistantOverrideCount: 0,
+              assistantFallbackCount: 0
+            }
+          : null;
+      },
+      async deleteByCode(code: string) {
+        deletedCode = code;
+        return true;
+      }
+    },
+    appendAssistantAuditEventService: {
+      async execute(input: { details?: { code?: string } }) {
+        auditedCode = input.details?.code ?? null;
+      }
+    },
+    adminAuthorizationService: {
+      async assertCanPerformDangerousAdminAction() {
+        return {
+          workspaceId: "ws-1",
+          roles: ["business_admin"],
+          hasLegacyOwnerFallback: false
+        };
+      }
+    },
+    bumpConfigGenerationService: {
+      async execute() {
+        bumped += 1;
+      }
+    }
+  });
+  await deleteService.deletePlan("admin-user", "legacy", "step-up");
+  assert.equal(deletedCode, "legacy");
+  assert.equal(bumped, 1);
+  assert.equal(auditedCode, "legacy");
+
+  const blockedDeleteService = createService({
+    planCatalogRepository: {
+      async getDeleteImpactByCode() {
+        return {
+          isDefaultRegistrationPlan: false,
+          workspaceSubscriptionCount: 1,
+          assistantOverrideCount: 0,
+          assistantFallbackCount: 2
+        };
+      }
+    },
+    adminAuthorizationService: {
+      async assertCanPerformDangerousAdminAction() {
+        return {
+          workspaceId: "ws-1",
+          roles: ["business_admin"],
+          hasLegacyOwnerFallback: false
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    () => blockedDeleteService.deletePlan("admin-user", "starter", "step-up"),
+    (error) =>
+      error instanceof ConflictException &&
+      error.message.includes("workspace subscription") &&
+      error.message.includes("assistant fallback binding")
   );
 }
 

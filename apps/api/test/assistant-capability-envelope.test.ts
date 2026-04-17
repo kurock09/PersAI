@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { ResolveOpenClawCapabilityEnvelopeService } from "../src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service";
+import { ResolveAssistantCapabilityEnvelopeService } from "../src/modules/workspace-management/application/resolve-assistant-capability-envelope.service";
 
 async function run(): Promise<void> {
-  const service = new ResolveOpenClawCapabilityEnvelopeService();
+  const service = new ResolveAssistantCapabilityEnvelopeService();
   const resolved = service.execute({
     effectiveCapabilities: {
       schema: "persai.effectiveCapabilities.v1",
@@ -102,7 +102,7 @@ async function run(): Promise<void> {
       notes: []
     },
     channelSurfaceBindings: {
-      schema: "persai.openclawChannelSurfaceBindings.v1",
+      schema: "persai.assistantChannelSurfaceBindings.v1",
       derivedFrom: {
         effectiveCapabilitiesSchema: "persai.effectiveCapabilities.v1",
         planCode: "starter_trial"
@@ -148,7 +148,7 @@ async function run(): Promise<void> {
       },
       userFacingProviderPickerEnabled: false,
       primaryPath: {
-        providerKey: "openclaw_managed_default",
+        providerKey: "platform_managed_default",
         modelKey: "text_standard_v1",
         active: true,
         inactiveReason: null
@@ -169,7 +169,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(resolved.schema, "persai.openclawCapabilityEnvelope.v1");
+  assert.equal(resolved.schema, "persai.assistantCapabilityEnvelope.v1");
   assert.equal(resolved.catalog.declaredToolCodes.includes("memory_get"), true);
   assert.equal(resolved.channelsAndSurfaces.webChat.allowed, true);
   assert.equal(resolved.channelSurfaceBindings.providers[0]?.surfaces[0]?.surfaceType, "web_chat");

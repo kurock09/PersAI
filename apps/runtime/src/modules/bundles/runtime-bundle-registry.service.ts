@@ -486,11 +486,6 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
         "bundleDocument.runtime.sharedCompaction.recentTurnsPreserve must be a non-negative integer"
       );
     }
-    if (typeof sharedCompaction.suggestByMessageCount !== "boolean") {
-      throw new BadRequestException(
-        "bundleDocument.runtime.sharedCompaction.suggestByMessageCount must be boolean"
-      );
-    }
     if (typeof sharedCompaction.telegramAutoSummarizeEnabled !== "boolean") {
       throw new BadRequestException(
         "bundleDocument.runtime.sharedCompaction.telegramAutoSummarizeEnabled must be boolean"

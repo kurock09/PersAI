@@ -12,18 +12,18 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Trash2,
   X
 } from "lucide-react";
 import type {
   AdminPlanCreateRequest,
   AdminPlanState,
-  AdminPlanVisibilityState,
   AdminPlanToolActivation,
   AdminPlanUpdateRequest
 } from "@persai/contracts";
 import {
+  deleteAdminPlan,
   getAdminPlans,
-  getAdminPlanVisibility,
   getAdminRuntimeProviderSettings,
   patchAdminPlan,
   postAdminPlanCreate,
@@ -433,38 +433,6 @@ function splitToolActivationsByPolicy<
   };
 }
 
-type QuotaBucketState = AdminPlanVisibilityState["quotaBuckets"][number];
-
-function formatQuotaNumber(value: number): string {
-  return new Intl.NumberFormat().format(value);
-}
-
-function formatQuotaBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"] as const;
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(precision)} ${units[unitIndex]}`;
-}
-
-function formatQuotaBucketScalar(bucket: QuotaBucketState, value: number): string {
-  return bucket.unit === "bytes" ? formatQuotaBytes(value) : formatQuotaNumber(value);
-}
-
-function formatQuotaBucketValue(bucket: QuotaBucketState): string {
-  const limitLabel =
-    bucket.limit === null ? "∞" : formatQuotaBucketScalar(bucket, Math.max(0, bucket.limit));
-  if (!bucket.usageAvailable || bucket.used === null) {
-    return bucket.limit === null ? "Usage unavailable" : `Usage unavailable · limit ${limitLabel}`;
-  }
-  const usedLabel = formatQuotaBucketScalar(bucket, Math.max(0, bucket.used));
-  return bucket.limit === null ? usedLabel : `${usedLabel} / ${limitLabel}`;
-}
-
 /* ─── Tiny UI primitives ─── */
 
 function Pill({
@@ -562,98 +530,6 @@ function Input({
       )}
       {...rest}
     />
-  );
-}
-
-function CurrentQuotaVisibilityPanel({
-  visibility
-}: {
-  visibility: AdminPlanVisibilityState | null;
-}) {
-  if (visibility === null) {
-    return (
-      <div className="mb-3 rounded-lg border border-border/60 bg-surface-raised/60 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="text-xs font-semibold text-text">Current quota visibility</h2>
-            <p className="mt-0.5 text-[11px] text-text-subtle">
-              Live quota visibility is temporarily unavailable.
-            </p>
-          </div>
-          <Pill variant="dim">unavailable</Pill>
-        </div>
-      </div>
-    );
-  }
-
-  const pressureVariant =
-    visibility.usagePressure.pressureLevel === "high"
-      ? "amber"
-      : visibility.usagePressure.pressureLevel === "elevated"
-        ? "amber"
-        : "green";
-
-  return (
-    <div className="mb-3 rounded-lg border border-border/60 bg-surface-raised/60 p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-xs font-semibold text-text">Current quota visibility</h2>
-          <p className="mt-0.5 text-[11px] text-text-subtle">
-            Bucket-aware live quota view for the current effective plan.
-          </p>
-        </div>
-        <Pill variant={pressureVariant}>pressure: {visibility.usagePressure.pressureLevel}</Pill>
-      </div>
-
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-        <KV label="Effective plan">
-          {visibility.planState.effectivePlanDisplayName ??
-            visibility.planState.effectivePlanCode ??
-            "—"}
-        </KV>
-        <KV label="Plan code">{visibility.planState.effectivePlanCode ?? "—"}</KV>
-        <KV label="Plan status">{visibility.planState.effectivePlanStatus ?? "—"}</KV>
-        <KV label="Default signup">{visibility.planState.defaultRegistrationPlanCode ?? "—"}</KV>
-      </div>
-
-      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {visibility.quotaBuckets.map((bucket) => {
-          const pct = bucket.percent ?? 0;
-          const barClass =
-            !bucket.usageAvailable || bucket.percent === null
-              ? "bg-text-subtle/60"
-              : pct >= 90
-                ? "bg-destructive"
-                : pct >= 65
-                  ? "bg-warning"
-                  : "bg-accent";
-          return (
-            <div
-              key={bucket.bucketCode}
-              className="rounded border border-border/50 bg-surface px-2.5 py-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-[11px] font-medium text-text">{bucket.displayName}</p>
-                  <p className="mt-0.5 text-[10px] text-text-subtle">
-                    {formatQuotaBucketValue(bucket)}
-                  </p>
-                </div>
-                <Pill variant={bucket.status === "limit_reached" ? "amber" : "dim"}>
-                  {bucket.status === "usage_unavailable" ? "limit only" : `${pct}%`}
-                </Pill>
-              </div>
-              <div className="mt-2 h-1 overflow-hidden rounded-full bg-border/50">
-                <div
-                  className={cn("h-full rounded-full", barClass)}
-                  style={{ width: `${Math.min(Math.max(pct, 0), 100)}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -1268,11 +1144,15 @@ function PlanForm({
 function PlanCardReadOnly({
   plan,
   onEdit,
-  disabled
+  onDelete,
+  disabled,
+  deleting
 }: {
   plan: AdminPlanState;
   onEdit: () => void;
+  onDelete: (() => void) | null;
   disabled: boolean;
+  deleting: boolean;
 }) {
   const e = plan.entitlements;
   const [expanded, setExpanded] = useState(false);
@@ -1326,6 +1206,21 @@ function PlanCardReadOnly({
         >
           <Pencil className="h-2.5 w-2.5" /> Edit
         </button>
+        {onDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={disabled || deleting}
+            className="ml-1 inline-flex items-center gap-0.5 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300 hover:bg-red-500/15 disabled:opacity-40"
+          >
+            {deleting ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-2.5 w-2.5" />
+            )}
+            Delete
+          </button>
+        ) : null}
       </div>
 
       {/* collapsed summary line */}
@@ -1458,9 +1353,9 @@ function PlanCardReadOnly({
 export default function AdminPlansPage() {
   const { getToken } = useAuth();
   const [plans, setPlans] = useState<AdminPlanState[]>([]);
-  const [currentVisibility, setCurrentVisibility] = useState<AdminPlanVisibilityState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "error" | "success"; message: string } | null>(
     null
   );
@@ -1484,15 +1379,12 @@ export default function AdminPlansPage() {
     }
     setLoading(true);
     setFeedback(null);
-    setCurrentVisibility(null);
     try {
-      const [plansData, runtimeData, visibilityData] = await Promise.all([
+      const [plansData, runtimeData] = await Promise.all([
         getAdminPlans(token),
-        getAdminRuntimeProviderSettings(token).catch(() => null),
-        getAdminPlanVisibility(token).catch(() => null)
+        getAdminRuntimeProviderSettings(token).catch(() => null)
       ]);
       setPlans(plansData);
-      setCurrentVisibility(visibilityData);
       if (runtimeData?.availableModelsByProvider) {
         const keys: { provider: string; model: string }[] = [];
         for (const [provider, models] of Object.entries(
@@ -1657,6 +1549,33 @@ export default function AdminPlansPage() {
     setSaving(false);
   }
 
+  async function onDeletePlan(plan: AdminPlanState) {
+    const token = await getToken();
+    if (!token) return;
+    const confirmed = window.confirm(
+      `Delete plan "${plan.displayName}" (${plan.code})?\n\nThis only succeeds when no users, subscriptions, or assistant plan bindings still reference it.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setDeletingCode(plan.code);
+    setFeedback(null);
+    try {
+      await deleteAdminPlan(token, plan.code);
+      if (editingCode === plan.code) {
+        cancelEdit();
+      }
+      setFeedback({ kind: "success", message: `Plan ${plan.code} deleted.` });
+      await load();
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Delete failed."
+      });
+    }
+    setDeletingCode(null);
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center py-8">
@@ -1739,8 +1658,6 @@ export default function AdminPlansPage() {
           {reapplySummary.skipped} skipped
         </div>
       )}
-
-      <CurrentQuotaVisibilityPanel visibility={currentVisibility} />
 
       {/* create form */}
       {createOpen && (
@@ -1840,7 +1757,9 @@ export default function AdminPlansPage() {
                 key={plan.code}
                 plan={plan}
                 onEdit={() => startEdit(plan)}
-                disabled={saving || createOpen}
+                onDelete={plan.defaultOnRegistration ? null : () => void onDeletePlan(plan)}
+                disabled={saving || createOpen || editingCode !== null}
+                deleting={deletingCode === plan.code}
               />
             );
           })}

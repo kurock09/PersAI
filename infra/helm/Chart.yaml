@@ -1,6 +1,6 @@
 apiVersion: v2
 name: persai-foundation
-description: Foundation Helm chart for api, runtime, provider-gateway, web, and openclaw workloads
+description: Foundation Helm chart for api, runtime, provider-gateway, and web workloads
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

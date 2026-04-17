@@ -1,20 +1,20 @@
 import { Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
-import type { OpenClawCapabilityEnvelopeState } from "./openclaw-capability-envelope.types";
-import type { OpenClawChannelSurfaceBindingsState } from "./openclaw-channel-surface-bindings.types";
+import type { AssistantCapabilityEnvelopeState } from "./assistant-capability-envelope.types";
+import type { AssistantChannelSurfaceBindingsState } from "./assistant-channel-surface-bindings.types";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 
 type ToolGroup = "knowledge" | "automation" | "communication" | "workspace_ops";
 
 @Injectable()
-export class ResolveOpenClawCapabilityEnvelopeService {
+export class ResolveAssistantCapabilityEnvelopeService {
   execute(params: {
     effectiveCapabilities: EffectiveCapabilityState;
     effectiveToolAvailability: EffectiveToolAvailabilityState;
-    channelSurfaceBindings: OpenClawChannelSurfaceBindingsState;
+    channelSurfaceBindings: AssistantChannelSurfaceBindingsState;
     runtimeProviderRouting: RuntimeProviderRoutingState;
-  }): OpenClawCapabilityEnvelopeState {
+  }): AssistantCapabilityEnvelopeState {
     const {
       effectiveCapabilities,
       effectiveToolAvailability,
@@ -68,7 +68,7 @@ export class ResolveOpenClawCapabilityEnvelopeService {
     const deniedToolCodes = tools.filter((tool) => !tool.allowed).map((tool) => tool.code);
 
     return {
-      schema: "persai.openclawCapabilityEnvelope.v1",
+      schema: "persai.assistantCapabilityEnvelope.v1",
       derivedFrom: {
         effectiveCapabilitiesSchema: effectiveCapabilities.schema ?? null,
         effectiveToolAvailabilitySchema: effectiveToolAvailability.schema ?? null,

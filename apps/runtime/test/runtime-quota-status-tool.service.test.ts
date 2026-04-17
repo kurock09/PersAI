@@ -94,7 +94,6 @@ function createBundle() {
           inactiveReason: null
         }
       },
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -114,7 +113,6 @@ function createBundle() {
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },

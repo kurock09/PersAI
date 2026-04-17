@@ -22,47 +22,6 @@ describe("runtime-provider-settings-admin", () => {
         openai: ["gpt-5.4", "gpt-4.1"],
         anthropic: ["claude-sonnet-4-5"]
       },
-      optimizationPolicy: {
-        heartbeat: {
-          every: "0m",
-          target: "none",
-          lightContext: true,
-          isolatedSession: true
-        },
-        contextPruning: {
-          mode: "cache-ttl",
-          ttl: "5m",
-          keepLastAssistants: 3,
-          softTrimRatio: 0.3,
-          hardClearRatio: 0.5,
-          minPrunableToolChars: 12000,
-          softTrim: {
-            maxChars: 3000,
-            headChars: 1000,
-            tailChars: 1000
-          },
-          hardClear: {
-            enabled: true,
-            placeholder: "[Old tool result content cleared]"
-          }
-        },
-        compaction: {
-          mode: "safeguard",
-          reserveTokens: 24000,
-          keepRecentTokens: 16000,
-          recentTurnsPreserve: 4,
-          identifierPolicy: "strict",
-          postIndexSync: "async",
-          truncateAfterCompaction: true,
-          suggestCompactionByMessageCount: false
-        },
-        openai: {
-          fastMode: false,
-          serviceTier: "default",
-          responsesServerCompaction: true,
-          openaiWsWarmup: true
-        }
-      },
       providerKeys: {
         openai: {
           configured: true,
@@ -75,7 +34,6 @@ describe("runtime-provider-settings-admin", () => {
           updatedAt: null
         }
       },
-      tierSecurityPolicies: [],
       notes: []
     });
 
@@ -109,47 +67,6 @@ describe("runtime-provider-settings-admin", () => {
         providerKeys: {
           openai: "",
           anthropic: "sk-ant-new"
-        }
-      },
-      optimizationPolicy: {
-        heartbeat: {
-          every: "0m",
-          target: "none",
-          lightContext: true,
-          isolatedSession: true
-        },
-        contextPruning: {
-          mode: "cache-ttl",
-          ttl: "5m",
-          keepLastAssistants: 3,
-          softTrimRatio: 0.3,
-          hardClearRatio: 0.5,
-          minPrunableToolChars: 12000,
-          softTrim: {
-            maxChars: 3000,
-            headChars: 1000,
-            tailChars: 1000
-          },
-          hardClear: {
-            enabled: true,
-            placeholder: "[Old tool result content cleared]"
-          }
-        },
-        compaction: {
-          mode: "safeguard",
-          reserveTokens: 24000,
-          keepRecentTokens: 16000,
-          recentTurnsPreserve: 4,
-          identifierPolicy: "strict",
-          postIndexSync: "async",
-          truncateAfterCompaction: true,
-          suggestCompactionByMessageCount: false
-        },
-        openai: {
-          fastMode: false,
-          serviceTier: "default",
-          responsesServerCompaction: true,
-          openaiWsWarmup: true
         }
       },
       providerKeyState: {
@@ -225,47 +142,6 @@ describe("runtime-provider-settings-admin", () => {
           providerKeys: {
             openai: "",
             anthropic: ""
-          }
-        },
-        optimizationPolicy: {
-          heartbeat: {
-            every: "0m",
-            target: "none",
-            lightContext: true,
-            isolatedSession: true
-          },
-          contextPruning: {
-            mode: "cache-ttl",
-            ttl: "5m",
-            keepLastAssistants: 3,
-            softTrimRatio: 0.3,
-            hardClearRatio: 0.5,
-            minPrunableToolChars: 12000,
-            softTrim: {
-              maxChars: 3000,
-              headChars: 1000,
-              tailChars: 1000
-            },
-            hardClear: {
-              enabled: true,
-              placeholder: "[Old tool result content cleared]"
-            }
-          },
-          compaction: {
-            mode: "safeguard",
-            reserveTokens: 24000,
-            keepRecentTokens: 16000,
-            recentTurnsPreserve: 4,
-            identifierPolicy: "strict",
-            postIndexSync: "async",
-            truncateAfterCompaction: true,
-            suggestCompactionByMessageCount: false
-          },
-          openai: {
-            fastMode: false,
-            serviceTier: "default",
-            responsesServerCompaction: true,
-            openaiWsWarmup: true
           }
         },
         providerKeyState: {

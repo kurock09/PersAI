@@ -7,7 +7,6 @@
 import type { RuntimeProviderSelection } from "./runtimeProviderSelection";
 import type { AdminRuntimeProviderSettingsRequestFallback } from "./adminRuntimeProviderSettingsRequestFallback";
 import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
-import type { RuntimeOptimizationPolicyState } from "./runtimeOptimizationPolicyState";
 import type { AdminRuntimeProviderSettingsProviderKeysInput } from "./adminRuntimeProviderSettingsProviderKeysInput";
 
 export interface AdminRuntimeProviderSettingsRequest {
@@ -15,6 +14,5 @@ export interface AdminRuntimeProviderSettingsRequest {
   /** @nullable */
   fallback?: AdminRuntimeProviderSettingsRequestFallback;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
-  optimizationPolicy: RuntimeOptimizationPolicyState;
   providerKeys?: AdminRuntimeProviderSettingsProviderKeysInput;
 }

@@ -66,7 +66,7 @@ async function run(): Promise<void> {
     resolveAllowedPlanPrimaryModelKey({
       runtimeProviderProfile: {
         schema: "persai.runtimeProviderProfile.v1",
-        mode: "legacy_openclaw_default",
+        mode: "unconfigured_default",
         derivedFrom: {
           policyEnvelopeSchema: null,
           secretRefsSchema: null

@@ -45,7 +45,7 @@ export type AdminManagedRuntimeProviderProfileState = {
 
 export type LegacyRuntimeProviderProfileState = {
   schema: typeof RUNTIME_PROVIDER_PROFILE_SCHEMA;
-  mode: "legacy_openclaw_default";
+  mode: "unconfigured_default";
   derivedFrom: {
     policyEnvelopeSchema: null;
     secretRefsSchema: typeof RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA | null;
@@ -215,10 +215,7 @@ function parseRuntimeProviderCredentialRefState(
   if (row === null) {
     throw new Error(`${path} must be an object.`);
   }
-  const secretRef = parseRuntimeCredentialSecretRef(
-    row.secretRef ?? row.openclawSecretRef ?? row.ref,
-    `${path}.secretRef`
-  );
+  const secretRef = parseRuntimeCredentialSecretRef(row.secretRef ?? row.ref, `${path}.secretRef`);
   return {
     refKey: normalizeRefKey(row.refKey, secretRef),
     secretRef,
@@ -344,7 +341,7 @@ export function resolveRuntimeProviderProfileState(params: {
   if (profile === null) {
     return {
       schema: RUNTIME_PROVIDER_PROFILE_SCHEMA,
-      mode: "legacy_openclaw_default",
+      mode: "unconfigured_default",
       derivedFrom: {
         policyEnvelopeSchema: null,
         secretRefsSchema: credentials?.schema ?? null
@@ -355,7 +352,7 @@ export function resolveRuntimeProviderProfileState(params: {
       fallback: null,
       notes: [
         "No admin-managed runtime provider profile is configured.",
-        "OpenClaw should keep its legacy configured default model path."
+        "The active runtime keeps its configured default model path until an admin-managed profile is saved."
       ]
     };
   }
@@ -401,8 +398,8 @@ export function resolveRuntimeProviderProfileState(params: {
     },
     fallback: resolvedFallback,
     notes: [
-      "Admin-managed runtime provider profile is active for the native OpenClaw apply/chat path.",
-      "PersAI stores provider/model choice and credential refs; OpenClaw remains the runtime secret resolver."
+      "Admin-managed runtime provider profile is active on the native runtime path.",
+      "PersAI stores provider/model choice and credential refs in its own control plane."
     ]
   };
 }

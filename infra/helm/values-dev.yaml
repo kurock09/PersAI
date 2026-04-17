@@ -26,29 +26,6 @@ networkPolicy:
       - 130.211.0.0/22
     # Additional internal callers allowed to the public API port.
     extraFromIpBlocks: []
-  openclawIngress:
-    # Recommended starter block for GKE-backed Telegram webhook rollout:
-    # 1. Put pod-visible trusted ingress/proxy CIDRs here FIRST.
-    # 2. In many GKE Ingress-backed paths this starts from Google LB/GFE/backend
-    #    health/proxy ranges, not from Telegram sender IPs alone.
-    # 3. Keep this list empty until you have verified the real pod-visible ranges;
-    #    the OpenClaw ingress policy stays gated while empty.
-    #
-    # Example starter values to verify before uncommenting:
-    # trustedIngressIpBlocks:
-    #   - 35.191.0.0/16
-    #   - 130.211.0.0/22
-    trustedIngressIpBlocks:
-      - 35.191.0.0/16
-      - 130.211.0.0/22
-    # Optional supplemental Telegram sender CIDRs only if they are ACTUALLY pod-visible
-    # in your deployed ingress path. Do not treat this list as the primary GKE allowlist.
-    #
-    # Current official Telegram webhook guide references:
-    # telegramWebhookIpBlocks:
-    #   - 149.154.160.0/20
-    #   - 91.108.4.0/22
-    telegramWebhookIpBlocks: []
 
 api:
   enabled: true
@@ -119,7 +96,7 @@ api:
       secretKey: TELEGRAM_WEBHOOK_HMAC_SECRET
       optional: true
     PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
   probes:
     readiness:
@@ -165,6 +142,8 @@ api:
   internalService:
     enabled: true
     port: 3002
+  telegramWebhook:
+    enabled: true
 
 web:
   enabled: true
@@ -250,6 +229,18 @@ providerGateway:
     PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "5000"
     PROVIDER_GATEWAY_OPENAI_MODELS: "gpt-5.4"
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
+  secretEnv:
+    PERSAI_INTERNAL_API_TOKEN:
+      secretName: persai-runtime-secrets
+      secretKey: PERSAI_INTERNAL_API_TOKEN
+    PROVIDER_GATEWAY_OPENAI_API_KEY:
+      secretName: persai-runtime-secrets
+      secretKey: OPENAI_API_KEY
+      optional: true
+    PROVIDER_GATEWAY_ANTHROPIC_API_KEY:
+      secretName: persai-runtime-secrets
+      secretKey: ANTHROPIC_API_KEY
+      optional: true
 
 runtime:
   enabled: true
@@ -272,437 +263,44 @@ runtime:
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
-
-openclaw:
-  enabled: true
+  secretEnv:
+    PERSAI_INTERNAL_API_TOKEN:
+      secretName: persai-runtime-secrets
+      secretKey: PERSAI_INTERNAL_API_TOKEN
+    DATABASE_URL:
+      secretName: persai-api-secrets
+      secretKey: DATABASE_URL
+    RUNTIME_STATE_REDIS_URL:
+      secretName: persai-runtime-secrets
+      secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
   replicaCount: 1
   revisionHistoryLimit: 2
-  minReadySeconds: 10
+  minReadySeconds: 5
   strategy:
-    type: Recreate
-  runtimePools:
-    defaultPoolKey: free_shared_restricted
-    pools:
-      free_shared_restricted:
-        enabled: false
-        config: {}
-      free_shared_restricted_sandbox:
-        enabled: true
-        config:
-          resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-              ephemeral-storage: 256Mi
-            limits:
-              cpu: "1"
-              memory: 2Gi
-              ephemeral-storage: 1Gi
-          sandboxRuntime:
-            enabled: true
-            dind:
-              resources:
-                requests:
-                  cpu: 250m
-                  memory: 768Mi
-                limits:
-                  cpu: "1"
-                  memory: 1280Mi
-          sessionMaintenance:
-            maxEntries: 500
-            maxDiskBytes: 256mb
-            highWaterBytes: 200mb
-            rotateBytes: 10mb
-          agentDefaults:
-            models:
-              openai/gpt-5.4:
-                params:
-                  openaiWsWarmup: true
-                  responsesServerCompaction: true
-                  fastMode: true
-                  serviceTier: "default"
-            contextPruning:
-              mode: "cache-ttl"
-              ttl: "3m"
-              keepLastAssistants: 2
-              softTrimRatio: 0.25
-              hardClearRatio: 0.45
-              minPrunableToolChars: 8000
-              softTrim:
-                maxChars: 2200
-                headChars: 800
-                tailChars: 800
-              hardClear:
-                enabled: true
-                placeholder: "[Old tool result content cleared]"
-            compaction:
-              mode: "safeguard"
-              reserveTokens: 18000
-              keepRecentTokens: 12000
-              recentTurnsPreserve: 3
-              identifierPolicy: "strict"
-              postIndexSync: "async"
-              truncateAfterCompaction: true
-            sandbox:
-              mode: "all"
-              backend: docker
-              docker:
-                image: ""
-                pidsLimit: 64
-                memory: 512m
-                memorySwap: 512m
-                cpus: 0.5
-      paid_shared_restricted:
-        enabled: false
-        config: {}
-      paid_shared_restricted_sandbox:
-        enabled: true
-        config:
-          resources:
-            requests:
-              cpu: 500m
-              memory: 1Gi
-              ephemeral-storage: 512Mi
-            limits:
-              cpu: "2"
-              memory: 2Gi
-              ephemeral-storage: 2Gi
-          sandboxRuntime:
-            enabled: true
-            dind:
-              resources:
-                requests:
-                  cpu: 500m
-                  memory: 1280Mi
-                limits:
-                  cpu: "1"
-                  memory: 2304Mi
-          sessionMaintenance:
-            maxEntries: 1000
-            maxDiskBytes: 1gb
-            highWaterBytes: 800mb
-          agentDefaults:
-            models:
-              openai/gpt-5.4:
-                params:
-                  openaiWsWarmup: true
-                  responsesServerCompaction: true
-                  fastMode: false
-                  serviceTier: "default"
-            contextPruning:
-              mode: "cache-ttl"
-              ttl: "5m"
-              keepLastAssistants: 3
-              softTrimRatio: 0.3
-              hardClearRatio: 0.5
-              minPrunableToolChars: 12000
-              softTrim:
-                maxChars: 3000
-                headChars: 1000
-                tailChars: 1000
-              hardClear:
-                enabled: true
-                placeholder: "[Old tool result content cleared]"
-            compaction:
-              mode: "safeguard"
-              reserveTokens: 24000
-              keepRecentTokens: 16000
-              recentTurnsPreserve: 4
-              identifierPolicy: "strict"
-              postIndexSync: "async"
-              truncateAfterCompaction: true
-            sandbox:
-              mode: "all"
-              backend: docker
-              docker:
-                image: ""
-                pidsLimit: 128
-                memory: 1g
-                memorySwap: 1g
-                cpus: 1
-      paid_isolated:
-        enabled: true
-        config:
-          resources:
-            requests:
-              cpu: "1"
-              memory: 2Gi
-              ephemeral-storage: 1Gi
-            limits:
-              cpu: "4"
-              memory: 4Gi
-              ephemeral-storage: 5Gi
-          sandboxRuntime:
-            enabled: true
-            dind:
-              resources:
-                requests:
-                  cpu: "1"
-                  memory: 2304Mi
-                limits:
-                  cpu: "2"
-                  memory: 4352Mi
-          sessionMaintenance:
-            maxEntries: 2000
-            maxDiskBytes: 2gb
-            highWaterBytes: 1600mb
-          agentDefaults:
-            models:
-              openai/gpt-5.4:
-                params:
-                  openaiWsWarmup: true
-                  responsesServerCompaction: true
-                  fastMode: false
-                  serviceTier: "flex"
-            contextPruning:
-              mode: "cache-ttl"
-              ttl: "8m"
-              keepLastAssistants: 4
-              softTrimRatio: 0.35
-              hardClearRatio: 0.55
-              minPrunableToolChars: 18000
-              softTrim:
-                maxChars: 4000
-                headChars: 1400
-                tailChars: 1400
-              hardClear:
-                enabled: true
-                placeholder: "[Old tool result content cleared]"
-            compaction:
-              mode: "safeguard"
-              reserveTokens: 32000
-              keepRecentTokens: 22000
-              recentTurnsPreserve: 5
-              identifierPolicy: "strict"
-              postIndexSync: "async"
-              truncateAfterCompaction: true
-            sandbox:
-              mode: "all"
-              backend: docker
-              docker:
-                image: ""
-                pidsLimit: 256
-                memory: 2g
-                memorySwap: 2g
-                cpus: 2
-  sandboxImages:
-    base:
-      name: openclaw-sandbox
-      tag: e4f73e39c64064d74d4127e7eebbb881054fdf78
-      digest: ""
-    common:
-      name: openclaw-sandbox-common
-      tag: e4f73e39c64064d74d4127e7eebbb881054fdf78
-      digest: ""
-  serviceAccount:
-    create: true
-    name: openclaw-sa
-    gcpServiceAccountEmail: openclaw-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
-  image:
-    name: openclaw
-
-
-
-
-    tag: c94e6d55d83a864640b4065fb9b8af49e9e728b4
-    digest: sha256:4348ff1363969b5e197497168bed0ef8f91d952b060ad1d0440cf4952be93e50
-
-    pullPolicy: IfNotPresent
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   resources:
     requests:
-      cpu: 250m
-      memory: 512Mi
-      ephemeral-storage: 512Mi
+      cpu: 500m
+      memory: 768Mi
     limits:
-      cpu: "1"
-      memory: 1Gi
-      ephemeral-storage: 1Gi
-  controlUi:
-    allowedOrigins:
-      - http://localhost:18789
-      - http://127.0.0.1:18789
-    dangerouslyAllowHostHeaderOriginFallback: false
-  persaiSecretResolver:
-    baseUrl: http://api-internal:3002
-  sessionMaintenance:
-    mode: enforce
-    pruneAfter: 14d
-    maxEntries: 2000
-    rotateBytes: 25mb
-    resetArchiveRetention: 14d
-    maxDiskBytes: 2gb
-    highWaterBytes: 1600mb
-  tools:
-    deny:
-      - gateway
-      - nodes
-      - canvas
-      - agents_list
-      - session_status
-      - sessions_list
-      - sessions_history
-      - sessions_send
-      - sessions_spawn
-      - sessions_yield
-      - subagents
-    sandbox:
-      tools:
-        allow:
-          - exec
-          - process
-          - read
-          - write
-          - edit
-          - apply_patch
-          - image
-          - web_search
-          - web_fetch
-          - image_generate
-          - tts
-          - browser
-          - memory_search
-          - memory_get
-          - scheduled_action
-          - persai_tool_quota_status
-          - persai_workspace_attach
-          - pdf
-          - message
-        deny:
-          - cron
-          - canvas
-          - nodes
-          - gateway
-          - telegram
-          - whatsapp
-          - discord
-          - irc
-          - googlechat
-          - slack
-          - signal
-          - imessage
-          - line
-  workspace:
-    gcsFuse:
-      enabled: true
-      bucketName: persai-dev-workspaces
-      mountPath: /mnt/workspaces/persai
-      mountOptions: "uid=1000,gid=1000"
-  tts:
-    auto: "off"
-    mode: final
-  agentDefaults:
-    models:
-      openai/gpt-5.4:
-        params:
-          openaiWsWarmup: true
-          responsesServerCompaction: true
-    heartbeat:
-      # Disable the implicit shared `agent:main` heartbeat in SaaS pools. This
-      # avoids one pool-level workspace/session driving background turns for many
-      # users while PersAI still materializes per-assistant workspaces.
-      every: "0m"
-      target: "none"
-      lightContext: true
-      isolatedSession: true
-    contextPruning:
-      mode: "cache-ttl"
-      ttl: "5m"
-      keepLastAssistants: 3
-      softTrimRatio: 0.3
-      hardClearRatio: 0.5
-      minPrunableToolChars: 12000
-      softTrim:
-        maxChars: 3000
-        headChars: 1000
-        tailChars: 1000
-      hardClear:
-        enabled: true
-        placeholder: "[Old tool result content cleared]"
-    compaction:
-      mode: "safeguard"
-      reserveTokens: 24000
-      keepRecentTokens: 16000
-      recentTurnsPreserve: 4
-      identifierPolicy: "strict"
-      postIndexSync: "async"
-      truncateAfterCompaction: true
-    sandbox:
-      # Shared non-sandbox baseline. The *_sandbox pools override this with a
-      # Docker-backed sandbox path and separate rollout surface.
-      mode: "off"
-      backend: docker
-      scope: session
-      workspaceAccess: rw
-      sessionToolsVisibility: spawned
-      docker:
-        image: ""
-        network: none
-        readOnlyRoot: true
-        user: "0:0"
-        capDrop:
-          - ALL
-        pidsLimit: 256
-        memory: 1g
-        memorySwap: 1g
-        cpus: 1
-  sandboxRuntime:
-    enabled: false
-    dockerSocketPath: /run/user/1000/docker.sock
-    dockerHost: unix:///run/user/1000/docker.sock
-    preloadSandboxImage: true
-    startupProbe:
-      failureThreshold: 180
-      periodSeconds: 5
-    dind:
-      image: docker:29.3.1-dind-rootless
-      pullPolicy: IfNotPresent
-      env: {}
-      resources: {}
+      cpu: "2"
+      memory: 1536Mi
   autoscaling:
     enabled: false
-    minReplicas: 2
-    maxReplicas: 6
+    minReplicas: 1
+    maxReplicas: 3
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
   podDisruptionBudget:
     enabled: false
     minAvailable: 1
   topologySpreadConstraints: []
-  args:
-    - --allow-unconfigured
-    - --bind
-    - lan
-    - --port
-    - "18789"
-  env:
-    TZ: UTC
-    PERSAI_API_BASE_URL: "http://api-internal:3002"
-    # Supported PersAI/OpenClaw runtime contract remains one pod per runtime pool.
-    PERSAI_RUNTIME_READINESS_MODE: "single_replica"
-    PERSAI_RUNTIME_SPEC_STORE: "redis"
-    PERSAI_RUNTIME_SPEC_STORE_KEY_PREFIX: "persai:runtime-spec"
-    PERSAI_RUNTIME_SPEC_STORE_TTL_SECONDS: "0"
-    PERSAI_WORKSPACE_ROOT: /mnt/workspaces/persai
-    OPENCLAW_STATE_DIR: /mnt/workspaces/persai/.openclaw-state
-  secretEnv:
-    OPENCLAW_GATEWAY_TOKEN:
-      secretName: persai-openclaw-secrets
-      secretKey: OPENCLAW_GATEWAY_TOKEN
-    PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
-      secretKey: PERSAI_INTERNAL_API_TOKEN
-    PERSAI_RUNTIME_SPEC_STORE_REDIS_URL:
-      secretName: persai-openclaw-secrets
-      secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
-    # Value only in cluster Secret key `OPENAI_API_KEY` (never put the sk-... string in Git).
-    OPENAI_API_KEY:
-      secretName: persai-openclaw-secrets
-      secretKey: OPENAI_API_KEY
-  telegramWebhook:
-    enabled: true
   service:
     type: ClusterIP
-    port: 18789
+    port: 3012
 
 ingress:
   enabled: true

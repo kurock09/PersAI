@@ -238,7 +238,6 @@ function createService(overrides?: {
     reserveTokens: number;
     keepRecentTokens: number;
     recentTurnsPreserve: number;
-    suggestByMessageCount: boolean;
     webSuggestionLatencyMs: number;
   }>;
   contextHydration?: Partial<{
@@ -253,7 +252,6 @@ function createService(overrides?: {
     reserveTokens: overrides?.sharedCompaction?.reserveTokens ?? 24_000,
     keepRecentTokens: overrides?.sharedCompaction?.keepRecentTokens ?? 16_000,
     recentTurnsPreserve: overrides?.sharedCompaction?.recentTurnsPreserve ?? 4,
-    suggestByMessageCount: overrides?.sharedCompaction?.suggestByMessageCount ?? false,
     webSuggestionLatencyMs: overrides?.sharedCompaction?.webSuggestionLatencyMs ?? 7_000
   };
 
@@ -454,7 +452,6 @@ describe("ManageWebChatListService", () => {
         reserveTokens: 10_000,
         keepRecentTokens: 4_000,
         recentTurnsPreserve: 2,
-        suggestByMessageCount: true,
         webSuggestionLatencyMs: 5_000
       },
       contextHydration: {
@@ -474,8 +471,8 @@ describe("ManageWebChatListService", () => {
 
     assert.deepEqual(state, {
       available: true,
-      suggested: true,
-      suggestionReason: "history_threshold",
+      suggested: false,
+      suggestionReason: null,
       messageCount: 24,
       assistantMessageCount: 12,
       currentTokens: null,

@@ -242,7 +242,6 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
       runtimeAssignment: { tier: "free_shared_restricted" },
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -262,7 +261,6 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },
@@ -374,7 +372,6 @@ function createWarmInputMissingToolPolicy() {
       runtimeAssignment: { tier: "free_shared_restricted" },
       runtimeProviderProfile: null,
       runtimeProviderRouting: null,
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -394,7 +391,6 @@ function createWarmInputMissingToolPolicy() {
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },

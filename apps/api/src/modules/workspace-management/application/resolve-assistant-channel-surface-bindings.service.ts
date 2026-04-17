@@ -1,11 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { EffectiveCapabilityState } from "./effective-capability.types";
 import type {
-  OpenClawBindingState,
-  OpenClawChannelSurfaceBindingsState,
-  OpenClawProviderKey,
-  OpenClawSurfaceType
-} from "./openclaw-channel-surface-bindings.types";
+  AssistantChannelBindingState,
+  AssistantChannelSurfaceBindingsState,
+  AssistantChannelProviderKey,
+  AssistantChannelSurfaceType
+} from "./assistant-channel-surface-bindings.types";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -17,8 +17,8 @@ import {
 import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
 
 type SurfaceSeed = {
-  provider: OpenClawProviderKey;
-  surfaceType: OpenClawSurfaceType;
+  provider: AssistantChannelProviderKey;
+  surfaceType: AssistantChannelSurfaceType;
   allowFromCapabilities: (caps: EffectiveCapabilityState) => boolean;
   interactionMode: "chat" | "notification";
   inboundUserMessages: boolean;
@@ -83,7 +83,7 @@ const SURFACE_SEEDS: SurfaceSeed[] = [
   }
 ];
 
-const PROVIDERS: OpenClawProviderKey[] = [
+const PROVIDERS: AssistantChannelProviderKey[] = [
   "web_internal",
   "telegram",
   "whatsapp",
@@ -92,7 +92,7 @@ const PROVIDERS: OpenClawProviderKey[] = [
 ];
 
 @Injectable()
-export class ResolveOpenClawChannelSurfaceBindingsService {
+export class ResolveAssistantChannelSurfaceBindingsService {
   constructor(
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
@@ -103,7 +103,7 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
   async execute(params: {
     assistantId: string;
     effectiveCapabilities: EffectiveCapabilityState;
-  }): Promise<OpenClawChannelSurfaceBindingsState> {
+  }): Promise<AssistantChannelSurfaceBindingsState> {
     const { assistantId, effectiveCapabilities } = params;
 
     const [telegramConfiguredRaw, whatsappConfigured, maxConfigured] = await Promise.all([
@@ -129,7 +129,7 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
       telegramSecretLifecycle.status === "legacy_unmanaged";
     const telegramConfigured = telegramConfiguredRaw && telegramSecretUsable;
 
-    const providerConfigured: Record<OpenClawProviderKey, boolean> = {
+    const providerConfigured: Record<AssistantChannelProviderKey, boolean> = {
       web_internal: true,
       telegram: telegramConfigured,
       whatsapp: whatsappConfigured,
@@ -137,14 +137,14 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
       system_notifications: true
     };
 
-    const providers: OpenClawChannelSurfaceBindingsState["providers"] = PROVIDERS.map(
+    const providers: AssistantChannelSurfaceBindingsState["providers"] = PROVIDERS.map(
       (provider) => {
         const configured = providerConfigured[provider];
         const providerSurfaceSeeds = SURFACE_SEEDS.filter((seed) => seed.provider === provider);
         const surfaces = providerSurfaceSeeds.map((seed) => {
           const capabilityAllowed = seed.allowFromCapabilities(effectiveCapabilities);
           const allowed = capabilityAllowed && configured;
-          const state: OpenClawBindingState = capabilityAllowed
+          const state: AssistantChannelBindingState = capabilityAllowed
             ? configured
               ? "active"
               : "unconfigured"
@@ -222,7 +222,7 @@ export class ResolveOpenClawChannelSurfaceBindingsService {
       .map((surface) => surface.surfaceType);
 
     return {
-      schema: "persai.openclawChannelSurfaceBindings.v1",
+      schema: "persai.assistantChannelSurfaceBindings.v1",
       derivedFrom: {
         effectiveCapabilitiesSchema: effectiveCapabilities.schema ?? null,
         planCode: effectiveCapabilities.derivedFrom.planCode

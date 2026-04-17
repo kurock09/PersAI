@@ -1,8 +1,8 @@
-import type { OpenClawChannelSurfaceBindingsState } from "./openclaw-channel-surface-bindings.types";
+import type { AssistantChannelSurfaceBindingsState } from "./assistant-channel-surface-bindings.types";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 
-export type OpenClawCapabilityEnvelopeState = {
-  schema: "persai.openclawCapabilityEnvelope.v1";
+export type AssistantCapabilityEnvelopeState = {
+  schema: "persai.assistantCapabilityEnvelope.v1";
   derivedFrom: {
     effectiveCapabilitiesSchema: string | null;
     effectiveToolAvailabilitySchema: string | null;
@@ -14,7 +14,7 @@ export type OpenClawCapabilityEnvelopeState = {
     whatsapp: { allowed: boolean };
     max: { allowed: boolean };
   };
-  channelSurfaceBindings: OpenClawChannelSurfaceBindingsState;
+  channelSurfaceBindings: AssistantChannelSurfaceBindingsState;
   runtimeProviderRouting: RuntimeProviderRoutingState;
   toolClasses: {
     utility: {

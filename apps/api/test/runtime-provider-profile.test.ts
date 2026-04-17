@@ -9,7 +9,7 @@ async function run(): Promise<void> {
     policyEnvelope: null,
     secretRefs: null
   });
-  assert.equal(legacy.mode, "legacy_openclaw_default");
+  assert.equal(legacy.mode, "unconfigured_default");
   assert.equal(legacy.primary, null);
   assert.equal(legacy.fallback, null);
 

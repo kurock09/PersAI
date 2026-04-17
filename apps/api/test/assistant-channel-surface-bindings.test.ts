@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { ResolveOpenClawChannelSurfaceBindingsService } from "../src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service";
+import { ResolveAssistantChannelSurfaceBindingsService } from "../src/modules/workspace-management/application/resolve-assistant-channel-surface-bindings.service";
 
 async function run(): Promise<void> {
-  const service = new ResolveOpenClawChannelSurfaceBindingsService(
+  const service = new ResolveAssistantChannelSurfaceBindingsService(
     {
       hasActiveBindingForProvider: async (_assistantId, providerKey) => providerKey === "telegram"
     } as never,
@@ -87,7 +87,7 @@ async function run(): Promise<void> {
     }
   });
 
-  assert.equal(resolved.schema, "persai.openclawChannelSurfaceBindings.v1");
+  assert.equal(resolved.schema, "persai.assistantChannelSurfaceBindings.v1");
   assert.equal(
     resolved.suppression.declaredSurfaceTypes.includes("max_bot") &&
       resolved.suppression.declaredSurfaceTypes.includes("max_mini_app"),

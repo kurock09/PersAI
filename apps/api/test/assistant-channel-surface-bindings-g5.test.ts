@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ResolveOpenClawChannelSurfaceBindingsService } from "../src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service";
+import { ResolveAssistantChannelSurfaceBindingsService } from "../src/modules/workspace-management/application/resolve-assistant-channel-surface-bindings.service";
 
 const effectiveCapabilities = {
   schema: "persai.effectiveCapabilities.v1",
@@ -42,7 +42,7 @@ const effectiveCapabilities = {
 };
 
 async function run(): Promise<void> {
-  const service = new ResolveOpenClawChannelSurfaceBindingsService(
+  const service = new ResolveAssistantChannelSurfaceBindingsService(
     {
       hasActiveBindingForProvider: async (_assistantId, providerKey) =>
         providerKey === "telegram" || providerKey === "whatsapp" || providerKey === "max"

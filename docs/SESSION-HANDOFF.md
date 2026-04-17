@@ -1,5 +1,191 @@
 # SESSION-HANDOFF
 
+## 2026-04-17 - ADR-072 Step 18 closeout status sync
+
+### What changed
+
+1. Closed the remaining active Step 18 naming/schema tails after the page cleanups: admin runtime provider mode now uses neutral `unconfigured_default`, repo-truth Prisma no longer models the dead `platform_runtime_provider_settings.optimization_policy` field, and the last live `openclawSecretRef` compatibility alias was removed from active code paths.
+2. Renamed the remaining active `openclaw-*` assistant capability/channel helper files and focused API tests to neutral assistant/channel/capability naming so active imports, test scripts, and source-tree paths no longer leak legacy runtime naming.
+3. Synced repo-truth planning docs so ADR-072 now marks `Step 18` and `Slice 7` complete and points the next primary execution step at `Step 19 — Scale hardening for 10000+ active users`.
+
+### Current active slice
+
+- `Slice 8 — Scale hardening for 10000+ active users` (planned)
+
+### Current active step
+
+- `Step 19 — Scale hardening for 10000+ active users` (planned)
+
+## 2026-04-17 - ADR-072 Step 18 admin runtime page cleanup slice
+
+### What changed
+
+1. `apps/web/app/admin/runtime/page.tsx` was cleaned of the stale `Sandbox security` section and the old tier/sandbox matrix cards. A follow-up runtime-path audit then removed stale `Heartbeat`, `Context Pruning`, `OpenAI Tuning`, old compaction threshold editors, and the final legacy web compaction message-count override after confirming they no longer drive the active native runtime. The page now keeps provider routing, available model catalogs, and provider API keys only.
+2. The admin runtime response contract no longer returns `tierSecurityPolicies`, and the dead backend/helper/generated-contract files that only existed to feed that block were removed instead of being left as unused tails.
+3. The page layout was compacted to match the denser `System Overview` style: one compact header/status bar, collapsible sections, smaller cards/inputs, and a lighter sticky save bar instead of the older roomy two-column panel feel.
+4. Editable inputs now explicitly disable browser autofill/autocorrect/spellcheck behavior, and provider API-key fields use `new-password` autocomplete semantics so browser/password-manager autofill stops fighting the page.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 18 — Audit and clean UI/control-plane/runtime tails`
+
+### Files touched
+
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/web/app/app/runtime-provider-settings-admin.test.ts`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/model/adminRuntimeProviderSettingsState.ts`
+- `packages/contracts/src/generated/model/index.ts`
+- deleted: `apps/api/src/modules/workspace-management/application/runtime-tier-security-policy.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSecurityPolicyState.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSecurityPoolClass.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSecurityExecPolicy.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSecurityUserPlanToolsPolicy.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSecurityWritePolicy.ts`
+- deleted: `packages/contracts/src/generated/model/sandboxResourceLimits.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyState.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateBackend.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateMode.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateNetwork.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateScope.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateSessionToolsVisibility.ts`
+- deleted: `packages/contracts/src/generated/model/runtimeTierSandboxPolicyStateWorkspaceAccess.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts`
+
+### Risks / notes
+
+1. This pass removes the stale sandbox/tier matrix from the active admin/runtime contract and UI only; historical ADR/session records that describe why that older slice once existed remain as historical docs.
+2. The current runtime page is intentionally scoped to global provider/model controls only. If future Step 19 work needs real runtime-pod inventory or live runtime health on this page, that should land as a new native-runtime diagnostics slice rather than resurrecting the old static sandbox matrix or stale OpenClaw-era optimization editors.
+
+### Next recommended step
+
+1. Review the cleaned `/admin/runtime` UI live, then continue the remaining Step 18 user-facing cleanup and cluster-side GKE cleanup/deploy validation.
+
+## 2026-04-17 - ADR-072 Step 18 admin overview multi-pod UI cleanup slice
+
+### What changed
+
+1. `apps/web/app/admin/page.tsx` no longer exposes the old sticky/pinned pod selector or the `Pod-local` explanation banner. `System Overview` now probes the service, discovers reachable `api` pods, pins requests per discovered pod through the existing proxy mechanism, and renders one merged overview instead of forcing operators to switch pods manually.
+2. `Trace` control is now fan-out behavior for the discovered `api` fleet: toggling it sends the same setting to each discovered pod, merged trace samples keep their source pod label, and the page now shows `OFF` / `PARTIAL` / `ON` based on how many discovered pods have tracing enabled.
+3. The stale `Web Runtime Shadow Compare` panel was removed from the main admin overview, and the old `Runtime Tiers` matrix was replaced with a native-runtime section that reflects the active `api -> runtime -> provider-gateway` path and frames Step 19 as horizontal runtime scaling rather than a fixed tier list.
+4. `apps/api` admin overview payloads now include raw latency rollups plus a simplified native-runtime health/config block so the web admin surface can aggregate latency percentiles honestly across discovered pods instead of averaging already-computed pod-local percentiles.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 18 — Audit and clean UI/control-plane/runtime tails`
+
+### Files touched
+
+- `apps/web/app/admin/page.tsx`
+- `apps/api/src/modules/workspace-management/application/overview-dashboard.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-overview-dashboard.service.ts`
+- `apps/api/test/resolve-admin-overview-dashboard.service.test.ts`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. The aggregate view is based on the currently discovered `api` pods behind the service, not on a Kubernetes inventory API, so a newly appeared pod can stay outside the merged view until the next refresh/probe cycle.
+2. Trace fan-out is best-effort across discovered pods. If a new pod appears after trace is enabled, it starts with trace disabled until the next refresh/toggle, which is why the UI now exposes the honest `PARTIAL` state.
+3. The page now stops pretending there is a fixed runtime-tier matrix for the active path, but it still does not claim an exact live `runtime` pod count because that inventory is not currently available through the admin overview contract.
+
+### Next recommended step
+
+1. Run the user-directed UI review on the cleaned `System Overview` page, then finish any remaining Step 18 active-surface wording cleanup before the GKE cleanup/deploy verification pass.
+
+## 2026-04-17 - ADR-072 Step 18 pre-UI infra/runtime cleanup slice
+
+### What changed
+
+1. `infra/helm` no longer carries active `openclaw-*` workload rendering: the chart description, ingress gate, network-policy wiring, HPA/PDB templates, helper macros, and dev/default values now target only `api`, `runtime`, `provider-gateway`, and `web`.
+2. Native deploy wiring now uses neutral runtime secret naming in Helm (`persai-runtime-secrets`) instead of continuing to point active `api` / `runtime` / `provider-gateway` pods at `persai-openclaw-secrets`.
+3. Non-UI `apps/api` materialization helper surfaces now use neutral assistant naming (`AssistantChannel*`, `AssistantCapability*`, `persai.assistantChannelSurfaceBindings.v1`, `persai.assistantCapabilityEnvelope.v1`, `platform_managed_default`) so internal runtime/control-plane artifacts stop leaking `openclaw*` labels on the authoritative native path.
+4. Source-of-truth docs now record the current Step 18 pre-UI state: active dev ingress/runtime path is PersAI-native, `bot.persai.dev` terminates at `api`, and the next cleanup still remaining in Step 18 is the separate `apps/web` UI/control-plane wording pass.
+
+### Current active slice
+
+- `Slice 7 — OpenClaw removal and cleanup`
+
+### Current active step
+
+- `Step 18 — Audit and clean UI/control-plane/runtime tails`
+
+### Files touched
+
+- `infra/helm/Chart.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/helm/templates/_helpers.tpl`
+- `infra/helm/templates/ingress.yaml`
+- `infra/helm/templates/networkpolicies.yaml`
+- `infra/helm/templates/workload-hpa.yaml`
+- `infra/helm/templates/workload-pdb.yaml`
+- `infra/helm/templates/openclaw-configmap.yaml` (deleted)
+- `infra/helm/templates/openclaw-deployment.yaml` (deleted)
+- `infra/helm/templates/openclaw-service.yaml` (deleted)
+- `infra/helm/templates/openclaw-serviceaccount.yaml` (deleted)
+- `apps/api/src/modules/workspace-management/application/openclaw-channel-surface-bindings.types.ts`
+- `apps/api/src/modules/workspace-management/application/openclaw-capability-envelope.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-channel-surface-bindings.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-openclaw-capability-envelope.service.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-runtime-provider-routing.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/openclaw-capability-envelope.test.ts`
+- `apps/api/test/openclaw-channel-surface-bindings.test.ts`
+- `apps/api/test/openclaw-channel-surface-bindings-g5.test.ts`
+- `docs/ADR/072-persai-native-multichannel-runtime-replacement.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+1. `corepack pnpm --filter @persai/api exec tsx test/openclaw-capability-envelope.test.ts`
+2. `corepack pnpm --filter @persai/api exec tsx test/openclaw-channel-surface-bindings.test.ts`
+3. `corepack pnpm --filter @persai/api exec tsx test/openclaw-channel-surface-bindings-g5.test.ts`
+4. `corepack pnpm --filter @persai/api run typecheck`
+5. `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+
+### Risks
+
+1. The active chart now expects neutral runtime secret naming (`persai-runtime-secrets`), so the cluster secret needs to exist before the next deploy/sync.
+2. Step 18 is not complete yet: `apps/web` UI/control-plane wording and any user-facing contract cleanup that depends on that pass still remain out of scope for this sub-slice.
+3. Infra runbooks outside the source-of-truth pack still contain older OpenClaw-specific operational notes and should be cleaned in a follow-up docs pass.
+
+### Next recommended step
+
+1. Finish the remaining Step 18 UI/control-plane cleanup in `apps/web`, then deploy/sync the Helm cleanup and verify `openclaw-*` resources disappear from `persai-dev` while web and Telegram flows remain healthy.
+
 ## 2026-04-17 - ADR-072 Step 17 legacy schema/document cleanup closeout
 
 ### What changed

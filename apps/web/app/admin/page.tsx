@@ -19,10 +19,6 @@ import {
   type AdminOverviewRouteHint
 } from "@/app/app/assistant-api-client";
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
 type Pctl = { p50Ms: number; p95Ms: number; p99Ms: number };
 type ChLatency = { avgMs: number; maxMs: number; count: number; percentiles: Pctl };
 type LatencySnap = {
@@ -31,16 +27,8 @@ type LatencySnap = {
   allRoutes: ChLatency;
 };
 type Warning = { code: string; severity: "info" | "warning" | "critical"; message: string };
-type Tier = {
-  tier: string;
-  live: boolean;
-  ready: boolean;
-  checkedAt: string;
-  flapCount: number;
-  lastFlapAt: string | null;
-};
 type QueuePressure = { inFlight: number; peakInFlight: number; requestsPerSecond: number };
-type Health = {
+type PodHealth = {
   uptimeSeconds: number;
   processStartedAt: string;
   rssBytes: number;
@@ -53,6 +41,20 @@ type Health = {
   errorRate: number;
   cpuUserMs: number;
   cpuSystemMs: number;
+};
+type AggregatedHealth = {
+  rssBytes: number;
+  heapUsedBytes: number;
+  heapTotalBytes: number;
+  externalBytes: number;
+  arrayBuffersBytes: number;
+  totalRequests: number;
+  totalErrors: number;
+  errorRate: number;
+  cpuUserMs: number;
+  cpuSystemMs: number;
+  maxPodRssBytes: number;
+  maxPodInstanceId: string | null;
 };
 type TraceStage = { key: string; durationMs: number };
 type TraceEntry = {
@@ -73,101 +75,129 @@ type TraceState = {
   updatedAt: string | null;
   recent: TraceEntry[];
 };
-type ShadowExecution = {
-  status: "completed" | "failed";
-  runtimeMs: number;
-  firstDeltaMs: number | null;
-  deltaCount: number | null;
-  code: string | null;
-  preview: string | null;
-};
-type ShadowComparison = {
-  comparisonId: string;
-  route: "sync" | "stream";
-  verdict: "match" | "mismatch";
-  assistantId: string;
-  threadKey: string;
-  clientTurnId: string | null;
-  comparedAt: string;
-  contentMatch: boolean;
-  errorClassMatch: boolean;
-  terminalMatch: boolean;
-  primary: ShadowExecution;
-  shadow: ShadowExecution;
-};
-type ShadowState = {
-  sampleLimit: number;
-  updatedAt: string | null;
-  recent: ShadowComparison[];
-};
 type DataSource = {
   scope: "api_instance_local";
   instanceId: string;
   podIp: string | null;
 };
+type LatencyBucket = { le: number; value: number };
+type LatencyRollup = {
+  count: number;
+  durationMsTotal: number;
+  maxMs: number;
+  buckets: LatencyBucket[];
+};
+type RuntimeState = {
+  runtimeBaseUrlConfigured: boolean;
+  providerGatewayBaseUrlConfigured: boolean;
+  runtimeEndpointHost: string | null;
+  providerGatewayEndpointHost: string | null;
+  live: boolean;
+  ready: boolean;
+  checkedAt: string;
+};
 type Dash = {
   dataSource: DataSource;
   latency: LatencySnap;
+  aggregation: {
+    latency: {
+      webChatTurns: LatencyRollup | null;
+      telegramTurns: LatencyRollup | null;
+      allRoutes: LatencyRollup;
+    };
+  };
   latencyTrace: TraceState;
-  webRuntimeShadowComparisons: ShadowState;
   activeUsers: number;
   activeWebChats: number;
-  runtime: { adapterEnabled: boolean; tiers: Tier[] };
-  health: Health;
+  runtime: RuntimeState;
+  health: PodHealth;
   queuePressure: QueuePressure;
   warnings: Warning[];
   updatedAt: string;
 };
 type SourceRegistry = Record<string, DataSource>;
-type RouteMode = "auto" | "probe" | "pinned";
+type AggregatedTraceEntry = TraceEntry & { sourceInstanceId: string };
+type AggregatedTraceState = {
+  mode: "off" | "partial" | "on";
+  enabledPodCount: number;
+  totalPodCount: number;
+  sampleLimit: number;
+  updatedAt: string | null;
+  recent: AggregatedTraceEntry[];
+};
+type AggregatedRuntimeState = {
+  runtimeBaseUrlConfigured: boolean;
+  providerGatewayBaseUrlConfigured: boolean;
+  runtimeEndpointHosts: string[];
+  providerGatewayEndpointHosts: string[];
+  live: boolean;
+  ready: boolean;
+  checkedAt: string | null;
+};
+type AggregatedOverview = {
+  apiSources: DataSource[];
+  latency: LatencySnap;
+  latencyTrace: AggregatedTraceState;
+  activeUsers: number;
+  activeWebChats: number;
+  runtime: AggregatedRuntimeState;
+  health: AggregatedHealth;
+  queuePressure: QueuePressure;
+  warnings: Warning[];
+  updatedAt: string;
+  oldestProcessStartedAt: string | null;
+  newestProcessStartedAt: string | null;
+};
 
-/* ------------------------------------------------------------------ */
-/*  Formatters                                                         */
-/* ------------------------------------------------------------------ */
+const HIGH_MEMORY_THRESHOLD_BYTES = 512 * 1024 * 1024;
+const HIGH_LATENCY_THRESHOLD_MS = 3000;
+const HIGH_ERROR_RATE_THRESHOLD = 0.05;
+const MAX_DISCOVERY_PROBES = 6;
+const MAX_STABLE_PROBES = 2;
+const TRACE_RECENT_LIMIT = 40;
 
-function fUp(s: number) {
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-}
 function fB(b: number) {
   if (b >= 1073741824) return `${(b / 1073741824).toFixed(1)} GB`;
   if (b >= 1048576) return `${(b / 1048576).toFixed(0)} MB`;
   return `${(b / 1024).toFixed(0)} KB`;
 }
+
 function fMs(ms: number) {
   if (ms >= 10000) return `${(ms / 1000).toFixed(0)}s`;
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${Math.round(ms)}ms`;
 }
+
 function cMs(ms: number) {
   if (ms > 3000) return "text-destructive";
   if (ms > 1000) return "text-warning";
   return "text-success";
 }
+
 function cPct(p: number) {
   if (p >= 95) return "text-destructive";
   if (p >= 75) return "text-warning";
   return "text-success";
 }
+
 function sevBg(s: string) {
   if (s === "critical") return "border-l-destructive bg-destructive/5";
   if (s === "warning") return "border-l-warning bg-warning/5";
   return "border-l-blue-500 bg-blue-500/5";
 }
+
 function sevDot(s: string) {
   if (s === "critical") return "bg-destructive";
   if (s === "warning") return "bg-warning";
   return "bg-blue-400";
 }
+
 function surfaceLabel(v: TraceEntry["surface"]) {
   if (v === "telegram") return "Telegram";
   if (v === "web_chat_sync") return "Web sync";
   return "Web stream";
 }
+
 function statusTone(v: TraceEntry["status"]) {
   if (v === "completed" || v === "replayed" || v === "deduplicated") {
     return "text-success";
@@ -177,18 +207,11 @@ function statusTone(v: TraceEntry["status"]) {
   }
   return "text-destructive";
 }
-function shadowRouteLabel(route: ShadowComparison["route"]) {
-  return route === "sync" ? "Web sync" : "Web stream";
-}
-function shadowVerdictTone(verdict: ShadowComparison["verdict"]) {
-  return verdict === "match" ? "text-success" : "text-destructive";
-}
-function shadowStatusTone(status: ShadowExecution["status"]) {
-  return status === "completed" ? "text-success" : "text-destructive";
-}
+
 function isRuntimeStage(stage: TraceStage) {
   return stage.key.startsWith("runtime_");
 }
+
 function getBottleneckStage(stages: TraceStage[]) {
   return stages.reduce<TraceStage | null>(
     (longest, stage) =>
@@ -196,30 +219,362 @@ function getBottleneckStage(stages: TraceStage[]) {
     null
   );
 }
-function sourceLabel(source: DataSource) {
-  return source.instanceId;
-}
-function buildSourceSwitchMessage(previous: DataSource, next: DataSource) {
-  return `Overview source switched from ${sourceLabel(previous)} to ${sourceLabel(next)}. Pod-local metrics and trace state can differ between api pods.`;
-}
-function buildRouteHint(mode: RouteMode, pinnedPodIp: string | null): AdminOverviewRouteHint {
-  if (mode === "probe") {
-    return { mode: "probe" };
-  }
-  if (mode === "pinned" && pinnedPodIp) {
-    return { mode: "pinned", podIp: pinnedPodIp };
-  }
-  return { mode: "auto" };
-}
-function routeModeLabel(mode: RouteMode) {
-  if (mode === "probe") return "Probe service";
-  if (mode === "pinned") return "Pinned pod";
-  return "Auto (sticky)";
+
+function formatWhen(value: string | null) {
+  return value
+    ? new Date(value).toLocaleString(undefined, {
+        dateStyle: "short",
+        timeStyle: "short"
+      })
+    : "—";
 }
 
-/* ------------------------------------------------------------------ */
-/*  Atoms                                                              */
-/* ------------------------------------------------------------------ */
+function traceModeLabel(mode: AggregatedTraceState["mode"]) {
+  if (mode === "on") return "ON";
+  if (mode === "partial") return "PARTIAL";
+  return "OFF";
+}
+
+function estimatePercentiles(rollup: LatencyRollup): Pctl {
+  if (rollup.count === 0) {
+    return { p50Ms: 0, p95Ms: 0, p99Ms: 0 };
+  }
+  const sorted = [...rollup.buckets].sort((a, b) => a.le - b.le);
+  const pick = (target: number) => {
+    const threshold = Math.ceil(target * rollup.count);
+    for (const bucket of sorted) {
+      if (bucket.value >= threshold) {
+        return bucket.le;
+      }
+    }
+    return Math.round(rollup.maxMs);
+  };
+  return {
+    p50Ms: pick(0.5),
+    p95Ms: pick(0.95),
+    p99Ms: pick(0.99)
+  };
+}
+
+function mergeRollups(rollups: Array<LatencyRollup | null>): LatencyRollup | null {
+  const existing = rollups.filter((rollup): rollup is LatencyRollup => rollup !== null);
+  if (existing.length === 0) {
+    return null;
+  }
+  const mergedBuckets = existing[0]!.buckets.map((bucket) => ({
+    le: bucket.le,
+    value: 0
+  }));
+  let count = 0;
+  let durationMsTotal = 0;
+  let maxMs = 0;
+  for (const rollup of existing) {
+    count += rollup.count;
+    durationMsTotal += rollup.durationMsTotal;
+    maxMs = Math.max(maxMs, rollup.maxMs);
+    for (let index = 0; index < mergedBuckets.length; index += 1) {
+      mergedBuckets[index]!.value += rollup.buckets[index]?.value ?? 0;
+    }
+  }
+  return {
+    count,
+    durationMsTotal,
+    maxMs,
+    buckets: mergedBuckets
+  };
+}
+
+function buildLatency(rollup: LatencyRollup | null): ChLatency | null {
+  if (!rollup || rollup.count === 0) {
+    return null;
+  }
+  return {
+    avgMs: Math.round(rollup.durationMsTotal / rollup.count),
+    maxMs: Math.round(rollup.maxMs),
+    count: rollup.count,
+    percentiles: estimatePercentiles(rollup)
+  };
+}
+
+function latestIso(values: Array<string | null | undefined>): string | null {
+  const existing = values.filter(
+    (value): value is string => typeof value === "string" && value.length > 0
+  );
+  if (existing.length === 0) {
+    return null;
+  }
+  return existing.sort((left, right) => right.localeCompare(left))[0] ?? null;
+}
+
+function uniqueSorted(values: Array<string | null | undefined>): string[] {
+  return [
+    ...new Set(
+      values.filter((value): value is string => typeof value === "string" && value.length > 0)
+    )
+  ].sort((left, right) => left.localeCompare(right));
+}
+
+function dedupeDashboards(dashboards: Dash[]): Dash[] {
+  const map = new Map<string, Dash>();
+  for (const dashboard of dashboards) {
+    map.set(dashboard.dataSource.instanceId, dashboard);
+  }
+  return [...map.values()].sort((left, right) =>
+    left.dataSource.instanceId.localeCompare(right.dataSource.instanceId)
+  );
+}
+
+function buildAggregateWarnings(
+  dashboards: Dash[],
+  aggregate: {
+    latency: LatencySnap;
+    latencyTrace: AggregatedTraceState;
+    runtime: AggregatedRuntimeState;
+    health: AggregatedHealth;
+    queuePressure: QueuePressure;
+  }
+): Warning[] {
+  const warnings: Warning[] = [];
+  if (!aggregate.runtime.live || !aggregate.runtime.ready) {
+    warnings.push({
+      code: "runtime_unhealthy",
+      severity: "critical",
+      message: `Native runtime preflight failed (live=${aggregate.runtime.live}, ready=${aggregate.runtime.ready}).`
+    });
+  }
+
+  if (
+    aggregate.health.maxPodInstanceId !== null &&
+    aggregate.health.maxPodRssBytes > HIGH_MEMORY_THRESHOLD_BYTES
+  ) {
+    warnings.push({
+      code: "high_memory",
+      severity: "warning",
+      message: `${aggregate.health.maxPodInstanceId} RSS is ${fB(aggregate.health.maxPodRssBytes)}.`
+    });
+  }
+
+  if (
+    aggregate.health.errorRate > HIGH_ERROR_RATE_THRESHOLD &&
+    aggregate.health.totalRequests > 10
+  ) {
+    warnings.push({
+      code: "high_error_rate",
+      severity: "warning",
+      message: `Cluster error rate ${(aggregate.health.errorRate * 100).toFixed(1)}% on ${aggregate.health.totalRequests.toLocaleString()} requests.`
+    });
+  }
+
+  const webP95 = aggregate.latency.webChatTurns?.percentiles.p95Ms ?? 0;
+  const tgP95 = aggregate.latency.telegramTurns?.percentiles.p95Ms ?? 0;
+  if (webP95 > HIGH_LATENCY_THRESHOLD_MS || tgP95 > HIGH_LATENCY_THRESHOLD_MS) {
+    warnings.push({
+      code: "high_p95_latency",
+      severity: "warning",
+      message: `p95 latency: web=${webP95}ms, TG=${tgP95}ms (threshold ${HIGH_LATENCY_THRESHOLD_MS}ms).`
+    });
+  }
+
+  if (aggregate.queuePressure.peakInFlight >= 20 || aggregate.queuePressure.inFlight >= 20) {
+    warnings.push({
+      code: "high_queue_pressure",
+      severity:
+        aggregate.queuePressure.peakInFlight >= 50 || aggregate.queuePressure.inFlight >= 50
+          ? "critical"
+          : "warning",
+      message: `In-flight now=${aggregate.queuePressure.inFlight}, max pod peak=${aggregate.queuePressure.peakInFlight}.`
+    });
+  }
+
+  if (aggregate.latencyTrace.mode === "partial" && aggregate.latencyTrace.totalPodCount > 0) {
+    warnings.push({
+      code: "trace_partial",
+      severity: "info",
+      message: `Trace capture is enabled on ${aggregate.latencyTrace.enabledPodCount}/${aggregate.latencyTrace.totalPodCount} discovered api pods.`
+    });
+  }
+
+  if (dashboards.length === 1) {
+    warnings.push({
+      code: "single_pod_view",
+      severity: "info",
+      message: "Only one api pod is currently discovered through the admin overview probe path."
+    });
+  }
+
+  return warnings;
+}
+
+function buildAggregatedOverview(dashboards: Dash[]): AggregatedOverview {
+  const pods = dedupeDashboards(dashboards);
+  if (pods.length === 0) {
+    throw new Error("No overview pods discovered.");
+  }
+
+  const latencyRollups = {
+    webChatTurns: mergeRollups(pods.map((pod) => pod.aggregation.latency.webChatTurns)),
+    telegramTurns: mergeRollups(pods.map((pod) => pod.aggregation.latency.telegramTurns)),
+    allRoutes: mergeRollups(pods.map((pod) => pod.aggregation.latency.allRoutes)) ?? {
+      count: 0,
+      durationMsTotal: 0,
+      maxMs: 0,
+      buckets: []
+    }
+  };
+
+  const latency: LatencySnap = {
+    webChatTurns: buildLatency(latencyRollups.webChatTurns),
+    telegramTurns: buildLatency(latencyRollups.telegramTurns),
+    allRoutes: buildLatency(latencyRollups.allRoutes) ?? {
+      avgMs: 0,
+      maxMs: 0,
+      count: 0,
+      percentiles: { p50Ms: 0, p95Ms: 0, p99Ms: 0 }
+    }
+  };
+
+  const traceEntries = pods
+    .flatMap((pod) =>
+      pod.latencyTrace.recent.map(
+        (entry): AggregatedTraceEntry => ({
+          ...entry,
+          sourceInstanceId: pod.dataSource.instanceId
+        })
+      )
+    )
+    .sort((left, right) => right.finishedAt.localeCompare(left.finishedAt))
+    .slice(0, TRACE_RECENT_LIMIT);
+  const enabledPodCount = pods.filter((pod) => pod.latencyTrace.enabled).length;
+  const latencyTrace: AggregatedTraceState = {
+    mode: enabledPodCount === 0 ? "off" : enabledPodCount === pods.length ? "on" : "partial",
+    enabledPodCount,
+    totalPodCount: pods.length,
+    sampleLimit: pods.reduce((total, pod) => total + pod.latencyTrace.sampleLimit, 0),
+    updatedAt: latestIso(pods.map((pod) => pod.latencyTrace.updatedAt)),
+    recent: traceEntries
+  };
+
+  const maxPodByRss = pods.reduce<Dash | null>(
+    (current, pod) =>
+      current === null || pod.health.rssBytes > current.health.rssBytes ? pod : current,
+    null
+  );
+
+  const runtime: AggregatedRuntimeState = {
+    runtimeBaseUrlConfigured: pods.every((pod) => pod.runtime.runtimeBaseUrlConfigured),
+    providerGatewayBaseUrlConfigured: pods.every(
+      (pod) => pod.runtime.providerGatewayBaseUrlConfigured
+    ),
+    runtimeEndpointHosts: uniqueSorted(pods.map((pod) => pod.runtime.runtimeEndpointHost)),
+    providerGatewayEndpointHosts: uniqueSorted(
+      pods.map((pod) => pod.runtime.providerGatewayEndpointHost)
+    ),
+    live: pods.every((pod) => pod.runtime.live),
+    ready: pods.every((pod) => pod.runtime.ready),
+    checkedAt: latestIso(pods.map((pod) => pod.runtime.checkedAt))
+  };
+
+  const health: AggregatedHealth = {
+    rssBytes: pods.reduce((total, pod) => total + pod.health.rssBytes, 0),
+    heapUsedBytes: pods.reduce((total, pod) => total + pod.health.heapUsedBytes, 0),
+    heapTotalBytes: pods.reduce((total, pod) => total + pod.health.heapTotalBytes, 0),
+    externalBytes: pods.reduce((total, pod) => total + pod.health.externalBytes, 0),
+    arrayBuffersBytes: pods.reduce((total, pod) => total + pod.health.arrayBuffersBytes, 0),
+    totalRequests: pods.reduce((total, pod) => total + pod.health.totalRequests, 0),
+    totalErrors: pods.reduce((total, pod) => total + pod.health.totalErrors, 0),
+    errorRate: 0,
+    cpuUserMs: pods.reduce((total, pod) => total + pod.health.cpuUserMs, 0),
+    cpuSystemMs: pods.reduce((total, pod) => total + pod.health.cpuSystemMs, 0),
+    maxPodRssBytes: maxPodByRss?.health.rssBytes ?? 0,
+    maxPodInstanceId: maxPodByRss?.dataSource.instanceId ?? null
+  };
+  health.errorRate = health.totalRequests > 0 ? health.totalErrors / health.totalRequests : 0;
+
+  const queuePressure: QueuePressure = {
+    inFlight: pods.reduce((total, pod) => total + pod.queuePressure.inFlight, 0),
+    peakInFlight: pods.reduce((peak, pod) => Math.max(peak, pod.queuePressure.peakInFlight), 0),
+    requestsPerSecond:
+      Math.round(
+        pods.reduce((total, pod) => total + pod.queuePressure.requestsPerSecond, 0) * 100
+      ) / 100
+  };
+
+  const oldestProcessStartedAt =
+    [...pods]
+      .map((pod) => pod.health.processStartedAt)
+      .sort((left, right) => left.localeCompare(right))[0] ?? null;
+  const newestProcessStartedAt =
+    [...pods]
+      .map((pod) => pod.health.processStartedAt)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+
+  const aggregate: AggregatedOverview = {
+    apiSources: pods.map((pod) => pod.dataSource),
+    latency,
+    latencyTrace,
+    activeUsers: Math.max(...pods.map((pod) => pod.activeUsers)),
+    activeWebChats: Math.max(...pods.map((pod) => pod.activeWebChats)),
+    runtime,
+    health,
+    queuePressure,
+    warnings: [],
+    updatedAt: latestIso(pods.map((pod) => pod.updatedAt)) ?? new Date().toISOString(),
+    oldestProcessStartedAt,
+    newestProcessStartedAt
+  };
+
+  aggregate.warnings = buildAggregateWarnings(pods, aggregate);
+  return aggregate;
+}
+
+async function fetchDashboard(token: string, routeHint: AdminOverviewRouteHint): Promise<Dash> {
+  return (await getAdminOverviewDashboard(token, routeHint)) as unknown as Dash;
+}
+
+async function discoverDashboards(token: string, seedSources: DataSource[]): Promise<Dash[]> {
+  const discovered = new Map<string, Dash>();
+  const remember = (dashboard: Dash) => {
+    discovered.set(dashboard.dataSource.instanceId, dashboard);
+  };
+
+  remember(await fetchDashboard(token, { mode: "auto" }));
+
+  let stableProbeCount = 0;
+  for (
+    let attempt = 0;
+    attempt < MAX_DISCOVERY_PROBES && stableProbeCount < MAX_STABLE_PROBES;
+    attempt += 1
+  ) {
+    const before = discovered.size;
+    try {
+      remember(await fetchDashboard(token, { mode: "probe" }));
+      stableProbeCount = discovered.size === before ? stableProbeCount + 1 : 0;
+    } catch {
+      stableProbeCount += 1;
+    }
+  }
+
+  const candidateSources = new Map<string, DataSource>();
+  for (const seed of seedSources) {
+    candidateSources.set(seed.instanceId, seed);
+  }
+  for (const dashboard of discovered.values()) {
+    candidateSources.set(dashboard.dataSource.instanceId, dashboard.dataSource);
+  }
+
+  const pinnedFetches = await Promise.allSettled(
+    [...candidateSources.values()]
+      .filter((source) => source.podIp !== null)
+      .map((source) => fetchDashboard(token, { mode: "pinned", podIp: source.podIp! }))
+  );
+  for (const result of pinnedFetches) {
+    if (result.status === "fulfilled") {
+      remember(result.value);
+    }
+  }
+
+  return dedupeDashboards([...discovered.values()]);
+}
 
 function KPI({
   label,
@@ -283,7 +638,7 @@ function Fold({
     <section>
       <button
         type="button"
-        onClick={() => setO((v) => !v)}
+        onClick={() => setO((value) => !value)}
         className="flex w-full cursor-pointer items-center gap-1.5 py-0.5"
       >
         <ChevronDown
@@ -297,13 +652,14 @@ function Fold({
 }
 
 function Lat({ label, d }: { label: string; d: ChLatency | null }) {
-  if (!d)
+  if (!d) {
     return (
       <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
         <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">{label}</p>
         <p className="mt-0.5 text-[11px] text-text-muted">—</p>
       </div>
     );
+  }
   return (
     <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
       <div className="flex items-baseline justify-between">
@@ -321,16 +677,11 @@ function Lat({ label, d }: { label: string; d: ChLatency | null }) {
             ["p99", d.percentiles.p99Ms],
             ["max", d.maxMs]
           ] as const
-        ).map(([lbl, v]) => (
+        ).map(([lbl, value]) => (
           <div key={lbl}>
             <p className="text-[8px] uppercase text-text-subtle">{lbl}</p>
-            <p
-              className={cn(
-                "text-[13px] font-semibold tabular-nums leading-tight",
-                lbl === "avg" || lbl === "p95" || lbl === "p99" ? cMs(v) : "text-text"
-              )}
-            >
-              {fMs(v)}
+            <p className="text-[13px] font-semibold tabular-nums leading-tight text-text">
+              {fMs(value)}
             </p>
           </div>
         ))}
@@ -339,109 +690,95 @@ function Lat({ label, d }: { label: string; d: ChLatency | null }) {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
-
 export default function AdminOverviewPage() {
   const { getToken } = useAuth();
-  const sourceRef = useRef<DataSource | null>(null);
-  const [routeMode, setRouteMode] = useState<RouteMode>("auto");
-  const [pinnedPodIp, setPinnedPodIp] = useState<string | null>(null);
-  const [knownSources, setKnownSources] = useState<SourceRegistry>({});
+  const knownSourcesRef = useRef<SourceRegistry>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [traceBusy, setTraceBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sourceNotice, setSourceNotice] = useState<string | null>(null);
-  const [d, setD] = useState<Dash | null>(null);
+  const [d, setD] = useState<AggregatedOverview | null>(null);
 
   const load = useCallback(
     async (refresh: boolean) => {
-      const tk = await getToken();
-      if (!tk) return;
-      if (refresh) setBusy(true);
-      else setLoading(true);
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+      if (refresh) {
+        setBusy(true);
+      } else {
+        setLoading(true);
+      }
       setErr(null);
       try {
-        const next = (await getAdminOverviewDashboard(
-          tk,
-          buildRouteHint(routeMode, pinnedPodIp)
-        )) as unknown as Dash;
-        const previousSource = sourceRef.current;
-        if (previousSource !== null && previousSource.instanceId !== next.dataSource.instanceId) {
-          setSourceNotice(buildSourceSwitchMessage(previousSource, next.dataSource));
-        }
-        sourceRef.current = next.dataSource;
-        setKnownSources((prev) => ({
-          ...prev,
-          [next.dataSource.instanceId]: next.dataSource
-        }));
-        if (routeMode === "probe" && next.dataSource.podIp) {
-          setPinnedPodIp(next.dataSource.podIp);
-          setRouteMode("pinned");
-        }
-        setD(next);
+        const dashboards = await discoverDashboards(token, Object.values(knownSourcesRef.current));
+        knownSourcesRef.current = Object.fromEntries(
+          dashboards.map((dashboard) => [dashboard.dataSource.instanceId, dashboard.dataSource])
+        );
+        setD(buildAggregatedOverview(dashboards));
       } catch {
         setD(null);
         setErr("Unable to load dashboard.");
+      } finally {
+        setLoading(false);
+        setBusy(false);
       }
-      setLoading(false);
-      setBusy(false);
     },
-    [getToken, pinnedPodIp, routeMode]
+    [getToken]
   );
 
-  useEffect(() => void load(false), [load]);
+  useEffect(() => {
+    void load(false);
+  }, [load]);
 
   const toggleTrace = useCallback(async () => {
-    const tk = await getToken();
-    if (!tk || !d) return;
+    const token = await getToken();
+    if (!token || !d) {
+      return;
+    }
     setTraceBusy(true);
     setErr(null);
     try {
-      const next = await setAdminOverviewLatencyTrace(
-        tk,
-        !d.latencyTrace.enabled,
-        buildRouteHint(routeMode, pinnedPodIp)
-      );
-      const latencyTrace = next.latencyTrace as TraceState;
-      const nextSource = (next.dataSource as DataSource | undefined) ?? d.dataSource;
-      const previousSource = sourceRef.current;
-      if (previousSource !== null && previousSource.instanceId !== nextSource.instanceId) {
-        setSourceNotice(buildSourceSwitchMessage(previousSource, nextSource));
+      const dashboards = await discoverDashboards(token, Object.values(knownSourcesRef.current));
+      const nextEnabled = d.latencyTrace.mode !== "on";
+      const targets =
+        dashboards.filter((dashboard) => dashboard.dataSource.podIp !== null).length > 0
+          ? dashboards
+              .filter((dashboard) => dashboard.dataSource.podIp !== null)
+              .map((dashboard) =>
+                setAdminOverviewLatencyTrace(token, nextEnabled, {
+                  mode: "pinned",
+                  podIp: dashboard.dataSource.podIp!
+                })
+              )
+          : [setAdminOverviewLatencyTrace(token, nextEnabled, { mode: "auto" })];
+      const results = await Promise.allSettled(targets);
+      const successCount = results.filter((result) => result.status === "fulfilled").length;
+      if (successCount === 0) {
+        throw new Error("Trace toggle failed.");
       }
-      sourceRef.current = nextSource;
-      setKnownSources((prev) => ({
-        ...prev,
-        [nextSource.instanceId]: nextSource
-      }));
-      setD((prev) =>
-        prev
-          ? {
-              ...prev,
-              dataSource: nextSource,
-              latencyTrace
-            }
-          : prev
-      );
+      if (successCount !== targets.length) {
+        setErr(`Trace updated on ${successCount}/${targets.length} discovered api pods.`);
+      }
+      await load(true);
     } catch {
       setErr("Unable to change latency trace mode.");
     } finally {
       setTraceBusy(false);
     }
-  }, [d, getToken, pinnedPodIp, routeMode]);
+  }, [d, getToken, load]);
 
-  if (loading)
+  if (loading) {
     return (
       <div className="flex justify-center py-16">
         <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
       </div>
     );
+  }
 
   return (
     <div className="mx-auto max-w-5xl space-y-2.5 px-1">
-      {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <Shield className="h-4 w-4 text-accent" />
@@ -449,68 +786,22 @@ export default function AdminOverviewPage() {
         </div>
         <div className="flex items-center gap-1.5">
           {d && (
-            <div className="flex items-center gap-1 rounded border border-border/60 bg-surface px-1.5 py-0.5 text-[10px] text-text-muted">
-              <span className="font-medium text-text-subtle">Route</span>
-              <select
-                value={
-                  routeMode === "pinned" && pinnedPodIp
-                    ? `pinned:${pinnedPodIp}`
-                    : routeMode === "probe"
-                      ? "probe"
-                      : "auto"
-                }
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setSourceNotice(null);
-                  if (nextValue === "auto") {
-                    setRouteMode("auto");
-                    setPinnedPodIp(null);
-                    void load(true);
-                    return;
-                  }
-                  if (nextValue === "probe") {
-                    setRouteMode("probe");
-                    setPinnedPodIp(null);
-                    void load(true);
-                    return;
-                  }
-                  if (nextValue.startsWith("pinned:")) {
-                    const nextPodIp = nextValue.slice("pinned:".length);
-                    setRouteMode("pinned");
-                    setPinnedPodIp(nextPodIp);
-                    void load(true);
-                  }
-                }}
-                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-text"
-              >
-                <option value="auto">Auto (sticky)</option>
-                <option value="probe">Probe service</option>
-                {Object.values(knownSources)
-                  .filter((source) => source.podIp !== null)
-                  .sort((a, b) => a.instanceId.localeCompare(b.instanceId))
-                  .map((source) => (
-                    <option key={source.instanceId} value={`pinned:${source.podIp}`}>
-                      Pin {source.instanceId}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          )}
-          {d && (
             <button
               type="button"
               disabled={traceBusy}
               onClick={() => void toggleTrace()}
               className={cn(
                 "inline-flex cursor-pointer items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium transition-colors",
-                d.latencyTrace.enabled
+                d.latencyTrace.mode === "on"
                   ? "border-warning/40 bg-warning/10 text-warning hover:bg-warning/15"
-                  : "border-border bg-surface text-text-muted hover:bg-surface-hover",
+                  : d.latencyTrace.mode === "partial"
+                    ? "border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/15"
+                    : "border-border bg-surface text-text-muted hover:bg-surface-hover",
                 "disabled:cursor-not-allowed disabled:opacity-50"
               )}
             >
               {traceBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              Trace {d.latencyTrace.enabled ? "ON" : "OFF"}
+              Trace {traceModeLabel(d.latencyTrace.mode)}
             </button>
           )}
           <button
@@ -534,56 +825,50 @@ export default function AdminOverviewPage() {
         </p>
       )}
 
-      {sourceNotice && (
-        <p className="rounded border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
-          {sourceNotice}
-        </p>
-      )}
-
       {d && (
         <>
           <div className="flex flex-wrap items-center gap-1.5 rounded border border-border/40 bg-surface px-2.5 py-1.5 text-[10px] text-text-muted">
-            <span className="rounded border border-warning/30 bg-warning/10 px-1.5 py-0.5 font-semibold text-warning">
-              Pod-local
+            <span className="rounded border border-success/30 bg-success/10 px-1.5 py-0.5 font-semibold text-success">
+              Multi-pod aggregate
             </span>
             <span>
-              Source: <span className="font-mono text-text">{sourceLabel(d.dataSource)}</span>
+              Showing the merged overview of{" "}
+              <span className="font-medium text-text">{d.apiSources.length}</span> discovered `api`
+              pod{d.apiSources.length === 1 ? "" : "s"}.
             </span>
             <span>
-              Latency, trace, in-flight, peak, process pressure, and flap counters are local to the
-              current `api` pod.
+              Active users and active web chats still come from shared backend state, while latency,
+              trace, request totals, and process pressure are aggregated from the discovered `api`
+              fleet.
             </span>
             <span>
-              Admin overview requests are kept sticky to one pod when possible so refresh and trace
-              toggle stay aligned.
+              Pods:{" "}
+              <span className="font-mono text-text">
+                {d.apiSources.map((source) => source.instanceId).join(", ")}
+              </span>
             </span>
-            <span>
-              Route mode: <span className="font-medium text-text">{routeModeLabel(routeMode)}</span>
-              {routeMode === "pinned" && d.dataSource.podIp ? ` (${d.dataSource.podIp})` : ""}
-            </span>
-            <span>Active users and active web chats come from shared backend state.</span>
           </div>
 
-          {/* Alerts */}
           {d.warnings.length > 0 && (
             <div className="space-y-0.5">
-              {d.warnings.map((w, i) => (
+              {d.warnings.map((warning, index) => (
                 <div
-                  key={`${w.code}-${i}`}
+                  key={`${warning.code}-${index}`}
                   className={cn(
                     "flex items-center gap-2 rounded border-l-2 px-2.5 py-1 text-[10px]",
-                    sevBg(w.severity)
+                    sevBg(warning.severity)
                   )}
                 >
-                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", sevDot(w.severity))} />
-                  <span className="font-mono font-bold text-text-muted">{w.code}</span>
-                  <span className="text-text-muted">{w.message}</span>
+                  <span
+                    className={cn("h-1.5 w-1.5 shrink-0 rounded-full", sevDot(warning.severity))}
+                  />
+                  <span className="font-mono font-bold text-text-muted">{warning.code}</span>
+                  <span className="text-text-muted">{warning.message}</span>
                 </div>
               ))}
             </div>
           )}
 
-          {/* KPI strip */}
           <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
             <KPI label="Users" value={String(d.activeUsers)} sub="15 min" icon={Users} />
             <KPI
@@ -595,13 +880,13 @@ export default function AdminOverviewPage() {
             <KPI
               label="In-flight"
               value={String(d.queuePressure.inFlight)}
-              sub="Now"
+              sub="Cluster now"
               icon={Activity}
             />
             <KPI
-              label="Peak in-flight"
-              value={String(d.queuePressure.peakInFlight)}
-              sub={`${d.queuePressure.requestsPerSecond} avg req/s`}
+              label="Req/s"
+              value={String(d.queuePressure.requestsPerSecond)}
+              sub={`Max pod peak ${d.queuePressure.peakInFlight}`}
             />
             <KPI
               label="Error rate"
@@ -615,10 +900,13 @@ export default function AdminOverviewPage() {
                     : "text-success"
               }
             />
-            <KPI label="Uptime" value={fUp(d.health.uptimeSeconds)} sub="Since restart" />
+            <KPI
+              label="API pods"
+              value={String(d.apiSources.length)}
+              sub={d.apiSources.length > 0 ? d.apiSources[0]!.instanceId : "—"}
+            />
           </div>
 
-          {/* Latency */}
           <Fold t="Latency · p50 / p95 / p99" open>
             <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
               <Lat label="Web Chat" d={d.latency.webChatTurns} />
@@ -627,7 +915,7 @@ export default function AdminOverviewPage() {
             </div>
           </Fold>
 
-          <Fold t="Latency Trace Debug" open>
+          <Fold t="Latency Trace" open>
             <div className="space-y-1.5 rounded border border-border/40 bg-surface px-2.5 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -635,16 +923,21 @@ export default function AdminOverviewPage() {
                     Trace capture
                   </p>
                   <p className="text-[10px] text-text-muted">
-                    {d.latencyTrace.enabled
-                      ? "Enabled only while investigating delays."
-                      : "Disabled. No stage timings are collected."}
+                    {d.latencyTrace.mode === "on"
+                      ? "Enabled across all discovered api pods."
+                      : d.latencyTrace.mode === "partial"
+                        ? "Enabled only on part of the discovered api fleet."
+                        : "Disabled. No stage timings are collected."}
                   </p>
                   <p className="text-[10px] text-text-subtle">
-                    This toggle and trace history apply only to{" "}
-                    <span className="font-mono">{sourceLabel(d.dataSource)}</span>.
+                    The toggle fans out to discovered `api` pods. If a new pod appears after the
+                    toggle, refresh and toggle again to include it.
                   </p>
                 </div>
                 <div className="text-right text-[10px] text-text-subtle">
+                  <p>
+                    Enabled: {d.latencyTrace.enabledPodCount}/{d.latencyTrace.totalPodCount}
+                  </p>
                   <p>
                     Samples: {d.latencyTrace.recent.length}/{d.latencyTrace.sampleLimit}
                   </p>
@@ -663,273 +956,167 @@ export default function AdminOverviewPage() {
                 </p>
               ) : (
                 <div className="space-y-1.5">
-                  {d.latencyTrace.recent.map((item) =>
-                    (() => {
-                      const runtimeStages = item.stages.filter(isRuntimeStage);
-                      const persaiStages = item.stages.filter((stage) => !isRuntimeStage(stage));
-                      const bottleneck = getBottleneckStage(item.stages);
-                      return (
-                        <div
-                          key={item.traceId}
-                          className="rounded border border-border/40 bg-surface-raised px-2 py-2"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
-                                {surfaceLabel(item.surface)}
-                              </p>
-                              <p
-                                className={cn("text-[11px] font-semibold", statusTone(item.status))}
-                              >
-                                {item.status} · {fMs(item.totalMs)}
-                              </p>
-                            </div>
-                            <div className="text-right text-[9px] text-text-subtle">
-                              <p>{new Date(item.finishedAt).toLocaleTimeString()}</p>
-                              <p>{item.threadKey ?? "no-thread"}</p>
-                            </div>
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
-                            <span>PersAI stages: {persaiStages.length}</span>
-                            <span>Runtime stages: {runtimeStages.length}</span>
-                            <span>
-                              Bottleneck:{" "}
-                              {bottleneck
-                                ? `${bottleneck.key} (${fMs(bottleneck.durationMs)})`
-                                : "—"}
-                            </span>
-                          </div>
-                          {item.outputPreview && (
-                            <p className="mt-1 rounded bg-background/40 px-1.5 py-1 text-[10px] text-text-muted">
-                              {item.outputPreview}
+                  {d.latencyTrace.recent.map((item) => {
+                    const runtimeStages = item.stages.filter(isRuntimeStage);
+                    const persaiStages = item.stages.filter((stage) => !isRuntimeStage(stage));
+                    const bottleneck = getBottleneckStage(item.stages);
+                    return (
+                      <div
+                        key={`${item.sourceInstanceId}-${item.traceId}`}
+                        className="rounded border border-border/40 bg-surface-raised px-2 py-2"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                              {surfaceLabel(item.surface)}
                             </p>
-                          )}
-                          {persaiStages.length > 0 && (
-                            <div className="mt-1.5">
-                              <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                                PersAI
-                              </p>
-                              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                                {persaiStages.map((stage) => (
-                                  <div
-                                    key={`${item.traceId}-persai-${stage.key}`}
-                                    className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
-                                  >
-                                    <span className="truncate pr-2 text-text-muted">
-                                      {stage.key}
-                                    </span>
-                                    <span
-                                      className={cn(
-                                        "shrink-0 font-semibold tabular-nums",
-                                        cMs(stage.durationMs)
-                                      )}
-                                    >
-                                      {fMs(stage.durationMs)}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {runtimeStages.length > 0 && (
-                            <div className="mt-1.5">
-                              <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                                OpenClaw runtime
-                              </p>
-                              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                                {runtimeStages.map((stage) => (
-                                  <div
-                                    key={`${item.traceId}-runtime-${stage.key}`}
-                                    className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
-                                  >
-                                    <span className="truncate pr-2 text-text-muted">
-                                      {stage.key}
-                                    </span>
-                                    <span
-                                      className={cn(
-                                        "shrink-0 font-semibold tabular-nums",
-                                        cMs(stage.durationMs)
-                                      )}
-                                    >
-                                      {fMs(stage.durationMs)}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                            <p className={cn("text-[11px] font-semibold", statusTone(item.status))}>
+                              {item.status} · {fMs(item.totalMs)}
+                            </p>
+                          </div>
+                          <div className="text-right text-[9px] text-text-subtle">
+                            <p>{new Date(item.finishedAt).toLocaleTimeString()}</p>
+                            <p>{item.threadKey ?? "no-thread"}</p>
+                          </div>
                         </div>
-                      );
-                    })()
-                  )}
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
+                          <span>
+                            Source: <span className="font-mono">{item.sourceInstanceId}</span>
+                          </span>
+                          <span>PersAI stages: {persaiStages.length}</span>
+                          <span>Runtime stages: {runtimeStages.length}</span>
+                          <span>
+                            Bottleneck:{" "}
+                            {bottleneck ? `${bottleneck.key} (${fMs(bottleneck.durationMs)})` : "—"}
+                          </span>
+                        </div>
+                        {item.outputPreview && (
+                          <p className="mt-1 rounded bg-background/40 px-1.5 py-1 text-[10px] text-text-muted">
+                            {item.outputPreview}
+                          </p>
+                        )}
+                        {persaiStages.length > 0 && (
+                          <div className="mt-1.5">
+                            <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                              PersAI
+                            </p>
+                            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                              {persaiStages.map((stage) => (
+                                <div
+                                  key={`${item.traceId}-persai-${stage.key}`}
+                                  className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
+                                >
+                                  <span className="truncate pr-2 text-text-muted">{stage.key}</span>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 font-semibold tabular-nums",
+                                      cMs(stage.durationMs)
+                                    )}
+                                  >
+                                    {fMs(stage.durationMs)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {runtimeStages.length > 0 && (
+                          <div className="mt-1.5">
+                            <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                              Runtime
+                            </p>
+                            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                              {runtimeStages.map((stage) => (
+                                <div
+                                  key={`${item.traceId}-runtime-${stage.key}`}
+                                  className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
+                                >
+                                  <span className="truncate pr-2 text-text-muted">{stage.key}</span>
+                                  <span
+                                    className={cn(
+                                      "shrink-0 font-semibold tabular-nums",
+                                      cMs(stage.durationMs)
+                                    )}
+                                  >
+                                    {fMs(stage.durationMs)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
           </Fold>
 
-          <Fold t="Web Runtime Shadow Compare" open>
+          <Fold t="Native Runtime" open>
             <div className="space-y-1.5 rounded border border-border/40 bg-surface px-2.5 py-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
-                    Shadow comparison samples
+              <p className="text-[10px] text-text-muted">
+                This section now reflects the active native path{" "}
+                <span className="font-mono text-text">
+                  api -&gt; runtime -&gt; provider-gateway
+                </span>
+                . The old tier matrix is removed; Step 19 should scale the runtime deployment
+                horizontally instead of pretending there are fixed logical tiers here.
+              </p>
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                    Runtime service
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-0.5 text-[13px] font-semibold",
+                      d.runtime.live && d.runtime.ready ? "text-success" : "text-destructive"
+                    )}
+                  >
+                    {d.runtime.live && d.runtime.ready ? "live + ready" : "degraded"}
                   </p>
                   <p className="text-[10px] text-text-muted">
-                    Pod-local recent sync/stream parity checks captured when web runtime mode is
-                    `shadow`.
-                  </p>
-                  <p className="text-[10px] text-text-subtle">
-                    Samples apply only to{" "}
-                    <span className="font-mono">{sourceLabel(d.dataSource)}</span>.
+                    {d.runtime.runtimeEndpointHosts.length > 0
+                      ? d.runtime.runtimeEndpointHosts.join(", ")
+                      : "runtime URL not configured"}
                   </p>
                 </div>
-                <div className="text-right text-[10px] text-text-subtle">
-                  <p>
-                    Samples: {d.webRuntimeShadowComparisons.recent.length}/
-                    {d.webRuntimeShadowComparisons.sampleLimit}
+                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                    Provider gateway
                   </p>
-                  <p>
-                    Updated:{" "}
-                    {d.webRuntimeShadowComparisons.updatedAt
-                      ? new Date(d.webRuntimeShadowComparisons.updatedAt).toLocaleTimeString()
-                      : "—"}
+                  <p
+                    className={cn(
+                      "mt-0.5 text-[13px] font-semibold",
+                      d.runtime.providerGatewayBaseUrlConfigured ? "text-success" : "text-warning"
+                    )}
+                  >
+                    {d.runtime.providerGatewayBaseUrlConfigured ? "configured" : "not configured"}
+                  </p>
+                  <p className="text-[10px] text-text-muted">
+                    {d.runtime.providerGatewayEndpointHosts.length > 0
+                      ? d.runtime.providerGatewayEndpointHosts.join(", ")
+                      : "provider-gateway URL not configured"}
+                  </p>
+                </div>
+                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                    Step 19 shape
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-text">Horizontal runtime</p>
+                  <p className="text-[10px] text-text-muted">
+                    Pod count should come from deployment scale and live health, not from a static
+                    tier list in the admin UI.
                   </p>
                 </div>
               </div>
-              {d.webRuntimeShadowComparisons.recent.length === 0 ? (
-                <p className="text-[10px] text-text-muted">
-                  No shadow comparisons yet. Enable one bounded web `shadow` window, reproduce sync
-                  or stream traffic, then refresh.
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {d.webRuntimeShadowComparisons.recent.map((item) => (
-                    <div
-                      key={item.comparisonId}
-                      className="rounded border border-border/40 bg-surface-raised px-2 py-2"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
-                            {shadowRouteLabel(item.route)}
-                          </p>
-                          <p
-                            className={cn(
-                              "text-[11px] font-semibold uppercase",
-                              shadowVerdictTone(item.verdict)
-                            )}
-                          >
-                            {item.verdict}
-                          </p>
-                        </div>
-                        <div className="text-right text-[9px] text-text-subtle">
-                          <p>{new Date(item.comparedAt).toLocaleTimeString()}</p>
-                          <p>{item.threadKey}</p>
-                        </div>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
-                        <span>Assistant: {item.assistantId}</span>
-                        <span>Client turn: {item.clientTurnId ?? "n/a"}</span>
-                        <span>Terminal: {item.terminalMatch ? "match" : "drift"}</span>
-                        <span>Content: {item.contentMatch ? "match" : "drift"}</span>
-                        <span>Error class: {item.errorClassMatch ? "match" : "drift"}</span>
-                      </div>
-                      <div className="mt-1.5 grid grid-cols-1 gap-1 sm:grid-cols-2">
-                        {(
-                          [
-                            ["Primary", item.primary],
-                            ["Shadow", item.shadow]
-                          ] as const
-                        ).map(([label, side]) => (
-                          <div
-                            key={`${item.comparisonId}-${label}`}
-                            className="rounded border border-border/30 bg-background/20 px-2 py-1.5"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                                {label}
-                              </p>
-                              <span
-                                className={cn(
-                                  "text-[10px] font-semibold uppercase",
-                                  shadowStatusTone(side.status)
-                                )}
-                              >
-                                {side.status}
-                              </span>
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-text-subtle">
-                              <span>Runtime: {fMs(side.runtimeMs)}</span>
-                              <span>
-                                First delta:{" "}
-                                {side.firstDeltaMs === null ? "n/a" : fMs(side.firstDeltaMs)}
-                              </span>
-                              <span>Delta count: {side.deltaCount ?? "n/a"}</span>
-                              <span>Code: {side.code ?? "completed"}</span>
-                            </div>
-                            {side.preview ? (
-                              <p className="mt-1 rounded bg-background/40 px-1.5 py-1 text-[10px] text-text-muted">
-                                {side.preview}
-                              </p>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <p className="text-[10px] text-text-subtle">
+                Runtime checked: {formatWhen(d.runtime.checkedAt)}
+              </p>
             </div>
           </Fold>
 
-          {/* Runtime Tiers */}
-          <Fold t="Runtime Tiers" open>
-            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-              {d.runtime.tiers.map((t) => {
-                const ok = t.live && t.ready;
-                return (
-                  <div
-                    key={t.tier}
-                    className={cn(
-                      "flex items-center justify-between rounded border px-2.5 py-1.5",
-                      ok ? "border-border/50 bg-surface" : "border-destructive/30 bg-destructive/5"
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted">
-                        {t.tier.replace(/_/g, " ")}
-                      </span>
-                      {t.flapCount > 0 && (
-                        <p className="text-[9px] text-warning">
-                          {t.flapCount} flap{t.flapCount > 1 ? "s" : ""}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {(["live", "ready"] as const).map((k) => {
-                        const on = k === "live" ? t.live : t.ready;
-                        return (
-                          <span key={k} className="flex items-center gap-1">
-                            <span
-                              className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                on
-                                  ? "bg-success shadow-[0_0_4px_rgba(34,197,94,.5)]"
-                                  : "bg-destructive"
-                              )}
-                            />
-                            <span className="text-[9px] capitalize text-text-subtle">{k}</span>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Fold>
-
-          {/* Process pressure */}
           <Fold t="Process Pressure" open>
             <div className="rounded border border-border/40 bg-surface px-2.5 py-2">
               <div className="space-y-2">
@@ -940,7 +1127,7 @@ export default function AdminOverviewPage() {
                       : 0
                   }
                   label="Heap"
-                  sub={`${fB(d.health.heapUsedBytes)} / ${fB(d.health.heapTotalBytes)}`}
+                  sub={`${fB(d.health.heapUsedBytes)} / ${fB(d.health.heapTotalBytes)} across ${d.apiSources.length} api pods`}
                 />
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
                   <div>
@@ -973,7 +1160,6 @@ export default function AdminOverviewPage() {
             </div>
           </Fold>
 
-          {/* Process details — collapsed */}
           <Fold t="Request Details">
             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 rounded border border-border/40 bg-surface px-2.5 py-2 text-[10px] sm:grid-cols-4">
               <div>
@@ -989,24 +1175,20 @@ export default function AdminOverviewPage() {
                 </span>
               </div>
               <div>
-                <span className="text-text-subtle">In-flight </span>
+                <span className="text-text-subtle">Oldest pod </span>
                 <span className="font-medium tabular-nums text-text">
-                  {d.queuePressure.inFlight}
+                  {formatWhen(d.oldestProcessStartedAt)}
                 </span>
               </div>
               <div>
-                <span className="text-text-subtle">Started </span>
+                <span className="text-text-subtle">Newest pod </span>
                 <span className="font-medium tabular-nums text-text">
-                  {new Date(d.health.processStartedAt).toLocaleString(undefined, {
-                    dateStyle: "short",
-                    timeStyle: "short"
-                  })}
+                  {formatWhen(d.newestProcessStartedAt)}
                 </span>
               </div>
             </div>
           </Fold>
 
-          {/* Footer */}
           <p className="pt-0.5 text-center text-[9px] tabular-nums text-text-subtle/50">
             {new Date(d.updatedAt).toLocaleString(undefined, {
               dateStyle: "short",

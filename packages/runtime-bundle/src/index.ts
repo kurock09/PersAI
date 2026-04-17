@@ -67,7 +67,6 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   runtimeAssignment: unknown;
   runtimeProviderProfile: unknown;
   runtimeProviderRouting: unknown;
-  optimizationPolicy: unknown;
   contextHydration: RuntimeContextHydrationConfig;
   sharedCompaction: RuntimeSharedCompactionConfig;
   knowledgeAccess: RuntimeKnowledgeAccessConfig;

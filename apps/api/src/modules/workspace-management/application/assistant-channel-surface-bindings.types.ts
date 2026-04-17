@@ -1,11 +1,11 @@
-export type OpenClawProviderKey =
+export type AssistantChannelProviderKey =
   | "web_internal"
   | "telegram"
   | "whatsapp"
   | "max"
   | "system_notifications";
 
-export type OpenClawSurfaceType =
+export type AssistantChannelSurfaceType =
   | "web_chat"
   | "telegram_bot"
   | "whatsapp_business"
@@ -13,20 +13,20 @@ export type OpenClawSurfaceType =
   | "max_mini_app"
   | "system_notification";
 
-export type OpenClawBindingState = "active" | "inactive" | "unconfigured";
+export type AssistantChannelBindingState = "active" | "inactive" | "unconfigured";
 
-export type OpenClawChannelSurfaceBindingsState = {
-  schema: "persai.openclawChannelSurfaceBindings.v1";
+export type AssistantChannelSurfaceBindingsState = {
+  schema: "persai.assistantChannelSurfaceBindings.v1";
   derivedFrom: {
     effectiveCapabilitiesSchema: string | null;
     planCode: string | null;
   };
   providers: Array<{
-    provider: OpenClawProviderKey;
+    provider: AssistantChannelProviderKey;
     assistantBinding: {
       assistantId: string;
       bound: boolean;
-      state: OpenClawBindingState;
+      state: AssistantChannelBindingState;
     };
     policy: {
       inboundUserMessages: boolean;
@@ -38,9 +38,9 @@ export type OpenClawChannelSurfaceBindingsState = {
       configRef: string | null;
     };
     surfaces: Array<{
-      surfaceType: OpenClawSurfaceType;
+      surfaceType: AssistantChannelSurfaceType;
       allowed: boolean;
-      state: OpenClawBindingState;
+      state: AssistantChannelBindingState;
       denyReason: null | "capability_denied" | "provider_unconfigured";
       policy: {
         interactionMode: "chat" | "notification";
@@ -54,7 +54,7 @@ export type OpenClawChannelSurfaceBindingsState = {
   }>;
   suppression: {
     suppressUnavailableSurfaces: true;
-    deniedSurfaceTypes: OpenClawSurfaceType[];
-    declaredSurfaceTypes: OpenClawSurfaceType[];
+    deniedSurfaceTypes: AssistantChannelSurfaceType[];
+    declaredSurfaceTypes: AssistantChannelSurfaceType[];
   };
 };

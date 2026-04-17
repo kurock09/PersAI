@@ -109,7 +109,6 @@ function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "s
           inactiveReason: null
         }
       },
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -129,7 +128,6 @@ function createBundle(options?: { configured?: boolean; modelKey?: "sora-2" | "s
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },

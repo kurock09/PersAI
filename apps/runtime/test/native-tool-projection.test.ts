@@ -49,7 +49,6 @@ async function run(): Promise<void> {
           inactiveReason: null
         }
       },
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -66,7 +65,6 @@ async function run(): Promise<void> {
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       },
       knowledgeAccess: {

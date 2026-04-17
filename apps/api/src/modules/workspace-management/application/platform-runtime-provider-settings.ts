@@ -6,10 +6,6 @@ import {
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
-import {
-  listRuntimeTierSecurityPolicies,
-  type RuntimeTierSecurityPolicyState
-} from "./runtime-tier-security-policy";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA = "persai.adminRuntimeProviderSettings.v1";
@@ -36,108 +32,13 @@ export type PlatformRuntimeProviderKeyMetadata = {
   updatedAt: string | null;
 };
 
-export type RuntimeHeartbeatPolicyState = {
-  every: string;
-  target: "last" | "none";
-  lightContext: boolean;
-  isolatedSession: boolean;
-};
-
-export type RuntimeContextPruningPolicyState = {
-  mode: "off" | "cache-ttl";
-  ttl: string;
-  keepLastAssistants: number;
-  softTrimRatio: number;
-  hardClearRatio: number;
-  minPrunableToolChars: number;
-  softTrim: {
-    maxChars: number;
-    headChars: number;
-    tailChars: number;
-  };
-  hardClear: {
-    enabled: boolean;
-    placeholder: string;
-  };
-};
-
-export type RuntimeCompactionPolicyState = {
-  mode: "default" | "safeguard";
-  reserveTokens: number;
-  keepRecentTokens: number;
-  recentTurnsPreserve: number;
-  identifierPolicy: "strict" | "off" | "custom";
-  postIndexSync: "off" | "async" | "await";
-  truncateAfterCompaction: boolean;
-  /** Web compaction banner: message-count heuristic (off by default; use token estimate only). */
-  suggestCompactionByMessageCount: boolean;
-};
-
-export type RuntimeOpenAITuningPolicyState = {
-  fastMode: boolean;
-  serviceTier: "auto" | "default" | "flex" | "priority";
-  responsesServerCompaction: boolean;
-  openaiWsWarmup: boolean;
-};
-
-export type RuntimeOptimizationPolicyState = {
-  heartbeat: RuntimeHeartbeatPolicyState;
-  contextPruning: RuntimeContextPruningPolicyState;
-  compaction: RuntimeCompactionPolicyState;
-  openai: RuntimeOpenAITuningPolicyState;
-};
-
-const DEFAULT_RUNTIME_OPTIMIZATION_POLICY: RuntimeOptimizationPolicyState = {
-  heartbeat: {
-    every: "0m",
-    target: "none",
-    lightContext: true,
-    isolatedSession: true
-  },
-  contextPruning: {
-    mode: "cache-ttl",
-    ttl: "5m",
-    keepLastAssistants: 3,
-    softTrimRatio: 0.3,
-    hardClearRatio: 0.5,
-    minPrunableToolChars: 12000,
-    softTrim: {
-      maxChars: 3000,
-      headChars: 1000,
-      tailChars: 1000
-    },
-    hardClear: {
-      enabled: true,
-      placeholder: "[Old tool result content cleared]"
-    }
-  },
-  compaction: {
-    mode: "safeguard",
-    reserveTokens: 24000,
-    keepRecentTokens: 16000,
-    recentTurnsPreserve: 4,
-    identifierPolicy: "strict",
-    postIndexSync: "async",
-    truncateAfterCompaction: true,
-    suggestCompactionByMessageCount: false
-  },
-  openai: {
-    fastMode: false,
-    serviceTier: "default",
-    responsesServerCompaction: true,
-    openaiWsWarmup: true
-  }
-};
-
 export type PlatformRuntimeProviderSettingsState = {
   schema: typeof PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA;
-  mode: "legacy_openclaw_default" | "global_settings";
+  mode: "unconfigured_default" | "global_settings";
   primary: PlatformRuntimeProviderSelection | null;
   fallback: PlatformRuntimeProviderSelection | null;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
-  optimizationPolicy: RuntimeOptimizationPolicyState;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
-  tierSecurityPolicies: RuntimeTierSecurityPolicyState[];
   notes: string[];
 };
 
@@ -147,14 +48,12 @@ export type PlatformRuntimeProviderSettingsRecord = {
   fallbackProvider: ManagedRuntimeProvider | null;
   fallbackModel: string | null;
   availableModelsByProvider: unknown;
-  optimizationPolicy: unknown;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
   primary: PlatformRuntimeProviderSelection;
   fallback: PlatformRuntimeProviderSelection | null;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
-  optimizationPolicy: RuntimeOptimizationPolicyState;
   providerKeys: Partial<Record<ManagedRuntimeProvider, string>>;
 };
 
@@ -309,216 +208,6 @@ function normalizeProviderKeyInput(value: unknown, path: string): string | undef
   return normalized;
 }
 
-function normalizeBoolean(value: unknown, fallback: boolean): boolean {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function normalizeInteger(value: unknown, fallback: number, path: string): number {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new Error(`${path} must be an integer.`);
-  }
-  return value;
-}
-
-function normalizeNumber(value: unknown, fallback: number, path: string): number {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    throw new Error(`${path} must be a number.`);
-  }
-  return value;
-}
-
-function normalizeDuration(value: unknown, fallback: string, path: string): string {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  const normalized = asNonEmptyString(value);
-  if (normalized === null) {
-    throw new Error(`${path} must be a non-empty string.`);
-  }
-  return normalized;
-}
-
-function normalizeStringEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: T,
-  path: string
-): T {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  const normalized = asNonEmptyString(value);
-  if (normalized === null || !allowed.includes(normalized as T)) {
-    throw new Error(`${path} must be one of: ${allowed.join(", ")}.`);
-  }
-  return normalized as T;
-}
-
-function normalizeOptimizationPolicy(
-  value: unknown,
-  path = "optimizationPolicy"
-): RuntimeOptimizationPolicyState {
-  const row = asObject(value);
-  const heartbeat = asObject(row?.heartbeat ?? null);
-  const contextPruning = asObject(row?.contextPruning ?? null);
-  const softTrim = asObject(contextPruning?.softTrim ?? null);
-  const hardClear = asObject(contextPruning?.hardClear ?? null);
-  const compaction = asObject(row?.compaction ?? null);
-  const openai = asObject(row?.openai ?? null);
-
-  return {
-    heartbeat: {
-      every: normalizeDuration(
-        heartbeat?.every,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.heartbeat.every,
-        `${path}.heartbeat.every`
-      ),
-      target: normalizeStringEnum(
-        heartbeat?.target,
-        ["last", "none"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.heartbeat.target,
-        `${path}.heartbeat.target`
-      ),
-      lightContext: normalizeBoolean(
-        heartbeat?.lightContext,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.heartbeat.lightContext
-      ),
-      isolatedSession: normalizeBoolean(
-        heartbeat?.isolatedSession,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.heartbeat.isolatedSession
-      )
-    },
-    contextPruning: {
-      mode: normalizeStringEnum(
-        contextPruning?.mode,
-        ["off", "cache-ttl"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.mode,
-        `${path}.contextPruning.mode`
-      ),
-      ttl: normalizeDuration(
-        contextPruning?.ttl,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.ttl,
-        `${path}.contextPruning.ttl`
-      ),
-      keepLastAssistants: normalizeInteger(
-        contextPruning?.keepLastAssistants,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.keepLastAssistants,
-        `${path}.contextPruning.keepLastAssistants`
-      ),
-      softTrimRatio: normalizeNumber(
-        contextPruning?.softTrimRatio,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.softTrimRatio,
-        `${path}.contextPruning.softTrimRatio`
-      ),
-      hardClearRatio: normalizeNumber(
-        contextPruning?.hardClearRatio,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.hardClearRatio,
-        `${path}.contextPruning.hardClearRatio`
-      ),
-      minPrunableToolChars: normalizeInteger(
-        contextPruning?.minPrunableToolChars,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.minPrunableToolChars,
-        `${path}.contextPruning.minPrunableToolChars`
-      ),
-      softTrim: {
-        maxChars: normalizeInteger(
-          softTrim?.maxChars,
-          DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.softTrim.maxChars,
-          `${path}.contextPruning.softTrim.maxChars`
-        ),
-        headChars: normalizeInteger(
-          softTrim?.headChars,
-          DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.softTrim.headChars,
-          `${path}.contextPruning.softTrim.headChars`
-        ),
-        tailChars: normalizeInteger(
-          softTrim?.tailChars,
-          DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.softTrim.tailChars,
-          `${path}.contextPruning.softTrim.tailChars`
-        )
-      },
-      hardClear: {
-        enabled: normalizeBoolean(
-          hardClear?.enabled,
-          DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.hardClear.enabled
-        ),
-        placeholder:
-          asNonEmptyString(hardClear?.placeholder) ??
-          DEFAULT_RUNTIME_OPTIMIZATION_POLICY.contextPruning.hardClear.placeholder
-      }
-    },
-    compaction: {
-      mode: normalizeStringEnum(
-        compaction?.mode,
-        ["default", "safeguard"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.mode,
-        `${path}.compaction.mode`
-      ),
-      reserveTokens: normalizeInteger(
-        compaction?.reserveTokens,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.reserveTokens,
-        `${path}.compaction.reserveTokens`
-      ),
-      keepRecentTokens: normalizeInteger(
-        compaction?.keepRecentTokens,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.keepRecentTokens,
-        `${path}.compaction.keepRecentTokens`
-      ),
-      recentTurnsPreserve: normalizeInteger(
-        compaction?.recentTurnsPreserve,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.recentTurnsPreserve,
-        `${path}.compaction.recentTurnsPreserve`
-      ),
-      identifierPolicy: normalizeStringEnum(
-        compaction?.identifierPolicy,
-        ["strict", "off", "custom"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.identifierPolicy,
-        `${path}.compaction.identifierPolicy`
-      ),
-      postIndexSync: normalizeStringEnum(
-        compaction?.postIndexSync,
-        ["off", "async", "await"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.postIndexSync,
-        `${path}.compaction.postIndexSync`
-      ),
-      truncateAfterCompaction: normalizeBoolean(
-        compaction?.truncateAfterCompaction,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.truncateAfterCompaction
-      ),
-      suggestCompactionByMessageCount: normalizeBoolean(
-        compaction?.suggestCompactionByMessageCount,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.compaction.suggestCompactionByMessageCount
-      )
-    },
-    openai: {
-      fastMode: normalizeBoolean(
-        openai?.fastMode,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.openai.fastMode
-      ),
-      serviceTier: normalizeStringEnum(
-        openai?.serviceTier,
-        ["auto", "default", "flex", "priority"] as const,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.openai.serviceTier,
-        `${path}.openai.serviceTier`
-      ),
-      responsesServerCompaction: normalizeBoolean(
-        openai?.responsesServerCompaction,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.openai.responsesServerCompaction
-      ),
-      openaiWsWarmup: normalizeBoolean(
-        openai?.openaiWsWarmup,
-        DEFAULT_RUNTIME_OPTIMIZATION_POLICY.openai.openaiWsWarmup
-      )
-    }
-  };
-}
-
 export function parseUpdatePlatformRuntimeProviderSettingsInput(
   body: unknown
 ): UpdatePlatformRuntimeProviderSettingsInput {
@@ -535,7 +224,6 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
   const availableModelsByProvider = normalizeAvailableModelsByProvider(
     row.availableModelsByProvider
   );
-  const optimizationPolicy = normalizeOptimizationPolicy(row.optimizationPolicy);
   assertSelectionInCatalog({
     selection: primary,
     availableModelsByProvider,
@@ -563,7 +251,6 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     primary,
     fallback,
     availableModelsByProvider,
-    optimizationPolicy,
     providerKeys
   };
 }
@@ -575,16 +262,14 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   if (params.settings === null) {
     return {
       schema: PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA,
-      mode: "legacy_openclaw_default",
+      mode: "unconfigured_default",
       primary: null,
       fallback: null,
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
-      optimizationPolicy: DEFAULT_RUNTIME_OPTIMIZATION_POLICY,
       providerKeys: params.providerKeys,
-      tierSecurityPolicies: listRuntimeTierSecurityPolicies(),
       notes: [
         "Global runtime provider settings are not configured yet.",
-        "OpenClaw keeps its legacy configured default model path until global settings are saved."
+        "The active runtime keeps its existing configured default model path until global settings are saved."
       ]
     };
   }
@@ -603,7 +288,6 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   const availableModelsByProvider = normalizeAvailableModelsByProvider(
     params.settings.availableModelsByProvider
   );
-  const optimizationPolicy = normalizeOptimizationPolicy(params.settings.optimizationPolicy);
 
   return {
     schema: PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA,
@@ -611,9 +295,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     primary,
     fallback,
     availableModelsByProvider,
-    optimizationPolicy,
     providerKeys: params.providerKeys,
-    tierSecurityPolicies: listRuntimeTierSecurityPolicies(),
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
       "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage."
@@ -662,7 +344,7 @@ export function buildPlatformRuntimeProviderProfileState(
   if (settings.mode !== "global_settings" || settings.primary === null) {
     return {
       schema: RUNTIME_PROVIDER_PROFILE_SCHEMA,
-      mode: "legacy_openclaw_default",
+      mode: "unconfigured_default",
       derivedFrom: {
         policyEnvelopeSchema: null,
         secretRefsSchema: null
@@ -673,7 +355,7 @@ export function buildPlatformRuntimeProviderProfileState(
       fallback: null,
       notes: [
         "No global runtime provider settings are configured.",
-        "OpenClaw should keep its legacy configured default model path."
+        "The active runtime keeps its configured default model path until global settings are saved."
       ]
     };
   }
@@ -720,8 +402,8 @@ export function buildPlatformRuntimeProviderProfileState(
             }
           },
     notes: [
-      "Global runtime provider settings are active for the native OpenClaw apply/chat path.",
-      "PersAI stores provider/model choice plus encrypted global keys; OpenClaw remains the runtime secret resolver."
+      "Global runtime provider settings are active on the native runtime path.",
+      "PersAI stores provider/model choice plus encrypted global keys in its own control plane."
     ]
   };
 }

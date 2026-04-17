@@ -22,8 +22,8 @@ import type { AssistantPublishedVersion } from "../domain/assistant-published-ve
 import type { Assistant } from "../domain/assistant.entity";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./resolve-effective-tool-availability.service";
-import { ResolveOpenClawChannelSurfaceBindingsService } from "./resolve-openclaw-channel-surface-bindings.service";
-import { ResolveOpenClawCapabilityEnvelopeService } from "./resolve-openclaw-capability-envelope.service";
+import { ResolveAssistantChannelSurfaceBindingsService } from "./resolve-assistant-channel-surface-bindings.service";
+import { ResolveAssistantCapabilityEnvelopeService } from "./resolve-assistant-capability-envelope.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
@@ -160,10 +160,10 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly promptTemplateRepository: PromptTemplateRepository,
     private readonly resolveEffectiveCapabilityStateService: ResolveEffectiveCapabilityStateService,
     private readonly resolveEffectiveToolAvailabilityService: ResolveEffectiveToolAvailabilityService,
-    private readonly resolveOpenClawChannelSurfaceBindingsService: ResolveOpenClawChannelSurfaceBindingsService,
+    private readonly resolveAssistantChannelSurfaceBindingsService: ResolveAssistantChannelSurfaceBindingsService,
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
-    private readonly resolveOpenClawCapabilityEnvelopeService: ResolveOpenClawCapabilityEnvelopeService,
+    private readonly resolveAssistantCapabilityEnvelopeService: ResolveAssistantCapabilityEnvelopeService,
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
@@ -224,10 +224,12 @@ export class MaterializeAssistantPublishedVersionService {
     const toolAvailability = await this.resolveEffectiveToolAvailabilityService.execute({
       effectiveCapabilities
     });
-    const channelSurfaceBindings = await this.resolveOpenClawChannelSurfaceBindingsService.execute({
-      assistantId: assistant.id,
-      effectiveCapabilities
-    });
+    const channelSurfaceBindings = await this.resolveAssistantChannelSurfaceBindingsService.execute(
+      {
+        assistantId: assistant.id,
+        effectiveCapabilities
+      }
+    );
     const platformRuntimeProviderSettings =
       await this.resolvePlatformRuntimeProviderSettingsService.execute();
     let runtimeProviderProfile =
@@ -287,7 +289,7 @@ export class MaterializeAssistantPublishedVersionService {
       runtimeProviderProfile,
       planPrimaryModelKey
     });
-    const openclawCapabilityEnvelope = this.resolveOpenClawCapabilityEnvelopeService.execute({
+    const assistantCapabilityEnvelope = this.resolveAssistantCapabilityEnvelopeService.execute({
       effectiveCapabilities,
       effectiveToolAvailability: toolAvailability,
       channelSurfaceBindings,
@@ -323,9 +325,8 @@ export class MaterializeAssistantPublishedVersionService {
           governance,
           effectiveCapabilities,
           toolAvailability,
-          openclawCapabilityEnvelope,
+          assistantCapabilityEnvelope,
           runtimeProviderProfile,
-          platformRuntimeProviderSettings.optimizationPolicy,
           runtimeAssignment,
           effectivePlanCode
         ),
@@ -348,7 +349,7 @@ export class MaterializeAssistantPublishedVersionService {
     });
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
     const promptTemplateRows = await this.loadPromptTemplateRows();
-    const openclawToolQuotaPolicy = this.resolveOpenClawToolQuotaPolicy(
+    const runtimeToolQuotaPolicy = this.resolveRuntimeToolQuotaPolicy(
       toolAvailability.tools,
       planToolQuotaPolicy
     );
@@ -369,10 +370,7 @@ export class MaterializeAssistantPublishedVersionService {
     });
     const browser = buildRuntimeBrowserConfig();
     const workerTools = buildRuntimeWorkerToolsConfig(toolPolicies);
-    const sharedCompaction = buildRuntimeSharedCompactionConfig({
-      compactionPolicy: platformRuntimeProviderSettings.optimizationPolicy.compaction,
-      contextHydration
-    });
+    const sharedCompaction = buildRuntimeSharedCompactionConfig(contextHydration);
 
     const apiConfig = loadApiConfig(process.env);
     const workspaceQuotaBytes = await this.resolveWorkspaceQuotaBytes(
@@ -396,12 +394,11 @@ export class MaterializeAssistantPublishedVersionService {
         },
         effectiveCapabilities,
         toolAvailability,
-        openclawCapabilityEnvelope,
+        assistantCapabilityEnvelope,
         runtimeAssignment,
         runtimeProviderProfile,
-        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
         toolCredentialRefs,
-        toolQuotaPolicy: openclawToolQuotaPolicy,
+        toolQuotaPolicy: runtimeToolQuotaPolicy,
         workspaceQuotaBytes,
         secretRefs: governance.secretRefs,
         auditHook: governance.auditHook
@@ -447,7 +444,7 @@ export class MaterializeAssistantPublishedVersionService {
       },
       effectiveCapabilities,
       toolAvailability,
-      openclawCapabilityEnvelope,
+      assistantCapabilityEnvelope,
       runtimeAssignment,
       memoryControl,
       tasksControl,
@@ -478,7 +475,6 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeAssignment,
         runtimeProviderProfile,
         runtimeProviderRouting,
-        optimizationPolicy: platformRuntimeProviderSettings.optimizationPolicy,
         contextHydration,
         sharedCompaction,
         knowledgeAccess,
@@ -808,7 +804,7 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
-  private resolveOpenClawToolQuotaPolicy(
+  private resolveRuntimeToolQuotaPolicy(
     tools: Array<{
       code: string;
       policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
@@ -1005,9 +1001,8 @@ export class MaterializeAssistantPublishedVersionService {
     governance: AssistantGovernance,
     effectiveCapabilities: Record<string, unknown>,
     toolAvailability: Record<string, unknown>,
-    openclawCapabilityEnvelope: Record<string, unknown>,
+    assistantCapabilityEnvelope: Record<string, unknown>,
     runtimeProviderProfile: unknown,
-    optimizationPolicy: unknown,
     runtimeAssignment: unknown,
     effectivePlanCode: string | null
   ): Record<string, unknown> {
@@ -1017,10 +1012,9 @@ export class MaterializeAssistantPublishedVersionService {
       policyEnvelope: governance.policyEnvelope,
       runtimeAssignment,
       runtimeProviderProfile,
-      optimizationPolicy,
       effectiveCapabilities,
       toolAvailability,
-      openclawCapabilityEnvelope,
+      assistantCapabilityEnvelope,
       memoryControl: governance.memoryControl,
       tasksControl: governance.tasksControl,
       assistantPlanOverrideCode: governance.assistantPlanOverrideCode,

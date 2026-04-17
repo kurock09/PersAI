@@ -14,15 +14,6 @@ networkPolicy:
     publicIpBlocks: []
     # Additional internal callers allowed to the public API port.
     extraFromIpBlocks: []
-  openclawIngress:
-    # Pod-visible trusted ingress/proxy CIDRs (for example GCLB/GFE/backend health-check
-    # hops that actually reach the OpenClaw pod). Prefer this field for GKE Ingress-backed
-    # webhook traffic.
-    # Verify current ranges at rollout time against official Google/Telegram docs.
-    trustedIngressIpBlocks: []
-    # Optional extra sender CIDRs only if they really reach the pod directly in your path.
-    # Do not assume Telegram client IPs are pod-visible when GKE Ingress fronts the service.
-    telegramWebhookIpBlocks: []
 
 api:
   enabled: true
@@ -86,7 +77,7 @@ api:
       secretKey: RUNTIME_PROVIDER_SECRETS_MASTER_KEY
       optional: true
     PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
   probes:
     readiness:
@@ -132,6 +123,8 @@ api:
   internalService:
     enabled: true
     port: 3002
+  telegramWebhook:
+    enabled: false
 
 web:
   enabled: true
@@ -229,14 +222,14 @@ providerGateway:
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: "claude-sonnet-4-5"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
     PROVIDER_GATEWAY_OPENAI_API_KEY:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: OPENAI_API_KEY
       optional: true
     PROVIDER_GATEWAY_ANTHROPIC_API_KEY:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: ANTHROPIC_API_KEY
       optional: true
   probes:
@@ -309,13 +302,13 @@ runtime:
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
     DATABASE_URL:
       secretName: persai-api-secrets
       secretKey: DATABASE_URL
     RUNTIME_STATE_REDIS_URL:
-      secretName: persai-openclaw-secrets
+      secretName: persai-runtime-secrets
       secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
   probes:
     readiness:
@@ -350,198 +343,6 @@ runtime:
   service:
     type: ClusterIP
     port: 3012
-
-openclaw:
-  enabled: false
-  replicaCount: 1
-  revisionHistoryLimit: 2
-  minReadySeconds: 10
-  strategy:
-    type: Recreate
-  runtimePools:
-    defaultPoolKey: free_shared_restricted
-    pools:
-      free_shared_restricted:
-        enabled: true
-        config: {}
-      paid_shared_restricted:
-        enabled: false
-        config: {}
-      paid_isolated:
-        enabled: false
-        config: {}
-  sandboxImages:
-    base:
-      name: openclaw-sandbox
-      tag: ""
-      digest: ""
-    common:
-      name: openclaw-sandbox-common
-      tag: ""
-      digest: ""
-  serviceAccount:
-    create: false
-    name: openclaw-sa
-    gcpServiceAccountEmail: ""
-  image:
-    name: openclaw
-    tag: ""
-    digest: ""
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 250m
-      memory: 512Mi
-      ephemeral-storage: 512Mi
-    limits:
-      cpu: "1"
-      memory: 1Gi
-      ephemeral-storage: 1Gi
-  configPath: /app/openclaw-dev.json
-  controlUi:
-    allowedOrigins:
-      - http://localhost:18789
-      - http://127.0.0.1:18789
-    dangerouslyAllowHostHeaderOriginFallback: false
-  persaiSecretResolver:
-    baseUrl: http://api-internal:3002
-  sessionMaintenance:
-    mode: enforce
-    pruneAfter: 14d
-    maxEntries: 2000
-    rotateBytes: 25mb
-    resetArchiveRetention: 14d
-    maxDiskBytes: 2gb
-    highWaterBytes: 1600mb
-  tools:
-    deny:
-      - gateway
-      - nodes
-      - canvas
-      - agents_list
-      - session_status
-      - sessions_list
-      - sessions_history
-      - sessions_send
-      - sessions_spawn
-      - sessions_yield
-      - subagents
-  workspace:
-    gcsFuse:
-      enabled: false
-      bucketName: ""
-      mountPath: /mnt/workspaces/persai
-      mountOptions: ""
-  command:
-    - node
-    - openclaw.mjs
-    - gateway
-  args:
-    - --bind
-    - loopback
-    - --port
-    - "18789"
-  env:
-    TZ: UTC
-    PERSAI_API_BASE_URL: "http://api-internal:3002"
-    # Supported PersAI/OpenClaw runtime contract remains one pod per runtime pool.
-    PERSAI_RUNTIME_READINESS_MODE: "single_replica"
-  agentDefaults:
-    models:
-      openai/gpt-5.4:
-        params:
-          # Keep the default shared baseline conservative: enable server-side
-          # context help and explicit warm-up, but do not globally force
-          # low-latency / higher-cost priority processing.
-          openaiWsWarmup: true
-          responsesServerCompaction: true
-    heartbeat:
-      # Shared SaaS runtime should not run one implicit pool-level `agent:main`
-      # heartbeat across all users/workspaces by default. Per-assistant/task-aware
-      # heartbeat can be reintroduced later through explicit policy slices.
-      every: "0m"
-      target: "none"
-      lightContext: true
-      isolatedSession: true
-    contextPruning:
-      mode: "cache-ttl"
-      ttl: "5m"
-      keepLastAssistants: 3
-      softTrimRatio: 0.3
-      hardClearRatio: 0.5
-      minPrunableToolChars: 12000
-      softTrim:
-        maxChars: 3000
-        headChars: 1000
-        tailChars: 1000
-      hardClear:
-        enabled: true
-        placeholder: "[Old tool result content cleared]"
-    compaction:
-      mode: "safeguard"
-      reserveTokens: 24000
-      keepRecentTokens: 16000
-      recentTurnsPreserve: 4
-      identifierPolicy: "strict"
-      postIndexSync: "async"
-      truncateAfterCompaction: true
-    sandbox:
-      # Shared non-sandbox pools keep sandbox disabled by default.
-      # Separate sandbox-capable pools override this with a real Docker-backed path.
-      mode: "off"
-      backend: docker
-      scope: session
-      workspaceAccess: rw
-      sessionToolsVisibility: spawned
-      docker:
-        image: ""
-        network: none
-        readOnlyRoot: true
-        capDrop:
-          - ALL
-        pidsLimit: 256
-        memory: 1g
-        memorySwap: 1g
-        cpus: 1
-  sandboxRuntime:
-    enabled: false
-    dockerSocketPath: /run/user/1000/docker.sock
-    dockerHost: unix:///run/user/1000/docker.sock
-    preloadSandboxImage: false
-    preloadPullRetries: 3
-    startupProbe:
-      failureThreshold: 180
-      periodSeconds: 5
-    dind:
-      image: docker:29.3.1-dind-rootless
-      pullPolicy: IfNotPresent
-      env: {}
-      resources: {}
-  autoscaling:
-    enabled: false
-    minReplicas: 2
-    maxReplicas: 10
-    targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: 80
-  podDisruptionBudget:
-    enabled: false
-    minAvailable: 1
-  topologySpreadConstraints: []
-  secretEnv:
-    OPENCLAW_GATEWAY_TOKEN:
-      secretName: persai-openclaw-secrets
-      secretKey: OPENCLAW_GATEWAY_TOKEN
-    PERSAI_INTERNAL_API_TOKEN:
-      secretName: persai-openclaw-secrets
-      secretKey: PERSAI_INTERNAL_API_TOKEN
-  telegramWebhook:
-    enabled: false
-    host: ""
-    managedCertificate: ""
-    tlsSecretName: ""
-  service:
-    type: ClusterIP
-    port: 18789
 
 ingress:
   enabled: false

@@ -2256,6 +2256,25 @@ export async function patchAdminPlan(
   }
 }
 
+export async function deleteAdminPlan(token: string, code: string): Promise<void> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.delete");
+    const base = getApiBaseUrl();
+    const res = await fetch(`${base}/admin/plans/${encodeURIComponent(code)}`, {
+      method: "DELETE",
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to delete plan."));
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function postAdminAbuseUnblock(
   token: string,
   payload: AdminAbuseUnblockRequest

@@ -8,6 +8,7 @@ export type SupportedAdminRole = "ops_admin" | "business_admin" | "security_admi
 export type DangerousAdminActionCode =
   | "admin.plan.create"
   | "admin.plan.update"
+  | "admin.plan.delete"
   | "admin.runtime_provider_settings.update"
   | "admin.tool_credentials.update"
   | "admin.rollout.apply"

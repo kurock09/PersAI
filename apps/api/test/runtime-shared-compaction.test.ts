@@ -4,25 +4,13 @@ import { buildRuntimeSharedCompactionConfig } from "../src/modules/workspace-man
 
 async function run(): Promise<void> {
   const sharedCompaction = buildRuntimeSharedCompactionConfig({
-    compactionPolicy: {
-      mode: "safeguard",
-      reserveTokens: 24000,
-      keepRecentTokens: 16000,
-      recentTurnsPreserve: 4,
-      identifierPolicy: "strict",
-      postIndexSync: "async",
-      truncateAfterCompaction: true,
-      suggestCompactionByMessageCount: false
-    },
-    contextHydration: {
-      preset: "custom",
-      targetContextBudget: 24000,
-      compactionTriggerThreshold: 8000,
-      keepRecentMinimum: 4,
-      knowledgeHydrationBudget: 6000,
-      autoCompactionWeb: false,
-      autoCompactionTelegram: false
-    }
+    preset: "custom",
+    targetContextBudget: 24000,
+    compactionTriggerThreshold: 8000,
+    keepRecentMinimum: 4,
+    knowledgeHydrationBudget: 6000,
+    autoCompactionWeb: false,
+    autoCompactionTelegram: false
   });
 
   assert.deepEqual(sharedCompaction, {
@@ -32,7 +20,6 @@ async function run(): Promise<void> {
     reserveTokens: 24000,
     keepRecentTokens: 16000,
     recentTurnsPreserve: 4,
-    suggestByMessageCount: false,
     telegramAutoSummarizeEnabled: false
   });
 }

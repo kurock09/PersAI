@@ -30,7 +30,7 @@ export type RuntimeProviderAdminDraft = {
 };
 
 export type RuntimeProviderAdminFormState = {
-  mode: "legacy_openclaw_default" | "admin_managed";
+  mode: "unconfigured_default" | "admin_managed";
   draft: RuntimeProviderAdminDraft;
 };
 
@@ -99,7 +99,7 @@ function parseCredentialDraft(
   fallback: RuntimeProviderCredentialDraft
 ): RuntimeProviderCredentialDraft {
   const row = asObject(value);
-  const secretRef = asObject(row?.secretRef ?? row?.openclawSecretRef ?? row?.ref ?? null);
+  const secretRef = asObject(row?.secretRef ?? row?.ref ?? null);
   return {
     refKey: asNonEmptyString(row?.refKey) ?? fallback.refKey,
     secretSource: normalizeSecretSource(secretRef?.source),
@@ -131,7 +131,7 @@ export function resolveRuntimeProviderAdminFormState(
 
   if (profile === null || profile.schema !== RUNTIME_PROVIDER_PROFILE_SCHEMA) {
     return {
-      mode: "legacy_openclaw_default",
+      mode: "unconfigured_default",
       draft
     };
   }

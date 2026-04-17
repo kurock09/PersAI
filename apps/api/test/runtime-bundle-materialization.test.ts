@@ -85,10 +85,6 @@ function createInput(order: "alpha" | "beta") {
               fallback: null,
               primary: { model: "gpt-5.4", provider: "openai" }
             },
-      optimizationPolicy:
-        order === "alpha"
-          ? { heartbeat: { every: "0m", target: "none" } }
-          : { heartbeat: { target: "none", every: "0m" } },
       contextHydration:
         order === "alpha"
           ? {
@@ -234,12 +230,10 @@ function createInput(order: "alpha" | "beta") {
               reserveTokens: 24000,
               keepRecentTokens: 16000,
               recentTurnsPreserve: 4,
-              suggestByMessageCount: false,
               telegramAutoSummarizeEnabled: true
             }
           : {
               telegramAutoSummarizeEnabled: true,
-              suggestByMessageCount: false,
               recentTurnsPreserve: 4,
               keepRecentTokens: 16000,
               reserveTokens: 24000,
@@ -454,7 +448,6 @@ async function run(): Promise<void> {
     reserveTokens: 24000,
     keepRecentTokens: 16000,
     recentTurnsPreserve: 4,
-    suggestByMessageCount: false,
     telegramAutoSummarizeEnabled: true
   });
   assert.deepEqual(alpha.bundle.runtime.knowledgeAccess, {

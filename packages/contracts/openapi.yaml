@@ -5263,163 +5263,10 @@ components:
           type: array
           items:
             type: string
-    RuntimeHeartbeatPolicyState:
-      type: object
-      required:
-        - every
-        - target
-        - lightContext
-        - isolatedSession
-      properties:
-        every:
-          type: string
-        target:
-          type: string
-          enum:
-            - last
-            - none
-        lightContext:
-          type: boolean
-        isolatedSession:
-          type: boolean
-    RuntimeContextPruningSoftTrimState:
-      type: object
-      required:
-        - maxChars
-        - headChars
-        - tailChars
-      properties:
-        maxChars:
-          type: integer
-        headChars:
-          type: integer
-        tailChars:
-          type: integer
-    RuntimeContextPruningHardClearState:
-      type: object
-      required:
-        - enabled
-        - placeholder
-      properties:
-        enabled:
-          type: boolean
-        placeholder:
-          type: string
-    RuntimeContextPruningPolicyState:
-      type: object
-      required:
-        - mode
-        - ttl
-        - keepLastAssistants
-        - softTrimRatio
-        - hardClearRatio
-        - minPrunableToolChars
-        - softTrim
-        - hardClear
-      properties:
-        mode:
-          type: string
-          enum:
-            - off
-            - cache-ttl
-        ttl:
-          type: string
-        keepLastAssistants:
-          type: integer
-        softTrimRatio:
-          type: number
-        hardClearRatio:
-          type: number
-        minPrunableToolChars:
-          type: integer
-        softTrim:
-          $ref: "#/components/schemas/RuntimeContextPruningSoftTrimState"
-        hardClear:
-          $ref: "#/components/schemas/RuntimeContextPruningHardClearState"
-    RuntimeCompactionPolicyState:
-      type: object
-      required:
-        - mode
-        - reserveTokens
-        - keepRecentTokens
-        - recentTurnsPreserve
-        - identifierPolicy
-        - postIndexSync
-        - truncateAfterCompaction
-        - suggestCompactionByMessageCount
-      properties:
-        mode:
-          type: string
-          enum:
-            - default
-            - safeguard
-        reserveTokens:
-          type: integer
-        keepRecentTokens:
-          type: integer
-        recentTurnsPreserve:
-          type: integer
-        identifierPolicy:
-          type: string
-          enum:
-            - strict
-            - off
-            - custom
-        postIndexSync:
-          type: string
-          enum:
-            - off
-            - async
-            - await
-        truncateAfterCompaction:
-          type: boolean
-        suggestCompactionByMessageCount:
-          type: boolean
-          description: >
-            When true, the web chat may show the manual compaction banner based on message counts
-            (long threads with short messages). When false (default), the banner uses estimated
-            session tokens only.
-    RuntimeOpenAITuningPolicyState:
-      type: object
-      required:
-        - fastMode
-        - serviceTier
-        - responsesServerCompaction
-        - openaiWsWarmup
-      properties:
-        fastMode:
-          type: boolean
-        serviceTier:
-          type: string
-          enum:
-            - auto
-            - default
-            - flex
-            - priority
-        responsesServerCompaction:
-          type: boolean
-        openaiWsWarmup:
-          type: boolean
-    RuntimeOptimizationPolicyState:
-      type: object
-      required:
-        - heartbeat
-        - contextPruning
-        - compaction
-        - openai
-      properties:
-        heartbeat:
-          $ref: "#/components/schemas/RuntimeHeartbeatPolicyState"
-        contextPruning:
-          $ref: "#/components/schemas/RuntimeContextPruningPolicyState"
-        compaction:
-          $ref: "#/components/schemas/RuntimeCompactionPolicyState"
-        openai:
-          $ref: "#/components/schemas/RuntimeOpenAITuningPolicyState"
     AdminRuntimeProviderSettingsMode:
       type: string
       enum:
-        - legacy_openclaw_default
+        - unconfigured_default
         - global_settings
     AdminRuntimeProviderKeyState:
       type: object
@@ -5494,72 +5341,6 @@ components:
           type: string
           enum:
             - spawned
-    SandboxResourceLimits:
-      type: object
-      required:
-        - pidsLimit
-        - memoryMb
-        - cpus
-      properties:
-        pidsLimit:
-          type: integer
-        memoryMb:
-          type: integer
-        cpus:
-          type: number
-    RuntimeTierSecurityPolicyState:
-      type: object
-      required:
-        - schema
-        - tier
-        - poolClass
-        - sandbox
-        - sandboxLimits
-        - execPolicy
-        - writePolicy
-        - userPlanTools
-        - platformManagedTools
-        - planManagedServiceTools
-        - hiddenInternalTools
-        - alwaysDeniedBuiltIns
-        - notes
-      properties:
-        schema:
-          type: string
-        tier:
-          $ref: "#/components/schemas/RuntimeTier"
-        poolClass:
-          $ref: "#/components/schemas/RuntimeTierSecurityPoolClass"
-        sandbox:
-          $ref: "#/components/schemas/RuntimeTierSandboxPolicyState"
-        sandboxLimits:
-          $ref: "#/components/schemas/SandboxResourceLimits"
-        execPolicy:
-          $ref: "#/components/schemas/RuntimeTierSecurityExecPolicy"
-        writePolicy:
-          $ref: "#/components/schemas/RuntimeTierSecurityWritePolicy"
-        userPlanTools:
-          $ref: "#/components/schemas/RuntimeTierSecurityUserPlanToolsPolicy"
-        platformManagedTools:
-          type: array
-          items:
-            type: string
-        planManagedServiceTools:
-          type: array
-          items:
-            type: string
-        hiddenInternalTools:
-          type: array
-          items:
-            type: string
-        alwaysDeniedBuiltIns:
-          type: array
-          items:
-            type: string
-        notes:
-          type: array
-          items:
-            type: string
     AdminRuntimeProviderSettingsState:
       type: object
       required:
@@ -5568,9 +5349,7 @@ components:
         - primary
         - fallback
         - availableModelsByProvider
-        - optimizationPolicy
         - providerKeys
-        - tierSecurityPolicies
         - notes
       properties:
         schema:
@@ -5587,8 +5366,6 @@ components:
           nullable: true
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
-        optimizationPolicy:
-          $ref: "#/components/schemas/RuntimeOptimizationPolicyState"
         providerKeys:
           type: object
           required:
@@ -5599,10 +5376,6 @@ components:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
             anthropic:
               $ref: "#/components/schemas/AdminRuntimeProviderKeyState"
-        tierSecurityPolicies:
-          type: array
-          items:
-            $ref: "#/components/schemas/RuntimeTierSecurityPolicyState"
         notes:
           type: array
           items:
@@ -5619,7 +5392,6 @@ components:
       required:
         - primary
         - availableModelsByProvider
-        - optimizationPolicy
       properties:
         primary:
           $ref: "#/components/schemas/RuntimeProviderSelection"
@@ -5629,8 +5401,6 @@ components:
           nullable: true
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
-        optimizationPolicy:
-          $ref: "#/components/schemas/RuntimeOptimizationPolicyState"
         providerKeys:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
     GetAdminRuntimeProviderSettingsResponse:
@@ -6082,6 +5852,7 @@ components:
       enum:
         - admin.plan.create
         - admin.plan.update
+        - admin.plan.delete
         - admin.runtime_provider_settings.update
         - admin.rollout.apply
         - admin.rollout.rollback

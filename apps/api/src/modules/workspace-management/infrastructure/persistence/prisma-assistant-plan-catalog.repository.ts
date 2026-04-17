@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, type PlanCatalogStatus, type ToolCatalogToolClass } from "@prisma/client";
 import type {
+  AssistantPlanCatalogDeleteImpact,
   AssistantPlanCatalogRepository,
   AssistantPlanCatalogWriteInput
 } from "../../domain/assistant-plan-catalog.repository";
@@ -52,6 +53,37 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
       orderBy: { updatedAt: "desc" }
     });
     return plan ? this.mapToDomain(plan) : null;
+  }
+
+  async getDeleteImpactByCode(code: string): Promise<AssistantPlanCatalogDeleteImpact | null> {
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code },
+      select: {
+        code: true,
+        isDefaultFirstRegistrationPlan: true
+      }
+    });
+    if (plan === null) {
+      return null;
+    }
+    const [workspaceSubscriptionCount, assistantOverrideCount, assistantFallbackCount] =
+      await this.prisma.$transaction([
+        this.prisma.workspaceSubscription.count({
+          where: { planCode: code }
+        }),
+        this.prisma.assistantGovernance.count({
+          where: { assistantPlanOverrideCode: code }
+        }),
+        this.prisma.assistantGovernance.count({
+          where: { quotaPlanCode: code }
+        })
+      ]);
+    return {
+      isDefaultRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
+      workspaceSubscriptionCount,
+      assistantOverrideCount,
+      assistantFallbackCount
+    };
   }
 
   async create(code: string, input: AssistantPlanCatalogWriteInput): Promise<AssistantPlanCatalog> {
@@ -174,6 +206,28 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
       return null;
     }
     return this.mapToDomain(updated);
+  }
+
+  async deleteByCode(code: string): Promise<boolean> {
+    const existing = await this.prisma.planCatalogPlan.findUnique({
+      where: { code },
+      select: { id: true }
+    });
+    if (existing === null) {
+      return false;
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.planCatalogToolActivation.deleteMany({
+        where: { planId: existing.id }
+      });
+      await tx.planCatalogEntitlement.deleteMany({
+        where: { planId: existing.id }
+      });
+      await tx.planCatalogPlan.delete({
+        where: { id: existing.id }
+      });
+    });
+    return true;
   }
 
   private mapToDomain(plan: PlanWithRelations): AssistantPlanCatalog {

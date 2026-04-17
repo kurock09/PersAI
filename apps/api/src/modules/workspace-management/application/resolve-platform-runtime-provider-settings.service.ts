@@ -35,8 +35,7 @@ export class ResolvePlatformRuntimeProviderSettingsService {
         primaryModel: true,
         fallbackProvider: true,
         fallbackModel: true,
-        availableModelsByProvider: true,
-        optimizationPolicy: true
+        availableModelsByProvider: true
       }
     });
     if (row === null) {
@@ -48,8 +47,7 @@ export class ResolvePlatformRuntimeProviderSettingsService {
       fallbackProvider:
         row.fallbackProvider === null ? null : this.normalizeProvider(row.fallbackProvider, null),
       fallbackModel: row.fallbackModel,
-      availableModelsByProvider: row.availableModelsByProvider,
-      optimizationPolicy: row.optimizationPolicy
+      availableModelsByProvider: row.availableModelsByProvider
     };
   }
 

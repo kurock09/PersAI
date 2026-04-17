@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -92,6 +93,19 @@ export class AdminPlansController {
     return {
       requestId: req.requestId ?? null,
       plan
+    };
+  }
+
+  @Delete(":code")
+  async deletePlan(
+    @Req() req: RequestWithPlatformContext,
+    @Param("code") code: string
+  ): Promise<{ requestId: string | null; ok: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.manageAdminPlansService.deletePlan(userId, code, this.resolveStepUpToken(req));
+    return {
+      requestId: req.requestId ?? null,
+      ok: true
     };
   }
 

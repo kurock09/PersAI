@@ -10,7 +10,7 @@ Modular monolith for apps/api, with strict module and layer boundaries.
 - apps/api
 - apps/provider-gateway
 - apps/runtime
-- external OpenClaw fork (materialized in CI to `services/openclaw` for image builds)
+- legacy external OpenClaw fork (historical migration artifact outside the active deploy path)
 - packages/\*
 - infra
 - docs
@@ -28,23 +28,13 @@ Modular monolith for apps/api, with strict module and layer boundaries.
 - infrastructure
 - interface
 
-## OpenClaw boundary
+## Legacy OpenClaw note
 
-OpenClaw is a neighboring runtime boundary with source-of-truth in the external fork.
-For dev image builds, CI materializes the approved fork revision into `services/openclaw`.
-It is not part of backend domain logic.
-`apps/api` talks to OpenClaw only through the infrastructure adapter boundary:
+OpenClaw is no longer part of the active PersAI dev deploy path after the ADR-072 Step 18 pre-UI cleanup.
 
-- OpenClaw calls are allowed only via infrastructure adapter boundary in `apps/api`
-- domain/application modules remain OpenClaw-agnostic
-- currently implemented interactions:
-  - runtime preflight (`/healthz`, `/readyz`)
-  - apply/reapply of materialized published specs through adapter
-  - sync web chat transport
-  - streaming web chat transport
-- adapter boundary started in A8 with runtime preflight and apply/reapply, then expanded later for web chat sync/stream transport
-- normative PersAI→OpenClaw HTTP request/response contract (design freeze v1): [API-BOUNDARY.md — PersAI to OpenClaw HTTP runtime contract (v1)](API-BOUNDARY.md#persai-to-openclaw-http-runtime-contract-v1)
-- planned control-plane evolution for admin-driven runtime profiles (models, fallback refs, credential refs) is tracked in [ADR-049](ADR/049-platform-admin-runtime-control-plane-phasing.md); PersAI owns policy + references, while OpenClaw remains the runtime executor and secret resolver
+- `infra/helm` now deploys only `api`, `runtime`, `provider-gateway`, and `web`
+- active request-time web, Telegram, media, and session flows stay on PersAI-native runtime/storage seams
+- the adjacent OpenClaw fork remains only as historical migration material until later cleanup removes the remaining non-runtime references
 
 ## ADR-072 transition boundary
 
@@ -102,7 +92,7 @@ It is not part of backend domain logic.
 ## ADR-072 Step 7 bundle and provider warm boundary
 
 - `apps/runtime` bundle warm/invalidate endpoints no longer stop at the Step 5 local cache shell.
-- `apps/api` apply/reapply now triggers two control-plane warm actions **after** successful legacy OpenClaw apply:
+- `apps/api` apply/reapply now triggers two control-plane warm actions after successful materialization/apply:
   - assistant-wide invalidate + current-bundle warm for the native runtime bundle
   - provider-gateway warmup with the materialized control-plane model catalog snapshot
 - successful runtime bundle warm now coordinates three runtime-owned effects:
@@ -197,10 +187,7 @@ It is not part of backend domain logic.
   - tier-aware optimization defaults
   - admin/runtime optimization controls
   - user-facing compaction suggestion UX
-- OpenClaw owns:
-  - runtime execution behavior once configured
-  - heartbeat/session/tool execution semantics
-  - pruning/compaction/provider transport behavior inside the runtime
+- Historical migration note only: older slices used OpenClaw for runtime execution behavior, heartbeat/session/tool execution semantics, and pruning/compaction/provider transport behavior. The active path now treats those concerns as PersAI-owned runtime/provider-gateway behavior.
 - optimization must preserve assistant humanity:
   - do not treat persona/bootstrap tone as the first cost-reduction target
   - remove unnecessary background work and long-context waste before trimming bootstrap/persona content

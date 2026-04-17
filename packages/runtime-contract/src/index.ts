@@ -147,7 +147,6 @@ export interface RuntimeSharedCompactionConfig {
   reserveTokens: number;
   keepRecentTokens: number;
   recentTurnsPreserve: number;
-  suggestByMessageCount: boolean;
   telegramAutoSummarizeEnabled: boolean;
 }
 

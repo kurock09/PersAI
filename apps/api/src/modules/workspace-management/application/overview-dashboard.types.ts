@@ -11,6 +11,18 @@ export type OverviewChannelLatency = {
   percentiles: LatencyPercentiles;
 };
 
+export type OverviewLatencyBucket = {
+  le: number;
+  value: number;
+};
+
+export type OverviewLatencyRollup = {
+  count: number;
+  durationMsTotal: number;
+  maxMs: number;
+  buckets: OverviewLatencyBucket[];
+};
+
 export type OverviewLatencySnapshot = {
   webChatTurns: OverviewChannelLatency | null;
   telegramTurns: OverviewChannelLatency | null;
@@ -23,13 +35,14 @@ export type OverviewSystemWarning = {
   message: string;
 };
 
-export type RuntimeTierPreflight = {
-  tier: string;
+export type OverviewNativeRuntimeState = {
+  runtimeBaseUrlConfigured: boolean;
+  providerGatewayBaseUrlConfigured: boolean;
+  runtimeEndpointHost: string | null;
+  providerGatewayEndpointHost: string | null;
   live: boolean;
   ready: boolean;
   checkedAt: string;
-  flapCount: number;
-  lastFlapAt: string | null;
 };
 
 export type OverviewQueuePressure = {
@@ -106,14 +119,18 @@ export type AdminOverviewDataSource = {
 export type AdminOverviewDashboardState = {
   dataSource: AdminOverviewDataSource;
   latency: OverviewLatencySnapshot;
+  aggregation: {
+    latency: {
+      webChatTurns: OverviewLatencyRollup | null;
+      telegramTurns: OverviewLatencyRollup | null;
+      allRoutes: OverviewLatencyRollup;
+    };
+  };
   latencyTrace: OverviewLatencyTraceState;
   webRuntimeShadowComparisons: WebRuntimeShadowComparisonState;
   activeUsers: number;
   activeWebChats: number;
-  runtime: {
-    adapterEnabled: boolean;
-    tiers: RuntimeTierPreflight[];
-  };
+  runtime: OverviewNativeRuntimeState;
   health: {
     uptimeSeconds: number;
     processStartedAt: string;

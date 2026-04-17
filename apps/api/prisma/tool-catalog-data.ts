@@ -115,7 +115,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
     code: "memory_search",
-    displayName: "Memory Search",
+    displayName: "Knowledge Search",
     description: "Semantic search across assistant memory using remote embeddings.",
     modelDescription:
       "Search the assistant's durable memory and related knowledge records for relevant prior facts.",
@@ -129,7 +129,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     id: "88888888-8888-8888-8888-888888888888",
     code: "memory_get",
-    displayName: "Memory Get",
+    displayName: "Knowledge Fetch",
     description: "Safe snippet read from memory files with optional offset/lines.",
     modelDescription: "Fetch a specific remembered knowledge or memory item by reference.",
     modelUsageGuidance:

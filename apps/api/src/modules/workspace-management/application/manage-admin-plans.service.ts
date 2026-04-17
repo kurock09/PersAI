@@ -156,6 +156,36 @@ function hasQuotaGovernedFlag(items: unknown, key: string): boolean {
   });
 }
 
+function normalizePlanToolDisplayName(toolCode: string, displayName: string): string {
+  if (toolCode === "memory_search") {
+    return "Knowledge Search";
+  }
+  if (toolCode === "memory_get") {
+    return "Knowledge Fetch";
+  }
+  return displayName;
+}
+
+function formatPlanDeleteInUseMessage(params: {
+  workspaceSubscriptionCount: number;
+  assistantOverrideCount: number;
+  assistantFallbackCount: number;
+}): string {
+  const reasons: string[] = [];
+  if (params.workspaceSubscriptionCount > 0) {
+    reasons.push(`${String(params.workspaceSubscriptionCount)} workspace subscription(s)`);
+  }
+  if (params.assistantOverrideCount > 0) {
+    reasons.push(`${String(params.assistantOverrideCount)} assistant override(s)`);
+  }
+  if (params.assistantFallbackCount > 0) {
+    reasons.push(`${String(params.assistantFallbackCount)} assistant fallback binding(s)`);
+  }
+  return reasons.length > 0
+    ? `Plan is still in use by ${reasons.join(", ")}.`
+    : "Plan is still in use.";
+}
+
 @Injectable()
 export class ManageAdminPlansService {
   constructor(
@@ -274,6 +304,55 @@ export class ManageAdminPlansService {
       }
     });
     return this.toAdminPlanState(updated);
+  }
+
+  async deletePlan(userId: string, code: string, stepUpToken: string | null): Promise<void> {
+    const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
+      userId,
+      "admin.plan.delete",
+      stepUpToken
+    );
+    const normalizedCode = parseRequiredString(code, "code").toLowerCase();
+    const deleteImpact = await this.planCatalogRepository.getDeleteImpactByCode(normalizedCode);
+    if (deleteImpact === null) {
+      throw new NotFoundException("Plan not found.");
+    }
+    if (deleteImpact.isDefaultRegistrationPlan) {
+      throw new ConflictException("Default registration plan cannot be deleted.");
+    }
+    if (
+      deleteImpact.workspaceSubscriptionCount > 0 ||
+      deleteImpact.assistantOverrideCount > 0 ||
+      deleteImpact.assistantFallbackCount > 0
+    ) {
+      throw new ConflictException(
+        formatPlanDeleteInUseMessage({
+          workspaceSubscriptionCount: deleteImpact.workspaceSubscriptionCount,
+          assistantOverrideCount: deleteImpact.assistantOverrideCount,
+          assistantFallbackCount: deleteImpact.assistantFallbackCount
+        })
+      );
+    }
+    const deleted = await this.planCatalogRepository.deleteByCode(normalizedCode);
+    if (!deleted) {
+      throw new NotFoundException("Plan not found.");
+    }
+    await this.bumpConfigGenerationService.execute();
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: access.workspaceId,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.plan_deleted",
+      summary: "Admin plan deleted.",
+      details: {
+        action: "admin.plan.delete" as DangerousAdminActionCode,
+        actorRoles: access.roles,
+        legacyOwnerFallback: access.hasLegacyOwnerFallback,
+        stepUpVerified: true,
+        code: normalizedCode
+      }
+    });
   }
 
   private parsePlanInput(parsed: Record<string, unknown>): AdminPlanInput {
@@ -536,7 +615,7 @@ export class ManageAdminPlansService {
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,
-        displayName: ta.displayName,
+        displayName: normalizePlanToolDisplayName(ta.toolCode, ta.displayName),
         toolClass: ta.toolClass,
         policyClass: ta.policyClass,
         active: ta.activationStatus === "active",

@@ -37,7 +37,7 @@ export interface DeleteWebChatRequest {
 
 type EffectiveSharedCompactionConfig = Pick<
   RuntimeSharedCompactionConfig,
-  "reserveTokens" | "keepRecentTokens" | "recentTurnsPreserve" | "suggestByMessageCount"
+  "reserveTokens" | "keepRecentTokens" | "recentTurnsPreserve"
 > & {
   autoCompactionEnabled: boolean;
 };
@@ -444,21 +444,11 @@ export class ManageWebChatListService {
       input.compactionConfig.reserveTokens - input.compactionConfig.keepRecentTokens
     );
     const tokenSuggested = input.currentTokens !== null && input.currentTokens >= tokenThreshold;
-    const historySuggested =
-      input.compactionConfig.suggestByMessageCount &&
-      (input.messageCount >= Math.max(input.compactionConfig.recentTurnsPreserve * 4, 16) ||
-        input.assistantMessageCount >= Math.max(input.compactionConfig.recentTurnsPreserve * 2, 8));
-    // When message-count hints are enabled, do not nag on history alone after token compaction
-    // brought usage below the threshold.
-    const historyCountsAsSuggestion =
-      historySuggested && (input.currentTokens === null || input.currentTokens >= tokenThreshold);
     const suggestionReason = input.forceSuggestedFalse
       ? null
       : tokenSuggested
         ? "token_threshold"
-        : historyCountsAsSuggestion
-          ? "history_threshold"
-          : null;
+        : null;
     return {
       available: input.available,
       suggested: suggestionReason !== null,
@@ -518,13 +508,11 @@ export class ManageWebChatListService {
     const reserveTokens = this.asInteger(sharedCompaction?.reserveTokens);
     const keepRecentTokens = this.asInteger(sharedCompaction?.keepRecentTokens);
     const recentTurnsPreserve = this.asInteger(sharedCompaction?.recentTurnsPreserve);
-    const suggestByMessageCount = sharedCompaction?.suggestByMessageCount;
     const autoCompactionEnabled = contextHydration?.autoCompactionWeb;
     if (
       reserveTokens === null ||
       keepRecentTokens === null ||
       recentTurnsPreserve === null ||
-      typeof suggestByMessageCount !== "boolean" ||
       typeof autoCompactionEnabled !== "boolean"
     ) {
       return null;
@@ -533,7 +521,6 @@ export class ManageWebChatListService {
       reserveTokens,
       keepRecentTokens,
       recentTurnsPreserve,
-      suggestByMessageCount,
       autoCompactionEnabled
     };
   }

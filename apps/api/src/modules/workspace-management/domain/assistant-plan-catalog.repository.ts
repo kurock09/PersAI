@@ -8,6 +8,13 @@ export type AssistantPlanCatalogToolActivationOverride = {
   dailyCallLimit: number | null;
 };
 
+export type AssistantPlanCatalogDeleteImpact = {
+  isDefaultRegistrationPlan: boolean;
+  workspaceSubscriptionCount: number;
+  assistantOverrideCount: number;
+  assistantFallbackCount: number;
+};
+
 export type AssistantPlanCatalogWriteInput = {
   displayName: string;
   description: string | null;
@@ -31,10 +38,12 @@ export interface AssistantPlanCatalogRepository {
   listAll(): Promise<AssistantPlanCatalog[]>;
   findByCode(code: string): Promise<AssistantPlanCatalog | null>;
   findDefaultRegistrationPlan(): Promise<AssistantPlanCatalog | null>;
+  getDeleteImpactByCode(code: string): Promise<AssistantPlanCatalogDeleteImpact | null>;
   create(code: string, input: AssistantPlanCatalogWriteInput): Promise<AssistantPlanCatalog>;
   updateByCode(
     code: string,
     input: AssistantPlanCatalogWriteInput
   ): Promise<AssistantPlanCatalog | null>;
+  deleteByCode(code: string): Promise<boolean>;
   backfillToolActivationsForPlans(planIds: string[]): Promise<void>;
 }

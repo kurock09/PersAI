@@ -7,6 +7,12 @@ Path versioning: /api/v1/...
 
 **Error surface:** `ApiExceptionFilter` returns JSON `{ requestId, error: { code, category, message, details? } }`. Throwables that are not `HttpException` become **500** `internal_error`. Those failures are also logged at error level as **`unhandled_http_exception`** (pino: `requestId`, `path`, `method`, `err`, `stack`) so operators can correlate `request_completed` lines with root causes.
 
+## Current ADR-072 runtime boundary
+
+- The active dev deploy path now terminates ordinary web and Telegram traffic at `apps/api` plus the PersAI-native `apps/runtime` / `apps/provider-gateway` services.
+- `bot.persai.dev/telegram-webhook/*` is an API ingress path, not an OpenClaw ingress path.
+- Historical OpenClaw-specific transport/apply sections below remain only as migration record unless a section explicitly says it is still current.
+
 ## Step 1 endpoints
 
 - GET /health
@@ -598,7 +604,7 @@ Behavior baseline:
 
 - `GET /api/v1/admin/overview/dashboard` now returns `latencyTrace` state alongside the existing overview snapshot.
 - The same dashboard response now also returns `webRuntimeShadowComparisons`, a bounded pod-local in-memory Step 10 read model for recent sync/stream `shadow` parity samples.
-- The dashboard response also includes `dataSource` metadata for the currently serving PersAI API instance so admin UI can label pod-local telemetry honestly when multiple `api` pods are behind one service.
+- The dashboard response also includes `dataSource` metadata for the currently serving PersAI API instance plus raw latency rollups for the same pod so the admin UI can probe multiple `api` pods, aggregate latency honestly across the discovered set, and still annotate merged trace samples by source pod.
 - `POST /api/v1/admin/overview/latency-trace` is the single admin control-plane toggle for bounded delay investigation.
 - The trace toggle is intentionally off by default; when disabled, PersAI and OpenClaw do not collect per-stage timing samples for this surface.
 - When enabled, PersAI creates one in-memory trace per touched turn surface:
@@ -613,9 +619,10 @@ Behavior baseline:
   - source: `WebRuntimeShadowComparisonService` records the same sync/stream comparison result that is logged as `web_runtime_shadow_compare`
   - scope: recent in-memory diagnostics only, not a durable telemetry store or cluster-wide aggregate
   - intent: reduce log hunting before the later bounded dev `shadow` validation/cutover decision
-- Current semantics stay intentionally explicit: trace memory, request histograms, queue pressure, process health, and flap counters are **API-instance-local** (`scope = api_instance_local`), not cluster-aggregated.
-- The web `/api/v1` proxy may keep `/admin/overview/*` requests sticky to one reported API pod while that pod remains reachable, so refresh/toggle flows stay aligned with the same in-memory trace state instead of round-robining across pods on every request.
-- `/admin` may also expose an explicit debug routing choice for overview requests: default `Auto (sticky)`, one-shot `Probe service` to discover another serving pod, and manual pinning to a previously discovered pod-local source. This is a diagnostics aid only and does not change the non-aggregated semantics of the underlying metrics/trace state.
+- Raw trace memory remains **API-instance-local** (`scope = api_instance_local`), but the current `/admin` overview now probes the service, discovers reachable `api` pods, and merges the currently discovered pod snapshots for latency/request/process totals while keeping per-trace source labels explicit.
+- The web `/api/v1` proxy still uses sticky/pinned pod routing internally for `/admin/overview/*`, but that routing is now an implementation detail of the multi-pod aggregate path rather than a user-facing pod selector.
+- `POST /api/v1/admin/overview/latency-trace` is fan-out behavior in the current admin UI: it sends the same toggle to each currently discovered `api` pod, so the UI can report `OFF` / `PARTIAL` / `ON` instead of pretending a single pod-local trace state is the whole fleet.
+- The old `Web Runtime Shadow Compare` panel is no longer rendered on the main admin overview after Step 18 cleanup, even though the bounded Step 10 read model still exists as historical/internal support for shadow-window investigation.
 - Scope rule: this trace path is bounded operational diagnostics for `SR10`, not a general distributed tracing platform or long-term persistent telemetry store.
 
 ## Step 7 P3 subscription + billing boundary baseline
@@ -1957,8 +1964,8 @@ Compatibility endpoints for assistant-scoped freshness detection during the rema
 - **Success:** `200` JSON `{ generation, mode, primary }`
 - **Behavior:**
   - exposes the current PersAI global runtime-provider default (`primary.provider` + `primary.model`) for background runtime flows
-  - OpenClaw heartbeat uses this as the background default model when no explicit heartbeat model override is configured
-  - fallback remains the native OpenClaw configured default when PersAI settings are still in `legacy_openclaw_default` mode or the internal fetch is unavailable
+  - background runtime flows use this as the default model when no explicit override is configured
+  - fallback remains the currently configured runtime default when PersAI settings are still in `unconfigured_default` mode or the internal fetch is unavailable
 
 ## Step 12 H8-scale Telegram lifecycle hardening
 

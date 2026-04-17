@@ -225,7 +225,7 @@ export function buildAdminToolCredentialsState(params: {
     tool_tts_elevenlabs: "Text-to-Speech API Key (ElevenLabs)",
     tool_tts_yandex: "Text-to-Speech API Key (Yandex SpeechKit)",
     tool_tts_openai: "Text-to-Speech API Key (OpenAI)",
-    tool_memory_search: "Memory Search (Embeddings) API Key"
+    tool_memory_search: "Knowledge Search (Embeddings) API Key"
   };
 
   return {

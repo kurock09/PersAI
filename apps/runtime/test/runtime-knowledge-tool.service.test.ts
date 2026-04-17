@@ -144,7 +144,6 @@ function createBundle(knowledgeAccess: RuntimeKnowledgeAccessConfig) {
           inactiveReason: null
         }
       },
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -164,7 +163,6 @@ function createBundle(knowledgeAccess: RuntimeKnowledgeAccessConfig) {
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },

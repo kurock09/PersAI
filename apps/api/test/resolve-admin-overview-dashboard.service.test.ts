@@ -13,6 +13,8 @@ async function run(): Promise<void> {
     DATABASE_URL: process.env.DATABASE_URL,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     PERSAI_INTERNAL_API_TOKEN: process.env.PERSAI_INTERNAL_API_TOKEN,
+    PERSAI_RUNTIME_BASE_URL: process.env.PERSAI_RUNTIME_BASE_URL,
+    PERSAI_PROVIDER_GATEWAY_BASE_URL: process.env.PERSAI_PROVIDER_GATEWAY_BASE_URL,
     POD_NAME: process.env.POD_NAME
   };
 
@@ -20,6 +22,8 @@ async function run(): Promise<void> {
   process.env.DATABASE_URL = "postgres://postgres:postgres@localhost:5432/persai";
   process.env.CLERK_SECRET_KEY = "sk_test_1234567890123456";
   process.env.PERSAI_INTERNAL_API_TOKEN = "internal_token_123456";
+  process.env.PERSAI_RUNTIME_BASE_URL = "http://runtime:3002";
+  process.env.PERSAI_PROVIDER_GATEWAY_BASE_URL = "http://provider-gateway:3003";
   process.env.POD_NAME = "api-test-1";
 
   try {
@@ -94,14 +98,24 @@ async function run(): Promise<void> {
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p50Ms, 100);
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p95Ms, 90_000);
     assert.equal(dashboard.latency.webChatTurns?.percentiles.p99Ms, 90_000);
+    assert.equal(dashboard.aggregation.latency.webChatTurns?.count, 2);
+    assert.equal(dashboard.aggregation.latency.webChatTurns?.durationMsTotal, 90_100);
     assert.equal(dashboard.latencyTrace.enabled, false);
     assert.equal(dashboard.webRuntimeShadowComparisons.recent.length, 0);
+    assert.equal(dashboard.runtime.runtimeBaseUrlConfigured, true);
+    assert.equal(dashboard.runtime.providerGatewayBaseUrlConfigured, true);
+    assert.equal(dashboard.runtime.runtimeEndpointHost, "runtime:3002");
+    assert.equal(dashboard.runtime.providerGatewayEndpointHost, "provider-gateway:3003");
+    assert.equal(dashboard.runtime.live, true);
+    assert.equal(dashboard.runtime.ready, true);
     assert.equal("storagePressure" in dashboard, false);
   } finally {
     process.env.APP_ENV = prevEnv.APP_ENV;
     process.env.DATABASE_URL = prevEnv.DATABASE_URL;
     process.env.CLERK_SECRET_KEY = prevEnv.CLERK_SECRET_KEY;
     process.env.PERSAI_INTERNAL_API_TOKEN = prevEnv.PERSAI_INTERNAL_API_TOKEN;
+    process.env.PERSAI_RUNTIME_BASE_URL = prevEnv.PERSAI_RUNTIME_BASE_URL;
+    process.env.PERSAI_PROVIDER_GATEWAY_BASE_URL = prevEnv.PERSAI_PROVIDER_GATEWAY_BASE_URL;
     process.env.POD_NAME = prevEnv.POD_NAME;
   }
 }

@@ -23,6 +23,25 @@ Required in CI:
 - prisma migrate check
 - build
 
+## ADR-072 Step 18 focus
+
+- Pre-UI cleanup now removes the legacy OpenClaw GKE workload layer from active Helm/dev deploy truth.
+- Dev Helm/render validation must show only `api`, `runtime`, `provider-gateway`, and `web` workloads on the active path.
+- Telegram webhook ingress must stay routed to `api` even after the `openclaw-*` workload removal.
+- Internal materialization/capability helper naming should no longer emit `persai.openclaw*` schema identifiers where the native control-plane path is already authoritative.
+- `apps/web` `System Overview` should aggregate discovered `api` pods instead of forcing manual pod selection, should fan out trace toggles to the discovered pod set, should no longer render the old shadow-comparison block, and should replace the stale runtime-tier matrix with native-runtime/Step 19 context.
+- `apps/web` `/admin/runtime` should keep only live global runtime controls. The stale `Sandbox security` matrix and its `tierSecurityPolicies` contract tail should be removed; after native-path verification, the stale `Heartbeat`, `Context Pruning`, `OpenAI Tuning`, old compaction threshold editors, and the last legacy web compaction message-count override should also be removed from the page, leaving provider/model controls only. Editable fields should disable browser autofill/autocorrect behavior, and the page should use the same denser card/section rhythm as `System Overview`.
+- Focused verification for this sub-slice:
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-capability-envelope.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-channel-surface-bindings.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/assistant-channel-surface-bindings-g5.test.ts`
+  - `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+  - `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-overview-dashboard.service.test.ts`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run lint`
+  - `corepack pnpm --filter @persai/web run typecheck`
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts`
+
 ## ADR-072 Step 16 focus
 
 - Active verification now targets the PersAI-native production path after OpenClaw adapter removal.
@@ -887,7 +906,7 @@ Required in CI:
   - active plan tools, always-on system tools, and disabled plan tools keep the same visibility/forbidden semantics in both prompt docs and bundle metadata
 - Shared compaction contract baseline validates:
   - `runtime.sharedCompaction` exists on the native runtime bundle with fixed `summarize_context` / `compact_context` names
-  - `runtime.sharedCompaction` mirrors the current web compaction threshold knobs from admin-managed optimization policy instead of inventing a second threshold source
+- `runtime.sharedCompaction` mirrors the active native compaction thresholds derived from `runtime.contextHydration` instead of inventing a second threshold source
   - `runtime.sharedCompaction.telegramAutoSummarizeEnabled` mirrors the assistant-scoped Telegram owner setting so shared runtime wiring does not rely on channel-only config lookups
 - Dark native shared-compaction seam validates:
   - `POST /api/v1/turns/compact` resolves the active session and warmed bundle from runtime-owned state instead of taking channel-specific compaction shortcuts
@@ -1132,7 +1151,7 @@ Required in CI:
   - the UI remains policy-oriented and does not expose pod/service topology as product settings
 - Compaction suggestion UX must prove:
   - web chat suggestion state and manual compact actions are covered by the public assistant API contract, not only by ad hoc client calls
-  - threshold behavior comes from the admin-managed optimization policy rather than a second product-side source
+- threshold behavior comes from the active native `contextHydration` / derived `sharedCompaction` path rather than a second product-side source
   - the currently live web surface is reviewed for user-facing copy and localization; any future shared multi-channel compaction surface (including Telegram or agent-invoked flows) must be validated when Step 15 lands
 - Bootstrap budget optimization must prove:
   - prompt/token reduction is measured

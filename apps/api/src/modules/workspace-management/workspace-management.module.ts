@@ -27,8 +27,8 @@ import { InternalRuntimeToolQuotaController } from "./interface/http/internal-ru
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
-import { ResolveOpenClawChannelSurfaceBindingsService } from "./application/resolve-openclaw-channel-surface-bindings.service";
-import { ResolveOpenClawCapabilityEnvelopeService } from "./application/resolve-openclaw-capability-envelope.service";
+import { ResolveAssistantChannelSurfaceBindingsService } from "./application/resolve-assistant-channel-surface-bindings.service";
+import { ResolveAssistantCapabilityEnvelopeService } from "./application/resolve-assistant-capability-envelope.service";
 import { ResolveRuntimeProviderRoutingService } from "./application/resolve-runtime-provider-routing.service";
 import { ResolveTelegramIntegrationStateService } from "./application/resolve-telegram-integration-state.service";
 import { ResolveAssistantNotificationPreferenceService } from "./application/resolve-assistant-notification-preference.service";
@@ -260,9 +260,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveEffectiveSubscriptionStateService,
     ResolveEffectiveCapabilityStateService,
     ResolveEffectiveToolAvailabilityService,
-    ResolveOpenClawChannelSurfaceBindingsService,
+    ResolveAssistantChannelSurfaceBindingsService,
     ResolveRuntimeProviderRoutingService,
-    ResolveOpenClawCapabilityEnvelopeService,
+    ResolveAssistantCapabilityEnvelopeService,
     ResolveTelegramIntegrationStateService,
     ResolveAssistantNotificationPreferenceService,
     ResolveAssistantVoiceSettingsService,

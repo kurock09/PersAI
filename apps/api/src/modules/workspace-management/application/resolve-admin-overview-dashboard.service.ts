@@ -5,17 +5,17 @@ import { AdminAuthorizationService } from "./admin-authorization.service";
 import { resolveAdminOverviewDataSource } from "./admin-overview-data-source";
 import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { RUNTIME_TIER_VALUES, type RuntimeTier } from "./runtime-assignment";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { WebRuntimeShadowComparisonService } from "./web-runtime-shadow-comparison.service";
 import type {
   AdminOverviewDashboardState,
   LatencyPercentiles,
   OverviewChannelLatency,
+  OverviewLatencyBucket,
   OverviewLatencySnapshot,
+  OverviewLatencyRollup,
   OverviewQueuePressure,
-  OverviewSystemWarning,
-  RuntimeTierPreflight
+  OverviewSystemWarning
 } from "./overview-dashboard.types";
 
 const ACTIVE_USERS_WINDOW_MINUTES = 15;
@@ -48,12 +48,8 @@ function mergeBuckets(target: Bucket[], source: Bucket[]): void {
   }
 }
 
-type TierFlapState = { wasHealthy: boolean; flapCount: number; lastFlapAt: string | null };
-
 @Injectable()
 export class ResolveAdminOverviewDashboardService {
-  private readonly tierFlapState = new Map<string, TierFlapState>();
-
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
@@ -68,8 +64,8 @@ export class ResolveAdminOverviewDashboardService {
     const config = loadApiConfig(process.env);
     const httpSnapshot = this.platformHttpMetricsService.getSnapshot();
 
-    const [tiers, activeUsersResult, activeWebChats] = await Promise.all([
-      this.resolveAllTierPreflights(),
+    const [runtimePreflight, activeUsersResult, activeWebChats] = await Promise.all([
+      this.assistantRuntimePreflightService.execute(),
       this.prisma.assistantChat.groupBy({
         by: ["userId"],
         where: { updatedAt: { gte: new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60_000) } }
@@ -107,17 +103,27 @@ export class ResolveAdminOverviewDashboardService {
         uptimeSeconds > 0 ? Math.round((totalRequests / uptimeSeconds) * 100) / 100 : 0
     };
 
-    const anyUnhealthy = tiers.some((t) => !t.live || !t.ready);
-    const warnings = this.deriveWarnings(latency, health, anyUnhealthy ? tiers : [], queuePressure);
+    const warnings = this.deriveWarnings(latency.snapshot, health, runtimePreflight, queuePressure);
 
     return {
       dataSource: resolveAdminOverviewDataSource(),
-      latency,
+      latency: latency.snapshot,
+      aggregation: {
+        latency: latency.rollups
+      },
       latencyTrace: this.overviewLatencyTraceService.getState(),
       webRuntimeShadowComparisons: this.webRuntimeShadowComparisonService.getState(),
       activeUsers: activeUsersResult.length,
       activeWebChats,
-      runtime: { adapterEnabled: Boolean(config.PERSAI_RUNTIME_BASE_URL?.trim()), tiers },
+      runtime: {
+        runtimeBaseUrlConfigured: Boolean(config.PERSAI_RUNTIME_BASE_URL?.trim()),
+        providerGatewayBaseUrlConfigured: Boolean(config.PERSAI_PROVIDER_GATEWAY_BASE_URL?.trim()),
+        runtimeEndpointHost: this.toHostOrNull(config.PERSAI_RUNTIME_BASE_URL),
+        providerGatewayEndpointHost: this.toHostOrNull(config.PERSAI_PROVIDER_GATEWAY_BASE_URL),
+        live: runtimePreflight.live,
+        ready: runtimePreflight.ready,
+        checkedAt: runtimePreflight.checkedAt
+      },
       health,
       queuePressure,
       warnings,
@@ -125,38 +131,14 @@ export class ResolveAdminOverviewDashboardService {
     };
   }
 
-  private async resolveAllTierPreflights(): Promise<RuntimeTierPreflight[]> {
-    return Promise.all(
-      RUNTIME_TIER_VALUES.map(async (tier: RuntimeTier) => {
-        const result = await this.assistantRuntimePreflightService.execute(tier);
-        const healthy = result.live && result.ready;
-        const prev = this.tierFlapState.get(tier);
-
-        let flapCount = prev?.flapCount ?? 0;
-        let lastFlapAt = prev?.lastFlapAt ?? null;
-
-        if (prev !== undefined && prev.wasHealthy !== healthy) {
-          flapCount += 1;
-          lastFlapAt = new Date().toISOString();
-        }
-
-        this.tierFlapState.set(tier, { wasHealthy: healthy, flapCount, lastFlapAt });
-
-        return {
-          tier,
-          live: result.live,
-          ready: result.ready,
-          checkedAt: result.checkedAt,
-          flapCount,
-          lastFlapAt
-        };
-      })
-    );
-  }
-
-  private computeLatency(
-    snapshot: ReturnType<PlatformHttpMetricsService["getSnapshot"]>
-  ): OverviewLatencySnapshot {
+  private computeLatency(snapshot: ReturnType<PlatformHttpMetricsService["getSnapshot"]>): {
+    snapshot: OverviewLatencySnapshot;
+    rollups: {
+      webChatTurns: OverviewLatencyRollup | null;
+      telegramTurns: OverviewLatencyRollup | null;
+      allRoutes: OverviewLatencyRollup;
+    };
+  } {
     const makeBuckets = (): Bucket[] =>
       [50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000].map((le) => ({
         le,
@@ -205,7 +187,7 @@ export class ResolveAdminOverviewDashboardService {
       }
     }
 
-    const build = (
+    const buildLatency = (
       count: number,
       dur: number,
       max: number,
@@ -220,14 +202,55 @@ export class ResolveAdminOverviewDashboardService {
           }
         : null;
 
+    const buildRollup = (
+      count: number,
+      dur: number,
+      max: number,
+      buckets: Bucket[]
+    ): OverviewLatencyRollup | null =>
+      count > 0
+        ? {
+            count,
+            durationMsTotal: dur,
+            maxMs: Math.round(max),
+            buckets: buckets.map(
+              (bucket): OverviewLatencyBucket => ({
+                le: bucket.le,
+                value: bucket.value
+              })
+            )
+          }
+        : null;
+
+    const webChatTurns = buildLatency(webCount, webDurationMs, webMaxMs, webBuckets);
+    const telegramTurns = buildLatency(tgCount, tgDurationMs, tgMaxMs, tgBuckets);
+    const allRoutes = buildLatency(allCount, allDurationMs, allMaxMs, allBuckets) ?? {
+      avgMs: 0,
+      maxMs: 0,
+      count: 0,
+      percentiles: { p50Ms: 0, p95Ms: 0, p99Ms: 0 }
+    };
+
     return {
-      webChatTurns: build(webCount, webDurationMs, webMaxMs, webBuckets),
-      telegramTurns: build(tgCount, tgDurationMs, tgMaxMs, tgBuckets),
-      allRoutes: build(allCount, allDurationMs, allMaxMs, allBuckets) ?? {
-        avgMs: 0,
-        maxMs: 0,
-        count: 0,
-        percentiles: { p50Ms: 0, p95Ms: 0, p99Ms: 0 }
+      snapshot: {
+        webChatTurns,
+        telegramTurns,
+        allRoutes
+      },
+      rollups: {
+        webChatTurns: buildRollup(webCount, webDurationMs, webMaxMs, webBuckets),
+        telegramTurns: buildRollup(tgCount, tgDurationMs, tgMaxMs, tgBuckets),
+        allRoutes: buildRollup(allCount, allDurationMs, allMaxMs, allBuckets) ?? {
+          count: 0,
+          durationMsTotal: 0,
+          maxMs: 0,
+          buckets: allBuckets.map(
+            (bucket): OverviewLatencyBucket => ({
+              le: bucket.le,
+              value: bucket.value
+            })
+          )
+        }
       }
     };
   }
@@ -235,27 +258,16 @@ export class ResolveAdminOverviewDashboardService {
   private deriveWarnings(
     latency: OverviewLatencySnapshot,
     health: AdminOverviewDashboardState["health"],
-    unhealthyTiers: RuntimeTierPreflight[],
+    runtimePreflight: { live: boolean; ready: boolean },
     queuePressure: OverviewQueuePressure
   ): OverviewSystemWarning[] {
     const warnings: OverviewSystemWarning[] = [];
 
-    for (const t of unhealthyTiers) {
-      if (!t.live || !t.ready) {
-        warnings.push({
-          code: "runtime_unhealthy",
-          severity: "critical",
-          message: `${t.tier}: preflight failed (live=${t.live}, ready=${t.ready})`
-        });
-      }
-    }
-
-    const flappingTiers = [...this.tierFlapState.entries()].filter(([, s]) => s.flapCount >= 3);
-    for (const [tier, s] of flappingTiers) {
+    if (!runtimePreflight.live || !runtimePreflight.ready) {
       warnings.push({
-        code: "runtime_flapping",
-        severity: "warning",
-        message: `${tier}: ${s.flapCount} readiness flaps since process start`
+        code: "runtime_unhealthy",
+        severity: "critical",
+        message: `Native runtime preflight failed (live=${runtimePreflight.live}, ready=${runtimePreflight.ready})`
       });
     }
 
@@ -295,5 +307,17 @@ export class ResolveAdminOverviewDashboardService {
     }
 
     return warnings;
+  }
+
+  private toHostOrNull(value: string | null | undefined): string | null {
+    const normalized = value?.trim() ?? "";
+    if (!normalized) {
+      return null;
+    }
+    try {
+      return new URL(normalized).host || null;
+    } catch {
+      return null;
+    }
   }
 }

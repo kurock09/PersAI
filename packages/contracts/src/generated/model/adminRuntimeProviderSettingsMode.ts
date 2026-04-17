@@ -10,6 +10,6 @@ export type AdminRuntimeProviderSettingsMode =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminRuntimeProviderSettingsMode = {
-  legacy_openclaw_default: "legacy_openclaw_default",
+  unconfigured_default: "unconfigured_default",
   global_settings: "global_settings"
 } as const;

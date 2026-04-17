@@ -529,7 +529,6 @@ model PlatformRuntimeProviderSettings {
   fallbackProvider          String?                         @map("fallback_provider") @db.VarChar(32)
   fallbackModel             String?                         @map("fallback_model") @db.VarChar(256)
   availableModelsByProvider Json                            @map("available_models_by_provider") @db.JsonB
-  optimizationPolicy        Json?                           @map("optimization_policy") @db.JsonB
   updatedByUserId           String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                 DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)

@@ -303,7 +303,6 @@ function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: numbe
           active: true
         }
       },
-      optimizationPolicy: null,
       contextHydration: {
         preset: "balanced",
         targetContextBudget: 24000,
@@ -328,7 +327,6 @@ function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: numbe
         reserveTokens: 24000,
         keepRecentTokens: 16000,
         recentTurnsPreserve: 4,
-        suggestByMessageCount: false,
         telegramAutoSummarizeEnabled: true
       }
     },

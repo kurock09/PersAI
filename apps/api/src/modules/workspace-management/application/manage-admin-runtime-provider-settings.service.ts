@@ -73,7 +73,6 @@ export class ManageAdminRuntimeProviderSettingsService {
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
-        optimizationPolicy: input.optimizationPolicy as Prisma.InputJsonValue,
         updatedByUserId: userId
       },
       update: {
@@ -82,7 +81,6 @@ export class ManageAdminRuntimeProviderSettingsService {
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
-        optimizationPolicy: input.optimizationPolicy as Prisma.InputJsonValue,
         updatedByUserId: userId
       }
     });
@@ -112,7 +110,6 @@ export class ManageAdminRuntimeProviderSettingsService {
         mode: settings.mode,
         primary: settings.primary,
         fallback: settings.fallback,
-        optimizationPolicy: settings.optimizationPolicy,
         updatedProviders: Object.entries(input.providerKeys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([provider]) => provider),

@@ -3,14 +3,12 @@ import {
   type RuntimeContextHydrationConfig,
   type RuntimeSharedCompactionConfig
 } from "@persai/runtime-contract";
-import type { RuntimeCompactionPolicyState } from "./platform-runtime-provider-settings";
 import { deriveSharedCompactionBudgetsFromContextHydration } from "./context-hydration-policy";
 
-export function buildRuntimeSharedCompactionConfig(params: {
-  compactionPolicy: RuntimeCompactionPolicyState;
-  contextHydration: RuntimeContextHydrationConfig;
-}): RuntimeSharedCompactionConfig {
-  const derived = deriveSharedCompactionBudgetsFromContextHydration(params.contextHydration);
+export function buildRuntimeSharedCompactionConfig(
+  contextHydration: RuntimeContextHydrationConfig
+): RuntimeSharedCompactionConfig {
+  const derived = deriveSharedCompactionBudgetsFromContextHydration(contextHydration);
   return {
     summarizeToolCode: "summarize_context",
     compactToolCode: "compact_context",
@@ -18,7 +16,6 @@ export function buildRuntimeSharedCompactionConfig(params: {
     reserveTokens: derived.reserveTokens,
     keepRecentTokens: derived.keepRecentTokens,
     recentTurnsPreserve: derived.recentTurnsPreserve,
-    suggestByMessageCount: params.compactionPolicy.suggestCompactionByMessageCount,
-    telegramAutoSummarizeEnabled: params.contextHydration.autoCompactionTelegram
+    telegramAutoSummarizeEnabled: contextHydration.autoCompactionTelegram
   };
 }
