@@ -427,6 +427,10 @@ export class TurnExecutionService {
             return;
           }
 
+          if (event.type === "keepalive") {
+            continue;
+          }
+
           if (event.type === "text_delta" && event.delta !== undefined) {
             assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
             const deltaEvent = this.createVisibleTextDeltaStreamEvent({
@@ -777,7 +781,7 @@ export class TurnExecutionService {
     return [
       "## Route Control",
       deepModeEnabled
-        ? "Deep mode is enabled for this turn. Spend more effort than usual on quality and completeness, and call route_control whenever you need hidden help choosing between normal_reply, premium_reply, and reasoning."
+        ? "Deep mode is enabled for this turn. Spend more effort than usual on quality and completeness, and call route_control whenever you need hidden help choosing between premium_reply and reasoning. Do not downgrade this turn to normal_reply."
         : "Stay on the ordinary reply path by default. Call route_control only when the turn is ambiguous, high-stakes, or clearly needs a stronger reply model.",
       "Use route_control before answering when a short follow-up depends on earlier context or when the task may need premium or reasoning escalation.",
       "route_control is only for reply-model selection. It does not recommend, hide, remove, or force tools.",
@@ -950,6 +954,9 @@ export class TurnExecutionService {
         "Choose only the reply role. Do not plan tools, retrieval, knowledge lookup, or web lookup.",
         "Short follow-ups like yes, no, continue, or ok can inherit complexity from the recent conversation tail.",
         "Escalate only when deeper reasoning or noticeably better language quality is justified.",
+        input.input.deepMode === true
+          ? "Deep mode is enabled. Allowed roles are premium_reply or reasoning only. Never return normal_reply."
+          : "When deep mode is disabled, normal_reply remains allowed for ordinary turns.",
         "Return only JSON matching the provided schema."
       ].join("\n\n"),
       messages: [
@@ -1072,6 +1079,16 @@ export class TurnExecutionService {
     } catch {
       return null;
     }
+  }
+
+  private coerceDeepModeRouteControlRole(
+    modelRole: UserFacingTurnModelRole,
+    deepModeEnabled: boolean
+  ): UserFacingTurnModelRole {
+    if (deepModeEnabled && modelRole === "normal_reply") {
+      return "premium_reply";
+    }
+    return modelRole;
   }
 
   private toTurnModelRoleSelectionUsageEntries(
@@ -1496,6 +1513,10 @@ export class TurnExecutionService {
         });
       }
 
+      const plannedModelRole = this.coerceDeepModeRouteControlRole(
+        executionPlan.modelRole,
+        execution.deepModeEnabled
+      );
       return this.createToolExecutionOutcome(
         toolCall,
         {
@@ -1503,14 +1524,14 @@ export class TurnExecutionService {
           action: "planned",
           reason: routeControlReason,
           warning: null,
-          modelRole: executionPlan.modelRole,
+          modelRole: plannedModelRole,
           usage: chooserResult.usage
         },
         false,
         undefined,
         undefined,
         {
-          modelRole: executionPlan.modelRole
+          modelRole: plannedModelRole
         }
       );
     } catch (error) {
@@ -2265,7 +2286,7 @@ export class TurnExecutionService {
       input.providerOverride !== undefined ||
       input.modelOverride !== undefined
         ? execution.selectedModelRole
-        : routeControl.modelRole;
+        : this.coerceDeepModeRouteControlRole(routeControl.modelRole, execution.deepModeEnabled);
     execution.selectedModelRole = nextModelRole;
     const providerSelection = this.resolveProviderSelectionForExecution(
       execution,

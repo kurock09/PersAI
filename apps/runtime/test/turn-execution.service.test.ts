@@ -1668,6 +1668,120 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  if (bundleRegistry.entry !== null) {
+    const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
+      .runtimeProviderRouting as Record<string, unknown>;
+    bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting = {
+      ...runtimeProviderRouting,
+      modelSlots: {
+        normalReply: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4"
+        },
+        premiumReply: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4-pro"
+        },
+        reasoning: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4-thinking"
+        },
+        systemTool: {
+          providerKey: "openai",
+          modelKey: "gpt-4.1"
+        },
+        retrieval: {
+          providerKey: "openai",
+          modelKey: "gpt-4.1-mini"
+        }
+      }
+    };
+  }
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: "help me think through a product strategy decision"
+    }
+  ];
+  const deepModeChooserRequest = createRuntimeTurnRequest();
+  deepModeChooserRequest.bundle.bundleHash = request.bundle.bundleHash;
+  deepModeChooserRequest.deepMode = true;
+  deepModeChooserRequest.message.text = "help me think through a product strategy decision";
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4-pro",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.010Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-route-control-deep-1",
+          name: "route_control",
+          arguments: {
+            reason: "checking whether this can stay cheap"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-4.1",
+      text: JSON.stringify({
+        role: "normal_reply",
+        reason: "planner attempted to downgrade despite deep mode"
+      }),
+      respondedAt: "2026-04-11T12:00:03.050Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-4.1",
+        inputTokens: 4,
+        outputTokens: 2,
+        totalTokens: 6
+      },
+      stopReason: "completed",
+      toolCalls: []
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4-pro",
+      text: "deep mode stayed premium",
+      respondedAt: "2026-04-11T12:00:03.100Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4-pro",
+        inputTokens: 12,
+        outputTokens: 18,
+        totalTokens: 30
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const deepModeChooserOffset = providerGatewayClient.calls.length;
+  const deepModeChooserCompleted = await service.createTurn(deepModeChooserRequest);
+  assert.equal(deepModeChooserCompleted.assistantText, "deep mode stayed premium");
+  assert.equal(providerGatewayClient.calls[deepModeChooserOffset]?.model, "gpt-5.4-pro");
+  assert.equal(providerGatewayClient.calls[deepModeChooserOffset + 2]?.model, "gpt-5.4-pro");
+  assert.match(
+    providerGatewayClient.calls[deepModeChooserOffset + 1]?.systemPrompt ?? "",
+    /Allowed roles are premium_reply or reasoning only\. Never return normal_reply\./
+  );
+  assert.equal(
+    deepModeChooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "normal_reply"),
+    false
+  );
+  assert.equal(
+    deepModeChooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "premium_reply"),
+    true
+  );
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
   turnContextHydrationService.messages = [
     {
       role: "assistant",

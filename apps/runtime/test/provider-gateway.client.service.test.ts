@@ -62,6 +62,18 @@ function createGenerateTextRequest(): ProviderGatewayTextGenerateRequest {
   };
 }
 
+function createCompletedTextResult(model: string): ProviderGatewayTextGenerateResult {
+  return {
+    provider: "openai",
+    model,
+    text: "generated text",
+    respondedAt: "2026-04-11T12:00:01.000Z",
+    usage: null,
+    stopReason: "completed",
+    toolCalls: []
+  };
+}
+
 function createWebFetchRequest(): ProviderGatewayWebFetchRequest {
   return {
     url: "https://example.com",
@@ -239,8 +251,41 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
           }
         );
       }
+      const requestBody = bodyText === null ? null : JSON.parse(bodyText);
+      if (requestBody?.model === "delayed-keepalive") {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              setTimeout(() => {
+                controller.enqueue(encoder.encode(`${JSON.stringify({ type: "keepalive" })}\n`));
+              }, 10);
+              setTimeout(() => {
+                controller.enqueue(
+                  encoder.encode(
+                    `${JSON.stringify({
+                      type: "completed",
+                      result: createCompletedTextResult("delayed-keepalive")
+                    })}\n`
+                  )
+                );
+              }, 25);
+              setTimeout(() => controller.close(), 30);
+            }
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/x-ndjson"
+            }
+          }
+        );
+      }
       return new Response(
         [
+          JSON.stringify({
+            type: "keepalive"
+          }),
           JSON.stringify({
             type: "text_delta",
             delta: "generated",
@@ -248,15 +293,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
           }),
           JSON.stringify({
             type: "completed",
-            result: {
-              provider: "openai",
-              model: "gpt-5.4",
-              text: "generated text",
-              respondedAt: "2026-04-11T12:00:01.000Z",
-              usage: null,
-              stopReason: "completed",
-              toolCalls: []
-            }
+            result: createCompletedTextResult("gpt-5.4")
           })
         ].join("\n"),
         {
@@ -522,6 +559,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
 
   try {
     const service = new ProviderGatewayClientService(createConfig());
+    const idleResetService = new ProviderGatewayClientService({
+      ...createConfig(),
+      RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20
+    });
     const readiness = await service.getReadiness();
     assert.deepEqual(readiness, {
       ready: true,
@@ -573,7 +614,7 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     );
     assert.deepEqual(
       streamEvents.map((event) => event.type),
-      ["text_delta", "completed"]
+      ["keepalive", "text_delta", "completed"]
     );
     assert.equal(requests[2]?.url, "http://provider-gateway.local/api/v1/providers/stream-text");
     assert.equal(requests[2]?.init?.method, "POST");
@@ -661,6 +702,15 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       });
       await collectStreamEvents(oversizedStream);
     }, /Current-turn file payload is too large for direct model input/);
+    const delayedKeepaliveStream = await idleResetService.streamText({
+      ...createGenerateTextRequest(),
+      model: "delayed-keepalive"
+    });
+    const delayedKeepaliveEvents = await collectStreamEvents(delayedKeepaliveStream);
+    assert.deepEqual(
+      delayedKeepaliveEvents.map((event) => event.type),
+      ["keepalive", "completed"]
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

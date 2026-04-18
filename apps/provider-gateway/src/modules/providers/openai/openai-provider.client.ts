@@ -16,6 +16,7 @@ import type {
   ProviderGatewayTextFailedEvent,
   ProviderGatewayTextGenerateRequest,
   ProviderGatewayTextGenerateResult,
+  ProviderGatewayTextKeepaliveEvent,
   ProviderGatewayTextToolCallsEvent,
   ProviderGatewayTextStreamEvent,
   RuntimeUsageSnapshot
@@ -500,7 +501,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         argumentsText: string;
       }
     >();
-    const { signal: timedSignal, dispose } = this.createTimedSignal(
+    const { signal: timedSignal, reset, dispose } = this.createTimedSignal(
       this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
       signal
     );
@@ -555,9 +556,18 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
             : String(input.requestMetadata.toolLoopIteration)
         } stream-created`
       );
+      reset();
 
       for await (const rawEvent of stream) {
+        reset();
         const event = this.asObject(rawEvent);
+        if (event?.type === "keepalive") {
+          const keepaliveEvent: ProviderGatewayTextKeepaliveEvent = {
+            type: "keepalive"
+          };
+          yield keepaliveEvent;
+          continue;
+        }
         if (
           event?.type === "response.output_text.delta" &&
           typeof event.delta === "string" &&
@@ -1407,9 +1417,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   private createTimedSignal(
     timeoutMs: number,
     externalSignal?: AbortSignal
-  ): { signal: AbortSignal; dispose: () => void } {
+  ): { signal: AbortSignal; reset: () => void; dispose: () => void } {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutId: NodeJS.Timeout | null = null;
+    const scheduleAbort = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    };
+    scheduleAbort();
     if (externalSignal) {
       if (externalSignal.aborted) {
         controller.abort();
@@ -1419,7 +1436,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     }
     return {
       signal: controller.signal,
-      dispose: () => clearTimeout(timeoutId)
+      reset: () => {
+        if (!controller.signal.aborted) {
+          scheduleAbort();
+        }
+      },
+      dispose: () => {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
     };
   }
 

@@ -80,6 +80,26 @@ async function collectStream(
   return events;
 }
 
+function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      const error = new Error("Aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
   return {
     prompt: "Generate a serene lake at dusk",
@@ -275,14 +295,38 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       edit: editImage
     },
     responses: {
-      create: async (payload: {
-        stream?: boolean;
-        input: unknown;
-        tools?: unknown;
-        tool_choice?: unknown;
-      }) => {
+      create: async (
+        payload: {
+          stream?: boolean;
+          input: unknown;
+          tools?: unknown;
+          tool_choice?: unknown;
+          model?: string;
+        },
+        options?: { signal?: AbortSignal }
+      ) => {
         if (payload.stream) {
           capturedStreamPayload = payload as unknown as Record<string, unknown>;
+          if (payload.model === "gpt-5.4-delayed") {
+            return (async function* (): AsyncGenerator<unknown> {
+              await delayOrAbort(10, options?.signal);
+              yield {
+                type: "keepalive"
+              };
+              await delayOrAbort(15, options?.signal);
+              yield {
+                type: "response.completed",
+                response: {
+                  output_text: "delayed done",
+                  usage: {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15
+                  }
+                }
+              };
+            })();
+          }
           if (payload.tools !== undefined) {
             return (async function* (): AsyncGenerator<unknown> {
               yield {
@@ -316,6 +360,9 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
             })();
           }
           return (async function* (): AsyncGenerator<unknown> {
+            yield {
+              type: "keepalive"
+            };
             yield {
               type: "response.output_text.delta",
               delta: "partial "
@@ -612,7 +659,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(capturedStreamPayload!.prompt_cache_retention, "in_memory");
   assert.deepEqual(
     events.map((event) => event.type),
-    ["text_delta", "completed"]
+    ["keepalive", "text_delta", "completed"]
   );
 
   const structuredStream = await client.streamText(structuredRequest);
@@ -640,8 +687,28 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   });
   assert.deepEqual(
     structuredStreamEvents.map((event) => event.type),
-    ["text_delta", "completed"]
+    ["keepalive", "text_delta", "completed"]
   );
+
+  const delayedClient = new OpenAIProviderClient({
+    ...createConfig(),
+    PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20
+  });
+  (delayedClient as unknown as { client: unknown }).client = (client as unknown as { client: unknown }).client;
+  const delayedStream = await delayedClient.streamText({
+    ...request,
+    model: "gpt-5.4-delayed"
+  });
+  const delayedStreamEvents = await collectStream(delayedStream);
+  assert.deepEqual(
+    delayedStreamEvents.map((event) => event.type),
+    ["keepalive", "completed"]
+  );
+  const delayedCompletedEvent = delayedStreamEvents[1];
+  assert.equal(delayedCompletedEvent?.type, "completed");
+  if (delayedCompletedEvent?.type === "completed") {
+    assert.equal(delayedCompletedEvent.result.text, "delayed done");
+  }
 
   const toolStream = await client.streamText(toolRequest);
   const toolStreamEvents = await collectStream(toolStream);

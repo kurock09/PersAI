@@ -1383,6 +1383,10 @@ export interface ProviderGatewayTextDeltaEvent {
   accumulatedText: string;
 }
 
+export interface ProviderGatewayTextKeepaliveEvent {
+  type: "keepalive";
+}
+
 export interface ProviderGatewayTextCompletedEvent {
   type: "completed";
   result: ProviderGatewayTextGenerateResult;
@@ -1401,6 +1405,7 @@ export interface ProviderGatewayTextFailedEvent {
 
 export type ProviderGatewayTextStreamEvent =
   | ProviderGatewayTextDeltaEvent
+  | ProviderGatewayTextKeepaliveEvent
   | ProviderGatewayTextCompletedEvent
   | ProviderGatewayTextToolCallsEvent
   | ProviderGatewayTextFailedEvent;

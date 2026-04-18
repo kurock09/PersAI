@@ -9,6 +9,7 @@ import {
   Pencil,
   Check,
   Loader2,
+  Menu,
   MessageSquare,
   Scissors,
   Sparkles
@@ -24,6 +25,7 @@ import {
   postAssistantMemoryDoNotRemember,
   transcribeVoice
 } from "../assistant-api-client";
+import { useShellActions } from "./app-shell";
 import type { UseChatReturn } from "./use-chat";
 
 interface ChatAreaProps {
@@ -51,6 +53,7 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
+  const { openSidebar } = useShellActions();
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -236,52 +239,64 @@ export function ChatArea({
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="border-b border-border px-3 py-2 md:px-5">
-        <div className="mx-auto flex max-w-3xl items-center gap-2.5">
-          <ChatModeToggle
-            enabled={deepMode}
-            disabled={!assistantReady || chat.isStreaming}
-            onChange={(enabled) => void handleDeepModeChange(enabled)}
-          />
-          <span className="shrink-0 text-sm font-medium text-text-subtle">/</span>
-          {editing ? (
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              <input
-                ref={inputRef}
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void commitEdit();
-                  if (e.key === "Escape") setEditing(false);
-                }}
-                onBlur={() => void commitEdit()}
-                maxLength={80}
-                className="min-w-0 flex-1 rounded-md border border-accent bg-surface-raised px-2 py-1 text-sm font-semibold text-text outline-none"
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={openSidebar}
+            className="cursor-pointer rounded-xl border border-border bg-surface-raised p-2 text-text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+          >
+            <span className="sr-only">Open sidebar</span>
+            <Menu className="h-4 w-4" />
+          </button>
+          <div className="min-w-0">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-surface-raised px-2 py-1 shadow-sm md:gap-2.5 md:pr-3">
+              <ChatModeToggle
+                enabled={deepMode}
+                disabled={!assistantReady || chat.isStreaming}
+                onChange={(enabled) => void handleDeepModeChange(enabled)}
               />
-              <button
-                type="button"
-                onClick={() => void commitEdit()}
-                className="cursor-pointer rounded p-1 text-accent transition-colors hover:bg-surface-hover"
-              >
-                <Check className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="group flex min-w-0 flex-1 items-center gap-1.5">
-              <h1 className="truncate text-[15px] font-semibold text-text md:text-base">
-                {displayTitle}
-              </h1>
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={startEdit}
-                  className="shrink-0 cursor-pointer rounded p-1 text-text-subtle opacity-0 transition-all hover:bg-surface-hover hover:text-text-muted group-hover:opacity-100"
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
+              <span className="shrink-0 text-sm font-medium text-text-subtle">/</span>
+              {editing ? (
+                <div className="flex min-w-0 max-w-[12rem] items-center gap-1.5 sm:max-w-[16rem] md:max-w-[20rem] lg:max-w-[24rem]">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void commitEdit();
+                      if (e.key === "Escape") setEditing(false);
+                    }}
+                    onBlur={() => void commitEdit()}
+                    maxLength={80}
+                    className="min-w-0 flex-1 rounded-xl border border-accent/50 bg-bg/70 px-2.5 py-1.5 text-sm font-semibold text-text outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void commitEdit()}
+                    className="cursor-pointer rounded-lg p-1 text-accent transition-colors hover:bg-surface-hover"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="group flex min-w-0 max-w-[12rem] items-center gap-1 sm:max-w-[16rem] md:max-w-[20rem] lg:max-w-[24rem]">
+                  <h1 className="truncate text-[15px] font-semibold text-text md:text-base">
+                    {displayTitle}
+                  </h1>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      className="shrink-0 cursor-pointer rounded-lg p-1 text-text-subtle opacity-70 transition-all hover:bg-surface-hover hover:text-text-muted md:opacity-0 md:group-hover:opacity-100"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </div>
       </header>
 
@@ -489,7 +504,7 @@ function ChatModeToggle({
   return (
     <div className="shrink-0">
       <div
-        className="inline-flex rounded-xl border border-border bg-surface-raised p-0.5 shadow-sm"
+        className="inline-flex rounded-xl bg-bg/75 p-0.5 ring-1 ring-border/70"
         title={enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
       >
         <button
@@ -499,7 +514,7 @@ function ChatModeToggle({
           onClick={() => onChange(false)}
           className={cn(
             "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
-            !enabled ? "bg-bg text-text shadow-sm" : "text-text-muted hover:text-text",
+            !enabled ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >

@@ -1098,6 +1098,8 @@ export function useChat(threadKey: string): UseChatReturn {
     setOlderMessagesLoading(false);
   }, [getToken, olderMessagesLoading]);
 
+  const latestAssistantMessageId =
+    [...messages].reverse().find((message) => message.role === "assistant")?.id ?? null;
   const entries: ChatEntry[] = [];
   const activityByMsg = new Map<string, ActivityEvent[]>();
   const orphanActivities: ActivityEvent[] = [];
@@ -1113,7 +1115,7 @@ export function useChat(threadKey: string): UseChatReturn {
   for (const m of messages) {
     entries.push({ kind: "message", message: m });
     const live = liveActivitiesByMessageId[m.id];
-    if (live) {
+    if (live && m.id === latestAssistantMessageId) {
       entries.push({ kind: "activity", event: live });
     }
     const linked = activityByMsg.get(m.id);

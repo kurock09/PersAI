@@ -357,7 +357,7 @@ export class ProviderGatewayClientService {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
     }
 
-    const { signal, dispose } = this.createTimedSignal(
+    const { signal, reset, dispose } = this.createTimedSignal(
       this.config.RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
       options?.signal
     );
@@ -414,7 +414,7 @@ export class ProviderGatewayClientService {
       );
     }
 
-    return this.readTextStreamEvents(response, dispose, options?.signal);
+    return this.readTextStreamEvents(response, { reset, dispose }, options?.signal);
   }
 
   private getBaseUrl(): string | null {
@@ -481,7 +481,7 @@ export class ProviderGatewayClientService {
 
   private async *readTextStreamEvents(
     response: Response,
-    dispose: () => void,
+    timer: { reset: () => void; dispose: () => void },
     externalSignal?: AbortSignal
   ): AsyncGenerator<ProviderGatewayTextStreamEvent> {
     const reader = response.body!.getReader();
@@ -489,11 +489,13 @@ export class ProviderGatewayClientService {
     let buffer = "";
 
     try {
+      timer.reset();
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
           break;
         }
+        timer.reset();
         buffer += decoder.decode(value, { stream: true });
         yield* this.parseNdjsonLines(buffer, (remaining) => {
           buffer = remaining;
@@ -513,7 +515,7 @@ export class ProviderGatewayClientService {
       }
       throw error;
     } finally {
-      dispose();
+      timer.dispose();
       reader.releaseLock();
     }
   }
@@ -825,6 +827,9 @@ export class ProviderGatewayClientService {
 
   private isTextStreamEvent(value: unknown): value is ProviderGatewayTextStreamEvent {
     const row = this.asObject(value);
+    if (row?.type === "keepalive") {
+      return true;
+    }
     if (row?.type === "text_delta") {
       return typeof row.delta === "string" && typeof row.accumulatedText === "string";
     }
@@ -843,9 +848,16 @@ export class ProviderGatewayClientService {
   private createTimedSignal(
     timeoutMs: number,
     externalSignal?: AbortSignal
-  ): { signal: AbortSignal; dispose: () => void } {
+  ): { signal: AbortSignal; reset: () => void; dispose: () => void } {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutId: NodeJS.Timeout | null = null;
+    const scheduleAbort = () => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    };
+    scheduleAbort();
     if (externalSignal) {
       if (externalSignal.aborted) {
         controller.abort();
@@ -855,7 +867,17 @@ export class ProviderGatewayClientService {
     }
     return {
       signal: controller.signal,
-      dispose: () => clearTimeout(timeoutId)
+      reset: () => {
+        if (!controller.signal.aborted) {
+          scheduleAbort();
+        }
+      },
+      dispose: () => {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      }
     };
   }
 

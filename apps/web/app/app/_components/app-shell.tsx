@@ -4,7 +4,6 @@ import { type ReactNode, Suspense, createContext, useContext, useEffect, useStat
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Menu } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Sidebar } from "./sidebar";
 import { SlideOver } from "./slide-over";
@@ -15,6 +14,7 @@ import { useAppData, type AppData } from "./use-app-data";
 const AppDataContext = createContext<AppData | null>(null);
 
 export interface ShellActions {
+  openSidebar: () => void;
   openSettings: () => void;
   openTelegram: () => void;
 }
@@ -44,6 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isSetup = pathname === "/app/setup";
+  const isChatPage = pathname === "/app/chat";
 
   const needsSetup =
     appData.assistantStatus === "none" ||
@@ -57,6 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [appData.isLoading, appData.assistantResolved, needsSetup, isSetup, router]);
 
   const shellActions: ShellActions = {
+    openSidebar: () => setSidebarOpen(true),
     openSettings: () => setSettingsOpen(true),
     openTelegram: () => setTelegramOpen(true)
   };
@@ -136,19 +138,34 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Main column */}
           <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Mobile top bar */}
-            <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-              >
-                <Menu className="h-5 w-5" />
-              </button>
-              <span className="text-sm font-semibold tracking-tight text-text">
-                Pers<span className="text-accent">AI</span>
-              </span>
-            </header>
+            {!isChatPage && (
+              <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(true)}
+                  className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                >
+                  <span className="sr-only">Open sidebar</span>
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line x1="3" y1="12" x2="21" y2="12" />
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="18" x2="21" y2="18" />
+                  </svg>
+                </button>
+                <span className="text-sm font-semibold tracking-tight text-text">
+                  Pers<span className="text-accent">AI</span>
+                </span>
+              </header>
+            )}
 
             {/* Page content */}
             <div className="flex-1 overflow-y-auto">{children}</div>
