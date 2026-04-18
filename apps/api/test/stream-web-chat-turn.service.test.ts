@@ -120,7 +120,15 @@ describe("StreamWebChatTurnService", () => {
               }
             ]
           };
-          yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: {
+              mode: "shadow",
+              executionMode: "premium",
+              source: "llm"
+            }
+          };
         }
       } as never,
       {
@@ -281,7 +289,15 @@ describe("StreamWebChatTurnService", () => {
             toolCallId: "tool-1",
             isError: false
           };
-          yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: {
+              mode: "shadow",
+              executionMode: "premium",
+              source: "llm"
+            }
+          };
         }
       } as never,
       {
@@ -384,6 +400,15 @@ describe("StreamWebChatTurnService", () => {
         isError: false
       }
     ]);
+    assert.deepEqual(
+      (outcome as { transport: { runtime: { turnRouting: unknown } } }).transport.runtime
+        .turnRouting,
+      {
+        mode: "shadow",
+        executionMode: "premium",
+        source: "llm"
+      }
+    );
   });
 
   test("uses the admin-managed onboarding prompt for welcome stream turns", async () => {

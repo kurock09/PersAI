@@ -13,4 +13,10 @@ export interface AssistantWebChatRuntimeState {
   quotaFallbackReason: AssistantWebChatRuntimeStateQuotaFallbackReason;
   /** @nullable */
   quotaFallbackModel: string | null;
+  /** @nullable */
+  turnRouting?: {
+    mode: "shadow" | "active";
+    executionMode: "normal" | "premium" | "reasoning";
+    source: "precheck" | "llm" | "fallback";
+  } | null;
 }

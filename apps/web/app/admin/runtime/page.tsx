@@ -26,42 +26,36 @@ function parseModelCatalogInput(value: string): string[] {
   );
 }
 
-export function parseRouterOverrideText(
-  value: string
-): AdminRuntimeProviderSettingsRequest["routerPolicy"]["precheckRuleOverrides"] {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    throw new Error("Router precheck overrides must be valid JSON.");
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Router precheck overrides must be a JSON object.");
-  }
-  const row = parsed as Record<string, unknown>;
-  const normalizeList = (field: string): string[] => {
-    const raw = row[field];
-    if (raw === undefined) {
-      return [];
-    }
-    if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
-      throw new Error(`Router precheck overrides.${field} must be an array of strings.`);
-    }
-    return raw
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .filter((entry, index, list) => list.indexOf(entry) === index);
+export function parseRouterTriggerTerms(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\r\n,]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function formatRouterTriggerTerms(value: string[] | undefined): string {
+  return (value ?? []).join("\n");
+}
+
+export function buildRouterPrecheckRuleOverrides(input: {
+  continueTermsText: string;
+  retrievalTermsText: string;
+  reasoningTermsText: string;
+  premiumTermsText: string;
+  toolTermsText: string;
+}): AdminRuntimeProviderSettingsRequest["routerPolicy"]["precheckRuleOverrides"] {
+  const overrides = {
+    continueTerms: parseRouterTriggerTerms(input.continueTermsText),
+    retrievalTerms: parseRouterTriggerTerms(input.retrievalTermsText),
+    reasoningTerms: parseRouterTriggerTerms(input.reasoningTermsText),
+    premiumTerms: parseRouterTriggerTerms(input.premiumTermsText),
+    toolTerms: parseRouterTriggerTerms(input.toolTermsText)
   };
-  return {
-    continueTerms: normalizeList("continueTerms"),
-    retrievalTerms: normalizeList("retrievalTerms"),
-    reasoningTerms: normalizeList("reasoningTerms"),
-    toolTerms: normalizeList("toolTerms")
-  };
+  return Object.values(overrides).some((entries) => entries.length > 0) ? overrides : null;
 }
 
 function modeLabel(mode: AdminRuntimeProviderSettingsState["mode"]): string {
@@ -93,7 +87,11 @@ export default function AdminRuntimePage() {
       "normal"
     );
   const [routerClarifyOnMissingContext, setRouterClarifyOnMissingContext] = useState(true);
-  const [routerOverridesText, setRouterOverridesText] = useState("");
+  const [routerContinueTermsText, setRouterContinueTermsText] = useState("");
+  const [routerRetrievalTermsText, setRouterRetrievalTermsText] = useState("");
+  const [routerReasoningTermsText, setRouterReasoningTermsText] = useState("");
+  const [routerPremiumTermsText, setRouterPremiumTermsText] = useState("");
+  const [routerToolTermsText, setRouterToolTermsText] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [availableModels, setAvailableModels] =
@@ -130,10 +128,20 @@ export default function AdminRuntimePage() {
       setRouterMode(res.routerPolicy.mode);
       setRouterFallbackMode(res.routerPolicy.classifierFailureFallbackMode);
       setRouterClarifyOnMissingContext(res.routerPolicy.clarifyOnMissingContext);
-      setRouterOverridesText(
-        res.routerPolicy.precheckRuleOverrides
-          ? JSON.stringify(res.routerPolicy.precheckRuleOverrides, null, 2)
-          : ""
+      setRouterContinueTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.continueTerms)
+      );
+      setRouterRetrievalTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.retrievalTerms)
+      );
+      setRouterReasoningTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.reasoningTerms)
+      );
+      setRouterPremiumTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.premiumTerms)
+      );
+      setRouterToolTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.toolTerms)
       );
       setAvailableModels(res.availableModelsByProvider);
       setOpenaiModelsText(res.availableModelsByProvider.openai.join("\n"));
@@ -180,7 +188,13 @@ export default function AdminRuntimePage() {
         );
       }
 
-      const precheckRuleOverrides = parseRouterOverrideText(routerOverridesText);
+      const precheckRuleOverrides = buildRouterPrecheckRuleOverrides({
+        continueTermsText: routerContinueTermsText,
+        retrievalTermsText: routerRetrievalTermsText,
+        reasoningTermsText: routerReasoningTermsText,
+        premiumTermsText: routerPremiumTermsText,
+        toolTermsText: routerToolTermsText
+      });
       if (routerEnabled && routingFastModelKey.trim().length === 0) {
         throw new Error("Fast routing model is required when the router is enabled.");
       }
@@ -223,10 +237,14 @@ export default function AdminRuntimePage() {
     getToken,
     load,
     routerClarifyOnMissingContext,
+    routerContinueTermsText,
     routerEnabled,
     routerFallbackMode,
     routerMode,
-    routerOverridesText,
+    routerPremiumTermsText,
+    routerReasoningTermsText,
+    routerRetrievalTermsText,
+    routerToolTermsText,
     routingFastModelKey,
     openaiKey,
     openaiModelsText,
@@ -393,17 +411,45 @@ export default function AdminRuntimePage() {
               Ask for clarification when the router detects missing context.
             </label>
           </Card>
-          <Card title="Compact Precheck Overrides">
-            <TextareaField
-              label="Optional JSON overrides"
-              value={routerOverridesText}
-              onChange={setRouterOverridesText}
-              placeholder={`{\n  "continueTerms": ["ok", "continue"],\n  "retrievalTerms": ["find in docs"],\n  "reasoningTerms": ["architecture"],\n  "toolTerms": ["browse"]\n}`}
-            />
+          <Card title="Editable Precheck Triggers">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <TextareaField
+                label="Continue shortcuts"
+                value={routerContinueTermsText}
+                onChange={setRouterContinueTermsText}
+                placeholder={"ok\ncontinue\ngo ahead"}
+              />
+              <TextareaField
+                label="Retrieval hints"
+                value={routerRetrievalTermsText}
+                onChange={setRouterRetrievalTermsText}
+                placeholder={"find in docs\nsearch knowledge"}
+              />
+              <TextareaField
+                label="Reasoning requests"
+                value={routerReasoningTermsText}
+                onChange={setRouterReasoningTermsText}
+                placeholder={"architecture\ntrade-offs\nroot cause"}
+              />
+              <TextareaField
+                label="Premium writing"
+                value={routerPremiumTermsText}
+                onChange={setRouterPremiumTermsText}
+                placeholder={"rewrite\nemail\ncover letter"}
+              />
+              <div className="sm:col-span-2">
+                <TextareaField
+                  label="Tool or browsing hints"
+                  value={routerToolTermsText}
+                  onChange={setRouterToolTermsText}
+                  placeholder={"browse\nlatest news\ngenerate image"}
+                />
+              </div>
+            </div>
             <p className="text-[10px] text-text-subtle">
-              Keep this compact. Use it for deterministic exceptions, not as a giant pattern dump.
-              Router prompt wording lives separately in{" "}
-              <span className="font-mono">Admin &gt; Presets</span>.
+              Add one phrase per line. These lists extend the built-in router defaults, so you can
+              tune deterministic routing without touching JSON. Router prompt wording lives
+              separately in <span className="font-mono">Admin &gt; Presets</span>.
             </p>
           </Card>
         </div>

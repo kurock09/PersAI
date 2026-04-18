@@ -83,6 +83,11 @@ type RuntimeTransportMeta = {
   degradedByQuotaFallback?: boolean;
   quotaFallbackReason?: "token_budget_limit_reached" | null;
   quotaFallbackModel?: string | null;
+  turnRouting?: {
+    mode: "shadow" | "active";
+    executionMode: "normal" | "premium" | "reasoning";
+    source: "precheck" | "llm" | "fallback";
+  } | null;
 };
 
 export interface ChatSendOptions {
@@ -196,20 +201,29 @@ function buildCompactionLiveActivity(params: {
 function buildRuntimeLiveActivity(params: {
   assistantMessageId: string;
   respondedAt: string;
+  detail?: string | undefined;
 }): LiveActivityEvent {
   return {
     id: `activity-live-runtime-${Date.now()}`,
     type: "runtime_done",
     label: "Response generated",
-    detail: new Date(params.respondedAt).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit"
-    }),
+    detail:
+      params.detail ??
+      new Date(params.respondedAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      }),
     timestamp: params.respondedAt,
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
     source: "runtime"
   };
+}
+
+export function formatTurnRoutingBadgeLabel(
+  turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
+): string {
+  return `${turnRouting.executionMode} (${turnRouting.source})`;
 }
 
 function appendQuotaFallbackActivity(params: {
@@ -277,6 +291,9 @@ export function useChat(threadKey: string): UseChatReturn {
   const [liveActivitiesByMessageId, setLiveActivitiesByMessageId] = useState<
     Record<string, LiveActivityEvent>
   >({});
+  const [shadowRoutingLabelsByMessageId, setShadowRoutingLabelsByMessageId] = useState<
+    Record<string, string>
+  >({});
   const [chatId, setChatId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -298,6 +315,7 @@ export function useChat(threadKey: string): UseChatReturn {
     setMessages([]);
     setActivities([]);
     setLiveActivitiesByMessageId({});
+    setShadowRoutingLabelsByMessageId({});
     setChatId(null);
     setIssue(null);
     setCompaction(null);
@@ -760,24 +778,47 @@ export function useChat(threadKey: string): UseChatReturn {
                       : a
                   )
                 );
-                setLiveActivitiesByMessageId((prev) => {
+              }
+              const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
+              if (newAssistantId) {
+                setShadowRoutingLabelsByMessageId((prev) => {
                   const current = prev[assistantMsgId];
                   if (!current || newAssistantId === assistantMsgId) {
                     return prev;
                   }
                   const next = { ...prev };
                   delete next[assistantMsgId];
-                  next[newAssistantId] = {
-                    ...current,
-                    afterMessageId: newAssistantId
-                  };
+                  next[newAssistantId] = current;
                   return next;
                 });
+              }
+              setLiveActivitiesByMessageId((prev) => {
+                let next = prev;
+                if (newAssistantId) {
+                  const current = prev[assistantMsgId];
+                  if (current && newAssistantId !== assistantMsgId) {
+                    next = { ...prev };
+                    delete next[assistantMsgId];
+                    next[newAssistantId] = {
+                      ...current,
+                      afterMessageId: newAssistantId
+                    };
+                  }
+                }
+                return next;
+              });
+              if (t?.runtime?.turnRouting?.mode === "shadow") {
+                const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
+                setShadowRoutingLabelsByMessageId((prev) => ({
+                  ...prev,
+                  [assistantMsgId]: routingLabel,
+                  [resolvedAssistantMessageId]: routingLabel
+                }));
               }
               appendQuotaFallbackActivity({
                 setActivities,
                 runtime: t?.runtime,
-                assistantMessageId: newAssistantId ?? assistantMsgId
+                assistantMessageId: resolvedAssistantMessageId
               });
               const resolvedChatId =
                 typeof t?.userMessage?.chatId === "string"
@@ -974,10 +1015,19 @@ export function useChat(threadKey: string): UseChatReturn {
                   )
                 );
               }
+              const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
+              if (t?.runtime?.turnRouting?.mode === "shadow") {
+                const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
+                setShadowRoutingLabelsByMessageId((prev) => ({
+                  ...prev,
+                  [assistantMsgId]: routingLabel,
+                  [resolvedAssistantMessageId]: routingLabel
+                }));
+              }
               appendQuotaFallbackActivity({
                 setActivities,
                 runtime: t?.runtime,
-                assistantMessageId: newAssistantId ?? assistantMsgId
+                assistantMessageId: resolvedAssistantMessageId
               });
             },
             onInterrupted: () => {
@@ -1116,7 +1166,11 @@ export function useChat(threadKey: string): UseChatReturn {
     entries.push({ kind: "message", message: m });
     const live = liveActivitiesByMessageId[m.id];
     if (live && m.id === latestAssistantMessageId) {
-      entries.push({ kind: "activity", event: live });
+      const shadowRoutingLabel = shadowRoutingLabelsByMessageId[m.id];
+      entries.push({
+        kind: "activity",
+        event: shadowRoutingLabel === undefined ? live : { ...live, shadowRoutingLabel }
+      });
     }
     const linked = activityByMsg.get(m.id);
     if (linked) {

@@ -28,6 +28,7 @@ type RouterPolicy = {
     continueTerms: string[];
     retrievalTerms: string[];
     reasoningTerms: string[];
+    premiumTerms: string[];
     toolTerms: string[];
   } | null;
 };
@@ -177,7 +178,7 @@ const DEFAULT_TOOL_TERMS = [
   "видео",
   "голосом"
 ];
-const PREMIUM_WRITING_TERMS = [
+const DEFAULT_PREMIUM_WRITING_TERMS = [
   "rewrite",
   "polish",
   "tone",
@@ -340,6 +341,10 @@ export class TurnRoutingService {
       DEFAULT_REASONING_TERMS,
       input.policy.precheckRuleOverrides?.reasoningTerms
     );
+    const premiumTerms = this.mergeTerms(
+      DEFAULT_PREMIUM_WRITING_TERMS,
+      input.policy.precheckRuleOverrides?.premiumTerms
+    );
     const toolTerms = this.mergeTerms(
       DEFAULT_TOOL_TERMS,
       input.policy.precheckRuleOverrides?.toolTerms
@@ -397,7 +402,7 @@ export class TurnRoutingService {
       });
     }
 
-    if (this.matchesAny(lowerText, PREMIUM_WRITING_TERMS)) {
+    if (this.matchesAny(lowerText, premiumTerms)) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "premium",
         retrievalHint: false,
@@ -646,6 +651,7 @@ export class TurnRoutingService {
       continueTerms: this.asStringArray(row.continueTerms),
       retrievalTerms: this.asStringArray(row.retrievalTerms),
       reasoningTerms: this.asStringArray(row.reasoningTerms),
+      premiumTerms: this.asStringArray(row.premiumTerms),
       toolTerms: this.asStringArray(row.toolTerms)
     };
   }

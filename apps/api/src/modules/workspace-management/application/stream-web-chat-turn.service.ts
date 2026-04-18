@@ -197,6 +197,7 @@ export class StreamWebChatTurnService {
   ): Promise<StreamWebChatTurnOutcome> {
     let accumulated = "";
     let respondedAt: string | null = null;
+    let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     const trace = this.overviewLatencyTraceService.start({
       traceId: randomUUID(),
@@ -303,6 +304,7 @@ export class StreamWebChatTurnService {
 
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
           respondedAt = chunk.respondedAt;
+          turnRouting = chunk.turnRouting ?? null;
           if (chunk.runtimeTrace) {
             trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -400,6 +402,7 @@ export class StreamWebChatTurnService {
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
             quotaFallbackReason: prepared.quotaDegradeReason,
             quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+            ...(turnRouting === undefined ? {} : { turnRouting }),
             completedAt: new Date().toISOString()
           }
         );
@@ -443,7 +446,8 @@ export class StreamWebChatTurnService {
             respondedAt: respondedAt ?? new Date().toISOString(),
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
             quotaFallbackReason: prepared.quotaDegradeReason,
-            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
+            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+            ...(turnRouting === undefined ? {} : { turnRouting })
           }
         }
       };
@@ -646,7 +650,8 @@ export class StreamWebChatTurnService {
           state.quotaFallbackReason === "token_budget_limit_reached"
             ? "token_budget_limit_reached"
             : null,
-        quotaFallbackModel: state.quotaFallbackModel
+        quotaFallbackModel: state.quotaFallbackModel,
+        ...(state.turnRouting === undefined ? {} : { turnRouting: state.turnRouting })
       }
     };
   }
@@ -717,7 +722,8 @@ export class StreamWebChatTurnService {
           respondedAt: respondedAt ?? systemMessage.createdAt.toISOString(),
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
-          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+          turnRouting: null
         }
       }
     };

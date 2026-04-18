@@ -38,6 +38,11 @@ describe("SendWebChatTurnService", () => {
       degradedByQuotaFallback: false,
       quotaFallbackReason: null,
       quotaFallbackModel: null,
+      turnRouting: {
+        mode: "shadow",
+        executionMode: "reasoning",
+        source: "precheck"
+      },
       completedAt: "2026-04-05T12:00:02.000Z"
     };
 
@@ -106,6 +111,11 @@ describe("SendWebChatTurnService", () => {
     assert.equal(result.userMessage.id, "user-msg-1");
     assert.equal(result.assistantMessage.id, "assistant-msg-1");
     assert.equal(result.assistantMessage.content, "hi back");
+    assert.deepEqual(result.runtime.turnRouting, {
+      mode: "shadow",
+      executionMode: "reasoning",
+      source: "precheck"
+    });
   });
 
   test("routes sync web turns through the native runtime service", async () => {
@@ -137,7 +147,12 @@ describe("SendWebChatTurnService", () => {
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
-            media: []
+            media: [],
+            turnRouting: {
+              mode: "shadow",
+              executionMode: "premium",
+              source: "llm"
+            }
           };
         }
       } as never,
@@ -202,6 +217,11 @@ describe("SendWebChatTurnService", () => {
     assert.equal(nativeRuntimeCalls, 1);
     assert.equal(capturedNativeUserMessage, "hello");
     assert.equal(result.assistantMessage.content, "native");
+    assert.deepEqual(result.runtime.turnRouting, {
+      mode: "shadow",
+      executionMode: "premium",
+      source: "llm"
+    });
   });
 
   test("uses the admin-managed onboarding prompt for welcome sync turns", async () => {

@@ -31,6 +31,11 @@ export type CompletedWebTurnReplayState = {
   degradedByQuotaFallback: boolean;
   quotaFallbackReason: string | null;
   quotaFallbackModel: string | null;
+  turnRouting?: {
+    mode: "shadow" | "active";
+    executionMode: "normal" | "premium" | "reasoning";
+    source: "precheck" | "llm" | "fallback";
+  } | null;
   completedAt: string;
 };
 

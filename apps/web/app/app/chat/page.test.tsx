@@ -35,6 +35,12 @@ vi.mock("next-intl", () => ({
   useLocale: () => "en"
 }));
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({
+    userId: "user-1"
+  })
+}));
+
 vi.mock("../_components/use-chat", () => ({
   useChat: () => chatHookMocks
 }));

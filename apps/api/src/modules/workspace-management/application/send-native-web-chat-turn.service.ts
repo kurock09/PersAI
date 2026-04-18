@@ -145,6 +145,9 @@ export class SendNativeWebChatTurnService {
       assistantMessage: response.body.assistantText,
       respondedAt: response.body.respondedAt,
       media: runtimeOutputArtifactsToMediaArtifacts(response.body.artifacts),
+      ...(response.body.turnRouting === undefined
+        ? {}
+        : { turnRouting: response.body.turnRouting }),
       ...(response.body.autoCompaction === undefined
         ? {}
         : { autoCompaction: response.body.autoCompaction }),
@@ -261,7 +264,23 @@ export class SendNativeWebChatTurnService {
       typeof row.sessionId === "string" &&
       typeof row.assistantText === "string" &&
       Array.isArray(row.artifacts) &&
-      typeof row.respondedAt === "string"
+      typeof row.respondedAt === "string" &&
+      (row.turnRouting === undefined ||
+        row.turnRouting === null ||
+        this.isRuntimeTurnRoutingSnapshot(row.turnRouting))
+    );
+  }
+
+  private isRuntimeTurnRoutingSnapshot(
+    value: unknown
+  ): value is NonNullable<RuntimeTurnResult["turnRouting"]> {
+    const row = this.asObject(value);
+    return (
+      (row?.mode === "shadow" || row?.mode === "active") &&
+      (row.executionMode === "normal" ||
+        row.executionMode === "premium" ||
+        row.executionMode === "reasoning") &&
+      (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
     );
   }
 }

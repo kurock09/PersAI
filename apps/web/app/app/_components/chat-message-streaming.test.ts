@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { splitStreamingMarkdownContent } from "./chat-message-streaming";
+import {
+  buildStreamingMarkdownTailPreview,
+  splitStreamingMarkdownContent
+} from "./chat-message-streaming";
 
 describe("splitStreamingMarkdownContent", () => {
   it("keeps completed heading blocks stable while the next block streams", () => {
@@ -34,5 +37,17 @@ describe("splitStreamingMarkdownContent", () => {
       stableContent: "First paragraph.\n\nSecond paragraph.\n\n",
       liveTail: "Third paragraph"
     });
+  });
+
+  it("closes unfinished code fences for live markdown preview", () => {
+    expect(buildStreamingMarkdownTailPreview("```ts\nconst value = 1;")).toBe(
+      "```ts\nconst value = 1;\n```"
+    );
+  });
+
+  it("closes unfinished math fences for live markdown preview", () => {
+    expect(buildStreamingMarkdownTailPreview("$$\na^2 + b^2 = c^2")).toBe(
+      "$$\na^2 + b^2 = c^2\n$$"
+    );
   });
 });

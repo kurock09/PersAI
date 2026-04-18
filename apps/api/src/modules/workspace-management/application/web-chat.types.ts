@@ -35,6 +35,12 @@ export interface AssistantWebChatMessageState {
   createdAt: string;
 }
 
+export interface AssistantWebChatTurnRoutingState {
+  mode: "shadow" | "active";
+  executionMode: "normal" | "premium" | "reasoning";
+  source: "precheck" | "llm" | "fallback";
+}
+
 export interface AssistantWebChatTurnState {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
@@ -44,6 +50,7 @@ export interface AssistantWebChatTurnState {
     degradedByQuotaFallback: boolean;
     quotaFallbackReason: "token_budget_limit_reached" | null;
     quotaFallbackModel: string | null;
+    turnRouting?: AssistantWebChatTurnRoutingState | null;
   };
 }
 

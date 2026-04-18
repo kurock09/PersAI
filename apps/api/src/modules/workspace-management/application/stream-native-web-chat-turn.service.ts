@@ -248,6 +248,9 @@ export class StreamNativeWebChatTurnService {
             yield {
               type: "done",
               respondedAt: event.result.respondedAt,
+              ...(event.result.turnRouting === undefined
+                ? {}
+                : { turnRouting: event.result.turnRouting }),
               ...(event.result.trace === undefined ? {} : { runtimeTrace: event.result.trace })
             };
             return;
@@ -547,8 +550,24 @@ export class StreamNativeWebChatTurnService {
       typeof row.assistantText === "string" &&
       Array.isArray(row.artifacts) &&
       typeof row.respondedAt === "string" &&
+      (row.turnRouting === undefined ||
+        row.turnRouting === null ||
+        this.isRuntimeTurnRoutingSnapshot(row.turnRouting)) &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage)))
+    );
+  }
+
+  private isRuntimeTurnRoutingSnapshot(
+    value: unknown
+  ): value is NonNullable<RuntimeTurnResult["turnRouting"]> {
+    const row = this.asObject(value);
+    return (
+      (row?.mode === "shadow" || row?.mode === "active") &&
+      (row.executionMode === "normal" ||
+        row.executionMode === "premium" ||
+        row.executionMode === "reasoning") &&
+      (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
     );
   }
 

@@ -80,6 +80,7 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
     ) {
       return null;
     }
+    const turnRouting = this.readTurnRoutingState(row.turnRouting);
     return {
       clientTurnId,
       chatId,
@@ -89,7 +90,39 @@ export class PrismaAssistantChannelSurfaceBindingRepository implements Assistant
       degradedByQuotaFallback: row.degradedByQuotaFallback === true,
       quotaFallbackReason: this.readTrimmedString(row.quotaFallbackReason),
       quotaFallbackModel: this.readTrimmedString(row.quotaFallbackModel),
+      ...(turnRouting === undefined ? {} : { turnRouting }),
       completedAt
+    };
+  }
+
+  private readTurnRoutingState(
+    value: unknown
+  ): CompletedWebTurnReplayState["turnRouting"] | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const mode = row.mode === "shadow" || row.mode === "active" ? row.mode : null;
+    const executionMode =
+      row.executionMode === "normal" ||
+      row.executionMode === "premium" ||
+      row.executionMode === "reasoning"
+        ? row.executionMode
+        : null;
+    const source =
+      row.source === "precheck" || row.source === "llm" || row.source === "fallback"
+        ? row.source
+        : null;
+    if (mode === null || executionMode === null || source === null) {
+      return null;
+    }
+    return {
+      mode,
+      executionMode,
+      source
     };
   }
 

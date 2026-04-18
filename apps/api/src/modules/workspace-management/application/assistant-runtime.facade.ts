@@ -82,10 +82,17 @@ export type RuntimeMediaArtifact =
   | RuntimeUrlMediaArtifact
   | PersaiObjectStorageRuntimeMediaArtifact;
 
+export interface AssistantRuntimeTurnRoutingSnapshot {
+  mode: "shadow" | "active";
+  executionMode: "normal" | "premium" | "reasoning";
+  source: "precheck" | "llm" | "fallback";
+}
+
 export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   runtimeTrace?: {
     scope: string;
@@ -116,6 +123,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
+  turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   code?: string;
   message?: string;
   media?: RuntimeMediaArtifact[];

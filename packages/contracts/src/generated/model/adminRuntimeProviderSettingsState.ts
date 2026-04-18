@@ -29,6 +29,7 @@ export interface AdminRuntimeProviderSettingsState {
       continueTerms: string[];
       retrievalTerms: string[];
       reasoningTerms: string[];
+      premiumTerms: string[];
       toolTerms: string[];
     } | null;
   };

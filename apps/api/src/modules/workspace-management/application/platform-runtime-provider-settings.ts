@@ -42,6 +42,7 @@ export type PlatformRuntimeRouterPrecheckRuleOverrides = {
   continueTerms: string[];
   retrievalTerms: string[];
   reasoningTerms: string[];
+  premiumTerms: string[];
   toolTerms: string[];
 };
 
@@ -317,6 +318,9 @@ function normalizeRouterPrecheckRuleOverrides(
       : [],
     reasoningTerms: Array.isArray(row.reasoningTerms)
       ? normalizeRouterOverrideList(row.reasoningTerms, `${path}.reasoningTerms`)
+      : [],
+    premiumTerms: Array.isArray(row.premiumTerms)
+      ? normalizeRouterOverrideList(row.premiumTerms, `${path}.premiumTerms`)
       : [],
     toolTerms: Array.isArray(row.toolTerms)
       ? normalizeRouterOverrideList(row.toolTerms, `${path}.toolTerms`)

@@ -446,6 +446,7 @@ The first implementation wave after ADR-073 approval is grouped into larger slic
 3. **Economics Slice A - plan-scoped model slots and turn accounting** (completed; ready for deploy/live validation)
    - plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work are landed on the active path
    - the active path now uses a configurable early `turn_routing` layer with deterministic precheck plus an optional cheap classifier, while explicit deeper-thinking mode keeps user-selected smart turns on `premium` / `reasoning` without exposing raw model pickers
+   - `Admin > Runtime` now exposes per-category router trigger editing for `continue`, `retrieval`, `reasoning`, `premium writing`, and `tool/browse` precheck hints instead of a raw JSON-only override surface, and web chat can surface the latest shadow decision to the assistant owner/admin as a compact badge such as `premium (llm)` or `reasoning (precheck)` without exposing raw classifier payloads
    - honest per-turn accounting now records `input`, `cached input`, `output`, and per-call totals across internal model work
 4. **Economics Slice B - prompt-cache-first context architecture** (completed on the current active path)
    - bounded OpenAI request-side cache-routing support is now landed on the active text path: provider requests can carry stable `prompt_cache_key` plus explicit retention policy hints, and a live probe already confirmed large cached-input reuse on a repeated long prefix

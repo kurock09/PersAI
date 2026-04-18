@@ -39,7 +39,10 @@ import {
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
-import { splitStreamingMarkdownContent } from "./chat-message-streaming";
+import {
+  buildStreamingMarkdownTailPreview,
+  splitStreamingMarkdownContent
+} from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
@@ -348,16 +351,21 @@ const MarkdownMessageContent = memo(function MarkdownMessageContent({
 });
 
 function StreamingMarkdownMessageContent({ content }: { content: string }) {
-  const { stableContent, liveTail } = useMemo(
-    () => splitStreamingMarkdownContent(content),
-    [content]
-  );
+  const { stableContent, liveTailPreview } = useMemo(() => {
+    const segments = splitStreamingMarkdownContent(content);
+    return {
+      ...segments,
+      liveTailPreview: buildStreamingMarkdownTailPreview(segments.liveTail)
+    };
+  }, [content]);
 
   return (
     <>
       {stableContent.length > 0 ? <MarkdownMessageContent content={stableContent} /> : null}
-      {liveTail.length > 0 ? (
-        <div className="whitespace-pre-wrap leading-relaxed break-words text-text">{liveTail}</div>
+      {liveTailPreview.length > 0 ? (
+        <div className="streaming-markdown-live text-text/95">
+          <MarkdownMessageContent content={liveTailPreview} />
+        </div>
       ) : null}
     </>
   );

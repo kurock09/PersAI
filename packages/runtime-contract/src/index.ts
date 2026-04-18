@@ -1025,6 +1025,12 @@ export interface RuntimeTurnRequest {
   modelOverride?: string;
 }
 
+export interface RuntimeTurnRoutingSnapshot {
+  mode: "shadow" | "active";
+  executionMode: "normal" | "premium" | "reasoning";
+  source: "precheck" | "llm" | "fallback";
+}
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -1033,6 +1039,7 @@ export interface RuntimeTurnResult {
   respondedAt: IsoTimestamp;
   usage: RuntimeUsageSnapshot | null;
   usageAccounting?: RuntimeUsageAccounting;
+  turnRouting?: RuntimeTurnRoutingSnapshot;
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
 }

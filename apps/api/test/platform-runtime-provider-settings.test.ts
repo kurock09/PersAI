@@ -31,6 +31,7 @@ async function run(): Promise<void> {
         continueTerms: ["ok", "continue"],
         retrievalTerms: ["find in docs"],
         reasoningTerms: ["architecture"],
+        premiumTerms: ["rewrite"],
         toolTerms: ["browse"]
       }
     },
@@ -47,6 +48,7 @@ async function run(): Promise<void> {
   assert.equal(parsed.routerPolicy.enabled, true);
   assert.equal(parsed.routerPolicy.mode, "shadow");
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.continueTerms, ["ok", "continue"]);
+  assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");

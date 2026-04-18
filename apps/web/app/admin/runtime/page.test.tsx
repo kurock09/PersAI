@@ -1,31 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { parseRouterOverrideText } from "./page";
+import { buildRouterPrecheckRuleOverrides, parseRouterTriggerTerms } from "./page";
 
 describe("admin runtime router policy helpers", () => {
-  it("parses compact router override JSON", () => {
+  it("parses one trigger phrase per line", () => {
+    expect(parseRouterTriggerTerms("ok\ncontinue\nok")).toEqual(["ok", "continue"]);
+  });
+
+  it("builds per-category precheck overrides from admin textareas", () => {
     expect(
-      parseRouterOverrideText(`{
-        "continueTerms": ["ok", "continue", "ok"],
-        "retrievalTerms": ["find in docs"],
-        "reasoningTerms": ["architecture"],
-        "toolTerms": ["browse"]
-      }`)
+      buildRouterPrecheckRuleOverrides({
+        continueTermsText: "ok\ncontinue\nok",
+        retrievalTermsText: "find in docs",
+        reasoningTermsText: "architecture",
+        premiumTermsText: "cover letter",
+        toolTermsText: "browse"
+      })
     ).toEqual({
       continueTerms: ["ok", "continue"],
       retrievalTerms: ["find in docs"],
       reasoningTerms: ["architecture"],
+      premiumTerms: ["cover letter"],
       toolTerms: ["browse"]
     });
   });
 
   it("returns null for blank overrides", () => {
-    expect(parseRouterOverrideText("   ")).toBeNull();
-  });
-
-  it("rejects invalid override payloads", () => {
-    expect(() => parseRouterOverrideText("{")).toThrow(/valid JSON/i);
-    expect(() => parseRouterOverrideText(`{"continueTerms":"ok"}`)).toThrow(
-      /continueTerms must be an array of strings/i
-    );
+    expect(
+      buildRouterPrecheckRuleOverrides({
+        continueTermsText: "   ",
+        retrievalTermsText: "",
+        reasoningTermsText: "",
+        premiumTermsText: "",
+        toolTermsText: ""
+      })
+    ).toBeNull();
   });
 });

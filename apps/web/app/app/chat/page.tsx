@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
@@ -18,6 +19,7 @@ export default function ChatPage() {
 }
 
 function ChatPageInner() {
+  const { userId } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
@@ -25,8 +27,11 @@ function ChatPageInner() {
 
   const threadKey = useMemo(() => threadFromUrl ?? `web-${Date.now()}`, [threadFromUrl]);
 
-  const chat = useChat(threadKey);
   const appData = useAppDataContext();
+  const canSeeShadowRoutingBadge =
+    appData.isAdmin ||
+    (typeof userId === "string" && userId.length > 0 && appData.assistant?.userId === userId);
+  const chat = useChat(threadKey);
   const locale = useLocale();
 
   const existingChat = threadFromUrl
@@ -93,6 +98,7 @@ function ChatPageInner() {
       assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
       assistantCreatedAt={appData.assistant?.createdAt}
       assistantReady={appData.assistantStatus !== "none"}
+      showShadowRoutingBadge={canSeeShadowRoutingBadge}
       onTitleChanged={appData.reloadChats}
     />
   );

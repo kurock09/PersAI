@@ -45,6 +45,7 @@ import {
   type RuntimeTextDeltaSource,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
+  type RuntimeTurnRoutingSnapshot,
   type RuntimeTurnStreamEvent,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
@@ -276,7 +277,7 @@ export class TurnExecutionService {
         input,
         turnState
       );
-      return this.buildTurnResult(acceptedTurn, providerResult, turnState);
+      return this.buildTurnResult(acceptedTurn, providerResult, turnState, execution.routeDecision);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error);
       throw this.toHttpException(error);
@@ -288,7 +289,7 @@ export class TurnExecutionService {
     options?: { allowModelToolExposure?: boolean }
   ): Promise<PreparedTurnExecution> {
     let bundleEntry = this.resolveBundleEntry(input.bundle);
-    if (bundleEntry === null) {
+    if (bundleEntry === null || !this.bundleEntryMatchesRequest(bundleEntry, input.bundle)) {
       const warmed = await this.runtimeBundleAutoRefreshService.ensureRequestedBundle({
         bundle: input.bundle,
         runtimeTier: input.runtimeTier
@@ -361,13 +362,24 @@ export class TurnExecutionService {
   private resolveBundleEntry(
     bundle: RuntimeTurnRequest["bundle"]
   ): ReturnType<RuntimeBundleRegistryService["getBundle"]> {
+    const exactEntry = this.runtimeBundleRegistryService.getBundle(bundle.bundleId);
+    if (exactEntry !== null && this.bundleEntryMatchesRequest(exactEntry, bundle)) {
+      return exactEntry;
+    }
+    return this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+      assistantId: bundle.assistantId,
+      publishedVersionId: bundle.publishedVersionId,
+      bundleHash: bundle.bundleHash
+    });
+  }
+
+  private bundleEntryMatchesRequest(
+    bundleEntry: NonNullable<ReturnType<RuntimeBundleRegistryService["getBundle"]>>,
+    bundle: RuntimeTurnRequest["bundle"]
+  ): boolean {
     return (
-      this.runtimeBundleRegistryService.getBundle(bundle.bundleId) ??
-      this.runtimeBundleRegistryService.findBundleByAssistantVersion({
-        assistantId: bundle.assistantId,
-        publishedVersionId: bundle.publishedVersionId,
-        bundleHash: bundle.bundleHash
-      })
+      bundleEntry.bundle.bundleHash === bundle.bundleHash &&
+      bundleEntry.bundle.publishedVersionId === bundle.publishedVersionId
     );
   }
 
@@ -523,7 +535,12 @@ export class TurnExecutionService {
               modelRole: execution.selectedModelRole,
               usage: completedProviderResult.usage
             });
-            const result = this.buildTurnResult(acceptedTurn, completedProviderResult, turnState);
+            const result = this.buildTurnResult(
+              acceptedTurn,
+              completedProviderResult,
+              turnState,
+              execution.routeDecision
+            );
             completionFinalizationAttempted = true;
             const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
               acceptedTurn,
@@ -641,7 +658,8 @@ export class TurnExecutionService {
   private buildTurnResult(
     acceptedTurn: AcceptedRuntimeTurn,
     providerResult: ProviderGatewayTextGenerateResult,
-    turnState: TurnExecutionState
+    turnState: TurnExecutionState,
+    routeDecision?: TurnRouteDecision
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed" || providerResult.text === null) {
       throw new InternalServerErrorException(
@@ -649,6 +667,8 @@ export class TurnExecutionService {
       );
     }
 
+    const turnRouting =
+      routeDecision === undefined ? null : this.toRuntimeTurnRoutingSnapshot(routeDecision);
     return {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
@@ -656,9 +676,31 @@ export class TurnExecutionService {
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage,
+      ...(turnRouting === null ? {} : { turnRouting }),
       ...(turnState.usageEntries.length === 0
         ? {}
         : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) })
+    };
+  }
+
+  private toRuntimeTurnRoutingSnapshot(
+    routeDecision: TurnRouteDecision
+  ): RuntimeTurnRoutingSnapshot | null {
+    const source =
+      routeDecision.source === "classifier"
+        ? "llm"
+        : routeDecision.source === "precheck"
+          ? "precheck"
+          : routeDecision.source === "fallback"
+            ? "fallback"
+            : null;
+    if (source === null) {
+      return null;
+    }
+    return {
+      mode: routeDecision.mode,
+      executionMode: routeDecision.executionMode,
+      source
     };
   }
 
@@ -2420,8 +2462,22 @@ export class TurnExecutionService {
       typeof row.assistantText === "string" &&
       Array.isArray(row.artifacts) &&
       typeof row.respondedAt === "string" &&
+      (row.turnRouting === undefined ||
+        row.turnRouting === null ||
+        this.isRuntimeTurnRoutingSnapshot(row.turnRouting)) &&
       (row.usage === null ||
         (typeof row.usage === "object" && row.usage !== null && !Array.isArray(row.usage)))
+    );
+  }
+
+  private isRuntimeTurnRoutingSnapshot(value: unknown): value is RuntimeTurnRoutingSnapshot {
+    const row = this.asObject(value);
+    return (
+      (row?.mode === "shadow" || row?.mode === "active") &&
+      (row.executionMode === "normal" ||
+        row.executionMode === "premium" ||
+        row.executionMode === "reasoning") &&
+      (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
     );
   }
 }

@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - router trigger editing + shadow visibility
+
+### What changed
+
+1. Early-router precheck policy is now honestly editable from `Admin > Runtime` by category instead of a raw JSON-only seam. The runtime/settings/contracts path now includes `premiumTerms` beside `continue` / `retrieval` / `reasoning` / `tool`, and the admin UI renders separate phrase lists for those categories.
+2. Native runtime turn results now carry a minimal additive `turnRouting { mode, executionMode, source }` snapshot whenever the early router actually made a bounded decision (`precheck`, `llm`, or `fallback`). `apps/api` persists/transports that snapshot through web-chat sync/stream/replay state without exposing raw classifier output or usage blobs.
+3. Web chat now reuses the existing under-message activity row to show the latest shadow routing choice to the assistant owner/admin only. The label stays compact and diagnostic-only, for example `premium (llm)` or `reasoning (precheck)`, and non-owner/non-admin viewers do not see that routing suffix.
+
+### Current active slice
+
+- `ADR-073 - economics/router polish`
+
+### Current active step
+
+- `Router trigger editing and shadow observability are now locally landed; the next honest step is full repo verification plus bounded live shadow validation`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/platform-runtime-provider-settings.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-runtime.facade.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-native-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/preview-assistant-setup.service.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/web-chat.types.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-channel-surface-binding.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-channel-surface-binding.repository.ts`
+- `apps/api/test/platform-runtime-provider-settings.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-routing.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-routing.service.test.ts`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/admin/runtime/page.test.tsx`
+- `apps/web/app/app/_components/activity-badge.tsx`
+- `apps/web/app/app/_components/activity-badge.test.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `apps/web/app/app/chat/page.tsx`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx app/app/_components/use-chat.test.tsx app/app/_components/activity-badge.test.tsx --config vitest.config.ts`
+
+### Risks / notes
+
+1. The shadow badge intentionally stays latest-message-only and diagnostic-only in this first pass; older timeline rows are not retro-decorated.
+2. Trigger editing is still additive to the built-in deterministic defaults. Admin phrases extend those defaults; they do not yet fully replace them category-by-category.
+3. Bounded live validation is still needed to confirm the new shadow badge copy and trigger tuning feel right on real prompts.
+
+### Next recommended step
+
+1. Run the full repo `format/lint/typecheck/test` sweep and then do one bounded live `shadow` pass to tune the new trigger lists against real prompts before switching to `active`.
+
 ## 2026-04-18 - early turn router repo-truth sync
 
 ### What changed

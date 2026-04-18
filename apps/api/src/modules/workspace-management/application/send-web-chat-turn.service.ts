@@ -315,6 +315,9 @@ export class SendWebChatTurnService {
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
             quotaFallbackReason: prepared.quotaDegradeReason,
             quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+            ...(runtimeResponse.turnRouting === undefined
+              ? {}
+              : { turnRouting: runtimeResponse.turnRouting }),
             completedAt: new Date().toISOString()
           }
         );
@@ -341,7 +344,10 @@ export class SendWebChatTurnService {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
           quotaFallbackReason: prepared.quotaDegradeReason,
-          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+          ...(runtimeResponse.turnRouting === undefined
+            ? {}
+            : { turnRouting: runtimeResponse.turnRouting })
         }
       };
     } catch (error) {
@@ -469,7 +475,8 @@ export class SendWebChatTurnService {
           state.quotaFallbackReason === "token_budget_limit_reached"
             ? "token_budget_limit_reached"
             : null,
-        quotaFallbackModel: state.quotaFallbackModel
+        quotaFallbackModel: state.quotaFallbackModel,
+        ...(state.turnRouting === undefined ? {} : { turnRouting: state.turnRouting })
       }
     };
   }

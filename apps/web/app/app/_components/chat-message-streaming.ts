@@ -3,6 +3,12 @@ export interface StreamingMarkdownSegments {
   liveTail: string;
 }
 
+interface StreamingMarkdownScanState {
+  lastStableOffset: number;
+  activeFence: { marker: "`" | "~"; length: number } | null;
+  inMathFence: boolean;
+}
+
 function isBlankLine(line: string): boolean {
   return line.trim().length === 0;
 }
@@ -29,11 +35,7 @@ function isThematicBreak(line: string): boolean {
   return /^\s{0,3}((-\s*){3,}|(_\s*){3,}|(\*\s*){3,})$/.test(line.trimEnd());
 }
 
-export function splitStreamingMarkdownContent(content: string): StreamingMarkdownSegments {
-  if (content.length === 0) {
-    return { stableContent: "", liveTail: "" };
-  }
-
+function scanStreamingMarkdown(content: string): StreamingMarkdownScanState {
   let offset = 0;
   let lastStableOffset = 0;
   let activeFence: { marker: "`" | "~"; length: number } | null = null;
@@ -88,8 +90,39 @@ export function splitStreamingMarkdownContent(content: string): StreamingMarkdow
     offset = nextOffset;
   }
 
+  return { lastStableOffset, activeFence, inMathFence };
+}
+
+export function splitStreamingMarkdownContent(content: string): StreamingMarkdownSegments {
+  if (content.length === 0) {
+    return { stableContent: "", liveTail: "" };
+  }
+
+  const { lastStableOffset } = scanStreamingMarkdown(content);
+
   return {
     stableContent: content.slice(0, lastStableOffset),
     liveTail: content.slice(lastStableOffset)
   };
+}
+
+export function buildStreamingMarkdownTailPreview(content: string): string {
+  if (content.length === 0) {
+    return "";
+  }
+
+  const { activeFence, inMathFence } = scanStreamingMarkdown(content);
+  let preview = content;
+
+  if (activeFence !== null) {
+    preview += preview.endsWith("\n") ? "" : "\n";
+    preview += activeFence.marker.repeat(activeFence.length);
+  }
+
+  if (inMathFence) {
+    preview += preview.endsWith("\n") ? "" : "\n";
+    preview += "$$";
+  }
+
+  return preview;
 }

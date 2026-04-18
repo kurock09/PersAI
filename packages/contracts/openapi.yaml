@@ -4966,6 +4966,31 @@ components:
         quotaFallbackModel:
           type: string
           nullable: true
+        turnRouting:
+          type: object
+          nullable: true
+          required:
+            - mode
+            - executionMode
+            - source
+          properties:
+            mode:
+              type: string
+              enum:
+                - shadow
+                - active
+            executionMode:
+              type: string
+              enum:
+                - normal
+                - premium
+                - reasoning
+            source:
+              type: string
+              enum:
+                - precheck
+                - llm
+                - fallback
     AssistantWebChatTurnState:
       type: object
       required:
@@ -6070,6 +6095,8 @@ components:
         - mode
         - primary
         - fallback
+        - routingFastModelKey
+        - routerPolicy
         - availableModelsByProvider
         - providerKeys
         - notes
@@ -6086,6 +6113,63 @@ components:
           allOf:
             - $ref: "#/components/schemas/RuntimeProviderSelection"
           nullable: true
+        routingFastModelKey:
+          type: string
+          nullable: true
+        routerPolicy:
+          type: object
+          required:
+            - enabled
+            - mode
+            - classifierFailureFallbackMode
+            - clarifyOnMissingContext
+            - precheckRuleOverrides
+          properties:
+            enabled:
+              type: boolean
+            mode:
+              type: string
+              enum:
+                - shadow
+                - active
+            classifierFailureFallbackMode:
+              type: string
+              enum:
+                - normal
+                - premium
+                - reasoning
+            clarifyOnMissingContext:
+              type: boolean
+            precheckRuleOverrides:
+              type: object
+              nullable: true
+              required:
+                - continueTerms
+                - retrievalTerms
+                - reasoningTerms
+                - premiumTerms
+                - toolTerms
+              properties:
+                continueTerms:
+                  type: array
+                  items:
+                    type: string
+                retrievalTerms:
+                  type: array
+                  items:
+                    type: string
+                reasoningTerms:
+                  type: array
+                  items:
+                    type: string
+                premiumTerms:
+                  type: array
+                  items:
+                    type: string
+                toolTerms:
+                  type: array
+                  items:
+                    type: string
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         providerKeys:
@@ -6113,6 +6197,8 @@ components:
       type: object
       required:
         - primary
+        - routingFastModelKey
+        - routerPolicy
         - availableModelsByProvider
       properties:
         primary:
@@ -6121,6 +6207,63 @@ components:
           allOf:
             - $ref: "#/components/schemas/RuntimeProviderSelection"
           nullable: true
+        routingFastModelKey:
+          type: string
+          nullable: true
+        routerPolicy:
+          type: object
+          required:
+            - enabled
+            - mode
+            - classifierFailureFallbackMode
+            - clarifyOnMissingContext
+            - precheckRuleOverrides
+          properties:
+            enabled:
+              type: boolean
+            mode:
+              type: string
+              enum:
+                - shadow
+                - active
+            classifierFailureFallbackMode:
+              type: string
+              enum:
+                - normal
+                - premium
+                - reasoning
+            clarifyOnMissingContext:
+              type: boolean
+            precheckRuleOverrides:
+              type: object
+              nullable: true
+              required:
+                - continueTerms
+                - retrievalTerms
+                - reasoningTerms
+                - premiumTerms
+                - toolTerms
+              properties:
+                continueTerms:
+                  type: array
+                  items:
+                    type: string
+                retrievalTerms:
+                  type: array
+                  items:
+                    type: string
+                reasoningTerms:
+                  type: array
+                  items:
+                    type: string
+                premiumTerms:
+                  type: array
+                  items:
+                    type: string
+                toolTerms:
+                  type: array
+                  items:
+                    type: string
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         providerKeys:

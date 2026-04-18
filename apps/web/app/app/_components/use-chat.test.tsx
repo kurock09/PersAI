@@ -311,6 +311,122 @@ describe("useChat", () => {
     expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-2");
   });
 
+  it("appends the shadow routing label for owner or admin viewers", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onRuntimeDone?: (payload: { respondedAt: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onRuntimeDone?.({
+          respondedAt: "2026-04-14T10:03:00.000Z"
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            runtime: {
+              respondedAt: "2026-04-14T10:03:00.000Z",
+              turnRouting: {
+                mode: "shadow",
+                executionMode: "premium",
+                source: "llm"
+              }
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Polish this email");
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries).toHaveLength(1);
+    expect(activityEntries[0]?.event.label).toBe("Response generated");
+    expect(activityEntries[0]?.event.shadowRoutingLabel).toBe("premium (llm)");
+  });
+
+  it("keeps active-mode routing labels out of the shadow badge metadata", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onRuntimeDone?: (payload: { respondedAt: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onRuntimeDone?.({
+          respondedAt: "2026-04-14T10:04:00.000Z"
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            runtime: {
+              respondedAt: "2026-04-14T10:04:00.000Z",
+              turnRouting: {
+                mode: "active",
+                executionMode: "reasoning",
+                source: "precheck"
+              }
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Compare two rollout strategies");
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries).toHaveLength(1);
+    expect(activityEntries[0]?.event.label).toBe("Response generated");
+    expect(activityEntries[0]?.event.shadowRoutingLabel).toBeUndefined();
+  });
+
   it("surfaces a recent auto-compaction notice after a turn refresh", async () => {
     assistantApiMocks.getChatMessages.mockResolvedValue({
       messages: [],

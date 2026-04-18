@@ -37,6 +37,7 @@ interface ChatAreaProps {
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
   assistantCreatedAt?: string | undefined;
+  showShadowRoutingBadge?: boolean | undefined;
   onTitleChanged?: (() => void) | undefined;
 }
 
@@ -49,6 +50,7 @@ export function ChatArea({
   assistantAvatarUrl,
   assistantAvatarEmoji,
   assistantCreatedAt,
+  showShadowRoutingBadge = false,
   onTitleChanged
 }: ChatAreaProps) {
   const { getToken } = useAuth();
@@ -90,23 +92,67 @@ export function ChatArea({
   const prevMessageCount = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const preserveScrollOnOlderLoadRef = useRef(false);
+  const skipAutoScrollOnHistoryPrependRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
 
-  // Scroll to bottom on new outgoing/incoming messages, but not on history prepend.
+  const scrollToBottom = useCallback((behavior: ScrollBehavior | "instant") => {
+    shouldStickToBottomRef.current = true;
+    bottomRef.current?.scrollIntoView({ behavior });
+  }, []);
+
+  const updateShouldStickToBottom = useCallback(() => {
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom <= 96;
+  }, []);
+
+  // Keep streaming replies pinned only while the user remains near the bottom.
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) {
+      return;
+    }
+    updateShouldStickToBottom();
+    const handleScroll = () => {
+      updateShouldStickToBottom();
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [chat.chatId, updateShouldStickToBottom]);
+
+  // Scroll to bottom on new outgoing/incoming messages, and keep following live stream deltas
+  // while the user stays anchored near the bottom. Do not auto-jump on history prepend.
   useEffect(() => {
     const count = chat.messages.length;
-    if (count > prevMessageCount.current && !isInitialLoad.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const hasNewMessage = count > prevMessageCount.current;
+    const shouldSkipHistoryPrependAutoScroll =
+      skipAutoScrollOnHistoryPrependRef.current && (hasNewMessage || !chat.olderMessagesLoading);
+    if (!isInitialLoad.current && shouldSkipHistoryPrependAutoScroll) {
+      skipAutoScrollOnHistoryPrependRef.current = false;
+      prevMessageCount.current = count;
+      return;
+    }
+    const shouldFollowStreamingDelta =
+      !hasNewMessage && chat.isStreaming && count > 0 && shouldStickToBottomRef.current;
+    if (!isInitialLoad.current && (hasNewMessage || shouldFollowStreamingDelta)) {
+      scrollToBottom(hasNewMessage ? "smooth" : "auto");
     }
     prevMessageCount.current = count;
-  }, [chat.entries.length, chat.messages[chat.messages.length - 1]?.content]);
+  }, [chat.entries.length, chat.isStreaming, chat.messages, scrollToBottom]);
 
   // On initial history load, jump to bottom instantly (no animation).
   useEffect(() => {
     if (!chat.historyLoading && chat.messages.length > 0 && isInitialLoad.current) {
       isInitialLoad.current = false;
-      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      scrollToBottom("instant");
     }
-  }, [chat.historyLoading, chat.messages.length]);
+  }, [chat.historyLoading, chat.messages.length, scrollToBottom]);
 
   // Preserve scroll position when older messages are prepended.
   const prevScrollHeight = useRef(0);
@@ -131,6 +177,7 @@ export function ChatArea({
         if (entries[0]?.isIntersecting && chat.hasOlderMessages && !chat.olderMessagesLoading) {
           prevScrollHeight.current = container.scrollHeight;
           preserveScrollOnOlderLoadRef.current = true;
+          skipAutoScrollOnHistoryPrependRef.current = true;
           void chat.loadOlderMessages();
         }
       },
@@ -338,7 +385,11 @@ export function ChatArea({
                   forgotten={forgottenIds.has(entry.message.id)}
                 />
               ) : (
-                <ActivityBadge key={entry.event.id} event={entry.event} />
+                <ActivityBadge
+                  key={entry.event.id}
+                  event={entry.event}
+                  showShadowRoutingLabel={showShadowRoutingBadge}
+                />
               )
             )}
             <div ref={bottomRef} />

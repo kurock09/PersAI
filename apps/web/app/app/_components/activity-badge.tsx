@@ -10,6 +10,7 @@ export interface ActivityEvent {
   type: ActivityType;
   label: string;
   detail?: string;
+  shadowRoutingLabel?: string;
   timestamp?: string;
   afterMessageId?: string;
   emphasis?: "default" | "strong";
@@ -22,10 +23,29 @@ const TYPE_CONFIG: Record<ActivityType, { icon: typeof Cpu; color: string }> = {
   info: { icon: Info, color: "text-text-subtle" }
 };
 
-export function ActivityBadge({ event }: { event: ActivityEvent }) {
+function buildActivityDetail(
+  event: ActivityEvent,
+  showShadowRoutingLabel: boolean
+): string | undefined {
+  if (!showShadowRoutingLabel || !event.shadowRoutingLabel) {
+    return event.detail;
+  }
+  return event.detail && event.detail.trim().length > 0
+    ? `${event.detail} · ${event.shadowRoutingLabel}`
+    : event.shadowRoutingLabel;
+}
+
+export function ActivityBadge({
+  event,
+  showShadowRoutingLabel = false
+}: {
+  event: ActivityEvent;
+  showShadowRoutingLabel?: boolean;
+}) {
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
+  const detail = buildActivityDetail(event, showShadowRoutingLabel);
 
   return (
     <div className="flex items-center justify-center py-0.5">
@@ -41,7 +61,7 @@ export function ActivityBadge({ event }: { event: ActivityEvent }) {
           className={cn(isStrong ? "h-3 w-3 opacity-70" : "h-2.5 w-2.5 opacity-40", cfg.color)}
         />
         <span>{event.label}</span>
-        {event.detail && <span className="opacity-50">{event.detail}</span>}
+        {detail && <span className="opacity-50">{detail}</span>}
       </div>
     </div>
   );

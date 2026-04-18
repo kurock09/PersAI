@@ -47,7 +47,19 @@ class FakeProviderGatewayClientService {
   }
 }
 
-function createBundle() {
+function createBundle(routerPolicyOverride?: {
+  enabled?: boolean;
+  mode?: "shadow" | "active";
+  classifierFailureFallbackMode?: "normal" | "premium" | "reasoning";
+  clarifyOnMissingContext?: boolean;
+  precheckRuleOverrides?: {
+    continueTerms: string[];
+    retrievalTerms: string[];
+    reasoningTerms: string[];
+    premiumTerms: string[];
+    toolTerms: string[];
+  } | null;
+}) {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -100,7 +112,8 @@ function createBundle() {
         mode: "active",
         classifierFailureFallbackMode: "normal",
         clarifyOnMissingContext: true,
-        precheckRuleOverrides: null
+        precheckRuleOverrides: null,
+        ...routerPolicyOverride
       },
       contextHydration: {
         preset: "balanced",
@@ -250,6 +263,24 @@ async function run(): Promise<void> {
   });
   assert.equal(continueDecision.executionMode, "normal");
   assert.equal(continueDecision.source, "precheck");
+  assert.equal(providerGatewayClient.calls.length, 0);
+
+  const premiumDecision = await service.decide({
+    bundle: createBundle({
+      precheckRuleOverrides: {
+        continueTerms: [],
+        retrievalTerms: [],
+        reasoningTerms: [],
+        premiumTerms: ["cover letter"],
+        toolTerms: []
+      }
+    }),
+    request: createRequest("Draft a polished cover letter for this role."),
+    projectedTools
+  });
+  assert.equal(premiumDecision.executionMode, "premium");
+  assert.equal(premiumDecision.source, "precheck");
+  assert.equal(premiumDecision.reasonCode, "premium_writing");
   assert.equal(providerGatewayClient.calls.length, 0);
 
   const ambiguousDecision = await service.decide({

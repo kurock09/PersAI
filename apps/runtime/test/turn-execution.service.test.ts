@@ -1589,6 +1589,75 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  const staleExactBundleRegistry = new FakeRuntimeBundleRegistryService();
+  if (staleExactBundleRegistry.entry !== null) {
+    staleExactBundleRegistry.entry.bundle = {
+      ...staleExactBundleRegistry.entry.bundle,
+      bundleId: request.bundle.bundleId,
+      bundleHash: "bundle-hash-stale",
+      publishedVersionId: request.bundle.publishedVersionId
+    };
+  }
+  const staleExactRefreshCalls: Array<{ bundleId: string; bundleHash: string }> = [];
+  const staleExactFallbackService = new TurnExecutionService(
+    staleExactBundleRegistry as unknown as RuntimeBundleRegistryService,
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {
+      async ensureRequestedBundle(input) {
+        staleExactRefreshCalls.push({
+          bundleId: input.bundle.bundleId,
+          bundleHash: input.bundle.bundleHash
+        });
+        const refreshedEntry = createBundleEntry();
+        refreshedEntry.bundle = {
+          ...refreshedEntry.bundle,
+          bundleId: "bundle-rematerialized-after-stale-hit",
+          bundleHash: input.bundle.bundleHash,
+          publishedVersionId: input.bundle.publishedVersionId
+        };
+        staleExactBundleRegistry.fallbackEntry = refreshedEntry;
+        return true;
+      }
+    } as Pick<
+      RuntimeBundleAutoRefreshService,
+      "ensureRequestedBundle"
+    > as RuntimeBundleAutoRefreshService,
+    turnContextHydrationService as unknown as TurnContextHydrationService,
+    turnAcceptanceService as unknown as TurnAcceptanceService,
+    turnRoutingService,
+    turnFinalizationService as unknown as TurnFinalizationService,
+    sessionCompactionService as never,
+    runtimeBrowserToolService,
+    runtimeImageEditToolService,
+    runtimeImageGenerateToolService,
+    runtimeKnowledgeToolService,
+    runtimeMemoryWriteToolService,
+    runtimeQuotaStatusToolService,
+    runtimeScheduledActionToolService,
+    runtimeTtsToolService,
+    runtimeVideoGenerateToolService
+  );
+  providerGatewayClient.calls = [];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const staleExactFallbackCompleted = await staleExactFallbackService.createTurn(request);
+  assert.equal(staleExactFallbackCompleted.assistantText, "runtime reply");
+  assert.deepEqual(staleExactRefreshCalls, [
+    {
+      bundleId: request.bundle.bundleId,
+      bundleHash: request.bundle.bundleHash
+    }
+  ]);
+  assert.equal(
+    staleExactBundleRegistry.fallbackEntry?.bundle.bundleId,
+    "bundle-rematerialized-after-stale-hit"
+  );
+  assert.equal(providerGatewayClient.calls.length, 1);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
   if (bundleRegistry.entry !== null) {
     const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
       .runtimeProviderRouting as Record<string, unknown>;
