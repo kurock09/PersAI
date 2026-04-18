@@ -50,8 +50,9 @@ export async function runRuntimeBundleAutoRefreshServiceTest(): Promise<void> {
   });
   assert.equal(warmed, true);
   assert.equal(warmCalls.length, 1);
+  assert.equal(warmCalls[0]?.bundle.bundleId, "bundle-1");
 
-  const mismatched = new RuntimeBundleAutoRefreshService(
+  const rematerialized = new RuntimeBundleAutoRefreshService(
     {
       async ensureFreshSpec() {
         return {
@@ -59,8 +60,53 @@ export async function runRuntimeBundleAutoRefreshServiceTest(): Promise<void> {
           assistantId: "assistant-1",
           materializedSpecId: "bundle-2",
           publishedVersionId: "version-1",
-          contentHash: "content-hash-2",
-          bundleHash: "bundle-hash-2",
+          contentHash: "content-hash-1",
+          bundleHash: "bundle-hash-1",
+          bundleDocument: '{"metadata":{"assistantId":"assistant-1"}}'
+        };
+      }
+    } as Pick<PersaiInternalApiClientService, "ensureFreshSpec"> as PersaiInternalApiClientService,
+    {
+      async warmBundle(input: WarmRuntimeBundleRequest): Promise<WarmRuntimeBundleResponse> {
+        warmCalls.push(input);
+        return {
+          bundle: input.bundle,
+          warmedAt: "2026-04-18T12:00:01.000Z",
+          replaced: false,
+          cacheEntries: 2,
+          evictedBundleIds: []
+        };
+      }
+    } as Pick<RuntimeBundleCoordinatorService, "warmBundle"> as RuntimeBundleCoordinatorService
+  );
+
+  assert.equal(
+    await rematerialized.ensureRequestedBundle({
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        publishedVersionId: "version-1",
+        bundleHash: "bundle-hash-1",
+        compiledAt: "2026-04-18T11:59:00.000Z"
+      },
+      runtimeTier: "paid_shared_restricted"
+    }),
+    true
+  );
+  assert.equal(warmCalls.length, 2);
+  assert.equal(warmCalls[1]?.bundle.bundleId, "bundle-2");
+
+  const mismatched = new RuntimeBundleAutoRefreshService(
+    {
+      async ensureFreshSpec() {
+        return {
+          generation: 6,
+          assistantId: "assistant-1",
+          materializedSpecId: "bundle-3",
+          publishedVersionId: "version-1",
+          contentHash: "content-hash-3",
+          bundleHash: "bundle-hash-3",
           bundleDocument: '{"metadata":{"assistantId":"assistant-1"}}'
         };
       }

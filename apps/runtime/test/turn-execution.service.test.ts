@@ -685,9 +685,44 @@ function createAcceptedTurn(): AcceptedRuntimeTurn {
 
 class FakeRuntimeBundleRegistryService {
   entry: RuntimeBundleCacheEntry | null = createBundleEntry();
+  fallbackEntry: RuntimeBundleCacheEntry | null = null;
 
-  getBundle(): RuntimeBundleCacheEntry | null {
-    return this.entry;
+  getBundle(bundleId: string): RuntimeBundleCacheEntry | null {
+    if (this.entry?.bundle.bundleId === bundleId) {
+      return this.entry;
+    }
+    if (this.fallbackEntry?.bundle.bundleId === bundleId) {
+      return this.fallbackEntry;
+    }
+    return null;
+  }
+
+  findBundleByAssistantVersion(params: {
+    assistantId: string;
+    publishedVersionId: string | null;
+    bundleHash?: string | null;
+  }): RuntimeBundleCacheEntry | null {
+    const matches = (entry: RuntimeBundleCacheEntry | null): entry is RuntimeBundleCacheEntry => {
+      if (entry === null || params.publishedVersionId === null) {
+        return false;
+      }
+      if (entry.bundle.assistantId !== params.assistantId) {
+        return false;
+      }
+      if (entry.bundle.publishedVersionId !== params.publishedVersionId) {
+        return false;
+      }
+      if (params.bundleHash !== undefined && params.bundleHash !== null) {
+        return entry.bundle.bundleHash === params.bundleHash;
+      }
+      return true;
+    };
+
+    return matches(this.entry)
+      ? this.entry
+      : matches(this.fallbackEntry)
+        ? this.fallbackEntry
+        : null;
   }
 }
 
@@ -1498,6 +1533,64 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(turnFinalizationService.completed.length, 1);
   assert.equal(turnFinalizationService.failed.length, 0);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
+  const compatibleBundleRegistry = new FakeRuntimeBundleRegistryService();
+  compatibleBundleRegistry.entry = null;
+  const compatibleRefreshCalls: Array<{ bundleId: string; bundleHash: string }> = [];
+  const compatibleFallbackService = new TurnExecutionService(
+    compatibleBundleRegistry as unknown as RuntimeBundleRegistryService,
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {
+      async ensureRequestedBundle(input) {
+        compatibleRefreshCalls.push({
+          bundleId: input.bundle.bundleId,
+          bundleHash: input.bundle.bundleHash
+        });
+        const refreshedEntry = createBundleEntry();
+        refreshedEntry.bundle = {
+          ...refreshedEntry.bundle,
+          bundleId: "bundle-rematerialized",
+          bundleHash: input.bundle.bundleHash,
+          publishedVersionId: input.bundle.publishedVersionId
+        };
+        compatibleBundleRegistry.fallbackEntry = refreshedEntry;
+        return true;
+      }
+    } as Pick<
+      RuntimeBundleAutoRefreshService,
+      "ensureRequestedBundle"
+    > as RuntimeBundleAutoRefreshService,
+    turnContextHydrationService as unknown as TurnContextHydrationService,
+    turnAcceptanceService as unknown as TurnAcceptanceService,
+    turnFinalizationService as unknown as TurnFinalizationService,
+    sessionCompactionService as never,
+    runtimeBrowserToolService,
+    runtimeImageEditToolService,
+    runtimeImageGenerateToolService,
+    runtimeKnowledgeToolService,
+    runtimeMemoryWriteToolService,
+    runtimeQuotaStatusToolService,
+    runtimeScheduledActionToolService,
+    runtimeTtsToolService,
+    runtimeVideoGenerateToolService
+  );
+  providerGatewayClient.calls = [];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const compatibleFallbackCompleted = await compatibleFallbackService.createTurn(request);
+  assert.equal(compatibleFallbackCompleted.assistantText, "runtime reply");
+  assert.deepEqual(compatibleRefreshCalls, [
+    {
+      bundleId: request.bundle.bundleId,
+      bundleHash: request.bundle.bundleHash
+    }
+  ]);
+  assert.equal(compatibleBundleRegistry.fallbackEntry?.bundle.bundleId, "bundle-rematerialized");
+  assert.equal(providerGatewayClient.calls.length, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 

@@ -143,6 +143,15 @@ export default function ProfilePage() {
       setPasswordSaving(false);
     }
   }, [confirmPassword, currentPassword, newPassword, t, user]);
+  const profileImage =
+    avatarPreviewUrl ??
+    (user?.hasImage && user.imageUrl
+      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${avatarRefreshKey}`
+      : null);
+
+  useEffect(() => {
+    setProfileImageBroken(false);
+  }, [profileImage]);
 
   if (!user) return null;
 
@@ -152,15 +161,6 @@ export default function ProfilePage() {
     user.username?.[0] ??
     t("unnamedUser").charAt(0)
   ).toUpperCase();
-  const profileImage =
-    avatarPreviewUrl ??
-    (user.hasImage && user.imageUrl
-      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${avatarRefreshKey}`
-      : null);
-
-  useEffect(() => {
-    setProfileImageBroken(false);
-  }, [profileImage]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">

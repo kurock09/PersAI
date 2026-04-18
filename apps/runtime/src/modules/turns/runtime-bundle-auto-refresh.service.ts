@@ -22,7 +22,6 @@ export class RuntimeBundleAutoRefreshService {
       return false;
     }
     if (
-      freshSpec.materializedSpecId !== input.bundle.bundleId ||
       freshSpec.publishedVersionId !== input.bundle.publishedVersionId ||
       freshSpec.bundleHash !== input.bundle.bundleHash
     ) {
@@ -31,6 +30,7 @@ export class RuntimeBundleAutoRefreshService {
     await this.runtimeBundleCoordinatorService.warmBundle({
       bundle: {
         ...input.bundle,
+        bundleId: freshSpec.materializedSpecId,
         compiledAt: new Date().toISOString()
       },
       bundleDocument: freshSpec.bundleDocument,

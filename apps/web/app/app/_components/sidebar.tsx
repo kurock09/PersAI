@@ -18,6 +18,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  Sparkles,
   Sun,
   Moon,
   LogOut,
@@ -697,8 +698,12 @@ function ChatListItem({
               {item.chat.title ?? item.chat.surfaceThreadKey}
             </span>
             {item.chat.deepModeEnabled && (
-              <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                {t("deepModeBadge")}
+              <span
+                title={t("deepModeBadge")}
+                aria-label={t("deepModeBadge")}
+                className="inline-flex shrink-0 items-center rounded-full bg-violet-500/12 px-1.5 py-0.5 text-violet-600 ring-1 ring-violet-500/12"
+              >
+                <Sparkles className="h-2.5 w-2.5" />
               </span>
             )}
           </span>

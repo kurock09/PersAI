@@ -75,6 +75,31 @@ interface AssistantSettingsProps {
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
+type SettingsSectionId =
+  | "character"
+  | "quickActions"
+  | "knowledge"
+  | "memory"
+  | "tasks"
+  | "channels"
+  | "limits"
+  | "publishHistory";
+
+function normalizeInitialSection(value: string | undefined): SettingsSectionId {
+  switch (value) {
+    case "quickActions":
+    case "knowledge":
+    case "memory":
+    case "tasks":
+    case "channels":
+    case "limits":
+    case "publishHistory":
+    case "character":
+      return value;
+    default:
+      return "character";
+  }
+}
 
 function formatQuotaNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
@@ -100,35 +125,28 @@ function Section({
   icon,
   title,
   children,
-  defaultOpen = true,
-  forceOpen = false
+  open,
+  onToggle
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
-  defaultOpen?: boolean;
-  forceOpen?: boolean;
+  open: boolean;
+  onToggle: () => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen || forceOpen);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (forceOpen && !open) {
-      setOpen(true);
-    }
-  }, [forceOpen]);
-
-  useEffect(() => {
-    if (forceOpen && open && ref.current) {
+    if (open && ref.current) {
       ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [forceOpen, open]);
+  }, [open]);
 
   return (
     <div ref={ref} className="border-b border-border">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
         className="flex w-full cursor-pointer items-center gap-2.5 px-5 py-3.5 text-left transition-colors hover:bg-surface-hover"
       >
         <span className="text-text-muted">{icon}</span>
@@ -389,6 +407,13 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [voiceSettingsLoading, setVoiceSettingsLoading] = useState(false);
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
+    normalizeInitialSection(initialSection)
+  );
+
+  useEffect(() => {
+    setOpenSection(normalizeInitialSection(initialSection));
+  }, [initialSection]);
 
   const primaryVoiceProviderId = voiceSettings?.primaryProviderId ?? null;
   const yandexVoiceOptions = useMemo(
@@ -868,11 +893,16 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   return (
     <div>
       {/* 1. Character — hero */}
-      <Section icon={<Sparkles className="h-4 w-4" />} title={t("character")}>
+      <Section
+        icon={<Sparkles className="h-4 w-4" />}
+        title={t("character")}
+        open={openSection === "character"}
+        onToggle={() => setOpenSection((current) => (current === "character" ? null : "character"))}
+      >
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-border/70 bg-surface p-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-              <div className="grid min-w-0 flex-1 gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+            <div className="flex flex-col gap-4">
+              <div className="grid min-w-0 gap-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
                 <button
                   type="button"
                   onClick={() => setEmojiPickerOpen((o) => !o)}
@@ -911,21 +941,21 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                   </div>
                 </div>
               </div>
-              <div className="flex shrink-0 gap-2 lg:w-[220px] lg:flex-col">
+              <div className="flex flex-wrap gap-2 sm:flex-nowrap">
                 <ActionButton
                   icon={<Rocket className="h-3.5 w-3.5" />}
                   label={t("save")}
                   onClick={() => void handleSaveAndApply()}
                   busy={saving}
                   variant="primary"
-                  className="flex-1 justify-center lg:w-full"
+                  className="min-w-0 flex-1 justify-center"
                 />
                 <ActionButton
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   label={editingPersonality ? t("hidePersonality") : t("editPersonality")}
                   onClick={() => setEditingPersonality(!editingPersonality)}
                   busy={false}
-                  className="flex-1 justify-center lg:w-full"
+                  className="min-w-0 flex-1 justify-center"
                 />
               </div>
             </div>
@@ -1166,7 +1196,14 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       </Section>
 
       {/* 2. Quick actions */}
-      <Section icon={<Rocket className="h-4 w-4" />} title={t("quickActions")} defaultOpen={false}>
+      <Section
+        icon={<Rocket className="h-4 w-4" />}
+        title={t("quickActions")}
+        open={openSection === "quickActions"}
+        onToggle={() =>
+          setOpenSection((current) => (current === "quickActions" ? null : "quickActions"))
+        }
+      >
         {version && (
           <p className="mb-3 text-xs text-text-muted">
             {t("version", { v: version.version, status: assistant.runtimeApply.status })}
@@ -1231,7 +1268,12 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       </Section>
 
       {/* 3. Knowledge */}
-      <Section icon={<Upload className="h-4 w-4" />} title={t("knowledge")} defaultOpen={false}>
+      <Section
+        icon={<Upload className="h-4 w-4" />}
+        title={t("knowledge")}
+        open={openSection === "knowledge"}
+        onToggle={() => setOpenSection((current) => (current === "knowledge" ? null : "knowledge"))}
+      >
         <div className="rounded-2xl border border-border/70 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1249,7 +1291,12 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       </Section>
 
       {/* 4. Memory */}
-      <Section icon={<Brain className="h-4 w-4" />} title={t("memory")} defaultOpen={false}>
+      <Section
+        icon={<Brain className="h-4 w-4" />}
+        title={t("memory")}
+        open={openSection === "memory"}
+        onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
+      >
         <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
           {(["workspace", "registry"] as const).map((tab) => (
             <button
@@ -1415,14 +1462,19 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       />
 
       {/* 4. Tasks */}
-      <Section icon={<ListTodo className="h-4 w-4" />} title={t("tasks")} defaultOpen={false}>
+      <Section
+        icon={<ListTodo className="h-4 w-4" />}
+        title={t("tasks")}
+        open={openSection === "tasks"}
+        onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
+      >
         {taskLoading ? (
           <div className="flex justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3">
+            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
               <button
                 type="button"
                 onClick={() => setShowUserTasks((open) => !open)}
@@ -1432,7 +1484,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                   <p className="text-sm font-medium text-text">{t("userTasksTitle")}</p>
                   <p className="mt-1 text-[11px] text-text-subtle">{t("userTasksHelp")}</p>
                 </div>
-                <span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-semibold text-text-muted">
+                <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
                   {userTaskItems.length}
                 </span>
               </button>
@@ -1442,14 +1494,14 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                   {userTaskItems.length === 0 ? (
                     <p className="mt-3 text-xs text-text-subtle">{t("noCurrentTasks")}</p>
                   ) : (
-                    <ul className="mt-3 space-y-2">
+                    <ul className="mt-3 space-y-2.5">
                       {userTaskItems.map((item) => (
                         <li
                           key={item.id}
-                          className="rounded-lg border border-border/60 bg-background/40 p-2.5"
+                          className="rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
                         >
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">
+                          <div className="flex flex-wrap items-start gap-2">
+                            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
                               {item.title}
                             </span>
                             <span className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
@@ -1459,10 +1511,10 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                               {getTaskStatusLabel(item.controlStatus)}
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[11px] text-text-subtle">
-                              {getTaskTimingLabel(item)}
-                            </p>
+                          <p className="mt-1.5 text-[11px] text-text-subtle">
+                            {getTaskTimingLabel(item)}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
                             <div className="flex gap-1.5">
                               <ActionButton
                                 icon={<RotateCcw className="h-3 w-3" />}
@@ -1489,22 +1541,19 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
               )}
             </div>
 
-            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3">
+            <div className="rounded-xl border border-border/70 bg-surface-raised/35 p-3.5">
               <button
                 type="button"
                 onClick={() => setShowAssistantActions((open) => !open)}
                 className="flex w-full cursor-pointer items-center justify-between gap-3 text-left"
               >
-                <div className="flex items-start gap-2">
-                  <Brain className="mt-0.5 h-3.5 w-3.5 text-text-subtle" />
-                  <div>
-                    <p className="text-sm font-medium text-text">{t("assistantActions")}</p>
-                    <p className="mt-1 text-[11px] text-text-subtle">
-                      {t("assistantActionsDescription")}
-                    </p>
-                  </div>
+                <div>
+                  <p className="text-sm font-medium text-text">{t("assistantActions")}</p>
+                  <p className="mt-1 text-[11px] text-text-subtle">
+                    {t("assistantActionsDescription")}
+                  </p>
                 </div>
-                <span className="rounded-full bg-background px-2.5 py-1 text-[10px] font-semibold text-text-muted">
+                <span className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-full bg-background px-2.5 text-sm font-bold tabular-nums text-text">
                   {assistantTaskItems.length}
                 </span>
               </button>
@@ -1514,14 +1563,14 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                   {assistantTaskItems.length === 0 ? (
                     <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
                   ) : (
-                    <ul className="mt-3 space-y-2">
+                    <ul className="mt-3 space-y-2.5">
                       {assistantTaskItems.map((item) => (
                         <li
                           key={item.id}
-                          className="rounded-lg border border-border/60 bg-background/40 p-2.5"
+                          className="rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
                         >
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">
+                          <div className="flex flex-wrap items-start gap-2">
+                            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
                               {item.title}
                             </span>
                             <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
@@ -1531,10 +1580,10 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                               {t("assistantAction")}
                             </span>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-[11px] text-text-subtle">
-                              {getTaskTimingLabel(item)}
-                            </p>
+                          <p className="mt-1.5 text-[11px] text-text-subtle">
+                            {getTaskTimingLabel(item)}
+                          </p>
+                          <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
                             <div className="flex gap-1.5">
                               <ActionButton
                                 icon={<RotateCcw className="h-3 w-3" />}
@@ -1565,7 +1614,12 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       </Section>
 
       {/* 5. Channels */}
-      <Section icon={<Send className="h-4 w-4" />} title={t("channels")} defaultOpen={false}>
+      <Section
+        icon={<Send className="h-4 w-4" />}
+        title={t("channels")}
+        open={openSection === "channels"}
+        onToggle={() => setOpenSection((current) => (current === "channels" ? null : "channels"))}
+      >
         <div className="space-y-1.5">
           <ChannelRow
             name="Telegram"
@@ -1621,8 +1675,8 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       <Section
         icon={<BarChart3 className="h-4 w-4" />}
         title={t("limitsAndPlan")}
-        defaultOpen={false}
-        forceOpen={initialSection === "limits"}
+        open={openSection === "limits"}
+        onToggle={() => setOpenSection((current) => (current === "limits" ? null : "limits"))}
       >
         {data.plan ? (
           <div className="space-y-3">
@@ -1678,7 +1732,10 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       <Section
         icon={<History className="h-4 w-4" />}
         title={t("publishHistory")}
-        defaultOpen={false}
+        open={openSection === "publishHistory"}
+        onToggle={() =>
+          setOpenSection((current) => (current === "publishHistory" ? null : "publishHistory"))
+        }
       >
         {version ? (
           <div className="text-xs text-text-muted">

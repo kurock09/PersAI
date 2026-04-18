@@ -9,9 +9,10 @@ interface SlideOverProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  size?: "default" | "narrow";
 }
 
-export function SlideOver({ open, onClose, title, children }: SlideOverProps) {
+export function SlideOver({ open, onClose, title, children, size = "default" }: SlideOverProps) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -33,7 +34,11 @@ export function SlideOver({ open, onClose, title, children }: SlideOverProps) {
             onClick={onClose}
           />
           <motion.aside
-            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface shadow-2xl md:max-w-[560px] lg:max-w-[680px] xl:max-w-[760px]"
+            className={`fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface shadow-2xl ${
+              size === "narrow"
+                ? "md:max-w-[520px] lg:max-w-[600px] xl:max-w-[660px]"
+                : "md:max-w-[560px] lg:max-w-[680px] xl:max-w-[760px]"
+            }`}
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}

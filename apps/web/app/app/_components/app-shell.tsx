@@ -180,6 +180,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             setSettingsInitialSection(undefined);
           }}
           title={ts("title")}
+          size="narrow"
         >
           <AssistantSettings data={appData} initialSection={settingsInitialSection} />
         </SlideOver>

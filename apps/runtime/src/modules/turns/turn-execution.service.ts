@@ -320,14 +320,14 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     options?: { allowModelToolExposure?: boolean }
   ): Promise<PreparedTurnExecution> {
-    let bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+    let bundleEntry = this.resolveBundleEntry(input.bundle);
     if (bundleEntry === null) {
       const warmed = await this.runtimeBundleAutoRefreshService.ensureRequestedBundle({
         bundle: input.bundle,
         runtimeTier: input.runtimeTier
       });
       if (warmed) {
-        bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+        bundleEntry = this.resolveBundleEntry(input.bundle);
       }
     }
     if (bundleEntry === null) {
@@ -387,6 +387,19 @@ export class TurnExecutionService {
         input.deepMode === true
       )
     };
+  }
+
+  private resolveBundleEntry(
+    bundle: RuntimeTurnRequest["bundle"]
+  ): ReturnType<RuntimeBundleRegistryService["getBundle"]> {
+    return (
+      this.runtimeBundleRegistryService.getBundle(bundle.bundleId) ??
+      this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+        assistantId: bundle.assistantId,
+        publishedVersionId: bundle.publishedVersionId,
+        bundleHash: bundle.bundleHash
+      })
+    );
   }
 
   private async *streamAcceptedTurn(
