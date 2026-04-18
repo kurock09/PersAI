@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import {
   PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS,
   PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
@@ -15,6 +20,8 @@ import { ProviderWarmupService } from "./provider-warmup.service";
 
 @Injectable()
 export class ProviderTextGenerationService {
+  private readonly logger = new Logger(ProviderTextGenerationService.name);
+
   constructor(
     private readonly providerWarmupService: ProviderWarmupService,
     private readonly openaiProviderClient: OpenAIProviderClient,
@@ -41,6 +48,14 @@ export class ProviderTextGenerationService {
   ): Promise<AsyncGenerator<ProviderGatewayTextStreamEvent>> {
     this.assertValidRequest(input);
     this.assertProviderReady(input);
+    this.logger.log(
+      `[stream-text-dispatch] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${input.requestMetadata?.classification ?? "unknown"} iteration=${
+        input.requestMetadata?.toolLoopIteration === null ||
+        input.requestMetadata?.toolLoopIteration === undefined
+          ? "null"
+          : String(input.requestMetadata.toolLoopIteration)
+      } provider=${input.provider} model=${input.model}`
+    );
 
     switch (input.provider) {
       case "openai":

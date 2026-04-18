@@ -6,6 +6,7 @@ import { runProviderVideoGenerationServiceTest } from "./provider-video-generati
 import { runAnthropicProviderClientTest } from "./anthropic-provider.client.test";
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
+import { runProviderTextGenerationControllerTest } from "./provider-text-generation.controller.test";
 import { runProviderTextGenerationServiceTest } from "./provider-text-generation.service.test";
 import { runProviderWebFetchServiceTest } from "./provider-web-fetch.service.test";
 import { runProviderWebSearchServiceTest } from "./provider-web-search.service.test";
@@ -23,6 +24,7 @@ async function run(): Promise<void> {
   await runProviderVideoGenerationServiceTest();
   await runProviderSpeechGenerationServiceTest();
   await runProviderWarmupServiceTest();
+  await runProviderTextGenerationControllerTest();
   await runProviderTextGenerationServiceTest();
   await runProviderWebSearchServiceTest();
   await runProviderWebFetchServiceTest();

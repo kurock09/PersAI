@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
@@ -45,6 +46,8 @@ const PROVIDER_GATEWAY_READY_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class ProviderGatewayClientService {
+  private readonly logger = new Logger(ProviderGatewayClientService.name);
+
   constructor(@Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig) {}
 
   isConfigured(): boolean {
@@ -359,7 +362,17 @@ export class ProviderGatewayClientService {
       options?.signal
     );
     let response: Response;
+    const requestId = input.requestMetadata?.runtimeRequestId ?? "unknown";
+    const classification = input.requestMetadata?.classification ?? "unknown";
+    const iteration =
+      input.requestMetadata?.toolLoopIteration === null ||
+      input.requestMetadata?.toolLoopIteration === undefined
+        ? "null"
+        : String(input.requestMetadata.toolLoopIteration);
     try {
+      this.logger.log(
+        `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} provider=${input.provider} model=${input.model} toolCount=${String(input.tools?.length ?? 0)} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
+      );
       response = await this.fetchWithSignal(
         this.buildUrl("/api/v1/providers/stream-text"),
         {
@@ -374,9 +387,17 @@ export class ProviderGatewayClientService {
         options?.signal
       );
     } catch (error) {
+      this.logger.warn(
+        `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} failed-before-headers: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
       dispose();
       throw error;
     }
+    this.logger.log(
+      `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} headers-received status=${String(response.status)}`
+    );
     if (!response.ok) {
       const body = await this.readBody(response);
       dispose();

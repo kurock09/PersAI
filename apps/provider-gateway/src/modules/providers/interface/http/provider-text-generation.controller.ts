@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, HttpCode, HttpStatus, Logger, Post, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   ProviderGatewayTextGenerateRequest,
@@ -8,6 +8,8 @@ import { ProviderTextGenerationService } from "../../provider-text-generation.se
 
 @Controller("api/v1/providers")
 export class ProviderTextGenerationController {
+  private readonly logger = new Logger(ProviderTextGenerationController.name);
+
   constructor(private readonly providerTextGenerationService: ProviderTextGenerationService) {}
 
   @Post("generate-text")
@@ -22,12 +24,20 @@ export class ProviderTextGenerationController {
   @HttpCode(HttpStatus.OK)
   async streamText(
     @Req() req: IncomingMessage,
-    @Res() res: ServerResponse & { flush?: () => void },
+    @Res() res: ServerResponse & { flush?: () => void; flushHeaders?: () => void },
     @Body() body: ProviderGatewayTextGenerateRequest
   ): Promise<void> {
     const abortController = new AbortController();
     req.on("aborted", () => abortController.abort());
     res.on("close", () => abortController.abort());
+    this.logger.log(
+      `[stream-text-entry] requestId=${body.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${body.requestMetadata?.classification ?? "unknown"} iteration=${
+        body.requestMetadata?.toolLoopIteration === null ||
+        body.requestMetadata?.toolLoopIteration === undefined
+          ? "null"
+          : String(body.requestMetadata.toolLoopIteration)
+      } provider=${body.provider} model=${body.model} toolCount=${String(body.tools?.length ?? 0)} toolHistoryCount=${String(body.toolHistory?.length ?? 0)}`
+    );
 
     const stream = await this.providerTextGenerationService.streamText(
       body,
@@ -37,6 +47,7 @@ export class ProviderTextGenerationController {
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
 
     for await (const event of stream) {
       if (res.writableEnded) {

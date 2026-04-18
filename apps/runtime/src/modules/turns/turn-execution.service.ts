@@ -400,16 +400,20 @@ export class TurnExecutionService {
     try {
       for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
         const iterationBaseText = assembledText;
+        const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
+          assistantText: iterationBaseText,
+          toolHistory,
+          requestMetadata: this.createTurnProviderRequestMetadata({
+            acceptedTurn,
+            classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+            toolLoopIteration: iteration
+          })
+        });
+        this.logger.log(
+          `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
+        );
         const providerStream = await this.providerGatewayClientService.streamText(
-          this.buildToolLoopProviderRequest(execution.providerRequest, {
-            assistantText: iterationBaseText,
-            toolHistory,
-            requestMetadata: this.createTurnProviderRequestMetadata({
-              acceptedTurn,
-              classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
-              toolLoopIteration: iteration
-            })
-          }),
+          providerRequest,
           signal === undefined ? undefined : { signal }
         );
         let advancedToNextIteration = false;
@@ -502,6 +506,9 @@ export class TurnExecutionService {
             }
 
             if (routeControl !== undefined) {
+              this.logger.log(
+                `[route-control-apply] requestId=${acceptedTurn.receipt.requestId} nextModelRole=${routeControl.modelRole} iteration=${String(iteration)}`
+              );
               this.applyRouteControlOutcome(execution, input, routeControl);
             }
             if (durableCompactionExecuted) {

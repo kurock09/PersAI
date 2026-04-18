@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayImageEditRequest,
@@ -102,6 +102,7 @@ type OpenAIBuiltTool = {
 export class OpenAIProviderClient implements ProviderWarmableClient {
   readonly provider = "openai" as const;
   readonly catalogSource = "bootstrap_config" as const;
+  private readonly logger = new Logger(OpenAIProviderClient.name);
   private client: OpenAI | null = null;
 
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
@@ -532,12 +533,28 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         payload.metadata = metadata;
       }
       this.applyOpenAIPromptCache(payload, input);
+      this.logger.log(
+        `[openai-stream-start] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${input.requestMetadata?.classification ?? "unknown"} iteration=${
+          input.requestMetadata?.toolLoopIteration === null ||
+          input.requestMetadata?.toolLoopIteration === undefined
+            ? "null"
+            : String(input.requestMetadata.toolLoopIteration)
+        } model=${input.model} toolCount=${String(input.tools?.length ?? 0)} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
+      );
       const stream = (await this.client.responses.create(
         payload as unknown as OpenAIResponseCreateParams,
         {
           signal: timedSignal
         }
       )) as AsyncIterable<Record<string, unknown>>;
+      this.logger.log(
+        `[openai-stream-start] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} iteration=${
+          input.requestMetadata?.toolLoopIteration === null ||
+          input.requestMetadata?.toolLoopIteration === undefined
+            ? "null"
+            : String(input.requestMetadata.toolLoopIteration)
+        } stream-created`
+      );
 
       for await (const rawEvent of stream) {
         const event = this.asObject(rawEvent);
@@ -656,6 +673,14 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       };
       yield failedEvent;
     } catch (error) {
+      this.logger.warn(
+        `[openai-stream-start] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} iteration=${
+          input.requestMetadata?.toolLoopIteration === null ||
+          input.requestMetadata?.toolLoopIteration === undefined
+            ? "null"
+            : String(input.requestMetadata.toolLoopIteration)
+        } failed-before-event: ${error instanceof Error ? error.message : String(error)}`
+      );
       if (this.isAbortError(error) || signal?.aborted) {
         return;
       }
