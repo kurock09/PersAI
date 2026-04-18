@@ -35,10 +35,24 @@ function createPlanState(): AdminPlanState {
       mediaStorageBytesLimit: null,
       workspaceStorageBytesLimit: null
     },
+    retrievalPolicy: {
+      defaultMaxResults: 5,
+      maxMaxResults: 8,
+      lexicalCandidateLimit: 60,
+      vectorCandidateLimit: 240,
+      knowledgeFetchWindowRadius: 1,
+      chatFetchWindowRadius: 2,
+      fetchMaxChars: 6000,
+      helperEnabled: true,
+      helperCandidateLimit: 6,
+      helperMaxOutputTokens: 220,
+      embeddingSearchEnabled: true
+    },
     primaryModelKey: "gpt-5.4",
     premiumModelKey: "gpt-5.4",
     reasoningModelKey: "gpt-5.4-mini",
     retrievalModelKey: "gpt-5.4-nano",
+    embeddingModelKey: "text-embedding-3-small",
     videoGenerateModelKey: "sora-2-pro",
     runtimeTierDefault: "paid_shared_restricted",
     contextPolicy: {

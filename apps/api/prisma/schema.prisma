@@ -135,6 +135,36 @@ enum AssistantKnowledgeSourceStatus {
   failed
 }
 
+enum GlobalKnowledgeSourceScope {
+  product
+  skill
+}
+
+enum KnowledgeRetrievalEventKind {
+  search
+  fetch
+}
+
+enum KnowledgeRetrievalEventSource {
+  document
+  global
+  memory
+  chat
+  preset
+  subscription
+}
+
+enum KnowledgeRetrievalMode {
+  lexical
+  hybrid
+}
+
+enum KnowledgeRetrievalOutcome {
+  success
+  empty
+  error
+}
+
 enum AttachmentType {
   image
   audio
@@ -262,6 +292,7 @@ model AppUser {
   createdPlatformRollouts                AssistantPlatformRollout[]
   platformRolloutItems                   AssistantPlatformRolloutItem[]
   abuseGuardStates                       AssistantAbuseGuardState[]
+  createdGlobalKnowledgeSources          GlobalKnowledgeSource[]
   updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
   updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
 
@@ -291,6 +322,10 @@ model Workspace {
   chatMessageAttachments      AssistantChatMessageAttachment[]
   knowledgeSources            AssistantKnowledgeSource[]
   knowledgeSourceChunks       AssistantKnowledgeSourceChunk[]
+  globalKnowledgeSources      GlobalKnowledgeSource[]
+  globalKnowledgeSourceChunks GlobalKnowledgeSourceChunk[]
+  knowledgeRetrievalEvents    KnowledgeRetrievalEvent[]
+  knowledgeRetrievalRollups   KnowledgeRetrievalRollup[]
   runtimeBundleStates         RuntimeBundleState[]
   runtimeSessions             RuntimeSession[]
   runtimeSessionCompactions   RuntimeSessionCompaction[]
@@ -364,6 +399,7 @@ model Assistant {
   abusePeerStates              AssistantAbusePeerState[]
   telegramGroups               AssistantTelegramGroup[]
   chatMessageAttachments       AssistantChatMessageAttachment[]
+  knowledgeRetrievalEvents     KnowledgeRetrievalEvent[]
   runtimeBundleStates          RuntimeBundleState[]
   runtimeSessions              RuntimeSession[]
   runtimeSessionCompactions    RuntimeSessionCompaction[]
@@ -1110,6 +1146,9 @@ model AssistantKnowledgeSourceChunk {
   chunkIndex        Int                      @map("chunk_index")
   locator           String?                  @db.Text
   content           String                   @db.Text
+  embeddingModelKey String?                  @map("embedding_model_key") @db.VarChar(255)
+  embeddingVector   Json?                    @map("embedding_vector") @db.JsonB
+  embeddingGeneratedAt DateTime?             @map("embedding_generated_at") @db.Timestamptz(6)
   createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   knowledgeSource   AssistantKnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   assistant         Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -1119,6 +1158,124 @@ model AssistantKnowledgeSourceChunk {
   @@index([knowledgeSourceId, createdAt(sort: Desc)])
   @@index([assistantId, createdAt(sort: Desc)])
   @@map("assistant_knowledge_source_chunks")
+}
+
+model GlobalKnowledgeSource {
+  id                    String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId           String                       @map("workspace_id") @db.Uuid
+  createdByUserId       String                       @map("created_by_user_id") @db.Uuid
+  scope                 GlobalKnowledgeSourceScope
+  displayName           String?                      @map("display_name") @db.VarChar(255)
+  originalFilename      String                       @map("original_filename") @db.VarChar(255)
+  mimeType              String                       @map("mime_type") @db.VarChar(255)
+  sizeBytes             BigInt                       @map("size_bytes")
+  storagePath           String                       @map("storage_path")
+  status                AssistantKnowledgeSourceStatus
+  currentVersion        Int                          @default(1) @map("current_version")
+  chunkCount            Int                          @default(0) @map("chunk_count")
+  lastIndexedAt         DateTime?                    @map("last_indexed_at") @db.Timestamptz(6)
+  lastReindexRequestedAt DateTime?                   @map("last_reindex_requested_at") @db.Timestamptz(6)
+  lastErrorCode         String?                      @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage      String?                      @map("last_error_message") @db.Text
+  createdAt             DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace             Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser         AppUser                      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chunks                GlobalKnowledgeSourceChunk[]
+
+  @@index([scope, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([workspaceId, scope, createdAt(sort: Desc)])
+  @@map("global_knowledge_sources")
+}
+
+model GlobalKnowledgeSourceChunk {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  globalKnowledgeSourceId String            @map("global_knowledge_source_id") @db.Uuid
+  workspaceId         String                @map("workspace_id") @db.Uuid
+  scope               GlobalKnowledgeSourceScope
+  sourceVersion       Int                   @map("source_version")
+  chunkIndex          Int                   @map("chunk_index")
+  locator             String?               @db.Text
+  content             String                @db.Text
+  embeddingModelKey   String?               @map("embedding_model_key") @db.VarChar(255)
+  embeddingVector     Json?                 @map("embedding_vector") @db.JsonB
+  embeddingGeneratedAt DateTime?            @map("embedding_generated_at") @db.Timestamptz(6)
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  globalKnowledgeSource GlobalKnowledgeSource @relation(fields: [globalKnowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace           Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([globalKnowledgeSourceId, sourceVersion, chunkIndex])
+  @@index([globalKnowledgeSourceId, createdAt(sort: Desc)])
+  @@index([scope, createdAt(sort: Desc)])
+  @@index([workspaceId, scope, createdAt(sort: Desc)])
+  @@map("global_knowledge_source_chunks")
+}
+
+model KnowledgeRetrievalEvent {
+  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId           String                      @map("workspace_id") @db.Uuid
+  assistantId           String?                     @map("assistant_id") @db.Uuid
+  eventKind             KnowledgeRetrievalEventKind @map("event_kind")
+  source                KnowledgeRetrievalEventSource
+  retrievalMode         KnowledgeRetrievalMode      @map("retrieval_mode")
+  outcome               KnowledgeRetrievalOutcome
+  resultCount           Int                         @default(0) @map("result_count")
+  lexicalCandidateCount Int                         @default(0) @map("lexical_candidate_count")
+  vectorCandidateCount  Int                         @default(0) @map("vector_candidate_count")
+  helperApplied         Boolean                     @default(false) @map("helper_applied")
+  fetchDepth            Int                         @default(0) @map("fetch_depth")
+  fetchedChars          Int                         @default(0) @map("fetched_chars")
+  embeddingModelKey     String?                     @map("embedding_model_key") @db.VarChar(255)
+  helperModelKey        String?                     @map("helper_model_key") @db.VarChar(255)
+  helperProviderKey     String?                     @map("helper_provider_key") @db.VarChar(64)
+  helperInputTokens     Int?                        @map("helper_input_tokens")
+  helperOutputTokens    Int?                        @map("helper_output_tokens")
+  helperTotalTokens     Int?                        @map("helper_total_tokens")
+  errorCode             String?                     @map("error_code") @db.VarChar(128)
+  durationMs            Int                         @map("duration_ms")
+  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace             Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant             Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([workspaceId, eventKind, createdAt(sort: Desc)])
+  @@index([assistantId, eventKind, createdAt(sort: Desc)])
+  @@index([source, eventKind, createdAt(sort: Desc)])
+  @@map("knowledge_retrieval_events")
+}
+
+model KnowledgeRetrievalRollup {
+  id                     String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String                       @map("workspace_id") @db.Uuid
+  source                 KnowledgeRetrievalEventSource
+  searchesTotal          Int                          @default(0) @map("searches_total")
+  fetchesTotal           Int                          @default(0) @map("fetches_total")
+  successTotal           Int                          @default(0) @map("success_total")
+  emptyTotal             Int                          @default(0) @map("empty_total")
+  errorTotal             Int                          @default(0) @map("error_total")
+  lexicalTotal           Int                          @default(0) @map("lexical_total")
+  hybridTotal            Int                          @default(0) @map("hybrid_total")
+  helperAppliedTotal     Int                          @default(0) @map("helper_applied_total")
+  embeddingQueryTotal    Int                          @default(0) @map("embedding_query_total")
+  durationMsTotal        BigInt                       @default(0) @map("duration_ms_total")
+  maxDurationMs          Int                          @default(0) @map("max_duration_ms")
+  resultCountTotal       Int                          @default(0) @map("result_count_total")
+  lexicalCandidatesTotal Int                          @default(0) @map("lexical_candidates_total")
+  vectorCandidatesTotal  Int                          @default(0) @map("vector_candidates_total")
+  fetchDepthTotal        Int                          @default(0) @map("fetch_depth_total")
+  maxFetchDepth          Int                          @default(0) @map("max_fetch_depth")
+  fetchedCharsTotal      BigInt                       @default(0) @map("fetched_chars_total")
+  maxFetchedChars        Int                          @default(0) @map("max_fetched_chars")
+  helperInputTokensTotal Int                          @default(0) @map("helper_input_tokens_total")
+  helperOutputTokensTotal Int                         @default(0) @map("helper_output_tokens_total")
+  helperTotalTokensTotal Int                          @default(0) @map("helper_total_tokens_total")
+  createdAt              DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace              Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, source])
+  @@index([workspaceId, updatedAt(sort: Desc)])
+  @@map("knowledge_retrieval_rollups")
 }
 
 model AssistantTelegramGroup {

@@ -19,6 +19,26 @@ type KnowledgeChunkRow = {
   };
 };
 
+type GlobalKnowledgeChunkRow = {
+  workspaceId: string;
+  globalKnowledgeSourceId: string;
+  scope: "product" | "skill";
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey: string | null;
+  embeddingVector: unknown;
+  globalKnowledgeSource: {
+    id: string;
+    workspaceId: string;
+    status: "ready" | "processing";
+    displayName: string | null;
+    originalFilename: string;
+    mimeType: string;
+  };
+};
+
 type MemoryRegistryRow = {
   id: string;
   assistantId: string;
@@ -226,6 +246,48 @@ const rows: KnowledgeChunkRow[] = [
       displayName: "Misc Appendix",
       originalFilename: "appendix-pricing.txt",
       mimeType: "text/plain"
+    }
+  }
+];
+
+const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
+  {
+    workspaceId: "workspace-1",
+    globalKnowledgeSourceId: "global-source-1",
+    scope: "skill",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "sync-guide#1",
+    content: "Connector sync cadence keeps uploaded skill knowledge fresh across reindex runs.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    globalKnowledgeSource: {
+      id: "global-source-1",
+      workspaceId: "workspace-1",
+      status: "ready",
+      displayName: "Skill Sync Guide",
+      originalFilename: "skill-sync-guide.md",
+      mimeType: "text/markdown"
+    }
+  },
+  {
+    workspaceId: "workspace-1",
+    globalKnowledgeSourceId: "global-source-1",
+    scope: "skill",
+    sourceVersion: 1,
+    chunkIndex: 1,
+    locator: "sync-guide#2",
+    content:
+      "Admins can upload skill knowledge and trigger reindex when connector configuration changes.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    globalKnowledgeSource: {
+      id: "global-source-1",
+      workspaceId: "workspace-1",
+      status: "ready",
+      displayName: "Skill Sync Guide",
+      originalFilename: "skill-sync-guide.md",
+      mimeType: "text/markdown"
     }
   }
 ];
@@ -639,6 +701,39 @@ function sortKnowledgeRows(
   });
 }
 
+function sortGlobalKnowledgeRows(
+  entries: GlobalKnowledgeChunkRow[],
+  orderBy: Array<{
+    globalKnowledgeSourceId?: "asc" | "desc";
+    sourceVersion?: "asc" | "desc";
+    chunkIndex?: "asc" | "desc";
+  }>
+): GlobalKnowledgeChunkRow[] {
+  return [...entries].sort((left, right) => {
+    for (const rule of orderBy) {
+      if (rule.globalKnowledgeSourceId) {
+        const diff = left.globalKnowledgeSourceId.localeCompare(right.globalKnowledgeSourceId);
+        if (diff !== 0) {
+          return rule.globalKnowledgeSourceId === "asc" ? diff : -diff;
+        }
+      }
+      if (rule.sourceVersion) {
+        const diff = left.sourceVersion - right.sourceVersion;
+        if (diff !== 0) {
+          return rule.sourceVersion === "asc" ? diff : -diff;
+        }
+      }
+      if (rule.chunkIndex) {
+        const diff = left.chunkIndex - right.chunkIndex;
+        if (diff !== 0) {
+          return rule.chunkIndex === "asc" ? diff : -diff;
+        }
+      }
+    }
+    return 0;
+  });
+}
+
 function sortMemoryRows(
   entries: MemoryRegistryRow[],
   orderBy: Array<{ createdAt?: "asc" | "desc"; id?: "asc" | "desc" }>
@@ -758,6 +853,127 @@ async function run(): Promise<void> {
             row.knowledgeSource.namespace === sourceWhere.namespace &&
             row.knowledgeSource.status === sourceWhere.status
           );
+        }) ?? null
+    },
+    globalKnowledgeSourceChunk: {
+      findMany: async ({
+        where,
+        take,
+        orderBy
+      }: {
+        where: Record<string, unknown>;
+        take?: number;
+        orderBy?: Array<{
+          globalKnowledgeSourceId?: "asc" | "desc";
+          sourceVersion?: "asc" | "desc";
+          chunkIndex?: "asc" | "desc";
+        }>;
+      }) => {
+        const filtered = globalKnowledgeRows.filter((row) => {
+          if (where.workspaceId !== undefined && row.workspaceId !== where.workspaceId) {
+            return false;
+          }
+          if (
+            where.globalKnowledgeSourceId !== undefined &&
+            row.globalKnowledgeSourceId !== where.globalKnowledgeSourceId
+          ) {
+            return false;
+          }
+          if (where.sourceVersion !== undefined && row.sourceVersion !== where.sourceVersion) {
+            return false;
+          }
+          if (
+            typeof where.embeddingModelKey === "string" &&
+            row.embeddingModelKey !== where.embeddingModelKey
+          ) {
+            return false;
+          }
+          if (typeof where.chunkIndex === "number" && row.chunkIndex !== where.chunkIndex) {
+            return false;
+          }
+          if (
+            where.chunkIndex &&
+            typeof where.chunkIndex === "object" &&
+            where.chunkIndex !== null &&
+            ("gte" in where.chunkIndex || "lte" in where.chunkIndex)
+          ) {
+            const bounds = where.chunkIndex as { gte?: number; lte?: number };
+            if (bounds.gte !== undefined && row.chunkIndex < bounds.gte) {
+              return false;
+            }
+            if (bounds.lte !== undefined && row.chunkIndex > bounds.lte) {
+              return false;
+            }
+          }
+          const sourceWhere = where.globalKnowledgeSource as Record<string, unknown> | undefined;
+          if (sourceWhere) {
+            if (
+              sourceWhere.workspaceId !== undefined &&
+              row.globalKnowledgeSource.workspaceId !== sourceWhere.workspaceId
+            ) {
+              return false;
+            }
+            if (
+              sourceWhere.status !== undefined &&
+              row.globalKnowledgeSource.status !== sourceWhere.status
+            ) {
+              return false;
+            }
+          }
+          if (Array.isArray(where.OR)) {
+            return where.OR.some((entry) => {
+              const contentWhere = (entry as { content?: { contains?: string } }).content;
+              if (typeof contentWhere?.contains === "string") {
+                return containsInsensitive(row.content, contentWhere.contains);
+              }
+
+              const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
+              return typeof locatorWhere?.contains === "string" && row.locator !== null
+                ? containsInsensitive(row.locator, locatorWhere.contains)
+                : false;
+            });
+          }
+          return true;
+        });
+        const sorted = Array.isArray(orderBy)
+          ? sortGlobalKnowledgeRows(filtered, orderBy)
+          : filtered;
+        return typeof take === "number" ? sorted.slice(0, take) : sorted;
+      },
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        globalKnowledgeRows.find((row) => {
+          if (where.workspaceId !== undefined && row.workspaceId !== where.workspaceId) {
+            return false;
+          }
+          if (
+            where.globalKnowledgeSourceId !== undefined &&
+            row.globalKnowledgeSourceId !== where.globalKnowledgeSourceId
+          ) {
+            return false;
+          }
+          if (where.sourceVersion !== undefined && row.sourceVersion !== where.sourceVersion) {
+            return false;
+          }
+          if (typeof where.chunkIndex === "number" && row.chunkIndex !== where.chunkIndex) {
+            return false;
+          }
+          const sourceWhere = where.globalKnowledgeSource as Record<string, unknown> | undefined;
+          if (!sourceWhere) {
+            return true;
+          }
+          if (
+            sourceWhere.workspaceId !== undefined &&
+            row.globalKnowledgeSource.workspaceId !== sourceWhere.workspaceId
+          ) {
+            return false;
+          }
+          if (
+            sourceWhere.status !== undefined &&
+            row.globalKnowledgeSource.status !== sourceWhere.status
+          ) {
+            return false;
+          }
+          return true;
         }) ?? null
     },
     assistantMemoryRegistryItem: {
@@ -919,7 +1135,36 @@ async function run(): Promise<void> {
     }
   };
 
-  const service = new ReadAssistantKnowledgeService(prisma as never);
+  const service = new ReadAssistantKnowledgeService(
+    prisma as never,
+    {
+      generateEmbeddings: async () => [null]
+    } as never,
+    {
+      resolveAssistantEmbeddingModelKey: async () => null,
+      resolveAssistantRetrievalModelKey: async () => null,
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: 5,
+        maxMaxResults: 8,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: true,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true
+      })
+    } as never,
+    {
+      rerankCandidates: async () => null
+    } as never,
+    {
+      recordSearch: async () => undefined,
+      recordFetch: async () => undefined
+    } as never
+  );
 
   const hits = await service.searchDocuments({
     assistantId: "assistant-1",
@@ -1087,6 +1332,15 @@ async function run(): Promise<void> {
     true
   );
 
+  const uploadedGlobalHits = await service.search({
+    assistantId: "assistant-1",
+    source: "global",
+    query: "connector sync cadence",
+    maxResults: 3
+  });
+  assert.equal(uploadedGlobalHits[0]?.referenceId, "global-uploaded:global-source-1:1:0");
+  assert.equal(uploadedGlobalHits[0]?.title, "Skill Sync Guide");
+
   const globalFetched = await service.fetch({
     assistantId: "assistant-1",
     source: "global",
@@ -1094,6 +1348,15 @@ async function run(): Promise<void> {
   });
   assert.equal(globalFetched?.source, "global");
   assert.ok((globalFetched?.content ?? "").includes("interactive page navigation"));
+
+  const uploadedGlobalFetched = await service.fetch({
+    assistantId: "assistant-1",
+    source: "global",
+    referenceId: "global-uploaded:global-source-1:1:0"
+  });
+  assert.equal(uploadedGlobalFetched?.source, "global");
+  assert.ok((uploadedGlobalFetched?.content ?? "").includes("Connector sync cadence"));
+  assert.ok((uploadedGlobalFetched?.content ?? "").includes("Admins can upload skill knowledge"));
 
   const missing = await service.fetchDocument({
     assistantId: "assistant-1",

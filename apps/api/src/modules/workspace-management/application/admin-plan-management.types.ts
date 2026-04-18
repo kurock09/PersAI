@@ -48,6 +48,20 @@ export type AdminPlanToolActivationInput = {
 
 export type AdminPlanContextPolicy = RuntimeContextHydrationConfig;
 
+export type AdminPlanRetrievalPolicy = {
+  defaultMaxResults: number;
+  maxMaxResults: number;
+  lexicalCandidateLimit: number;
+  vectorCandidateLimit: number;
+  knowledgeFetchWindowRadius: number;
+  chatFetchWindowRadius: number;
+  fetchMaxChars: number;
+  helperEnabled: boolean;
+  helperCandidateLimit: number;
+  helperMaxOutputTokens: number;
+  embeddingSearchEnabled: boolean;
+};
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -66,10 +80,12 @@ export type AdminPlanInput = {
     workspaceStorageBytesLimit: number | null;
   };
   contextPolicy: AdminPlanContextPolicy;
+  retrievalPolicy: AdminPlanRetrievalPolicy;
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;
   retrievalModelKey: string | null;
+  embeddingModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
@@ -98,10 +114,12 @@ export type AdminPlanState = {
     workspaceStorageBytesLimit: number | null;
   };
   contextPolicy: AdminPlanContextPolicy;
+  retrievalPolicy: AdminPlanRetrievalPolicy;
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;
   retrievalModelKey: string | null;
+  embeddingModelKey: string | null;
   videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];

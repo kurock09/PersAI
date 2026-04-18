@@ -19,6 +19,7 @@ import type { AssistantPlanCatalog } from "../domain/assistant-plan-catalog.enti
 import type {
   AdminCreatePlanInput,
   AdminPlanInput,
+  AdminPlanRetrievalPolicy,
   AdminPlanState,
   AdminPlanRuntimeTier,
   AdminPlanToolActivationInput
@@ -38,6 +39,7 @@ import {
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
+import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
 
 function toBoolean(value: unknown): boolean {
   return value === true;
@@ -124,6 +126,13 @@ function toNullablePositiveInt(value: unknown): number | null {
   return null;
 }
 
+function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new BadRequestException(`${fieldName} must be an integer greater than 0.`);
+  }
+  return value;
+}
+
 function parseObject(value: unknown, fieldName: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new BadRequestException(`${fieldName} must be an object.`);
@@ -165,6 +174,53 @@ function normalizePlanToolDisplayName(toolCode: string, displayName: string): st
     return "Knowledge Fetch";
   }
   return displayName;
+}
+
+function parseAdminPlanRetrievalPolicy(value: unknown): AdminPlanRetrievalPolicy {
+  if (value === undefined || value === null) {
+    return { ...DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY };
+  }
+  const parsed = parseObject(value, "retrievalPolicy");
+  return {
+    defaultMaxResults: parseRequiredPositiveInt(
+      parsed.defaultMaxResults,
+      "retrievalPolicy.defaultMaxResults"
+    ),
+    maxMaxResults: parseRequiredPositiveInt(parsed.maxMaxResults, "retrievalPolicy.maxMaxResults"),
+    lexicalCandidateLimit: parseRequiredPositiveInt(
+      parsed.lexicalCandidateLimit,
+      "retrievalPolicy.lexicalCandidateLimit"
+    ),
+    vectorCandidateLimit: parseRequiredPositiveInt(
+      parsed.vectorCandidateLimit,
+      "retrievalPolicy.vectorCandidateLimit"
+    ),
+    knowledgeFetchWindowRadius: parseRequiredPositiveInt(
+      parsed.knowledgeFetchWindowRadius,
+      "retrievalPolicy.knowledgeFetchWindowRadius"
+    ),
+    chatFetchWindowRadius: parseRequiredPositiveInt(
+      parsed.chatFetchWindowRadius,
+      "retrievalPolicy.chatFetchWindowRadius"
+    ),
+    fetchMaxChars: parseRequiredPositiveInt(parsed.fetchMaxChars, "retrievalPolicy.fetchMaxChars"),
+    helperEnabled:
+      typeof parsed.helperEnabled === "boolean"
+        ? parsed.helperEnabled
+        : DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.helperEnabled,
+    helperCandidateLimit: parseRequiredPositiveInt(
+      parsed.helperCandidateLimit,
+      "retrievalPolicy.helperCandidateLimit"
+    ),
+    helperMaxOutputTokens: parseRequiredPositiveInt(
+      parsed.helperMaxOutputTokens,
+      "retrievalPolicy.helperMaxOutputTokens"
+    ),
+    embeddingSearchEnabled:
+      typeof parsed.embeddingSearchEnabled === "boolean"
+        ? parsed.embeddingSearchEnabled
+        : DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY.embeddingSearchEnabled
+  };
 }
 
 function formatPlanDeleteInUseMessage(params: {
@@ -244,7 +300,8 @@ export class ManageAdminPlansService {
       input.primaryModelKey,
       input.premiumModelKey,
       input.reasoningModelKey,
-      input.retrievalModelKey
+      input.retrievalModelKey,
+      input.embeddingModelKey
     ]);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
@@ -293,7 +350,8 @@ export class ManageAdminPlansService {
       input.primaryModelKey,
       input.premiumModelKey,
       input.reasoningModelKey,
-      input.retrievalModelKey
+      input.retrievalModelKey,
+      input.embeddingModelKey
     ]);
     await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
@@ -387,6 +445,7 @@ export class ManageAdminPlansService {
       parsed.contextPolicy === undefined || parsed.contextPolicy === null
         ? createDefaultPlanContextHydrationPolicy()
         : parsePlanContextHydrationPolicy(parsed.contextPolicy, "contextPolicy");
+    const retrievalPolicy = parseAdminPlanRetrievalPolicy(parsed.retrievalPolicy);
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -427,10 +486,12 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       contextPolicy,
+      retrievalPolicy,
       primaryModelKey: toNormalizedNonEmptyModelKey(parsed.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(parsed.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
+      embeddingModelKey: toNormalizedNonEmptyModelKey(parsed.embeddingModelKey),
       videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
     };
@@ -504,10 +565,12 @@ export class ManageAdminPlansService {
         notes: input.metadata.notes,
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
         contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
+        retrievalPolicy: input.retrievalPolicy,
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
         ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
         ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
         ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
+        ...(input.embeddingModelKey !== null ? { embeddingModelKey: input.embeddingModelKey } : {}),
         ...(input.videoGenerateModelKey !== null
           ? { videoGenerateModelKey: input.videoGenerateModelKey }
           : {}),
@@ -588,6 +651,7 @@ export class ManageAdminPlansService {
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
     const mediaClasses = entitlement?.mediaClasses ?? [];
     const contextPolicy = resolveStoredPlanContextHydrationPolicy(billingHints.contextPolicy);
+    const retrievalPolicy = parseAdminPlanRetrievalPolicy(billingHints.retrievalPolicy);
 
     return {
       code: plan.code,
@@ -629,10 +693,12 @@ export class ManageAdminPlansService {
         )
       },
       contextPolicy,
+      retrievalPolicy,
       primaryModelKey: toNormalizedNonEmptyModelKey(billingHints.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(billingHints.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
+      embeddingModelKey: toNormalizedNonEmptyModelKey(billingHints.embeddingModelKey),
       videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({

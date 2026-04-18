@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - ADR-073 Slice C prod closeout
+
+### What changed
+
+1. `apps/api` now persists retrieval telemetry durably through Prisma-backed `KnowledgeRetrievalEvent` and `KnowledgeRetrievalRollup` state instead of process-local counters, and `/api/v1/admin/knowledge-sources/observability` plus `apps/web` `/admin/knowledge` now expose that workspace-scoped admin signal directly.
+2. The active knowledge path is now honestly hybrid: `runtime-knowledge-access` publishes `ragMode: "hybrid"`, `read-assistant-knowledge.service.ts` uses bounded lexical plus vector retrieval with optional plan-scoped helper rerank, and uploaded global knowledge now has parity with the private knowledge path instead of staying lexical-only.
+3. Retrieval budgets/helper controls are no longer hard-coded. `KnowledgeModelPolicyService` now resolves plan-owned retrieval policy (`default/max results`, lexical/vector candidate budgets, fetch windows, helper enablement/output cap, embedding-search enablement), Admin Plans exposes that policy on the control-plane UI/API, and the active retrieval path consumes those settings directly.
+4. Admin global-knowledge writes are now behind a real governance seam plus workspace knowledge-storage quota enforcement. `ManageAdminKnowledgeSourcesService` now requires explicit write authorization, checks/releases workspace quota, and rolls back stored objects/source rows correctly on capped or failed uploads.
+5. Active docs/program truth now matches the landed code: `ADR-073`, `ROADMAP`, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `PRODUCT`, `CHANGELOG`, and this handoff now describe Slice C as completed on the active path rather than as future `pattern_only` correction work.
+
+### Current active slice
+
+- `ADR-073 - Assistant lifecycle closeout`
+
+### Current active step
+
+- `Economics Slice C is complete on the active path; the remaining earlier-order ADR-073 residue is still the explicit backend lifecycle contract plus preview-avatar truth gap before Step 19 scale hardening`
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/src/modules/workspace-management/application/knowledge-model-policy.service.ts`
+- `apps/api/src/modules/workspace-management/application/knowledge-retrieval-observability.service.ts`
+- `apps/api/src/modules/workspace-management/application/knowledge-retrieval-helper.service.ts`
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-knowledge-sources.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/admin-knowledge-sources.controller.ts`
+- `apps/api/test/read-assistant-knowledge.service.test.ts`
+- `apps/api/test/manage-admin-knowledge-sources.service.test.ts`
+- `apps/api/test/manage-assistant-knowledge-sources.service.test.ts`
+- `apps/api/test/runtime-knowledge-access.test.ts`
+- `apps/web/app/admin/knowledge/page.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `apps/web/app/app/assistant-api-client.ts`
+- `packages/contracts/openapi.yaml`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/DATA-MODEL.md`
+- `docs/TEST-PLAN.md`
+- `docs/PRODUCT.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run test`
+- `corepack pnpm --filter @persai/web test`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+
+### Risks / notes
+
+1. Slice C is now honest and productionized on the active path, but it does not close the remaining lifecycle residue from ADR-073 item 1.
+2. Retrieval telemetry is durable and admin-visible, but it is still an operator dashboard/rollup surface rather than a high-cardinality tracing system.
+3. Future KB digest/stable-block follow-through should build on the landed hybrid retrieval baseline and durable observability instead of reopening `pattern_only` framing.
+
+### Next recommended step
+
+1. Finish the remaining `Assistant lifecycle closeout` residue: move preview/create/recover/reset behind one explicit backend lifecycle contract and close the last uploaded-avatar preview truth gap before shifting the main program to `Step 19 scale hardening`.
+
 ## 2026-04-17 - ADR-073 Slice B completion and admin business economics metrics
 
 ### What changed

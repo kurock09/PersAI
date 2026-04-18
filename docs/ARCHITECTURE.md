@@ -21,6 +21,8 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 
 - assistants, publish/apply lifecycle, and runtime bundle materialization
 - canonical chat/message persistence
+- assistant/global knowledge indexing, retrieval policy, and admin knowledge governance
+- durable retrieval observability and workspace-scoped operator surfaces for knowledge quality
 - governance, quota, admin, and audit boundaries
 - Telegram webhook ingress
 
@@ -88,6 +90,7 @@ Current active config expectations:
 - authoritative API contract: `packages/contracts/openapi.yaml`
 - generated contract artifacts: `packages/contracts/src/generated/*`
 - runtime bundle is the active materialized execution artifact
+- runtime knowledge access now publishes the active bounded `hybrid` retrieval contract
 - historical compatibility/migration traces do not define current request-time behavior
 
 ## Historical material

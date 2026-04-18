@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   Wrench,
   FileText,
+  Library,
   Menu,
   X,
   Loader2
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: "/admin/runtime", label: "Runtime", icon: Server },
   { href: "/admin/tools", label: "Tools", icon: Wrench },
   { href: "/admin/presets", label: "Prompt Constructor", icon: FileText },
+  { href: "/admin/knowledge", label: "Knowledge", icon: Library },
   { href: "/admin/plans", label: "Plans", icon: CreditCard },
   { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
   { href: "/admin/business", label: "Business", icon: TrendingUp },

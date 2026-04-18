@@ -285,7 +285,7 @@ function createRouteControlToolDefinition(
     name: ROUTE_CONTROL_TOOL_CODE,
     description: resolveToolDefinitionDescription(
       policy,
-      "Hidden route helper. Call this before answering when you need internal guidance about whether to stay on the current reply path, escalate to a deeper reply model, or steer the next step toward internal knowledge or live web lookup."
+      "Hidden route helper. Call this before answering when you need internal guidance about whether to stay on the current reply path or escalate to a stronger reply model."
     ),
     inputSchema: {
       type: "object",
@@ -294,7 +294,7 @@ function createRouteControlToolDefinition(
         reason: {
           type: "string",
           description:
-            "Optional short note explaining why route guidance is needed, such as short follow-up ambiguity, likely need for live facts, or higher-stakes reasoning."
+            "Optional short note explaining why model-selection guidance is needed, such as short follow-up ambiguity or higher-stakes reasoning."
         }
       }
     }

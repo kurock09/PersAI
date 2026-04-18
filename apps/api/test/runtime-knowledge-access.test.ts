@@ -9,7 +9,7 @@ async function run(): Promise<void> {
     searchToolCode: "knowledge_search",
     fetchToolCode: "knowledge_fetch",
     executionModes: [...PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES],
-    ragMode: "pattern_only",
+    ragMode: "hybrid",
     sources: [
       {
         source: "web",

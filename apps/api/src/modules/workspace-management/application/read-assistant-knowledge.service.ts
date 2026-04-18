@@ -1,13 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { RuntimeKnowledgeDocument, RuntimeKnowledgeSearchHit } from "@persai/runtime-contract";
+import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
+import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
+import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
+import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
 import { PERSAI_GLOBAL_KNOWLEDGE_DOCUMENTS } from "./persai-global-knowledge";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const DEFAULT_KNOWLEDGE_SEARCH_MAX_RESULTS = 5;
 const MAX_KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
-const KNOWLEDGE_SEARCH_CANDIDATE_LIMIT = 60;
-const KNOWLEDGE_FETCH_WINDOW_RADIUS = 1;
-const CHAT_FETCH_WINDOW_RADIUS = 2;
 const KNOWLEDGE_FETCH_MAX_CHARS = 6_000;
 const KNOWLEDGE_SEARCH_SNIPPET_MAX_CHARS = 320;
 const KNOWLEDGE_SEARCH_SEMANTIC_CONTENT_MAX_CHARS = 2_000;
@@ -27,6 +28,8 @@ type SearchSourceRow = {
   chunkIndex: number;
   locator: string | null;
   content: string;
+  embeddingModelKey?: string | null;
+  embeddingVector?: unknown;
   knowledgeSource: {
     id: string;
     namespace: string;
@@ -34,6 +37,31 @@ type SearchSourceRow = {
     originalFilename: string;
     mimeType: string;
   };
+};
+
+type GlobalSearchSourceRow = {
+  globalKnowledgeSourceId: string;
+  scope: "product" | "skill";
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey?: string | null;
+  embeddingVector?: unknown;
+  globalKnowledgeSource: {
+    id: string;
+    displayName: string | null;
+    originalFilename: string;
+    mimeType: string;
+  };
+};
+
+type UploadedGlobalSearchExecution = {
+  hits: RuntimeKnowledgeSearchHit[];
+  lexicalCandidateCount: number;
+  vectorCandidateCount: number;
+  retrievalMode: "lexical" | "hybrid";
+  embeddingModelKey: string | null;
 };
 
 type MemoryRegistryRow = {
@@ -283,11 +311,19 @@ function buildSearchQueryInfo(query: string): SearchQueryInfo {
   };
 }
 
-function resolveMaxResults(maxResults: number | null | undefined): number {
-  return Math.min(
-    maxResults ?? DEFAULT_KNOWLEDGE_SEARCH_MAX_RESULTS,
-    MAX_KNOWLEDGE_SEARCH_MAX_RESULTS
-  );
+function resolveKnowledgeTelemetryErrorCode(error: unknown): string | null {
+  if (error instanceof Error && error.name.trim().length > 0) {
+    return error.name;
+  }
+  return null;
+}
+
+function resolveMaxResults(
+  maxResults: number | null | undefined,
+  defaultMaxResults = DEFAULT_KNOWLEDGE_SEARCH_MAX_RESULTS,
+  maxMaxResults = MAX_KNOWLEDGE_SEARCH_MAX_RESULTS
+): number {
+  return Math.min(maxResults ?? defaultMaxResults, maxMaxResults);
 }
 
 function scoreFieldMatch(params: {
@@ -640,6 +676,8 @@ function searchTextKnowledgeDocuments(params: {
   documents: TextKnowledgeDocumentRow[];
   query: string;
   maxResults: number | null;
+  defaultMaxResults?: number;
+  maxMaxResults?: number;
 }): RuntimeKnowledgeSearchHit[] {
   const normalizedQuery = params.query.trim();
   if (normalizedQuery.length === 0) {
@@ -677,7 +715,10 @@ function searchTextKnowledgeDocuments(params: {
       return left.row.referenceId.localeCompare(right.row.referenceId);
     });
 
-  const selected = selectRankedCandidates(ranked, resolveMaxResults(params.maxResults));
+  const selected = selectRankedCandidates(
+    ranked,
+    resolveMaxResults(params.maxResults, params.defaultMaxResults, params.maxMaxResults)
+  );
   return selected.map(({ row, score }) => ({
     referenceId: row.referenceId,
     source: row.source,
@@ -717,6 +758,39 @@ function parseDocumentReferenceId(
   }
 
   return { knowledgeSourceId, sourceVersion, chunkIndex };
+}
+
+function buildGlobalUploadedReferenceId(params: {
+  globalKnowledgeSourceId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+}): string {
+  return `global-uploaded:${params.globalKnowledgeSourceId}:${String(params.sourceVersion)}:${String(params.chunkIndex)}`;
+}
+
+function parseGlobalUploadedReferenceId(
+  referenceId: string
+): { globalKnowledgeSourceId: string; sourceVersion: number; chunkIndex: number } | null {
+  if (!referenceId.startsWith("global-uploaded:")) {
+    return null;
+  }
+  const [globalKnowledgeSourceId, rawSourceVersion, rawChunkIndex] = referenceId
+    .slice("global-uploaded:".length)
+    .split(":");
+  if (!globalKnowledgeSourceId || !rawSourceVersion || !rawChunkIndex) {
+    return null;
+  }
+  const sourceVersion = Number(rawSourceVersion);
+  const chunkIndex = Number(rawChunkIndex);
+  if (
+    !Number.isInteger(sourceVersion) ||
+    sourceVersion < 1 ||
+    !Number.isInteger(chunkIndex) ||
+    chunkIndex < 0
+  ) {
+    return null;
+  }
+  return { globalKnowledgeSourceId, sourceVersion, chunkIndex };
 }
 
 function buildMemoryReferenceId(memoryItemId: string): string {
@@ -774,6 +848,26 @@ function resolveChatTitle(row: Pick<ChatThreadRow, "surface" | "title">): string
   return row.surface === "telegram" ? "Telegram chat" : "Web chat";
 }
 
+function cosineSimilarity(left: number[], right: number[]): number {
+  if (left.length === 0 || right.length === 0 || left.length !== right.length) {
+    return 0;
+  }
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index] ?? 0;
+    const rightValue = right[index] ?? 0;
+    dot += leftValue * rightValue;
+    leftMagnitude += leftValue * leftValue;
+    rightMagnitude += rightValue * rightValue;
+  }
+  if (leftMagnitude <= 0 || rightMagnitude <= 0) {
+    return 0;
+  }
+  return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+}
+
 function resolveChatLocator(row: Pick<ChatMessageRow, "chatId" | "id">): string {
   return `chat:${row.chatId}#message:${row.id}`;
 }
@@ -782,7 +876,10 @@ function resolveChatAuthorLabel(author: ChatMessageRow["author"]): string {
   return author === "assistant" ? "Assistant" : author === "user" ? "User" : "System";
 }
 
-function buildChatWindowContent(rows: Array<Pick<ChatMessageRow, "author" | "content">>): string {
+function buildChatWindowContent(
+  rows: Array<Pick<ChatMessageRow, "author" | "content">>,
+  maxChars = KNOWLEDGE_FETCH_MAX_CHARS
+): string {
   return rows
     .map((row) => {
       const content = row.content.trim();
@@ -790,7 +887,7 @@ function buildChatWindowContent(rows: Array<Pick<ChatMessageRow, "author" | "con
     })
     .filter((row): row is string => row !== null)
     .join("\n\n")
-    .slice(0, KNOWLEDGE_FETCH_MAX_CHARS);
+    .slice(0, maxChars);
 }
 
 function isSupportedKnowledgeSource(
@@ -801,13 +898,16 @@ function isSupportedKnowledgeSource(
   );
 }
 
-function toTextKnowledgeDocument(row: TextKnowledgeDocumentRow): RuntimeKnowledgeDocument {
+function toTextKnowledgeDocument(
+  row: TextKnowledgeDocumentRow,
+  maxChars = KNOWLEDGE_FETCH_MAX_CHARS
+): RuntimeKnowledgeDocument {
   return {
     referenceId: row.referenceId,
     source: row.source,
     title: row.title,
     locator: row.locator,
-    content: row.content.slice(0, KNOWLEDGE_FETCH_MAX_CHARS),
+    content: row.content.slice(0, maxChars),
     snippet: buildSnippet(row.content, [row.title, row.locator ?? "", row.content.slice(0, 80)]),
     metadata: row.metadata
   };
@@ -836,7 +936,13 @@ function formatPlanToolActivations(
 
 @Injectable()
 export class ReadAssistantKnowledgeService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService,
+    private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
+    private readonly knowledgeRetrievalHelperService: KnowledgeRetrievalHelperService,
+    private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService
+  ) {}
 
   parseSearchInput(body: unknown): {
     assistantId: string;
@@ -946,18 +1052,1355 @@ export class ReadAssistantKnowledgeService {
     query: string;
     maxResults: number | null;
   }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
     const normalizedQuery = input.query.trim();
     if (normalizedQuery.length === 0) {
       throw new BadRequestException("query is required.");
     }
 
-    const queryInfo = buildSearchQueryInfo(normalizedQuery);
-    const rows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({
-      where: {
+    let lexicalCandidateCount = 0;
+    let vectorCandidateCount = 0;
+    let helperApplied = false;
+    let embeddingModelKey: string | null = null;
+    let retrievalMode: "lexical" | "hybrid" = "lexical";
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+
+    try {
+      const queryInfo = buildSearchQueryInfo(normalizedQuery);
+      const [rows, resolvedEmbeddingModelKey] = await Promise.all([
+        this.prisma.assistantKnowledgeSourceChunk.findMany({
+          where: {
+            assistantId: input.assistantId,
+            knowledgeSource: {
+              assistantId: input.assistantId,
+              namespace: "assistant_user_workspace",
+              status: "ready"
+            },
+            OR: queryInfo.searchTerms.flatMap((term) => [
+              {
+                content: {
+                  contains: term,
+                  mode: "insensitive"
+                }
+              },
+              {
+                locator: {
+                  contains: term,
+                  mode: "insensitive"
+                }
+              }
+            ])
+          },
+          include: {
+            knowledgeSource: {
+              select: {
+                id: true,
+                namespace: true,
+                displayName: true,
+                originalFilename: true,
+                mimeType: true
+              }
+            }
+          },
+          orderBy: [{ knowledgeSourceId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
+          take: retrievalPolicy.lexicalCandidateLimit
+        }) as Promise<SearchSourceRow[]>,
+        this.knowledgeModelPolicyService.resolveAssistantEmbeddingModelKey(input.assistantId)
+      ]);
+      embeddingModelKey = resolvedEmbeddingModelKey;
+      lexicalCandidateCount = rows.length;
+
+      const rankedByReferenceId = new Map<string, RankedSearchCandidate<SearchSourceRow>>();
+      const upsertRankedCandidate = (
+        referenceId: string,
+        candidate: RankedSearchCandidate<SearchSourceRow>
+      ) => {
+        const existing = rankedByReferenceId.get(referenceId);
+        if (
+          existing === undefined ||
+          candidate.score > existing.score ||
+          (candidate.score === existing.score && candidate.lexicalScore > existing.lexicalScore)
+        ) {
+          rankedByReferenceId.set(referenceId, candidate);
+        }
+      };
+
+      for (const row of rows) {
+        const { lexicalScore, score } = rankStructuredCandidate({
+          query: queryInfo,
+          title: row.knowledgeSource.displayName,
+          filename: row.knowledgeSource.originalFilename,
+          locator: row.locator,
+          content: row.content,
+          fieldWeights: {
+            title: 3.6,
+            filename: 3.2,
+            locator: 2.2,
+            content: 1.35,
+            metadata: 0
+          },
+          sourceWeight: row.knowledgeSource.displayName === null ? 1 : 3,
+          enableSemanticRerank: true
+        });
+        if (score <= 0) {
+          continue;
+        }
+        const referenceId = buildDocumentReferenceId({
+          knowledgeSourceId: row.knowledgeSourceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex
+        });
+        upsertRankedCandidate(referenceId, {
+          row,
+          score,
+          lexicalScore,
+          dedupeKey: [
+            row.knowledgeSourceId,
+            normalizeSearchText(row.locator ?? ""),
+            normalizeSearchText(row.content).slice(0, 180)
+          ].join(":"),
+          groupKey: row.knowledgeSourceId,
+          groupLimit: 2
+        });
+      }
+
+      const queryEmbedding =
+        !retrievalPolicy.embeddingSearchEnabled || embeddingModelKey === null
+          ? null
+          : ((
+              await this.knowledgeEmbeddingService.generateEmbeddings({
+                modelKey: embeddingModelKey,
+                texts: [normalizedQuery]
+              })
+            )[0] ?? null);
+      retrievalMode = queryEmbedding === null ? "lexical" : "hybrid";
+      if (queryEmbedding !== null && embeddingModelKey !== null) {
+        const vectorRows = (await this.prisma.assistantKnowledgeSourceChunk.findMany({
+          where: {
+            assistantId: input.assistantId,
+            embeddingModelKey,
+            knowledgeSource: {
+              assistantId: input.assistantId,
+              namespace: "assistant_user_workspace",
+              status: "ready"
+            }
+          },
+          include: {
+            knowledgeSource: {
+              select: {
+                id: true,
+                namespace: true,
+                displayName: true,
+                originalFilename: true,
+                mimeType: true
+              }
+            }
+          },
+          orderBy: [{ knowledgeSourceId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
+          take: retrievalPolicy.vectorCandidateLimit
+        })) as SearchSourceRow[];
+        vectorCandidateCount = vectorRows.length;
+
+        for (const row of vectorRows) {
+          const embedding = Array.isArray(row.embeddingVector)
+            ? row.embeddingVector.filter((value): value is number => typeof value === "number")
+            : [];
+          if (embedding.length === 0) {
+            continue;
+          }
+          const vectorSimilarity = cosineSimilarity(queryEmbedding, embedding);
+          if (vectorSimilarity <= 0.18) {
+            continue;
+          }
+          const { lexicalScore } = rankStructuredCandidate({
+            query: queryInfo,
+            title: row.knowledgeSource.displayName,
+            filename: row.knowledgeSource.originalFilename,
+            locator: row.locator,
+            content: row.content,
+            fieldWeights: {
+              title: 2.4,
+              filename: 2.1,
+              locator: 1.6,
+              content: 1.0,
+              metadata: 0
+            },
+            sourceWeight: row.knowledgeSource.displayName === null ? 0.5 : 1.5,
+            enableSemanticRerank: false
+          });
+          const referenceId = buildDocumentReferenceId({
+            knowledgeSourceId: row.knowledgeSourceId,
+            sourceVersion: row.sourceVersion,
+            chunkIndex: row.chunkIndex
+          });
+          upsertRankedCandidate(referenceId, {
+            row,
+            score: vectorSimilarity * 42 + lexicalScore * 0.35,
+            lexicalScore: lexicalScore + vectorSimilarity * 10,
+            dedupeKey: [
+              row.knowledgeSourceId,
+              normalizeSearchText(row.locator ?? ""),
+              normalizeSearchText(row.content).slice(0, 180)
+            ].join(":"),
+            groupKey: row.knowledgeSourceId,
+            groupLimit: 2
+          });
+        }
+      }
+
+      const ranked = Array.from(rankedByReferenceId.values()).sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        if (right.lexicalScore !== left.lexicalScore) {
+          return right.lexicalScore - left.lexicalScore;
+        }
+        if (left.row.knowledgeSourceId !== right.row.knowledgeSourceId) {
+          return left.row.knowledgeSourceId.localeCompare(right.row.knowledgeSourceId);
+        }
+        return left.row.chunkIndex - right.row.chunkIndex;
+      });
+
+      let selected = selectRankedCandidates(
+        ranked,
+        resolveMaxResults(
+          input.maxResults,
+          retrievalPolicy.defaultMaxResults,
+          retrievalPolicy.maxMaxResults
+        )
+      );
+      const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
         assistantId: input.assistantId,
-        knowledgeSource: {
+        query: normalizedQuery,
+        candidates: selected.map(({ row }) => ({
+          referenceId: buildDocumentReferenceId({
+            knowledgeSourceId: row.knowledgeSourceId,
+            sourceVersion: row.sourceVersion,
+            chunkIndex: row.chunkIndex
+          }),
+          title: row.knowledgeSource.displayName ?? row.knowledgeSource.originalFilename,
+          locator: row.locator,
+          snippet: buildSnippet(row.content, queryInfo.searchTerms)
+        }))
+      });
+      helperApplied = helperRanking !== null;
+      if (helperRanking !== null) {
+        const helperRankIndex = new Map(
+          helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
+        );
+        selected = [...selected].sort((left, right) => {
+          const leftReferenceId = buildDocumentReferenceId({
+            knowledgeSourceId: left.row.knowledgeSourceId,
+            sourceVersion: left.row.sourceVersion,
+            chunkIndex: left.row.chunkIndex
+          });
+          const rightReferenceId = buildDocumentReferenceId({
+            knowledgeSourceId: right.row.knowledgeSourceId,
+            sourceVersion: right.row.sourceVersion,
+            chunkIndex: right.row.chunkIndex
+          });
+          const leftRank = helperRankIndex.get(leftReferenceId);
+          const rightRank = helperRankIndex.get(rightReferenceId);
+          if (leftRank !== undefined || rightRank !== undefined) {
+            if (leftRank === undefined) {
+              return 1;
+            }
+            if (rightRank === undefined) {
+              return -1;
+            }
+            return leftRank - rightRank;
+          }
+          return right.score - left.score;
+        });
+      }
+
+      const hits: RuntimeKnowledgeSearchHit[] = selected.map(({ row, score }) => ({
+        referenceId: buildDocumentReferenceId({
+          knowledgeSourceId: row.knowledgeSourceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex
+        }),
+        source: "document",
+        title: row.knowledgeSource.displayName ?? row.knowledgeSource.originalFilename,
+        locator: row.locator,
+        snippet: buildSnippet(row.content, queryInfo.searchTerms),
+        score,
+        metadata: {
+          knowledgeSourceId: row.knowledgeSource.id,
+          namespace: row.knowledgeSource.namespace,
+          mimeType: row.knowledgeSource.mimeType,
+          originalFilename: row.knowledgeSource.originalFilename,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          retrievalMode
+        }
+      }));
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "document",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        helperModelKey: helperRanking?.modelKey ?? null,
+        helperProviderKey: helperRanking?.providerKey ?? null,
+        helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
+        helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
+        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "document",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async searchMemory(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const normalizedQuery = input.query.trim();
+    if (normalizedQuery.length === 0) {
+      throw new BadRequestException("query is required.");
+    }
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    let lexicalCandidateCount = 0;
+    try {
+      const queryInfo = buildSearchQueryInfo(normalizedQuery);
+      const rows = (await this.prisma.assistantMemoryRegistryItem.findMany({
+        where: {
           assistantId: input.assistantId,
-          namespace: "assistant_user_workspace",
+          forgottenAt: null,
+          OR: queryInfo.searchTerms.flatMap((term) => [
+            {
+              summary: {
+                contains: term,
+                mode: "insensitive"
+              }
+            },
+            {
+              sourceLabel: {
+                contains: term,
+                mode: "insensitive"
+              }
+            }
+          ])
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: retrievalPolicy.lexicalCandidateLimit
+      })) as MemoryRegistryRow[];
+      lexicalCandidateCount = rows.length;
+
+      const recencyBonus = buildRelativeRecencyResolver({
+        rows,
+        halfLifeDays: 14,
+        maxBonus: 8
+      });
+      const ranked = rows
+        .map((row) => {
+          const { lexicalScore, score } = rankStructuredCandidate({
+            query: queryInfo,
+            title: resolveMemoryTitle(row),
+            locator: resolveMemoryLocator(row),
+            content: row.summary,
+            fieldWeights: {
+              title: 2.8,
+              filename: 0,
+              locator: 1.9,
+              content: 2.2,
+              metadata: 0
+            },
+            sourceWeight: row.sourceType === "memory_write" ? 9 : 4,
+            recencyBonus: recencyBonus(row.createdAt),
+            enableSemanticRerank: true
+          });
+          return {
+            row,
+            score,
+            lexicalScore,
+            dedupeKey: `${row.sourceType}:${normalizeSearchText(row.summary)}`,
+            groupKey: row.chatId,
+            groupLimit: row.chatId === null ? null : 2
+          } satisfies RankedSearchCandidate<MemoryRegistryRow>;
+        })
+        .filter((row) => row.score > 0)
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          if (right.lexicalScore !== left.lexicalScore) {
+            return right.lexicalScore - left.lexicalScore;
+          }
+          if (right.row.createdAt.getTime() !== left.row.createdAt.getTime()) {
+            return right.row.createdAt.getTime() - left.row.createdAt.getTime();
+          }
+          return left.row.id.localeCompare(right.row.id);
+        });
+
+      const hits: RuntimeKnowledgeSearchHit[] = selectRankedCandidates(
+        ranked,
+        resolveMaxResults(
+          input.maxResults,
+          retrievalPolicy.defaultMaxResults,
+          retrievalPolicy.maxMaxResults
+        )
+      ).map(({ row, score }) => ({
+        referenceId: buildMemoryReferenceId(row.id),
+        source: "memory" as const,
+        title: resolveMemoryTitle(row),
+        locator: resolveMemoryLocator(row),
+        snippet: buildSnippet(row.summary, queryInfo.searchTerms),
+        score,
+        metadata: {
+          memoryItemId: row.id,
+          sourceType: row.sourceType,
+          chatId: row.chatId,
+          relatedUserMessageId: row.relatedUserMessageId,
+          relatedAssistantMessageId: row.relatedAssistantMessageId,
+          createdAt: row.createdAt.toISOString()
+        }
+      }));
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "memory",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "memory",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async searchChats(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const normalizedQuery = input.query.trim();
+    if (normalizedQuery.length === 0) {
+      throw new BadRequestException("query is required.");
+    }
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    let lexicalCandidateCount = 0;
+    try {
+      const queryInfo = buildSearchQueryInfo(normalizedQuery);
+      const rows = (await this.prisma.assistantChatMessage.findMany({
+        where: {
+          assistantId: input.assistantId,
+          author: {
+            in: ["user", "assistant"]
+          },
+          OR: queryInfo.searchTerms.map((term) => ({
+            content: {
+              contains: term,
+              mode: "insensitive"
+            }
+          }))
+        },
+        include: {
+          chat: {
+            select: {
+              id: true,
+              surface: true,
+              surfaceThreadKey: true,
+              title: true,
+              archivedAt: true
+            }
+          }
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: retrievalPolicy.lexicalCandidateLimit
+      })) as ChatMessageRow[];
+      lexicalCandidateCount = rows.length;
+
+      const recencyBonus = buildRelativeRecencyResolver({
+        rows,
+        halfLifeDays: 7,
+        maxBonus: 10
+      });
+      const ranked = rows
+        .map((row) => {
+          const { lexicalScore, score } = rankStructuredCandidate({
+            query: queryInfo,
+            title: resolveChatTitle(row.chat),
+            locator: resolveChatLocator(row),
+            content: row.content,
+            fieldWeights: {
+              title: 2.5,
+              filename: 0,
+              locator: 1.8,
+              content: 2.15,
+              metadata: 0
+            },
+            sourceWeight:
+              (row.chat.archivedAt === null ? 4 : 1) + (row.author === "assistant" ? 1.5 : 0),
+            recencyBonus: recencyBonus(row.createdAt),
+            enableSemanticRerank: true
+          });
+          return {
+            row,
+            score,
+            lexicalScore,
+            dedupeKey: `${row.chatId}:${normalizeSearchText(row.content)}`,
+            groupKey: row.chatId,
+            groupLimit: 2
+          } satisfies RankedSearchCandidate<ChatMessageRow>;
+        })
+        .filter((row) => row.score > 0)
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+          if (right.lexicalScore !== left.lexicalScore) {
+            return right.lexicalScore - left.lexicalScore;
+          }
+          if (right.row.createdAt.getTime() !== left.row.createdAt.getTime()) {
+            return right.row.createdAt.getTime() - left.row.createdAt.getTime();
+          }
+          return left.row.id.localeCompare(right.row.id);
+        });
+
+      const hits: RuntimeKnowledgeSearchHit[] = selectRankedCandidates(
+        ranked,
+        resolveMaxResults(
+          input.maxResults,
+          retrievalPolicy.defaultMaxResults,
+          retrievalPolicy.maxMaxResults
+        )
+      ).map(({ row, score }) => ({
+        referenceId: buildChatReferenceId({
+          chatId: row.chatId,
+          messageId: row.id
+        }),
+        source: "chat" as const,
+        title: resolveChatTitle(row.chat),
+        locator: resolveChatLocator(row),
+        snippet: buildSnippet(row.content, queryInfo.searchTerms),
+        score,
+        metadata: {
+          chatId: row.chatId,
+          messageId: row.id,
+          author: row.author,
+          surface: row.chat.surface,
+          surfaceThreadKey: row.chat.surfaceThreadKey,
+          archivedAt: row.chat.archivedAt?.toISOString() ?? null,
+          createdAt: row.createdAt.toISOString()
+        }
+      }));
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "chat",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "chat",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async searchPresets(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const documents = await this.loadPresetKnowledgeDocuments(input.assistantId);
+      const hits = searchTextKnowledgeDocuments({
+        documents,
+        query: input.query,
+        maxResults: input.maxResults,
+        defaultMaxResults: retrievalPolicy.defaultMaxResults,
+        maxMaxResults: retrievalPolicy.maxMaxResults
+      });
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "preset",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount: documents.length,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "preset",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount: 0,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async searchSubscription(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const documents = await this.loadSubscriptionKnowledgeDocuments(input.assistantId);
+      const hits = searchTextKnowledgeDocuments({
+        documents,
+        query: input.query,
+        maxResults: input.maxResults,
+        defaultMaxResults: retrievalPolicy.defaultMaxResults,
+        maxMaxResults: retrievalPolicy.maxMaxResults
+      });
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "subscription",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount: documents.length,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "subscription",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount: 0,
+        vectorCandidateCount: 0,
+        helperApplied: false,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async searchGlobal(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    let lexicalCandidateCount = 0;
+    let vectorCandidateCount = 0;
+    let helperApplied = false;
+    let retrievalMode: "lexical" | "hybrid" = "lexical";
+    let embeddingModelKey: string | null = null;
+    try {
+      const [documents, uploaded] = await Promise.all([
+        this.loadGlobalKnowledgeDocuments(input.assistantId),
+        this.searchUploadedGlobalDocuments(input)
+      ]);
+      lexicalCandidateCount = documents.length + uploaded.lexicalCandidateCount;
+      vectorCandidateCount = uploaded.vectorCandidateCount;
+      retrievalMode = uploaded.retrievalMode;
+      embeddingModelKey = uploaded.embeddingModelKey;
+      const textHits = searchTextKnowledgeDocuments({
+        documents,
+        query: input.query,
+        maxResults: input.maxResults,
+        defaultMaxResults: retrievalPolicy.defaultMaxResults,
+        maxMaxResults: retrievalPolicy.maxMaxResults
+      });
+      let hits = [...textHits, ...uploaded.hits]
+        .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+        .slice(
+          0,
+          resolveMaxResults(
+            input.maxResults,
+            retrievalPolicy.defaultMaxResults,
+            retrievalPolicy.maxMaxResults
+          )
+        );
+
+      const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
+        assistantId: input.assistantId,
+        query: input.query.trim(),
+        candidates: hits.map((hit) => ({
+          referenceId: hit.referenceId,
+          title: hit.title,
+          locator: hit.locator,
+          snippet: hit.snippet
+        }))
+      });
+      helperApplied = helperRanking !== null;
+      if (helperRanking !== null) {
+        const helperRankIndex = new Map(
+          helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
+        );
+        hits = [...hits].sort((left, right) => {
+          const leftRank = helperRankIndex.get(left.referenceId);
+          const rightRank = helperRankIndex.get(right.referenceId);
+          if (leftRank !== undefined || rightRank !== undefined) {
+            if (leftRank === undefined) {
+              return 1;
+            }
+            if (rightRank === undefined) {
+              return -1;
+            }
+            return leftRank - rightRank;
+          }
+          return (right.score ?? 0) - (left.score ?? 0);
+        });
+      }
+
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "global",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: hits.length,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        helperModelKey: helperRanking?.modelKey ?? null,
+        helperProviderKey: helperRanking?.providerKey ?? null,
+        helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
+        helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
+        helperTotalTokens: helperRanking?.usage?.totalTokens ?? null
+      });
+      return hits;
+    } catch (error) {
+      await this.recordSearchObservability({
+        assistantId: input.assistantId,
+        source: "global",
+        retrievalMode,
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        lexicalCandidateCount,
+        vectorCandidateCount,
+        helperApplied,
+        embeddingModelKey,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchDocument(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const reference = parseDocumentReferenceId(input.referenceId.trim());
+      if (reference === null) {
+        throw new BadRequestException("referenceId is invalid.");
+      }
+
+      const centerRow = await this.prisma.assistantKnowledgeSourceChunk.findFirst({
+        where: {
+          assistantId: input.assistantId,
+          knowledgeSourceId: reference.knowledgeSourceId,
+          sourceVersion: reference.sourceVersion,
+          chunkIndex: reference.chunkIndex,
+          knowledgeSource: {
+            assistantId: input.assistantId,
+            namespace: "assistant_user_workspace",
+            status: "ready"
+          }
+        },
+        include: {
+          knowledgeSource: {
+            select: {
+              id: true,
+              namespace: true,
+              displayName: true,
+              originalFilename: true,
+              mimeType: true
+            }
+          }
+        }
+      });
+
+      if (centerRow === null) {
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "document",
+          retrievalMode: "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth: 0,
+          fetchedChars: 0,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return null;
+      }
+
+      const surroundingRows = await this.prisma.assistantKnowledgeSourceChunk.findMany({
+        where: {
+          assistantId: input.assistantId,
+          knowledgeSourceId: reference.knowledgeSourceId,
+          sourceVersion: reference.sourceVersion,
+          chunkIndex: {
+            gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
+            lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
+          }
+        },
+        orderBy: [{ chunkIndex: "asc" }]
+      });
+
+      const content = surroundingRows
+        .map((row) => row.content.trim())
+        .filter((row) => row.length > 0)
+        .join("\n\n---\n\n")
+        .slice(0, retrievalPolicy.fetchMaxChars);
+
+      const document = {
+        referenceId: buildDocumentReferenceId(reference),
+        source: "document",
+        title: centerRow.knowledgeSource.displayName ?? centerRow.knowledgeSource.originalFilename,
+        locator: centerRow.locator,
+        content,
+        snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+        metadata: {
+          knowledgeSourceId: centerRow.knowledgeSource.id,
+          namespace: centerRow.knowledgeSource.namespace,
+          mimeType: centerRow.knowledgeSource.mimeType,
+          originalFilename: centerRow.knowledgeSource.originalFilename,
+          sourceVersion: centerRow.sourceVersion,
+          chunkIndex: centerRow.chunkIndex,
+          windowStartChunkIndex: surroundingRows[0]?.chunkIndex ?? centerRow.chunkIndex,
+          windowEndChunkIndex:
+            surroundingRows[surroundingRows.length - 1]?.chunkIndex ?? centerRow.chunkIndex
+        }
+      } satisfies RuntimeKnowledgeDocument;
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "document",
+        retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: surroundingRows.length,
+        fetchedChars: content.length,
+        embeddingModelKey: centerRow.embeddingModelKey ?? null
+      });
+      return document;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "document",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchMemory(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    try {
+      const reference = parseMemoryReferenceId(input.referenceId.trim());
+      if (reference === null) {
+        throw new BadRequestException("referenceId is invalid.");
+      }
+
+      const row = (await this.prisma.assistantMemoryRegistryItem.findFirst({
+        where: {
+          id: reference.memoryItemId,
+          assistantId: input.assistantId,
+          forgottenAt: null
+        }
+      })) as MemoryRegistryRow | null;
+
+      if (row === null) {
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "memory",
+          retrievalMode: "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth: 0,
+          fetchedChars: 0,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return null;
+      }
+
+      const document = {
+        referenceId: buildMemoryReferenceId(row.id),
+        source: "memory",
+        title: resolveMemoryTitle(row),
+        locator: resolveMemoryLocator(row),
+        content: row.summary,
+        snippet: buildSnippet(row.summary, [row.summary]) ?? row.summary,
+        metadata: {
+          memoryItemId: row.id,
+          sourceType: row.sourceType,
+          sourceLabel: row.sourceLabel,
+          chatId: row.chatId,
+          relatedUserMessageId: row.relatedUserMessageId,
+          relatedAssistantMessageId: row.relatedAssistantMessageId,
+          createdAt: row.createdAt.toISOString()
+        }
+      } satisfies RuntimeKnowledgeDocument;
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "memory",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 1,
+        fetchedChars: row.summary.length,
+        embeddingModelKey: null
+      });
+      return document;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "memory",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchChat(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const reference = parseChatReferenceId(input.referenceId.trim());
+      if (reference === null) {
+        throw new BadRequestException("referenceId is invalid.");
+      }
+
+      const centerRow = (await this.prisma.assistantChatMessage.findFirst({
+        where: {
+          id: reference.messageId,
+          chatId: reference.chatId,
+          assistantId: input.assistantId,
+          author: {
+            in: ["user", "assistant"]
+          }
+        },
+        include: {
+          chat: {
+            select: {
+              id: true,
+              surface: true,
+              surfaceThreadKey: true,
+              title: true,
+              archivedAt: true
+            }
+          }
+        }
+      })) as ChatMessageRow | null;
+
+      if (centerRow === null) {
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "chat",
+          retrievalMode: "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth: 0,
+          fetchedChars: 0,
+          embeddingModelKey: null,
+          outcome: "empty"
+        });
+        return null;
+      }
+
+      const [beforeRows, afterRows] = (await Promise.all([
+        this.prisma.assistantChatMessage.findMany({
+          where: {
+            assistantId: input.assistantId,
+            chatId: centerRow.chatId,
+            author: {
+              in: ["user", "assistant"]
+            },
+            OR: [
+              {
+                createdAt: {
+                  lt: centerRow.createdAt
+                }
+              },
+              {
+                createdAt: {
+                  equals: centerRow.createdAt
+                },
+                id: {
+                  lt: centerRow.id
+                }
+              }
+            ]
+          },
+          select: {
+            id: true,
+            author: true,
+            content: true,
+            createdAt: true
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: retrievalPolicy.chatFetchWindowRadius
+        }),
+        this.prisma.assistantChatMessage.findMany({
+          where: {
+            assistantId: input.assistantId,
+            chatId: centerRow.chatId,
+            author: {
+              in: ["user", "assistant"]
+            },
+            OR: [
+              {
+                createdAt: {
+                  gt: centerRow.createdAt
+                }
+              },
+              {
+                createdAt: {
+                  equals: centerRow.createdAt
+                },
+                id: {
+                  gt: centerRow.id
+                }
+              }
+            ]
+          },
+          select: {
+            id: true,
+            author: true,
+            content: true,
+            createdAt: true
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: retrievalPolicy.chatFetchWindowRadius
+        })
+      ])) as [ChatMessageWindowRow[], ChatMessageWindowRow[]];
+
+      const windowRows: ChatMessageWindowRow[] = [...beforeRows.reverse(), centerRow, ...afterRows];
+      const content = buildChatWindowContent(windowRows, retrievalPolicy.fetchMaxChars);
+      const document = {
+        referenceId: buildChatReferenceId(reference),
+        source: "chat",
+        title: resolveChatTitle(centerRow.chat),
+        locator: resolveChatLocator(centerRow),
+        content,
+        snippet:
+          buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]) ??
+          centerRow.content.trim(),
+        metadata: {
+          chatId: centerRow.chatId,
+          messageId: centerRow.id,
+          author: centerRow.author,
+          surface: centerRow.chat.surface,
+          surfaceThreadKey: centerRow.chat.surfaceThreadKey,
+          archivedAt: centerRow.chat.archivedAt?.toISOString() ?? null,
+          createdAt: centerRow.createdAt.toISOString(),
+          windowStartMessageId: windowRows[0]?.id ?? centerRow.id,
+          windowEndMessageId: windowRows[windowRows.length - 1]?.id ?? centerRow.id
+        }
+      } satisfies RuntimeKnowledgeDocument;
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "chat",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: windowRows.length,
+        fetchedChars: content.length,
+        embeddingModelKey: null
+      });
+      return document;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "chat",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchPreset(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const referenceId = input.referenceId.trim();
+      const document = (await this.loadPresetKnowledgeDocuments(input.assistantId)).find(
+        (row) => row.referenceId === referenceId
+      );
+      const resolved =
+        document === undefined
+          ? null
+          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "preset",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: resolved === null ? 0 : 1,
+        fetchedChars: resolved?.content.length ?? 0,
+        embeddingModelKey: null,
+        outcome: resolved === null ? "empty" : "success"
+      });
+      return resolved;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "preset",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchSubscription(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const referenceId = input.referenceId.trim();
+      const document = (await this.loadSubscriptionKnowledgeDocuments(input.assistantId)).find(
+        (row) => row.referenceId === referenceId
+      );
+      const resolved =
+        document === undefined
+          ? null
+          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "subscription",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: resolved === null ? 0 : 1,
+        fetchedChars: resolved?.content.length ?? 0,
+        embeddingModelKey: null,
+        outcome: resolved === null ? "empty" : "success"
+      });
+      return resolved;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "subscription",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  async fetchGlobal(input: {
+    assistantId: string;
+    referenceId: string;
+  }): Promise<RuntimeKnowledgeDocument | null> {
+    const startedAt = Date.now();
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    try {
+      const referenceId = input.referenceId.trim();
+      const uploaded = await this.fetchUploadedGlobalDocument(referenceId, input.assistantId);
+      if (uploaded !== null) {
+        const metadata =
+          uploaded.metadata !== null &&
+          typeof uploaded.metadata === "object" &&
+          !Array.isArray(uploaded.metadata)
+            ? (uploaded.metadata as Record<string, unknown>)
+            : null;
+        await this.recordFetchObservability({
+          assistantId: input.assistantId,
+          source: "global",
+          retrievalMode: metadata?.retrievalMode === "hybrid" ? "hybrid" : "lexical",
+          durationMs: Date.now() - startedAt,
+          fetchDepth:
+            typeof metadata?.windowChunkCount === "number" ? metadata.windowChunkCount : 1,
+          fetchedChars: uploaded.content.length,
+          embeddingModelKey:
+            typeof metadata?.embeddingModelKey === "string" ? metadata.embeddingModelKey : null
+        });
+        return uploaded;
+      }
+      const document = (await this.loadGlobalKnowledgeDocuments(input.assistantId)).find(
+        (row) => row.referenceId === referenceId
+      );
+      const resolved =
+        document === undefined
+          ? null
+          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "global",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: resolved === null ? 0 : 1,
+        fetchedChars: resolved?.content.length ?? 0,
+        embeddingModelKey: null,
+        outcome: resolved === null ? "empty" : "success"
+      });
+      return resolved;
+    } catch (error) {
+      await this.recordFetchObservability({
+        assistantId: input.assistantId,
+        source: "global",
+        retrievalMode: "lexical",
+        durationMs: Date.now() - startedAt,
+        fetchDepth: 0,
+        fetchedChars: 0,
+        embeddingModelKey: null,
+        outcome: "error",
+        errorCode: resolveKnowledgeTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  private async searchUploadedGlobalDocuments(input: {
+    assistantId: string;
+    query: string;
+    maxResults: number | null;
+  }): Promise<UploadedGlobalSearchExecution> {
+    const [assistant, resolvedEmbeddingModelKey, retrievalPolicy] = await Promise.all([
+      this.resolveAssistantKnowledgeContext(input.assistantId),
+      this.knowledgeModelPolicyService.resolveAssistantEmbeddingModelKey(input.assistantId),
+      this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(input.assistantId)
+    ]);
+    if (assistant === null) {
+      return {
+        hits: [],
+        lexicalCandidateCount: 0,
+        vectorCandidateCount: 0,
+        retrievalMode: "lexical",
+        embeddingModelKey: null
+      };
+    }
+    const normalizedQuery = input.query.trim();
+    const queryInfo = buildSearchQueryInfo(normalizedQuery);
+    const rows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
+      where: {
+        workspaceId: assistant.workspaceId,
+        globalKnowledgeSource: {
+          workspaceId: assistant.workspaceId,
           status: "ready"
         },
         OR: queryInfo.searchTerms.flatMap((term) => [
@@ -976,365 +2419,242 @@ export class ReadAssistantKnowledgeService {
         ])
       },
       include: {
-        knowledgeSource: {
+        globalKnowledgeSource: {
           select: {
             id: true,
-            namespace: true,
             displayName: true,
             originalFilename: true,
             mimeType: true
           }
         }
       },
-      orderBy: [{ knowledgeSourceId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
-      take: KNOWLEDGE_SEARCH_CANDIDATE_LIMIT
-    })) as SearchSourceRow[];
+      orderBy: [
+        { globalKnowledgeSourceId: "asc" },
+        { sourceVersion: "desc" },
+        { chunkIndex: "asc" }
+      ],
+      take: retrievalPolicy.lexicalCandidateLimit
+    })) as GlobalSearchSourceRow[];
+    const rankedByReferenceId = new Map<string, RankedSearchCandidate<GlobalSearchSourceRow>>();
+    const upsertRankedCandidate = (
+      referenceId: string,
+      candidate: RankedSearchCandidate<GlobalSearchSourceRow>
+    ) => {
+      const existing = rankedByReferenceId.get(referenceId);
+      if (
+        existing === undefined ||
+        candidate.score > existing.score ||
+        (candidate.score === existing.score && candidate.lexicalScore > existing.lexicalScore)
+      ) {
+        rankedByReferenceId.set(referenceId, candidate);
+      }
+    };
 
-    const ranked = rows
-      .map((row) => {
-        const { lexicalScore, score } = rankStructuredCandidate({
+    for (const row of rows) {
+      const { lexicalScore, score } = rankStructuredCandidate({
+        query: queryInfo,
+        title: row.globalKnowledgeSource.displayName,
+        filename: row.globalKnowledgeSource.originalFilename,
+        locator: row.locator,
+        content: row.content,
+        fieldWeights: {
+          title: 3.2,
+          filename: 2.8,
+          locator: 2.0,
+          content: 1.25,
+          metadata: 0
+        },
+        sourceWeight: row.scope === "product" ? 4 : 2,
+        enableSemanticRerank: true
+      });
+      if (score <= 0) {
+        continue;
+      }
+      const referenceId = buildGlobalUploadedReferenceId({
+        globalKnowledgeSourceId: row.globalKnowledgeSourceId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex
+      });
+      upsertRankedCandidate(referenceId, {
+        row,
+        score,
+        lexicalScore,
+        dedupeKey: [
+          row.globalKnowledgeSourceId,
+          normalizeSearchText(row.locator ?? ""),
+          normalizeSearchText(row.content).slice(0, 180)
+        ].join(":"),
+        groupKey: row.globalKnowledgeSourceId,
+        groupLimit: 2
+      });
+    }
+
+    const queryEmbedding =
+      !retrievalPolicy.embeddingSearchEnabled || resolvedEmbeddingModelKey === null
+        ? null
+        : ((
+            await this.knowledgeEmbeddingService.generateEmbeddings({
+              modelKey: resolvedEmbeddingModelKey,
+              texts: [normalizedQuery]
+            })
+          )[0] ?? null);
+    let vectorCandidateCount = 0;
+    const retrievalMode: "lexical" | "hybrid" = queryEmbedding === null ? "lexical" : "hybrid";
+    if (queryEmbedding !== null && resolvedEmbeddingModelKey !== null) {
+      const vectorRows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
+        where: {
+          workspaceId: assistant.workspaceId,
+          embeddingModelKey: resolvedEmbeddingModelKey,
+          globalKnowledgeSource: {
+            workspaceId: assistant.workspaceId,
+            status: "ready"
+          }
+        },
+        include: {
+          globalKnowledgeSource: {
+            select: {
+              id: true,
+              displayName: true,
+              originalFilename: true,
+              mimeType: true
+            }
+          }
+        },
+        orderBy: [
+          { globalKnowledgeSourceId: "asc" },
+          { sourceVersion: "desc" },
+          { chunkIndex: "asc" }
+        ],
+        take: retrievalPolicy.vectorCandidateLimit
+      })) as GlobalSearchSourceRow[];
+      vectorCandidateCount = vectorRows.length;
+
+      for (const row of vectorRows) {
+        const embedding = Array.isArray(row.embeddingVector)
+          ? row.embeddingVector.filter((value): value is number => typeof value === "number")
+          : [];
+        if (embedding.length === 0) {
+          continue;
+        }
+        const vectorSimilarity = cosineSimilarity(queryEmbedding, embedding);
+        if (vectorSimilarity <= 0.18) {
+          continue;
+        }
+        const { lexicalScore } = rankStructuredCandidate({
           query: queryInfo,
-          title: row.knowledgeSource.displayName,
-          filename: row.knowledgeSource.originalFilename,
+          title: row.globalKnowledgeSource.displayName,
+          filename: row.globalKnowledgeSource.originalFilename,
           locator: row.locator,
           content: row.content,
           fieldWeights: {
-            title: 3.6,
-            filename: 3.2,
-            locator: 2.2,
-            content: 1.35,
+            title: 2.3,
+            filename: 2.0,
+            locator: 1.5,
+            content: 1.0,
             metadata: 0
           },
-          sourceWeight: row.knowledgeSource.displayName === null ? 1 : 3,
-          enableSemanticRerank: true
+          sourceWeight: row.scope === "product" ? 1.8 : 1.2,
+          enableSemanticRerank: false
         });
-        return {
+        const referenceId = buildGlobalUploadedReferenceId({
+          globalKnowledgeSourceId: row.globalKnowledgeSourceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex
+        });
+        upsertRankedCandidate(referenceId, {
           row,
-          score,
-          lexicalScore,
+          score: vectorSimilarity * 42 + lexicalScore * 0.35,
+          lexicalScore: lexicalScore + vectorSimilarity * 10,
           dedupeKey: [
-            row.knowledgeSourceId,
+            row.globalKnowledgeSourceId,
             normalizeSearchText(row.locator ?? ""),
             normalizeSearchText(row.content).slice(0, 180)
           ].join(":"),
-          groupKey: row.knowledgeSourceId,
+          groupKey: row.globalKnowledgeSourceId,
           groupLimit: 2
-        } satisfies RankedSearchCandidate<SearchSourceRow>;
-      })
-      .filter((row) => row.score > 0)
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-        if (right.lexicalScore !== left.lexicalScore) {
-          return right.lexicalScore - left.lexicalScore;
-        }
-        if (left.row.knowledgeSourceId !== right.row.knowledgeSourceId) {
-          return left.row.knowledgeSourceId.localeCompare(right.row.knowledgeSourceId);
-        }
-        return left.row.chunkIndex - right.row.chunkIndex;
-      });
+        });
+      }
+    }
 
-    return selectRankedCandidates(ranked, resolveMaxResults(input.maxResults)).map(
-      ({ row, score }) => ({
-        referenceId: buildDocumentReferenceId({
-          knowledgeSourceId: row.knowledgeSourceId,
+    const ranked = Array.from(rankedByReferenceId.values()).sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      if (right.lexicalScore !== left.lexicalScore) {
+        return right.lexicalScore - left.lexicalScore;
+      }
+      if (left.row.globalKnowledgeSourceId !== right.row.globalKnowledgeSourceId) {
+        return left.row.globalKnowledgeSourceId.localeCompare(right.row.globalKnowledgeSourceId);
+      }
+      return left.row.chunkIndex - right.row.chunkIndex;
+    });
+
+    return {
+      lexicalCandidateCount: rows.length,
+      vectorCandidateCount,
+      retrievalMode,
+      embeddingModelKey: resolvedEmbeddingModelKey,
+      hits: selectRankedCandidates(
+        ranked,
+        resolveMaxResults(
+          input.maxResults,
+          retrievalPolicy.defaultMaxResults,
+          retrievalPolicy.maxMaxResults
+        )
+      ).map(({ row, score }) => ({
+        referenceId: buildGlobalUploadedReferenceId({
+          globalKnowledgeSourceId: row.globalKnowledgeSourceId,
           sourceVersion: row.sourceVersion,
           chunkIndex: row.chunkIndex
         }),
-        source: "document",
-        title: row.knowledgeSource.displayName ?? row.knowledgeSource.originalFilename,
+        source: "global",
+        title: row.globalKnowledgeSource.displayName ?? row.globalKnowledgeSource.originalFilename,
         locator: row.locator,
         snippet: buildSnippet(row.content, queryInfo.searchTerms),
         score,
         metadata: {
-          knowledgeSourceId: row.knowledgeSource.id,
-          namespace: row.knowledgeSource.namespace,
-          mimeType: row.knowledgeSource.mimeType,
-          originalFilename: row.knowledgeSource.originalFilename,
+          knowledgeSourceId: row.globalKnowledgeSource.id,
+          scope: row.scope,
+          mimeType: row.globalKnowledgeSource.mimeType,
+          originalFilename: row.globalKnowledgeSource.originalFilename,
           sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex
+          chunkIndex: row.chunkIndex,
+          retrievalMode,
+          kind: "global_uploaded"
         }
-      })
-    );
+      }))
+    };
   }
 
-  async searchMemory(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    const normalizedQuery = input.query.trim();
-    if (normalizedQuery.length === 0) {
-      throw new BadRequestException("query is required.");
-    }
-
-    const queryInfo = buildSearchQueryInfo(normalizedQuery);
-    const rows = (await this.prisma.assistantMemoryRegistryItem.findMany({
-      where: {
-        assistantId: input.assistantId,
-        forgottenAt: null,
-        OR: queryInfo.searchTerms.flatMap((term) => [
-          {
-            summary: {
-              contains: term,
-              mode: "insensitive"
-            }
-          },
-          {
-            sourceLabel: {
-              contains: term,
-              mode: "insensitive"
-            }
-          }
-        ])
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: KNOWLEDGE_SEARCH_CANDIDATE_LIMIT
-    })) as MemoryRegistryRow[];
-
-    const recencyBonus = buildRelativeRecencyResolver({
-      rows,
-      halfLifeDays: 14,
-      maxBonus: 8
-    });
-    const ranked = rows
-      .map((row) => {
-        const { lexicalScore, score } = rankStructuredCandidate({
-          query: queryInfo,
-          title: resolveMemoryTitle(row),
-          locator: resolveMemoryLocator(row),
-          content: row.summary,
-          fieldWeights: {
-            title: 2.8,
-            filename: 0,
-            locator: 1.9,
-            content: 2.2,
-            metadata: 0
-          },
-          sourceWeight: row.sourceType === "memory_write" ? 9 : 4,
-          recencyBonus: recencyBonus(row.createdAt),
-          enableSemanticRerank: true
-        });
-        return {
-          row,
-          score,
-          lexicalScore,
-          dedupeKey: `${row.sourceType}:${normalizeSearchText(row.summary)}`,
-          groupKey: row.chatId,
-          groupLimit: row.chatId === null ? null : 2
-        } satisfies RankedSearchCandidate<MemoryRegistryRow>;
-      })
-      .filter((row) => row.score > 0)
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-        if (right.lexicalScore !== left.lexicalScore) {
-          return right.lexicalScore - left.lexicalScore;
-        }
-        if (right.row.createdAt.getTime() !== left.row.createdAt.getTime()) {
-          return right.row.createdAt.getTime() - left.row.createdAt.getTime();
-        }
-        return left.row.id.localeCompare(right.row.id);
-      });
-
-    return selectRankedCandidates(ranked, resolveMaxResults(input.maxResults)).map(
-      ({ row, score }) => ({
-        referenceId: buildMemoryReferenceId(row.id),
-        source: "memory",
-        title: resolveMemoryTitle(row),
-        locator: resolveMemoryLocator(row),
-        snippet: buildSnippet(row.summary, queryInfo.searchTerms),
-        score,
-        metadata: {
-          memoryItemId: row.id,
-          sourceType: row.sourceType,
-          chatId: row.chatId,
-          relatedUserMessageId: row.relatedUserMessageId,
-          relatedAssistantMessageId: row.relatedAssistantMessageId,
-          createdAt: row.createdAt.toISOString()
-        }
-      })
-    );
-  }
-
-  async searchChats(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    const normalizedQuery = input.query.trim();
-    if (normalizedQuery.length === 0) {
-      throw new BadRequestException("query is required.");
-    }
-
-    const queryInfo = buildSearchQueryInfo(normalizedQuery);
-    const rows = (await this.prisma.assistantChatMessage.findMany({
-      where: {
-        assistantId: input.assistantId,
-        author: {
-          in: ["user", "assistant"]
-        },
-        OR: queryInfo.searchTerms.map((term) => ({
-          content: {
-            contains: term,
-            mode: "insensitive"
-          }
-        }))
-      },
-      include: {
-        chat: {
-          select: {
-            id: true,
-            surface: true,
-            surfaceThreadKey: true,
-            title: true,
-            archivedAt: true
-          }
-        }
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: KNOWLEDGE_SEARCH_CANDIDATE_LIMIT
-    })) as ChatMessageRow[];
-
-    const recencyBonus = buildRelativeRecencyResolver({
-      rows,
-      halfLifeDays: 7,
-      maxBonus: 10
-    });
-    const ranked = rows
-      .map((row) => {
-        const { lexicalScore, score } = rankStructuredCandidate({
-          query: queryInfo,
-          title: resolveChatTitle(row.chat),
-          locator: resolveChatLocator(row),
-          content: row.content,
-          fieldWeights: {
-            title: 2.5,
-            filename: 0,
-            locator: 1.8,
-            content: 2.15,
-            metadata: 0
-          },
-          sourceWeight:
-            (row.chat.archivedAt === null ? 4 : 1) + (row.author === "assistant" ? 1.5 : 0),
-          recencyBonus: recencyBonus(row.createdAt),
-          enableSemanticRerank: true
-        });
-        return {
-          row,
-          score,
-          lexicalScore,
-          dedupeKey: `${row.chatId}:${normalizeSearchText(row.content)}`,
-          groupKey: row.chatId,
-          groupLimit: 2
-        } satisfies RankedSearchCandidate<ChatMessageRow>;
-      })
-      .filter((row) => row.score > 0)
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
-        }
-        if (right.lexicalScore !== left.lexicalScore) {
-          return right.lexicalScore - left.lexicalScore;
-        }
-        if (right.row.createdAt.getTime() !== left.row.createdAt.getTime()) {
-          return right.row.createdAt.getTime() - left.row.createdAt.getTime();
-        }
-        return left.row.id.localeCompare(right.row.id);
-      });
-
-    return selectRankedCandidates(ranked, resolveMaxResults(input.maxResults)).map(
-      ({ row, score }) => ({
-        referenceId: buildChatReferenceId({
-          chatId: row.chatId,
-          messageId: row.id
-        }),
-        source: "chat",
-        title: resolveChatTitle(row.chat),
-        locator: resolveChatLocator(row),
-        snippet: buildSnippet(row.content, queryInfo.searchTerms),
-        score,
-        metadata: {
-          chatId: row.chatId,
-          messageId: row.id,
-          author: row.author,
-          surface: row.chat.surface,
-          surfaceThreadKey: row.chat.surfaceThreadKey,
-          archivedAt: row.chat.archivedAt?.toISOString() ?? null,
-          createdAt: row.createdAt.toISOString()
-        }
-      })
-    );
-  }
-
-  async searchPresets(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    const documents = await this.loadPresetKnowledgeDocuments(input.assistantId);
-    return searchTextKnowledgeDocuments({
-      documents,
-      query: input.query,
-      maxResults: input.maxResults
-    });
-  }
-
-  async searchSubscription(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    const documents = await this.loadSubscriptionKnowledgeDocuments(input.assistantId);
-    return searchTextKnowledgeDocuments({
-      documents,
-      query: input.query,
-      maxResults: input.maxResults
-    });
-  }
-
-  async searchGlobal(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    void input.assistantId;
-    const documents = await this.loadGlobalKnowledgeDocuments();
-    return searchTextKnowledgeDocuments({
-      documents,
-      query: input.query,
-      maxResults: input.maxResults
-    });
-  }
-
-  async fetchDocument(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const reference = parseDocumentReferenceId(input.referenceId.trim());
+  private async fetchUploadedGlobalDocument(
+    referenceId: string,
+    assistantId: string
+  ): Promise<RuntimeKnowledgeDocument | null> {
+    const retrievalPolicy =
+      await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(assistantId);
+    const reference = parseGlobalUploadedReferenceId(referenceId);
     if (reference === null) {
-      throw new BadRequestException("referenceId is invalid.");
+      return null;
     }
-
-    const centerRow = await this.prisma.assistantKnowledgeSourceChunk.findFirst({
+    const assistant = await this.resolveAssistantKnowledgeContext(assistantId);
+    if (assistant === null) {
+      return null;
+    }
+    const centerRow = await this.prisma.globalKnowledgeSourceChunk.findFirst({
       where: {
-        assistantId: input.assistantId,
-        knowledgeSourceId: reference.knowledgeSourceId,
+        globalKnowledgeSourceId: reference.globalKnowledgeSourceId,
         sourceVersion: reference.sourceVersion,
         chunkIndex: reference.chunkIndex,
-        knowledgeSource: {
-          assistantId: input.assistantId,
-          namespace: "assistant_user_workspace",
+        workspaceId: assistant.workspaceId,
+        globalKnowledgeSource: {
+          workspaceId: assistant.workspaceId,
           status: "ready"
         }
       },
       include: {
-        knowledgeSource: {
+        globalKnowledgeSource: {
           select: {
             id: true,
-            namespace: true,
             displayName: true,
             originalFilename: true,
             mimeType: true
@@ -1342,250 +2662,48 @@ export class ReadAssistantKnowledgeService {
         }
       }
     });
-
     if (centerRow === null) {
       return null;
     }
-
-    const surroundingRows = await this.prisma.assistantKnowledgeSourceChunk.findMany({
+    const surroundingRows = await this.prisma.globalKnowledgeSourceChunk.findMany({
       where: {
-        assistantId: input.assistantId,
-        knowledgeSourceId: reference.knowledgeSourceId,
+        globalKnowledgeSourceId: reference.globalKnowledgeSourceId,
         sourceVersion: reference.sourceVersion,
+        workspaceId: assistant.workspaceId,
         chunkIndex: {
-          gte: Math.max(0, reference.chunkIndex - KNOWLEDGE_FETCH_WINDOW_RADIUS),
-          lte: reference.chunkIndex + KNOWLEDGE_FETCH_WINDOW_RADIUS
+          gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
+          lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
         }
       },
       orderBy: [{ chunkIndex: "asc" }]
     });
-
     const content = surroundingRows
       .map((row) => row.content.trim())
       .filter((row) => row.length > 0)
       .join("\n\n---\n\n")
-      .slice(0, KNOWLEDGE_FETCH_MAX_CHARS);
-
+      .slice(0, retrievalPolicy.fetchMaxChars);
     return {
-      referenceId: buildDocumentReferenceId(reference),
-      source: "document",
-      title: centerRow.knowledgeSource.displayName ?? centerRow.knowledgeSource.originalFilename,
+      referenceId,
+      source: "global",
+      title:
+        centerRow.globalKnowledgeSource.displayName ??
+        centerRow.globalKnowledgeSource.originalFilename,
       locator: centerRow.locator,
       content,
       snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
       metadata: {
-        knowledgeSourceId: centerRow.knowledgeSource.id,
-        namespace: centerRow.knowledgeSource.namespace,
-        mimeType: centerRow.knowledgeSource.mimeType,
-        originalFilename: centerRow.knowledgeSource.originalFilename,
+        knowledgeSourceId: centerRow.globalKnowledgeSource.id,
+        scope: centerRow.scope,
+        mimeType: centerRow.globalKnowledgeSource.mimeType,
+        originalFilename: centerRow.globalKnowledgeSource.originalFilename,
         sourceVersion: centerRow.sourceVersion,
         chunkIndex: centerRow.chunkIndex,
-        windowStartChunkIndex: surroundingRows[0]?.chunkIndex ?? centerRow.chunkIndex,
-        windowEndChunkIndex:
-          surroundingRows[surroundingRows.length - 1]?.chunkIndex ?? centerRow.chunkIndex
+        embeddingModelKey: centerRow.embeddingModelKey,
+        retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
+        windowChunkCount: surroundingRows.length,
+        kind: "global_uploaded"
       }
     };
-  }
-
-  async fetchMemory(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const reference = parseMemoryReferenceId(input.referenceId.trim());
-    if (reference === null) {
-      throw new BadRequestException("referenceId is invalid.");
-    }
-
-    const row = (await this.prisma.assistantMemoryRegistryItem.findFirst({
-      where: {
-        id: reference.memoryItemId,
-        assistantId: input.assistantId,
-        forgottenAt: null
-      }
-    })) as MemoryRegistryRow | null;
-
-    if (row === null) {
-      return null;
-    }
-
-    return {
-      referenceId: buildMemoryReferenceId(row.id),
-      source: "memory",
-      title: resolveMemoryTitle(row),
-      locator: resolveMemoryLocator(row),
-      content: row.summary,
-      snippet: buildSnippet(row.summary, [row.summary]) ?? row.summary,
-      metadata: {
-        memoryItemId: row.id,
-        sourceType: row.sourceType,
-        sourceLabel: row.sourceLabel,
-        chatId: row.chatId,
-        relatedUserMessageId: row.relatedUserMessageId,
-        relatedAssistantMessageId: row.relatedAssistantMessageId,
-        createdAt: row.createdAt.toISOString()
-      }
-    };
-  }
-
-  async fetchChat(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const reference = parseChatReferenceId(input.referenceId.trim());
-    if (reference === null) {
-      throw new BadRequestException("referenceId is invalid.");
-    }
-
-    const centerRow = (await this.prisma.assistantChatMessage.findFirst({
-      where: {
-        id: reference.messageId,
-        chatId: reference.chatId,
-        assistantId: input.assistantId,
-        author: {
-          in: ["user", "assistant"]
-        }
-      },
-      include: {
-        chat: {
-          select: {
-            id: true,
-            surface: true,
-            surfaceThreadKey: true,
-            title: true,
-            archivedAt: true
-          }
-        }
-      }
-    })) as ChatMessageRow | null;
-
-    if (centerRow === null) {
-      return null;
-    }
-
-    const [beforeRows, afterRows] = (await Promise.all([
-      this.prisma.assistantChatMessage.findMany({
-        where: {
-          assistantId: input.assistantId,
-          chatId: centerRow.chatId,
-          author: {
-            in: ["user", "assistant"]
-          },
-          OR: [
-            {
-              createdAt: {
-                lt: centerRow.createdAt
-              }
-            },
-            {
-              createdAt: {
-                equals: centerRow.createdAt
-              },
-              id: {
-                lt: centerRow.id
-              }
-            }
-          ]
-        },
-        select: {
-          id: true,
-          author: true,
-          content: true,
-          createdAt: true
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        take: CHAT_FETCH_WINDOW_RADIUS
-      }),
-      this.prisma.assistantChatMessage.findMany({
-        where: {
-          assistantId: input.assistantId,
-          chatId: centerRow.chatId,
-          author: {
-            in: ["user", "assistant"]
-          },
-          OR: [
-            {
-              createdAt: {
-                gt: centerRow.createdAt
-              }
-            },
-            {
-              createdAt: {
-                equals: centerRow.createdAt
-              },
-              id: {
-                gt: centerRow.id
-              }
-            }
-          ]
-        },
-        select: {
-          id: true,
-          author: true,
-          content: true,
-          createdAt: true
-        },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        take: CHAT_FETCH_WINDOW_RADIUS
-      })
-    ])) as [ChatMessageWindowRow[], ChatMessageWindowRow[]];
-
-    const windowRows: ChatMessageWindowRow[] = [...beforeRows.reverse(), centerRow, ...afterRows];
-
-    return {
-      referenceId: buildChatReferenceId(reference),
-      source: "chat",
-      title: resolveChatTitle(centerRow.chat),
-      locator: resolveChatLocator(centerRow),
-      content: buildChatWindowContent(windowRows),
-      snippet:
-        buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]) ??
-        centerRow.content.trim(),
-      metadata: {
-        chatId: centerRow.chatId,
-        messageId: centerRow.id,
-        author: centerRow.author,
-        surface: centerRow.chat.surface,
-        surfaceThreadKey: centerRow.chat.surfaceThreadKey,
-        archivedAt: centerRow.chat.archivedAt?.toISOString() ?? null,
-        createdAt: centerRow.createdAt.toISOString(),
-        windowStartMessageId: windowRows[0]?.id ?? centerRow.id,
-        windowEndMessageId: windowRows[windowRows.length - 1]?.id ?? centerRow.id
-      }
-    };
-  }
-
-  async fetchPreset(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const referenceId = input.referenceId.trim();
-    const document = (await this.loadPresetKnowledgeDocuments(input.assistantId)).find(
-      (row) => row.referenceId === referenceId
-    );
-    return document === undefined ? null : toTextKnowledgeDocument(document);
-  }
-
-  async fetchSubscription(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const referenceId = input.referenceId.trim();
-    const document = (await this.loadSubscriptionKnowledgeDocuments(input.assistantId)).find(
-      (row) => row.referenceId === referenceId
-    );
-    return document === undefined ? null : toTextKnowledgeDocument(document);
-  }
-
-  async fetchGlobal(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    void input.assistantId;
-    const referenceId = input.referenceId.trim();
-    const document = (await this.loadGlobalKnowledgeDocuments()).find(
-      (row) => row.referenceId === referenceId
-    );
-    return document === undefined ? null : toTextKnowledgeDocument(document);
   }
 
   private async loadPresetKnowledgeDocuments(
@@ -1773,8 +2891,11 @@ export class ReadAssistantKnowledgeService {
     ];
   }
 
-  private async loadGlobalKnowledgeDocuments(): Promise<TextKnowledgeDocumentRow[]> {
-    const [plans, tools] = await Promise.all([
+  private async loadGlobalKnowledgeDocuments(
+    assistantId: string
+  ): Promise<TextKnowledgeDocumentRow[]> {
+    const [assistant, plans, tools] = await Promise.all([
+      this.resolveAssistantKnowledgeContext(assistantId),
       this.prisma.planCatalogPlan.findMany({
         where: {
           status: "active"
@@ -1862,6 +2983,26 @@ export class ReadAssistantKnowledgeService {
       });
     }
 
+    if (assistant?.governance?.assistantPlanOverrideCode || assistant?.governance?.quotaPlanCode) {
+      documents.unshift({
+        referenceId: "global:product:current-plan-routing",
+        source: "global",
+        title: "Current Knowledge Routing Policy",
+        locator: "global:routing-policy",
+        content: [
+          "# Current Knowledge Routing Policy",
+          `- Assistant plan override: ${assistant.governance?.assistantPlanOverrideCode ?? "none"}`,
+          `- Quota plan: ${assistant.governance?.quotaPlanCode ?? "none"}`,
+          "- Global product and skill libraries are PersAI-owned indexed copies, not direct reads from external drives.",
+          "- Assistant-private uploaded documents can use hybrid lexical plus vector retrieval when the active plan configures an embedding model.",
+          "- Retrieval helper use stays optional and is resolved from the plan retrieval slot."
+        ].join("\n"),
+        metadata: {
+          kind: "knowledge_routing_policy"
+        }
+      });
+    }
+
     return documents;
   }
 
@@ -1944,6 +3085,78 @@ export class ReadAssistantKnowledgeService {
     });
 
     return [...base, planDocument.content].join("\n\n");
+  }
+
+  private async recordSearchObservability(params: {
+    assistantId: string;
+    source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+    retrievalMode: "lexical" | "hybrid";
+    durationMs: number;
+    resultCount: number;
+    lexicalCandidateCount: number;
+    vectorCandidateCount: number;
+    helperApplied: boolean;
+    embeddingModelKey: string | null;
+    helperModelKey?: string | null;
+    helperProviderKey?: string | null;
+    helperInputTokens?: number | null;
+    helperOutputTokens?: number | null;
+    helperTotalTokens?: number | null;
+    outcome?: "success" | "empty" | "error";
+    errorCode?: string | null;
+  }): Promise<void> {
+    const assistant = await this.resolveAssistantKnowledgeContext(params.assistantId);
+    if (assistant === null) {
+      return;
+    }
+    await this.knowledgeRetrievalObservabilityService.recordSearch({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      source: params.source,
+      retrievalMode: params.retrievalMode,
+      durationMs: params.durationMs,
+      resultCount: params.resultCount,
+      lexicalCandidateCount: params.lexicalCandidateCount,
+      vectorCandidateCount: params.vectorCandidateCount,
+      helperApplied: params.helperApplied,
+      embeddingModelKey: params.embeddingModelKey,
+      helperModelKey: params.helperModelKey ?? null,
+      helperProviderKey: params.helperProviderKey ?? null,
+      helperInputTokens: params.helperInputTokens ?? null,
+      helperOutputTokens: params.helperOutputTokens ?? null,
+      helperTotalTokens: params.helperTotalTokens ?? null,
+      ...(params.outcome === undefined ? {} : { outcome: params.outcome }),
+      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null })
+    });
+  }
+
+  private async recordFetchObservability(params: {
+    assistantId: string;
+    source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+    retrievalMode: "lexical" | "hybrid";
+    durationMs: number;
+    fetchDepth: number;
+    fetchedChars: number;
+    embeddingModelKey: string | null;
+    outcome?: "success" | "empty" | "error";
+    errorCode?: string | null;
+  }): Promise<void> {
+    const assistant = await this.resolveAssistantKnowledgeContext(params.assistantId);
+    if (assistant === null) {
+      return;
+    }
+    await this.knowledgeRetrievalObservabilityService.recordFetch({
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      source: params.source,
+      retrievalMode: params.retrievalMode,
+      durationMs: params.durationMs,
+      fetchDepth: params.fetchDepth,
+      fetchedChars: params.fetchedChars,
+      embeddingModelKey: params.embeddingModelKey,
+      ...(params.outcome === undefined ? {} : { outcome: params.outcome }),
+      ...(params.errorCode === undefined ? {} : { errorCode: params.errorCode ?? null })
+    });
   }
 
   private async resolveAssistantKnowledgeContext(

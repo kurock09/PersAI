@@ -2329,6 +2329,8 @@ export type StagedAttachmentResult = {
 
 export type UploadedKnowledgeSource = {
   id: string;
+  namespace?: string;
+  sourceKind?: string;
   displayName: string | null;
   originalFilename: string;
   mimeType: string;
@@ -2342,6 +2344,105 @@ export type UploadedKnowledgeSource = {
   lastErrorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AssistantKnowledgeSourceListState = {
+  quota: {
+    usedBytes: number;
+    limitBytes: number | null;
+  };
+  sources: UploadedKnowledgeSource[];
+};
+
+export type AdminKnowledgeSourceState = {
+  id: string;
+  scope: "product" | "skill";
+  displayName: string | null;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "processing" | "ready" | "failed";
+  currentVersion: number;
+  chunkCount: number;
+  lastIndexedAt: string | null;
+  lastReindexRequestedAt: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminKnowledgeRetrievalMetricSummary = {
+  searchesTotal: number;
+  fetchesTotal: number;
+  successTotal: number;
+  emptyTotal: number;
+  errorTotal: number;
+  lexicalTotal: number;
+  hybridTotal: number;
+  helperAppliedTotal: number;
+  embeddingQueryTotal: number;
+  avgDurationMs: number;
+  maxDurationMs: number;
+  avgResultCount: number;
+  avgLexicalCandidates: number;
+  avgVectorCandidates: number;
+  avgFetchDepth: number;
+  maxFetchDepth: number;
+  avgFetchedChars: number;
+  maxFetchedChars: number;
+  helperInputTokensTotal: number;
+  helperOutputTokensTotal: number;
+  helperTotalTokensTotal: number;
+  emptyRate: number;
+  errorRate: number;
+  hybridRate: number;
+  helperAppliedRate: number;
+};
+
+export type AdminKnowledgeRetrievalSourceSummary = AdminKnowledgeRetrievalMetricSummary & {
+  source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+};
+
+export type AdminKnowledgeRetrievalRecentSearch = {
+  at: string;
+  eventKind: "search" | "fetch";
+  source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+  retrievalMode: "lexical" | "hybrid";
+  outcome: "success" | "empty" | "error";
+  durationMs: number;
+  resultCount: number;
+  lexicalCandidateCount: number;
+  vectorCandidateCount: number;
+  helperApplied: boolean;
+  fetchDepth: number;
+  fetchedChars: number;
+  embeddingModelKey: string | null;
+  helperModelKey: string | null;
+  helperProviderKey: string | null;
+  helperTotalTokens: number | null;
+  errorCode: string | null;
+};
+
+export type AdminKnowledgeObservabilityState = {
+  updatedAt: string | null;
+  totals: AdminKnowledgeRetrievalMetricSummary;
+  bySource: AdminKnowledgeRetrievalSourceSummary[];
+  recent: AdminKnowledgeRetrievalRecentSearch[];
+};
+
+export type AdminKnowledgeConnectorState = {
+  kind: "google_drive" | "yandex_disk" | "mailru_cloud";
+  label: string;
+  status: "planned";
+  authMode: "oauth_deferred";
+  targetScope: "product" | "skill";
+  syncMode: "pull_snapshot_then_index";
+  storageTarget: "persai_owned_object_storage";
+  indexingTarget: "knowledge_indexing_service";
+  supportsScopes: Array<"product" | "skill">;
+  pipeline: string[];
+  notes: string[];
 };
 
 export async function stageWebChatAttachment(
@@ -2432,6 +2533,202 @@ export async function uploadAssistantKnowledgeSource(
       data.source.lastErrorMessage ?? "Knowledge source indexing did not complete.",
       data.source.lastErrorCode ?? "knowledge_source_not_ready"
     );
+  }
+  return data.source;
+}
+
+export async function getAssistantKnowledgeSources(
+  token: string
+): Promise<AssistantKnowledgeSourceListState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/knowledge-sources`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load knowledge sources."));
+  }
+  const data = (await res.json()) as AssistantKnowledgeSourceListState;
+  return {
+    quota: data.quota ?? { usedBytes: 0, limitBytes: null },
+    sources: data.sources ?? []
+  };
+}
+
+export async function deleteAssistantKnowledgeSource(
+  token: string,
+  sourceId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/knowledge-sources/${encodeURIComponent(sourceId)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete knowledge source."));
+  }
+}
+
+export async function reindexAssistantKnowledgeSource(
+  token: string,
+  sourceId: string
+): Promise<UploadedKnowledgeSource> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/assistant/knowledge-sources/${encodeURIComponent(sourceId)}/reindex`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to reindex knowledge source."));
+  }
+  const data = (await res.json()) as { source?: UploadedKnowledgeSource };
+  if (!data.source) {
+    throw new Error("Knowledge source reindex returned an unexpected response.");
+  }
+  return data.source;
+}
+
+export async function getAdminKnowledgeSources(
+  token: string,
+  scope: "product" | "skill"
+): Promise<AdminKnowledgeSourceState[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources?scope=${encodeURIComponent(scope)}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load admin knowledge sources."));
+  }
+  const data = (await res.json()) as { sources?: AdminKnowledgeSourceState[] };
+  return data.sources ?? [];
+}
+
+export async function getAdminKnowledgeObservability(
+  token: string
+): Promise<AdminKnowledgeObservabilityState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/observability`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(
+      await readJsonErrorMessage(res, "Failed to load admin knowledge observability.")
+    );
+  }
+  const data = (await res.json()) as { observability?: AdminKnowledgeObservabilityState };
+  return (
+    data.observability ?? {
+      updatedAt: null,
+      totals: {
+        searchesTotal: 0,
+        fetchesTotal: 0,
+        successTotal: 0,
+        emptyTotal: 0,
+        errorTotal: 0,
+        lexicalTotal: 0,
+        hybridTotal: 0,
+        helperAppliedTotal: 0,
+        embeddingQueryTotal: 0,
+        avgDurationMs: 0,
+        maxDurationMs: 0,
+        avgResultCount: 0,
+        avgLexicalCandidates: 0,
+        avgVectorCandidates: 0,
+        avgFetchDepth: 0,
+        maxFetchDepth: 0,
+        avgFetchedChars: 0,
+        maxFetchedChars: 0,
+        helperInputTokensTotal: 0,
+        helperOutputTokensTotal: 0,
+        helperTotalTokensTotal: 0,
+        emptyRate: 0,
+        errorRate: 0,
+        hybridRate: 0,
+        helperAppliedRate: 0
+      },
+      bySource: [],
+      recent: []
+    }
+  );
+}
+
+export async function getAdminKnowledgeConnectors(
+  token: string,
+  scope: "product" | "skill"
+): Promise<AdminKnowledgeConnectorState[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/connectors?scope=${encodeURIComponent(scope)}`,
+    {
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load knowledge connectors."));
+  }
+  const data = (await res.json()) as { connectors?: AdminKnowledgeConnectorState[] };
+  return data.connectors ?? [];
+}
+
+export async function uploadAdminKnowledgeSource(
+  token: string,
+  scope: "product" | "skill",
+  file: File,
+  options?: { displayName?: string | null | undefined }
+): Promise<AdminKnowledgeSourceState> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  const displayName = options?.displayName?.trim();
+  if (displayName) {
+    formData.append("displayName", displayName);
+  }
+  formData.append("file", file);
+  const res = await fetch(`${base}/admin/knowledge-sources/${encodeURIComponent(scope)}`, {
+    method: "POST",
+    headers: getAuthHeaders(token),
+    body: formData
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to upload admin knowledge source."));
+  }
+  const data = (await res.json()) as { source?: AdminKnowledgeSourceState };
+  if (!data.source) {
+    throw new Error("Admin knowledge source upload returned an unexpected response.");
+  }
+  return data.source;
+}
+
+export async function deleteAdminKnowledgeSource(token: string, sourceId: string): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/${encodeURIComponent(sourceId)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete admin knowledge source."));
+  }
+}
+
+export async function reindexAdminKnowledgeSource(
+  token: string,
+  sourceId: string
+): Promise<AdminKnowledgeSourceState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/${encodeURIComponent(sourceId)}/reindex`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to reindex admin knowledge source."));
+  }
+  const data = (await res.json()) as { source?: AdminKnowledgeSourceState };
+  if (!data.source) {
+    throw new Error("Admin knowledge source reindex returned an unexpected response.");
   }
   return data.source;
 }

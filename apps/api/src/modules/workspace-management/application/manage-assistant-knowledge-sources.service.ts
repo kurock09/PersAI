@@ -1,14 +1,19 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import type { AssistantKnowledgeSource as PrismaAssistantKnowledgeSource } from "@prisma/client";
 import { createKnowledgeStorageQuotaExceededError } from "./assistant-inbound-error";
-import { chunkKnowledgeText, type KnowledgeChunkDraft } from "./assistant-knowledge-chunking";
 import type {
   AssistantKnowledgeQuotaState,
   AssistantKnowledgeSourceState
 } from "./assistant-knowledge-source.types";
+import {
+  KnowledgeIndexingError,
+  KnowledgeIndexingService,
+  type IndexedKnowledgeChunkDraft
+} from "./knowledge-indexing.service";
+import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import { MediaPreprocessorService } from "./media/media-preprocessor.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -22,24 +27,16 @@ const KNOWLEDGE_DOCUMENT_MIMES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ]);
 
-class KnowledgeIndexingError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string
-  ) {
-    super(message);
-  }
-}
-
 @Injectable()
 export class ManageAssistantKnowledgeSourcesService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly mediaPreprocessorService: MediaPreprocessorService,
     private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly knowledgeIndexingService: KnowledgeIndexingService,
+    private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService
   ) {}
 
   parseUploadInput(body: unknown): { displayName: string | null } {
@@ -262,11 +259,16 @@ export class ManageAssistantKnowledgeSourcesService {
     nextVersion: number;
   }): Promise<AssistantKnowledgeSourceState> {
     try {
-      const chunks = await this.extractChunks(
-        params.buffer,
-        params.mimeType,
-        params.originalFilename
-      );
+      const embeddingModelKey =
+        await this.knowledgeModelPolicyService.resolveAssistantEmbeddingModelKey(
+          params.assistantId
+        );
+      const chunks = await this.knowledgeIndexingService.buildIndexedChunks({
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        originalFilename: params.originalFilename,
+        embeddingModelKey
+      });
       await this.persistIndexedChunks(params.sourceId, params.nextVersion, chunks);
       const row = await this.prisma.assistantKnowledgeSource.findUniqueOrThrow({
         where: { id: params.sourceId }
@@ -277,40 +279,10 @@ export class ManageAssistantKnowledgeSourcesService {
     }
   }
 
-  private async extractChunks(
-    buffer: Buffer,
-    mimeType: string,
-    originalFilename: string
-  ): Promise<KnowledgeChunkDraft[]> {
-    const preprocessed = await this.mediaPreprocessorService.process(
-      buffer,
-      mimeType,
-      originalFilename,
-      { enableDocumentVisualFallback: true }
-    );
-    const extractedText = preprocessed.textExtract?.trim() ?? null;
-    if (extractedText === null || extractedText.length === 0) {
-      throw new KnowledgeIndexingError(
-        "text_extract_unavailable",
-        "No searchable text could be extracted from the uploaded file."
-      );
-    }
-
-    const chunks = chunkKnowledgeText(extractedText);
-    if (chunks.length === 0) {
-      throw new KnowledgeIndexingError(
-        "empty_text_extract",
-        "The uploaded file did not produce any indexable text chunks."
-      );
-    }
-
-    return chunks;
-  }
-
   private async persistIndexedChunks(
     sourceId: string,
     sourceVersion: number,
-    chunks: KnowledgeChunkDraft[]
+    chunks: IndexedKnowledgeChunkDraft[]
   ): Promise<void> {
     const source = await this.prisma.assistantKnowledgeSource.findUniqueOrThrow({
       where: { id: sourceId },
@@ -329,7 +301,13 @@ export class ManageAssistantKnowledgeSourcesService {
           sourceVersion,
           chunkIndex: chunk.chunkIndex,
           locator: chunk.locator,
-          content: chunk.content
+          content: chunk.content,
+          embeddingModelKey: chunk.embeddingModelKey,
+          embeddingVector:
+            chunk.embeddingVector === null
+              ? Prisma.JsonNull
+              : (chunk.embeddingVector as Prisma.InputJsonValue),
+          embeddingGeneratedAt: chunk.embeddingGeneratedAt
         }))
       });
       await tx.assistantKnowledgeSource.update({

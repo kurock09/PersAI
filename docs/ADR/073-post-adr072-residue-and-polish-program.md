@@ -78,8 +78,11 @@ The active runtime already has a real PersAI-owned knowledge layer, but it is st
 
 - `knowledge_search` / `knowledge_fetch` are real and PersAI-native
 - uploaded knowledge sources, private memory, prior chats, preset/subscription/global knowledge are already reachable on the active path
-- current retrieval is still `ragMode: "pattern_only"`
-- current reranking is heuristic text scoring, not a true embedding/vector retrieval program
+- the active runtime knowledge contract now publishes `ragMode: "hybrid"`
+- private and global knowledge reads now use bounded lexical plus vector retrieval with optional plan-scoped helper rerank
+- uploaded global knowledge now participates in the same hybrid retrieval path as static global knowledge instead of staying lexical-only
+- retrieval observability is now durable in Prisma and visible on the admin knowledge dashboard
+- retrieval budgets/helper controls are now plan-managed, and admin global-knowledge writes are explicitly auth/quota-governed
 - current tool catalog wording still overstates some `memory_search` semantics relative to the active runtime
 
 ### 6. Model routing and reasoning audit
@@ -265,19 +268,22 @@ Cache architecture is therefore not just a PersAI-owned store; it is prompt asse
 
 ### D. Knowledge correction and retrieval-model target
 
-ADR-073 first corrects the current truth:
+ADR-073 now records the current active truth:
 
-- active retrieval is still `pattern_only`
-- current reranking is still heuristic
-- the repo must stop implying that full hybrid embedding retrieval is already live
+- active retrieval now publishes `ragMode: "hybrid"`
+- assistant-private and global knowledge search now combine lexical plus vector retrieval with bounded fetch windows
+- retrieval-side helper work can resolve from the active plan's `retrievalModel` slot when available
+- retrieval telemetry is durable and workspace-scoped through Prisma event/rollup state plus the admin knowledge observability surface
+- plan policy now owns retrieval result limits, lexical/vector candidate budgets, fetch windows, helper toggles, helper output caps, and embedding-search enablement
+- admin-managed global knowledge writes are now behind an explicit governance seam plus workspace knowledge-storage quota checks
 
-After that correction, PersAI will move toward a hybrid knowledge stack:
+Further follow-through should improve this landed baseline without pretending it is finished forever:
 
 1. keep reference-first, bounded fetch semantics
-2. add an optional specialized retrieval/search model path for query rewrite, search planning, candidate selection, and rerank where provider capability justifies it
-3. generate embeddings for chunks and durable summary blocks
-4. run lexical + vector retrieval
-5. rerank with bounded hybrid scoring
+2. refine where an optional specialized retrieval/search model path is actually justified for query rewrite, search planning, candidate selection, and rerank
+3. keep generating and versioning embeddings for assistant/global chunks and later durable summary blocks
+4. continue lexical + vector retrieval as the default knowledge baseline
+5. deepen bounded hybrid scoring, helper observability, and operator diagnostics where it materially improves quality
 6. inject only the best 3 to 5 references or excerpt windows into the final prompt
 
 The specialized retrieval model is not the main conversational agent. It is a hidden knowledge-side helper owned by the runtime/tool path.
@@ -373,7 +379,7 @@ The main assistant decides **what** to do. The deterministic tool runner decides
 - premium/reasoning slots: mostly off or narrowly gated
 - hidden system/tool slot: economical background model for rewrite, summary, or tool prep when policy allows it
 - cache: provider-native cached prefix plus minimal profile/summary blocks
-- retrieval: current `pattern_only` truth until hybrid lands, with the smallest excerpt budget
+- retrieval: bounded hybrid path with the smallest excerpt and helper budget
 
 ### Free
 
@@ -381,7 +387,7 @@ The main assistant decides **what** to do. The deterministic tool runner decides
 - premium/reasoning slots: exceptional only
 - hidden system/tool slot: economical background model allowed for internal utility work
 - cache: provider-native cached prefix plus user profile cache
-- retrieval: bounded search path with smaller excerpt budget than paid tiers
+- retrieval: bounded hybrid path with smaller excerpt/helper budgets than paid tiers
 
 ### Base
 
@@ -441,9 +447,10 @@ The first implementation wave after ADR-073 approval is grouped into larger slic
    - ordinary/deep cache identity now also incorporates the hydrated leading `durable memory` and reusable shared-compaction-summary blocks, and those stable families now use explicit versioned cache-key tokens instead of implicit header-only matching
    - operator-facing observability for the active path now reaches `/admin/business`, where averaged completed-turn economics (`avg input`, `avg cached input`, `avg output`, cache-hit turn rate, cache-share percent, average usage steps) are aggregated from persisted runtime turn receipts over the rolling `last_7_days` window
    - future KB/retrieval digest blocks should reuse this same versioned stable-family scheme when they are introduced, rather than keeping Slice B itself open
-5. **Economics Slice C - knowledge correction and retrieval-model path** (planned)
-   - align docs/product/runtime truth around current `pattern_only` retrieval
-   - add specialized retrieval-model assistance where justified, then land real hybrid embedding retrieval
+5. **Economics Slice C - knowledge correction and retrieval-model path** (completed)
+   - docs/product/runtime truth now reflects the active hybrid retrieval baseline instead of the old `pattern_only` contract
+   - retrieval observability is now durable through Prisma event/rollup state and visible on the admin knowledge dashboard
+   - uploaded global knowledge now has hybrid-search parity with private knowledge, retrieval budgets/helper controls are plan-managed, and admin global-knowledge writes are explicitly governance/quota-bounded
 
 ## Second-wave priorities
 
@@ -464,7 +471,7 @@ ADR-073 does not:
 - reopen the OpenClaw migration itself
 - reintroduce legacy route modes or deploy wiring
 - treat sandbox/file/process tools as part of the ordinary near-term user path
-- claim that real embeddings, provider-native cached input, or smart-model routing already exist on the active path when they do not
+- overstate economics/retrieval capabilities beyond the code, contracts, and active operator surfaces that already prove them
 
 ## Execution ledger
 
@@ -475,7 +482,7 @@ ADR-073 does not:
 | User UI polish                                | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path                                                                                                                      |
 | Smart-model and plan-slot contract            | completed | Plan-scoped normal/premium/reasoning/system-tool/retrieval slots, hidden `route_control`, and deeper-thinking mode are now landed on the active path                                             |
 | Prompt-cache-first context architecture       | completed | Bundle cache exists; OpenAI text requests now carry provider-side cache-routing hints, ordinary compiled prompt output materializes a stable-prefix record for bundle-owned cache identity, hydrated durable-memory/shared-summary leading blocks participate in ordinary/deep cache identity via explicit versioned stable-family tokens, and `/admin/business` now exposes rolling averaged runtime token/cache economics from persisted completed-turn receipts on the active path |
-| Knowledge correction and retrieval-model path | planned   | Current active retrieval remains `pattern_only` plus heuristic rerank, and no specialized retrieval-model contract exists yet                                                                    |
+| Knowledge correction and retrieval-model path | completed | Active retrieval now publishes `hybrid`, private/global knowledge use bounded lexical plus vector retrieval with plan-managed helper/budget policy, and durable admin-visible observability plus global-write governance are landed on the active path |
 | Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                 |
 | Step 19 scale hardening                       | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers                                                                                                                   |
 | Step 15a native web TTS output                | deferred  | Not part of the first active polish/economics wave                                                                                                                                               |
@@ -535,7 +542,7 @@ Current ADR-073 execution order:
 Inside item 3, keep these as the active economics tracks:
 1. plan-scoped `normal`, `premium/reasoning`, `system/tool`, and optional retrieval-specialized model slots
 2. provider-native cached-input-first prompt assembly with large stable prefixes and measured `cached_tokens`
-3. knowledge truth correction around current `pattern_only` retrieval before claiming hybrid behavior
+3. hybrid retrieval quality/governance follow-through on top of the landed lexical + vector baseline, including honest helper use and durable observability
 4. turn-level token/cost accounting across `input`, `cached input`, and `output`
 
 When resuming:

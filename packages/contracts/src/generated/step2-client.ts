@@ -23,10 +23,17 @@ import type {
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
+  DeleteAdminKnowledgeSourceResponse,
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
+  GetAdminKnowledgeConnectorsParams,
+  GetAdminKnowledgeConnectorsResponse,
+  GetAdminKnowledgeObservabilityResponse,
+  GetAdminKnowledgeSourceResponse,
+  GetAdminKnowledgeSourcesParams,
+  GetAdminKnowledgeSourcesResponse,
   GetAdminNotificationChannelsResponse,
   GetAdminOpsCockpitResponse,
   GetAdminPlanVisibilityResponse,
@@ -48,6 +55,7 @@ import type {
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
   GetMeResponse,
+  GlobalKnowledgeSourceScope,
   OnboardingRequest,
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
@@ -57,6 +65,7 @@ import type {
   PatchAdminToolPromptMetadataResponse,
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
+  PostAdminKnowledgeSourceUploadBody,
   PostAdminOpsUserPlanOverrideParams,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
@@ -2540,6 +2549,406 @@ export const postAdminPlanCreate = async (
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(adminPlanCreateRequest)
   });
+};
+
+/**
+ * @summary List admin-managed global knowledge sources for one scope
+ */
+export type getAdminKnowledgeSourcesResponse200 = {
+  data: GetAdminKnowledgeSourcesResponse;
+  status: 200;
+};
+
+export type getAdminKnowledgeSourcesResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAdminKnowledgeSourcesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminKnowledgeSourcesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminKnowledgeSourcesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminKnowledgeSourcesResponseSuccess = getAdminKnowledgeSourcesResponse200 & {
+  headers: Headers;
+};
+export type getAdminKnowledgeSourcesResponseError = (
+  | getAdminKnowledgeSourcesResponse400
+  | getAdminKnowledgeSourcesResponse401
+  | getAdminKnowledgeSourcesResponse403
+  | getAdminKnowledgeSourcesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminKnowledgeSourcesResponse =
+  | getAdminKnowledgeSourcesResponseSuccess
+  | getAdminKnowledgeSourcesResponseError;
+
+export const getGetAdminKnowledgeSourcesUrl = (params: GetAdminKnowledgeSourcesParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/knowledge-sources?${stringifiedParams}`
+    : `/admin/knowledge-sources`;
+};
+
+export const getAdminKnowledgeSources = async (
+  params: GetAdminKnowledgeSourcesParams,
+  options?: RequestInit
+): Promise<getAdminKnowledgeSourcesResponse> => {
+  return customFetch<getAdminKnowledgeSourcesResponse>(getGetAdminKnowledgeSourcesUrl(params), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Read durable knowledge retrieval observability snapshot
+ */
+export type getAdminKnowledgeObservabilityResponse200 = {
+  data: GetAdminKnowledgeObservabilityResponse;
+  status: 200;
+};
+
+export type getAdminKnowledgeObservabilityResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminKnowledgeObservabilityResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminKnowledgeObservabilityResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminKnowledgeObservabilityResponseSuccess =
+  getAdminKnowledgeObservabilityResponse200 & {
+    headers: Headers;
+  };
+export type getAdminKnowledgeObservabilityResponseError = (
+  | getAdminKnowledgeObservabilityResponse401
+  | getAdminKnowledgeObservabilityResponse403
+  | getAdminKnowledgeObservabilityResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminKnowledgeObservabilityResponse =
+  | getAdminKnowledgeObservabilityResponseSuccess
+  | getAdminKnowledgeObservabilityResponseError;
+
+export const getGetAdminKnowledgeObservabilityUrl = () => {
+  return `/admin/knowledge-sources/observability`;
+};
+
+export const getAdminKnowledgeObservability = async (
+  options?: RequestInit
+): Promise<getAdminKnowledgeObservabilityResponse> => {
+  return customFetch<getAdminKnowledgeObservabilityResponse>(
+    getGetAdminKnowledgeObservabilityUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary List planned external connectors for one global knowledge scope
+ */
+export type getAdminKnowledgeConnectorsResponse200 = {
+  data: GetAdminKnowledgeConnectorsResponse;
+  status: 200;
+};
+
+export type getAdminKnowledgeConnectorsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAdminKnowledgeConnectorsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminKnowledgeConnectorsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminKnowledgeConnectorsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminKnowledgeConnectorsResponseSuccess = getAdminKnowledgeConnectorsResponse200 & {
+  headers: Headers;
+};
+export type getAdminKnowledgeConnectorsResponseError = (
+  | getAdminKnowledgeConnectorsResponse400
+  | getAdminKnowledgeConnectorsResponse401
+  | getAdminKnowledgeConnectorsResponse403
+  | getAdminKnowledgeConnectorsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminKnowledgeConnectorsResponse =
+  | getAdminKnowledgeConnectorsResponseSuccess
+  | getAdminKnowledgeConnectorsResponseError;
+
+export const getGetAdminKnowledgeConnectorsUrl = (params: GetAdminKnowledgeConnectorsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/knowledge-sources/connectors?${stringifiedParams}`
+    : `/admin/knowledge-sources/connectors`;
+};
+
+export const getAdminKnowledgeConnectors = async (
+  params: GetAdminKnowledgeConnectorsParams,
+  options?: RequestInit
+): Promise<getAdminKnowledgeConnectorsResponse> => {
+  return customFetch<getAdminKnowledgeConnectorsResponse>(
+    getGetAdminKnowledgeConnectorsUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Upload a global knowledge source into the selected scope
+ */
+export type postAdminKnowledgeSourceUploadResponse200 = {
+  data: GetAdminKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type postAdminKnowledgeSourceUploadResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminKnowledgeSourceUploadResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminKnowledgeSourceUploadResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminKnowledgeSourceUploadResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminKnowledgeSourceUploadResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminKnowledgeSourceUploadResponseSuccess =
+  postAdminKnowledgeSourceUploadResponse200 & {
+    headers: Headers;
+  };
+export type postAdminKnowledgeSourceUploadResponseError = (
+  | postAdminKnowledgeSourceUploadResponse400
+  | postAdminKnowledgeSourceUploadResponse401
+  | postAdminKnowledgeSourceUploadResponse403
+  | postAdminKnowledgeSourceUploadResponse409
+  | postAdminKnowledgeSourceUploadResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminKnowledgeSourceUploadResponse =
+  | postAdminKnowledgeSourceUploadResponseSuccess
+  | postAdminKnowledgeSourceUploadResponseError;
+
+export const getPostAdminKnowledgeSourceUploadUrl = (scope: GlobalKnowledgeSourceScope) => {
+  return `/admin/knowledge-sources/${scope}`;
+};
+
+export const postAdminKnowledgeSourceUpload = async (
+  scope: GlobalKnowledgeSourceScope,
+  postAdminKnowledgeSourceUploadBody: PostAdminKnowledgeSourceUploadBody,
+  options?: RequestInit
+): Promise<postAdminKnowledgeSourceUploadResponse> => {
+  const formData = new FormData();
+  if (
+    postAdminKnowledgeSourceUploadBody.displayName !== undefined &&
+    postAdminKnowledgeSourceUploadBody.displayName !== null
+  ) {
+    formData.append(`displayName`, postAdminKnowledgeSourceUploadBody.displayName);
+  }
+  formData.append(`file`, postAdminKnowledgeSourceUploadBody.file);
+
+  return customFetch<postAdminKnowledgeSourceUploadResponse>(
+    getPostAdminKnowledgeSourceUploadUrl(scope),
+    {
+      ...options,
+      method: "POST",
+      body: formData
+    }
+  );
+};
+
+/**
+ * @summary Delete one admin-managed global knowledge source
+ */
+export type deleteAdminKnowledgeSourceResponse200 = {
+  data: DeleteAdminKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type deleteAdminKnowledgeSourceResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAdminKnowledgeSourceResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type deleteAdminKnowledgeSourceResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminKnowledgeSourceResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAdminKnowledgeSourceResponseSuccess = deleteAdminKnowledgeSourceResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminKnowledgeSourceResponseError = (
+  | deleteAdminKnowledgeSourceResponse401
+  | deleteAdminKnowledgeSourceResponse403
+  | deleteAdminKnowledgeSourceResponse404
+  | deleteAdminKnowledgeSourceResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAdminKnowledgeSourceResponse =
+  | deleteAdminKnowledgeSourceResponseSuccess
+  | deleteAdminKnowledgeSourceResponseError;
+
+export const getDeleteAdminKnowledgeSourceUrl = (sourceId: string) => {
+  return `/admin/knowledge-sources/${sourceId}`;
+};
+
+export const deleteAdminKnowledgeSource = async (
+  sourceId: string,
+  options?: RequestInit
+): Promise<deleteAdminKnowledgeSourceResponse> => {
+  return customFetch<deleteAdminKnowledgeSourceResponse>(
+    getDeleteAdminKnowledgeSourceUrl(sourceId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Re-run indexing for one admin-managed global knowledge source
+ */
+export type postAdminKnowledgeSourceReindexResponse200 = {
+  data: GetAdminKnowledgeSourceResponse;
+  status: 200;
+};
+
+export type postAdminKnowledgeSourceReindexResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminKnowledgeSourceReindexResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminKnowledgeSourceReindexResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminKnowledgeSourceReindexResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminKnowledgeSourceReindexResponseSuccess =
+  postAdminKnowledgeSourceReindexResponse200 & {
+    headers: Headers;
+  };
+export type postAdminKnowledgeSourceReindexResponseError = (
+  | postAdminKnowledgeSourceReindexResponse401
+  | postAdminKnowledgeSourceReindexResponse403
+  | postAdminKnowledgeSourceReindexResponse404
+  | postAdminKnowledgeSourceReindexResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminKnowledgeSourceReindexResponse =
+  | postAdminKnowledgeSourceReindexResponseSuccess
+  | postAdminKnowledgeSourceReindexResponseError;
+
+export const getPostAdminKnowledgeSourceReindexUrl = (sourceId: string) => {
+  return `/admin/knowledge-sources/${sourceId}/reindex`;
+};
+
+export const postAdminKnowledgeSourceReindex = async (
+  sourceId: string,
+  options?: RequestInit
+): Promise<postAdminKnowledgeSourceReindexResponse> => {
+  return customFetch<postAdminKnowledgeSourceReindexResponse>(
+    getPostAdminKnowledgeSourceReindexUrl(sourceId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
 };
 
 /**

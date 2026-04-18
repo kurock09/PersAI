@@ -67,6 +67,17 @@ export type PlanDraft = {
   tokenBudgetLimit: string;
   mediaStorageMb: string;
   workspaceStorageMb: string;
+  retrievalDefaultMaxResults: string;
+  retrievalHardMaxResults: string;
+  retrievalLexicalCandidateLimit: string;
+  retrievalVectorCandidateLimit: string;
+  retrievalKnowledgeFetchWindowRadius: string;
+  retrievalChatFetchWindowRadius: string;
+  retrievalFetchMaxChars: string;
+  retrievalHelperEnabled: boolean;
+  retrievalHelperCandidateLimit: string;
+  retrievalHelperMaxOutputTokens: string;
+  retrievalEmbeddingSearchEnabled: boolean;
   contextPolicyPreset: ContextPolicyPresetDraft;
   targetContextBudget: string;
   compactionTriggerThreshold: string;
@@ -79,6 +90,7 @@ export type PlanDraft = {
   premiumModelKey: string;
   reasoningModelKey: string;
   retrievalModelKey: string;
+  embeddingModelKey: string;
   videoGenerateModelKey: VideoGenerateModelDraft;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
@@ -263,11 +275,23 @@ function emptyDraft(): PlanDraft {
     tokenBudgetLimit: "",
     mediaStorageMb: "",
     workspaceStorageMb: "",
+    retrievalDefaultMaxResults: "5",
+    retrievalHardMaxResults: "8",
+    retrievalLexicalCandidateLimit: "60",
+    retrievalVectorCandidateLimit: "240",
+    retrievalKnowledgeFetchWindowRadius: "1",
+    retrievalChatFetchWindowRadius: "2",
+    retrievalFetchMaxChars: "6000",
+    retrievalHelperEnabled: true,
+    retrievalHelperCandidateLimit: "6",
+    retrievalHelperMaxOutputTokens: "220",
+    retrievalEmbeddingSearchEnabled: true,
     ...applyContextPolicyPreset("balanced"),
     primaryModelKey: "",
     premiumModelKey: "",
     reasoningModelKey: "",
     retrievalModelKey: "",
+    embeddingModelKey: "",
     videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: []
@@ -301,6 +325,17 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       plan.quotaLimits?.workspaceStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
+    retrievalDefaultMaxResults: String(plan.retrievalPolicy.defaultMaxResults),
+    retrievalHardMaxResults: String(plan.retrievalPolicy.maxMaxResults),
+    retrievalLexicalCandidateLimit: String(plan.retrievalPolicy.lexicalCandidateLimit),
+    retrievalVectorCandidateLimit: String(plan.retrievalPolicy.vectorCandidateLimit),
+    retrievalKnowledgeFetchWindowRadius: String(plan.retrievalPolicy.knowledgeFetchWindowRadius),
+    retrievalChatFetchWindowRadius: String(plan.retrievalPolicy.chatFetchWindowRadius),
+    retrievalFetchMaxChars: String(plan.retrievalPolicy.fetchMaxChars),
+    retrievalHelperEnabled: plan.retrievalPolicy.helperEnabled,
+    retrievalHelperCandidateLimit: String(plan.retrievalPolicy.helperCandidateLimit),
+    retrievalHelperMaxOutputTokens: String(plan.retrievalPolicy.helperMaxOutputTokens),
+    retrievalEmbeddingSearchEnabled: plan.retrievalPolicy.embeddingSearchEnabled,
     contextPolicyPreset: plan.contextPolicy.preset,
     targetContextBudget: plan.contextPolicy.targetContextBudget.toString(),
     compactionTriggerThreshold: plan.contextPolicy.compactionTriggerThreshold.toString(),
@@ -314,6 +349,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     premiumModelKey: plan.premiumModelKey ?? "",
     reasoningModelKey: plan.reasoningModelKey ?? "",
     retrievalModelKey: plan.retrievalModelKey ?? "",
+    embeddingModelKey: plan.embeddingModelKey ?? "",
     videoGenerateModelKey: toVideoGenerateModelDraft(plan.videoGenerateModelKey),
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
@@ -376,6 +412,22 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         return parsed > 0 ? parsed * 1048576 : null;
       })()
     },
+    retrievalPolicy: {
+      defaultMaxResults: parsePositiveIntDraft(draft.retrievalDefaultMaxResults, 5),
+      maxMaxResults: parsePositiveIntDraft(draft.retrievalHardMaxResults, 8),
+      lexicalCandidateLimit: parsePositiveIntDraft(draft.retrievalLexicalCandidateLimit, 60),
+      vectorCandidateLimit: parsePositiveIntDraft(draft.retrievalVectorCandidateLimit, 240),
+      knowledgeFetchWindowRadius: parsePositiveIntDraft(
+        draft.retrievalKnowledgeFetchWindowRadius,
+        1
+      ),
+      chatFetchWindowRadius: parsePositiveIntDraft(draft.retrievalChatFetchWindowRadius, 2),
+      fetchMaxChars: parsePositiveIntDraft(draft.retrievalFetchMaxChars, 6000),
+      helperEnabled: draft.retrievalHelperEnabled,
+      helperCandidateLimit: parsePositiveIntDraft(draft.retrievalHelperCandidateLimit, 6),
+      helperMaxOutputTokens: parsePositiveIntDraft(draft.retrievalHelperMaxOutputTokens, 220),
+      embeddingSearchEnabled: draft.retrievalEmbeddingSearchEnabled
+    },
     contextPolicy: {
       preset: draft.contextPolicyPreset,
       targetContextBudget: parsePositiveIntDraft(
@@ -406,6 +458,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     premiumModelKey: toNullable(draft.premiumModelKey),
     reasoningModelKey: toNullable(draft.reasoningModelKey),
     retrievalModelKey: toNullable(draft.retrievalModelKey),
+    embeddingModelKey: toNullable(draft.embeddingModelKey),
     videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
     runtimeTierDefault: draft.runtimeTierDefault,
     toolActivations: draft.toolActivations.map((ta) => ({
@@ -942,6 +995,91 @@ function PlanForm({
               </label>
             </div>
           </Sec>
+          <Sec label="Retrieval policy">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                {
+                  label: "Default results",
+                  value: draft.retrievalDefaultMaxResults,
+                  patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
+                },
+                {
+                  label: "Hard max results",
+                  value: draft.retrievalHardMaxResults,
+                  patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
+                },
+                {
+                  label: "Lexical candidate pool",
+                  value: draft.retrievalLexicalCandidateLimit,
+                  patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
+                },
+                {
+                  label: "Vector candidate pool",
+                  value: draft.retrievalVectorCandidateLimit,
+                  patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
+                },
+                {
+                  label: "Doc fetch radius",
+                  value: draft.retrievalKnowledgeFetchWindowRadius,
+                  patch: (value: string) => onPatch({ retrievalKnowledgeFetchWindowRadius: value })
+                },
+                {
+                  label: "Chat fetch radius",
+                  value: draft.retrievalChatFetchWindowRadius,
+                  patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
+                },
+                {
+                  label: "Fetch max chars",
+                  value: draft.retrievalFetchMaxChars,
+                  patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
+                },
+                {
+                  label: "Helper candidates",
+                  value: draft.retrievalHelperCandidateLimit,
+                  patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
+                },
+                {
+                  label: "Helper max output tokens",
+                  value: draft.retrievalHelperMaxOutputTokens,
+                  patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
+                }
+              ].map((field) => (
+                <label
+                  key={field.label}
+                  className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
+                >
+                  {field.label}
+                  <input
+                    type="number"
+                    min={1}
+                    value={field.value}
+                    onChange={(e) => field.patch(e.target.value)}
+                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-2 grid gap-1.5">
+              <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                <input
+                  type="checkbox"
+                  checked={draft.retrievalHelperEnabled}
+                  onChange={(e) => onPatch({ retrievalHelperEnabled: e.target.checked })}
+                  className="rounded border-border"
+                />
+                Enable helper rerank
+              </label>
+              <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                <input
+                  type="checkbox"
+                  checked={draft.retrievalEmbeddingSearchEnabled}
+                  onChange={(e) => onPatch({ retrievalEmbeddingSearchEnabled: e.target.checked })}
+                  className="rounded border-border"
+                />
+                Enable embedding search on query
+              </label>
+            </div>
+          </Sec>
           <Sec label="AI model slots">
             <div className="grid gap-2">
               {[
@@ -968,6 +1106,12 @@ function PlanForm({
                   value: draft.retrievalModelKey,
                   patch: (value: string) => onPatch({ retrievalModelKey: value }),
                   placeholder: "system/runtime default"
+                },
+                {
+                  label: "Embedding index",
+                  value: draft.embeddingModelKey,
+                  patch: (value: string) => onPatch({ embeddingModelKey: value }),
+                  placeholder: "retrieval helper / runtime default"
                 }
               ].map((slot) => (
                 <label key={slot.label} className="grid gap-1">
@@ -1347,6 +1491,34 @@ function PlanCardReadOnly({
                   <div>Premium: {plan.premiumModelKey ?? "normal reply"}</div>
                   <div>Reasoning: {plan.reasoningModelKey ?? "premium reply"}</div>
                   <div>Retrieval: {plan.retrievalModelKey ?? "system/runtime default"}</div>
+                  <div>
+                    Embedding: {plan.embeddingModelKey ?? "retrieval helper / runtime default"}
+                  </div>
+                </div>
+              </Sec>
+              <Sec label="Retrieval policy">
+                <div className="space-y-0.5 text-[10px] text-text-subtle">
+                  <div>
+                    Results: {plan.retrievalPolicy.defaultMaxResults} /{" "}
+                    {plan.retrievalPolicy.maxMaxResults}
+                  </div>
+                  <div>
+                    Candidate pools: {plan.retrievalPolicy.lexicalCandidateLimit} lexical,{" "}
+                    {plan.retrievalPolicy.vectorCandidateLimit} vector
+                  </div>
+                  <div>
+                    Fetch radius: {plan.retrievalPolicy.knowledgeFetchWindowRadius} doc,{" "}
+                    {plan.retrievalPolicy.chatFetchWindowRadius} chat
+                  </div>
+                  <div>Fetch max chars: {plan.retrievalPolicy.fetchMaxChars}</div>
+                  <div>
+                    Helper: {plan.retrievalPolicy.helperEnabled ? "on" : "off"} /{" "}
+                    {plan.retrievalPolicy.helperCandidateLimit} candidates /{" "}
+                    {plan.retrievalPolicy.helperMaxOutputTokens} tokens
+                  </div>
+                  <div>
+                    Embedding search: {plan.retrievalPolicy.embeddingSearchEnabled ? "on" : "off"}
+                  </div>
                 </div>
               </Sec>
               <Sec label="Video model">

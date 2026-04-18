@@ -124,6 +124,12 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
       { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },
       { path: "api/v1/admin/prompt-templates/:id", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/knowledge-sources", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/observability", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
+      { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
+      { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },
       { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST },
       {
         path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",

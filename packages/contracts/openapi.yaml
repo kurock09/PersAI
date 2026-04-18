@@ -1733,6 +1733,275 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources:
+    get:
+      operationId: getAdminKnowledgeSources
+      summary: List admin-managed global knowledge sources for one scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: scope
+          required: true
+          schema:
+            $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+      responses:
+        "200":
+          description: Global knowledge sources for the selected scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeSourcesResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/observability:
+    get:
+      operationId: getAdminKnowledgeObservability
+      summary: Read durable knowledge retrieval observability snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Durable knowledge retrieval observability snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeObservabilityResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/connectors:
+    get:
+      operationId: getAdminKnowledgeConnectors
+      summary: List planned external connectors for one global knowledge scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: scope
+          required: true
+          schema:
+            $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+      responses:
+        "200":
+          description: Connector catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeConnectorsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/{scope}:
+    post:
+      operationId: postAdminKnowledgeSourceUpload
+      summary: Upload a global knowledge source into the selected scope
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: scope
+          required: true
+          schema:
+            $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                displayName:
+                  type: string
+                  nullable: true
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Uploaded global knowledge source after indexing attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeSourceResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Knowledge storage quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/{sourceId}:
+    delete:
+      operationId: deleteAdminKnowledgeSource
+      summary: Delete one admin-managed global knowledge source
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Knowledge source deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAdminKnowledgeSourceResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Knowledge source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/{sourceId}/reindex:
+    post:
+      operationId: postAdminKnowledgeSourceReindex
+      summary: Re-run indexing for one admin-managed global knowledge source
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Global knowledge source after reindex attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminKnowledgeSourceResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Knowledge source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/visibility:
     get:
       operationId: getAdminPlanVisibility
@@ -3482,6 +3751,383 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantKnowledgeSourceState"
+    GlobalKnowledgeSourceScope:
+      type: string
+      enum:
+        - product
+        - skill
+    GlobalKnowledgeSourceState:
+      type: object
+      required:
+        - id
+        - scope
+        - displayName
+        - originalFilename
+        - mimeType
+        - sizeBytes
+        - status
+        - currentVersion
+        - chunkCount
+        - lastIndexedAt
+        - lastReindexRequestedAt
+        - lastErrorCode
+        - lastErrorMessage
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        scope:
+          $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+        displayName:
+          type: string
+          nullable: true
+        originalFilename:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: number
+        status:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceStatus"
+        currentVersion:
+          type: integer
+        chunkCount:
+          type: integer
+        lastIndexedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReindexRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminKnowledgeRetrievalMetricSummary:
+      type: object
+      required:
+        - searchesTotal
+        - fetchesTotal
+        - successTotal
+        - emptyTotal
+        - errorTotal
+        - lexicalTotal
+        - hybridTotal
+        - helperAppliedTotal
+        - embeddingQueryTotal
+        - avgDurationMs
+        - maxDurationMs
+        - avgResultCount
+        - avgLexicalCandidates
+        - avgVectorCandidates
+        - avgFetchDepth
+        - maxFetchDepth
+        - avgFetchedChars
+        - maxFetchedChars
+        - helperInputTokensTotal
+        - helperOutputTokensTotal
+        - helperTotalTokensTotal
+        - emptyRate
+        - errorRate
+        - hybridRate
+        - helperAppliedRate
+      properties:
+        searchesTotal:
+          type: integer
+        fetchesTotal:
+          type: integer
+        successTotal:
+          type: integer
+        emptyTotal:
+          type: integer
+        errorTotal:
+          type: integer
+        lexicalTotal:
+          type: integer
+        hybridTotal:
+          type: integer
+        helperAppliedTotal:
+          type: integer
+        embeddingQueryTotal:
+          type: integer
+        avgDurationMs:
+          type: number
+        maxDurationMs:
+          type: integer
+        avgResultCount:
+          type: number
+        avgLexicalCandidates:
+          type: number
+        avgVectorCandidates:
+          type: number
+        avgFetchDepth:
+          type: number
+        maxFetchDepth:
+          type: integer
+        avgFetchedChars:
+          type: number
+        maxFetchedChars:
+          type: integer
+        helperInputTokensTotal:
+          type: integer
+        helperOutputTokensTotal:
+          type: integer
+        helperTotalTokensTotal:
+          type: integer
+        emptyRate:
+          type: number
+        errorRate:
+          type: number
+        hybridRate:
+          type: number
+        helperAppliedRate:
+          type: number
+    AdminKnowledgeRetrievalSourceSummary:
+      allOf:
+        - $ref: "#/components/schemas/AdminKnowledgeRetrievalMetricSummary"
+        - type: object
+          required:
+            - source
+          properties:
+            source:
+              type: string
+              enum:
+                - document
+                - global
+                - memory
+                - chat
+                - preset
+                - subscription
+    AdminKnowledgeRetrievalRecentSearch:
+      type: object
+      required:
+        - at
+        - eventKind
+        - source
+        - retrievalMode
+        - outcome
+        - durationMs
+        - resultCount
+        - lexicalCandidateCount
+        - vectorCandidateCount
+        - helperApplied
+        - fetchDepth
+        - fetchedChars
+        - embeddingModelKey
+        - helperModelKey
+        - helperProviderKey
+        - helperTotalTokens
+        - errorCode
+      properties:
+        at:
+          type: string
+          format: date-time
+        eventKind:
+          type: string
+          enum:
+            - search
+            - fetch
+        source:
+          type: string
+          enum:
+            - document
+            - global
+            - memory
+            - chat
+            - preset
+            - subscription
+        retrievalMode:
+          type: string
+          enum:
+            - lexical
+            - hybrid
+        outcome:
+          type: string
+          enum:
+            - success
+            - empty
+            - error
+        durationMs:
+          type: integer
+        resultCount:
+          type: integer
+        lexicalCandidateCount:
+          type: integer
+        vectorCandidateCount:
+          type: integer
+        helperApplied:
+          type: boolean
+        fetchDepth:
+          type: integer
+        fetchedChars:
+          type: integer
+        embeddingModelKey:
+          type: string
+          nullable: true
+        helperModelKey:
+          type: string
+          nullable: true
+        helperProviderKey:
+          type: string
+          nullable: true
+        helperTotalTokens:
+          type: integer
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+    AdminKnowledgeObservabilityState:
+      type: object
+      required:
+        - updatedAt
+        - totals
+        - bySource
+        - recent
+      properties:
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        totals:
+          $ref: "#/components/schemas/AdminKnowledgeRetrievalMetricSummary"
+        bySource:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminKnowledgeRetrievalSourceSummary"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminKnowledgeRetrievalRecentSearch"
+    AdminKnowledgeConnectorState:
+      type: object
+      required:
+        - kind
+        - label
+        - status
+        - authMode
+        - targetScope
+        - syncMode
+        - storageTarget
+        - indexingTarget
+        - supportsScopes
+        - pipeline
+        - notes
+      properties:
+        kind:
+          type: string
+          enum:
+            - google_drive
+            - yandex_disk
+            - mailru_cloud
+        label:
+          type: string
+        status:
+          type: string
+          enum:
+            - planned
+        authMode:
+          type: string
+          enum:
+            - oauth_deferred
+        targetScope:
+          $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+        syncMode:
+          type: string
+          enum:
+            - pull_snapshot_then_index
+        storageTarget:
+          type: string
+          enum:
+            - persai_owned_object_storage
+        indexingTarget:
+          type: string
+          enum:
+            - knowledge_indexing_service
+        supportsScopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GlobalKnowledgeSourceScope"
+        pipeline:
+          type: array
+          items:
+            type: string
+        notes:
+          type: array
+          items:
+            type: string
+    GetAdminKnowledgeSourcesResponse:
+      type: object
+      required:
+        - requestId
+        - sources
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/GlobalKnowledgeSourceState"
+    GetAdminKnowledgeSourceResponse:
+      type: object
+      required:
+        - requestId
+        - source
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        source:
+          $ref: "#/components/schemas/GlobalKnowledgeSourceState"
+    DeleteAdminKnowledgeSourceResponse:
+      type: object
+      required:
+        - requestId
+        - deleted
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+          enum:
+            - true
+    GetAdminKnowledgeObservabilityResponse:
+      type: object
+      required:
+        - requestId
+        - observability
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        observability:
+          $ref: "#/components/schemas/AdminKnowledgeObservabilityState"
+    GetAdminKnowledgeConnectorsResponse:
+      type: object
+      required:
+        - requestId
+        - connectors
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        connectors:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminKnowledgeConnectorState"
     AssistantRuntimePreflightState:
       type: object
       required:
@@ -4644,6 +5290,43 @@ components:
           type: boolean
         autoCompactionTelegram:
           type: boolean
+    AdminPlanRetrievalPolicy:
+      type: object
+      required:
+        - defaultMaxResults
+        - maxMaxResults
+        - lexicalCandidateLimit
+        - vectorCandidateLimit
+        - knowledgeFetchWindowRadius
+        - chatFetchWindowRadius
+        - fetchMaxChars
+        - helperEnabled
+        - helperCandidateLimit
+        - helperMaxOutputTokens
+        - embeddingSearchEnabled
+      properties:
+        defaultMaxResults:
+          type: integer
+        maxMaxResults:
+          type: integer
+        lexicalCandidateLimit:
+          type: integer
+        vectorCandidateLimit:
+          type: integer
+        knowledgeFetchWindowRadius:
+          type: integer
+        chatFetchWindowRadius:
+          type: integer
+        fetchMaxChars:
+          type: integer
+        helperEnabled:
+          type: boolean
+        helperCandidateLimit:
+          type: integer
+        helperMaxOutputTokens:
+          type: integer
+        embeddingSearchEnabled:
+          type: boolean
     AdminPlanState:
       type: object
       required:
@@ -4657,6 +5340,7 @@ components:
         - metadata
         - entitlements
         - contextPolicy
+        - retrievalPolicy
         - createdAt
         - updatedAt
       properties:
@@ -4687,6 +5371,8 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         contextPolicy:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
+        retrievalPolicy:
+          $ref: "#/components/schemas/AdminPlanRetrievalPolicy"
         primaryModelKey:
           type: string
           nullable: true
@@ -4697,6 +5383,9 @@ components:
           type: string
           nullable: true
         retrievalModelKey:
+          type: string
+          nullable: true
+        embeddingModelKey:
           type: string
           nullable: true
         videoGenerateModelKey:
@@ -4778,6 +5467,7 @@ components:
         - metadata
         - entitlements
         - contextPolicy
+        - retrievalPolicy
       properties:
         displayName:
           type: string
@@ -4804,6 +5494,8 @@ components:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
         contextPolicy:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
+        retrievalPolicy:
+          $ref: "#/components/schemas/AdminPlanRetrievalPolicy"
         primaryModelKey:
           type: string
           nullable: true
@@ -4814,6 +5506,9 @@ components:
           type: string
           nullable: true
         retrievalModelKey:
+          type: string
+          nullable: true
+        embeddingModelKey:
           type: string
           nullable: true
         videoGenerateModelKey:

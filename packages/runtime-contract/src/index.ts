@@ -293,7 +293,7 @@ export const PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES = ["inline", "worker"] as 
 export type PersaiRuntimeKnowledgeExecutionMode =
   (typeof PERSAI_RUNTIME_KNOWLEDGE_EXECUTION_MODES)[number];
 
-export const PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES = ["pattern_only"] as const;
+export const PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES = ["pattern_only", "hybrid"] as const;
 
 export type PersaiRuntimeKnowledgeRagMode = (typeof PERSAI_RUNTIME_KNOWLEDGE_RAG_MODES)[number];
 

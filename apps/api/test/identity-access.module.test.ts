@@ -88,6 +88,48 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     }),
     true
   );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources",
+      method: RequestMethod.GET
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources/observability",
+      method: RequestMethod.GET
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources/connectors",
+      method: RequestMethod.GET
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources/:scope",
+      method: RequestMethod.POST
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources/:sourceId",
+      method: RequestMethod.DELETE
+    }),
+    true
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/knowledge-sources/:sourceId/reindex",
+      method: RequestMethod.POST
+    }),
+    true
+  );
 }
 
 void runIdentityAccessModuleTest().catch((error: unknown) => {

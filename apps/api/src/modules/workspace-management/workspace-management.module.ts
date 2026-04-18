@@ -16,6 +16,7 @@ import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-r
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
 import { AdminToolMetadataController } from "./interface/http/admin-tool-metadata.controller";
+import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledge-sources.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
@@ -47,6 +48,8 @@ import { AdminDeleteUserService } from "./application/admin-delete-user.service"
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ResolveAdminBusinessPlatformService } from "./application/resolve-admin-business-platform.service";
 import { ResolveAdminOverviewDashboardService } from "./application/resolve-admin-overview-dashboard.service";
+import { ResolveAdminKnowledgeObservabilityService } from "./application/resolve-admin-knowledge-observability.service";
+import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-admin-knowledge-connectors.service";
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
 import { ManageAdminOverviewLatencyTraceService } from "./application/manage-admin-overview-latency-trace.service";
 import { ManageAdminNotificationChannelsService } from "./application/manage-admin-notification-channels.service";
@@ -55,6 +58,12 @@ import { ManagePlatformRolloutsService } from "./application/manage-platform-rol
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
+import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
+import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
+import { KnowledgeIndexingService } from "./application/knowledge-indexing.service";
+import { KnowledgeModelPolicyService } from "./application/knowledge-model-policy.service";
+import { KnowledgeRetrievalObservabilityService } from "./application/knowledge-retrieval-observability.service";
+import { KnowledgeRetrievalHelperService } from "./application/knowledge-retrieval-helper.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
@@ -196,6 +205,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminToolCredentialsController,
     AdminToolMetadataController,
     AdminPromptTemplatesController,
+    AdminKnowledgeSourcesController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
@@ -220,6 +230,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAdminBusinessCockpitService,
     ResolveAdminBusinessPlatformService,
     ResolveAdminOverviewDashboardService,
+    ResolveAdminKnowledgeObservabilityService,
+    ResolveAdminKnowledgeConnectorsService,
     OverviewLatencyTraceService,
     ManageAdminOverviewLatencyTraceService,
     ManageAdminNotificationChannelsService,
@@ -228,6 +240,12 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminToolCredentialsService,
     ManageAdminToolPromptMetadataService,
+    ManageAdminKnowledgeSourcesService,
+    KnowledgeEmbeddingService,
+    KnowledgeIndexingService,
+    KnowledgeModelPolicyService,
+    KnowledgeRetrievalObservabilityService,
+    KnowledgeRetrievalHelperService,
     PlatformRuntimeProviderSecretStoreService,
     ResolvePlatformRuntimeProviderSettingsService,
     EnforceAbuseRateLimitService,

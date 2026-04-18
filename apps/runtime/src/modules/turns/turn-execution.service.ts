@@ -96,13 +96,6 @@ type UserFacingTurnModelRole = Extract<
   "normal_reply" | "premium_reply" | "reasoning"
 >;
 
-type TurnLookupStrategy =
-  | "none"
-  | "internal_first"
-  | "internal_required"
-  | "web_first"
-  | "web_required";
-
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
@@ -111,7 +104,6 @@ type PreparedTurnExecution = {
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
-  selectedLookupStrategy: TurnLookupStrategy;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
 };
 
@@ -155,7 +147,6 @@ type ToolExecutionOutcome = {
   };
   routeControl?: {
     modelRole: UserFacingTurnModelRole;
-    lookupStrategy: TurnLookupStrategy;
   };
 };
 
@@ -190,13 +181,6 @@ const TURN_MODEL_ROLE_SELECTION_MAX_OUTPUT_TOKENS = 120;
 const TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_COUNT = 3;
 const TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_MAX_CHARS = 280;
 const TURN_MODEL_ROLE_SELECTION_RECENT_CONTEXT_MAX_CHARS = 900;
-const TURN_LOOKUP_STRATEGIES: TurnLookupStrategy[] = [
-  "none",
-  "internal_first",
-  "internal_required",
-  "web_first",
-  "web_required"
-];
 const USER_FACING_TURN_MODEL_ROLES: UserFacingTurnModelRole[] = [
   "normal_reply",
   "premium_reply",
@@ -208,15 +192,11 @@ const TURN_MODEL_ROLE_SELECTION_OUTPUT_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["role", "lookupStrategy", "reason"],
+    required: ["role", "reason"],
     properties: {
       role: {
         type: "string",
         enum: USER_FACING_TURN_MODEL_ROLES
-      },
-      lookupStrategy: {
-        type: "string",
-        enum: TURN_LOOKUP_STRATEGIES
       },
       reason: {
         type: "string"
@@ -387,14 +367,12 @@ export class TurnExecutionService {
       currentMessageAttachments: input.message.attachments,
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
-      selectedLookupStrategy: executionPlan.lookupStrategy,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest: this.buildProviderRequest(
         bundleEntry.parsedBundle,
         providerSelection,
         hydratedMessages,
         baselineProjectedTools,
-        executionPlan.lookupStrategy,
         input.deepMode === true
       )
     };
@@ -510,9 +488,6 @@ export class TurnExecutionService {
               durableCompactionExecuted =
                 durableCompactionExecuted ||
                 outcome.sharedCompaction?.durableStatePersisted === true;
-              if (toolCall.name === ROUTE_CONTROL_TOOL_CODE) {
-                this.disableRouteControlForRemainingTurn(execution);
-              }
               routeControl = outcome.routeControl ?? routeControl;
               yield this.createToolFinishedStreamEvent(
                 acceptedTurn,
@@ -740,7 +715,6 @@ export class TurnExecutionService {
     providerSelection: ProviderSelection,
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
-    lookupStrategy: TurnLookupStrategy,
     deepModeEnabled: boolean
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
@@ -748,14 +722,13 @@ export class TurnExecutionService {
       provider: providerSelection.provider,
       family: deepModeEnabled ? "deep_chat" : "ordinary_chat",
       messages,
-      lookupStrategy,
       deepModeEnabled,
       projectedTools
     });
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle, projectedTools, lookupStrategy, deepModeEnabled),
+      systemPrompt: this.buildSystemPrompt(bundle, projectedTools, deepModeEnabled),
       messages,
       ...(promptCache === undefined ? {} : { promptCache }),
       ...(projectedTools.tools.length === 0
@@ -770,17 +743,15 @@ export class TurnExecutionService {
   private buildSystemPrompt(
     bundle: AssistantRuntimeBundle,
     projectedTools?: RuntimeNativeToolProjection,
-    lookupStrategy: TurnLookupStrategy = "none",
     deepModeEnabled = false
   ): string | null {
     const normalized = this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
-    const routeGuidance = this.buildLookupStrategyPrompt(bundle, projectedTools, lookupStrategy);
     const routeControlGuidance = this.buildRouteControlPrompt(
       bundle,
       projectedTools,
       deepModeEnabled
     );
-    const sections = [normalized, routeGuidance, routeControlGuidance]
+    const sections = [normalized, routeControlGuidance]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;
@@ -799,49 +770,11 @@ export class TurnExecutionService {
     return [
       "## Route Control",
       deepModeEnabled
-        ? "Deep mode is enabled for this turn. Spend more effort than usual on quality and completeness, and call route_control whenever you need help choosing between premium vs reasoning execution or deciding whether internal/web lookup should guide the answer."
-        : "Stay on the ordinary reply path by default. Call route_control only when the turn is ambiguous, high-stakes, clearly needs deeper reasoning, or you need hidden guidance about whether internal/web lookup should steer the answer.",
-      "Use route_control before answering when a short follow-up depends on earlier context, when the task may need premium/reasoning escalation, or when the answer likely needs assistant-owned knowledge or live web verification.",
-      "If route_control returns a route, follow it on the next step instead of guessing."
-    ].join("\n");
-  }
-
-  private buildLookupStrategyPrompt(
-    bundle: AssistantRuntimeBundle,
-    projectedTools: RuntimeNativeToolProjection | undefined,
-    lookupStrategy: TurnLookupStrategy
-  ): string | null {
-    if (lookupStrategy === "none") {
-      return null;
-    }
-    const availableToolNames =
-      projectedTools === undefined ? [] : projectedTools.tools.map((tool) => tool.name);
-    const availableKnowledgeTools = [
-      bundle.runtime.knowledgeAccess.searchToolCode,
-      bundle.runtime.knowledgeAccess.fetchToolCode
-    ].filter((toolName) => availableToolNames.includes(toolName));
-    const availableWebTools = [WEB_SEARCH_TOOL_CODE, WEB_FETCH_TOOL_CODE, BROWSER_TOOL_CODE].filter(
-      (toolName) => availableToolNames.includes(toolName)
-    );
-    const availableKnowledgeSummary =
-      availableKnowledgeTools.length === 0
-        ? "none currently available"
-        : availableKnowledgeTools.join(", ");
-    const availableWebSummary =
-      availableWebTools.length === 0 ? "none currently available" : availableWebTools.join(", ");
-    const instruction =
-      lookupStrategy === "internal_required"
-        ? "Use internal assistant-owned knowledge or memory tools before answering. If internal evidence is unavailable, say so instead of substituting unsupported claims from general memory."
-        : lookupStrategy === "internal_first"
-          ? "Prefer internal assistant-owned knowledge or memory tools first. If internal lookup is insufficient, web tools may be used as fallback."
-          : lookupStrategy === "web_required"
-            ? "Use live web lookup before answering. Do not rely on stale memory alone for current or fast-changing facts."
-            : "Prefer live web lookup first. Internal tools may still be used if they add relevant assistant-owned context.";
-    return [
-      "## Turn Route Guidance",
-      instruction,
-      `Available internal tools for this turn: ${availableKnowledgeSummary}.`,
-      `Available web tools for this turn: ${availableWebSummary}.`
+        ? "Deep mode is enabled for this turn. Spend more effort than usual on quality and completeness, and call route_control whenever you need hidden help choosing between normal_reply, premium_reply, and reasoning."
+        : "Stay on the ordinary reply path by default. Call route_control only when the turn is ambiguous, high-stakes, or clearly needs a stronger reply model.",
+      "Use route_control before answering when a short follow-up depends on earlier context or when the task may need premium or reasoning escalation.",
+      "route_control is only for reply-model selection. It does not recommend, hide, remove, or force tools.",
+      "If this turn already has enough context or prior route_control output, answer directly unless new evidence makes another route_control call truly necessary."
     ].join("\n");
   }
 
@@ -953,7 +886,6 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection
   ): Promise<{
     modelRole: PersaiRuntimeModelRole;
-    lookupStrategy: TurnLookupStrategy;
     usageEntries: RuntimeUsageAccountingEntry[];
   }> {
     void bundle;
@@ -963,46 +895,19 @@ export class TurnExecutionService {
     if (input.modelRoleOverride !== undefined) {
       return {
         modelRole: input.modelRoleOverride,
-        lookupStrategy: "none",
         usageEntries: []
       };
     }
     if (input.providerOverride !== undefined || input.modelOverride !== undefined) {
       return {
         modelRole: "normal_reply",
-        lookupStrategy: "none",
         usageEntries: []
       };
     }
     return {
       modelRole: input.deepMode === true ? "premium_reply" : "normal_reply",
-      lookupStrategy: "none",
       usageEntries: []
     };
-  }
-
-  private shouldRunTurnExecutionPlanner(
-    bundle: AssistantRuntimeBundle,
-    hydratedMessages: ProviderGatewayTextMessage[],
-    projectedTools: RuntimeNativeToolProjection
-  ): boolean {
-    return (
-      this.canRunTurnModelRoleChooser(bundle) ||
-      this.shouldRunKnowledgeToolPlanner(hydratedMessages, projectedTools) ||
-      this.shouldRunWebToolPlanner(hydratedMessages, projectedTools)
-    );
-  }
-
-  private canRunTurnModelRoleChooser(bundle: AssistantRuntimeBundle): boolean {
-    const selections = USER_FACING_TURN_MODEL_ROLES.map((role) =>
-      this.resolveProviderSelectionForRole(bundle, role)
-    );
-    if (selections.some((selection) => selection === null)) {
-      return false;
-    }
-    return (
-      new Set(selections.map((selection) => `${selection?.provider}:${selection?.model}`)).size > 1
-    );
   }
 
   private buildTurnExecutionPlanRequest(input: {
@@ -1035,11 +940,7 @@ export class TurnExecutionService {
         "normal_reply: ordinary chat, simple rewrites, brief help, low-risk replies.",
         "premium_reply: polished user-facing writing, nuanced emotional tone, broader synthesis, higher quality wording.",
         "reasoning: difficult debugging, planning, architecture, contracts, trade-offs, multi-step analysis, or high-stakes correctness.",
-        "lookupStrategy=none when direct answering is fine and no source route needs to be enforced.",
-        "lookupStrategy=internal_first when assistant-owned knowledge or memory should be checked first, but web fallback may still be acceptable.",
-        "lookupStrategy=internal_required when the answer should come from assistant-owned knowledge or memory and unsupported guesses should be avoided.",
-        "lookupStrategy=web_first when live web lookup is the best first move, but internal tools may still add useful context.",
-        "lookupStrategy=web_required when current or fast-changing facts require live web verification before answering.",
+        "Choose only the reply role. Do not plan tools, retrieval, knowledge lookup, or web lookup.",
         "Short follow-ups like yes, no, continue, or ok can inherit complexity from the recent conversation tail.",
         "Escalate only when deeper reasoning or noticeably better language quality is justified.",
         "Return only JSON matching the provided schema."
@@ -1078,46 +979,6 @@ export class TurnExecutionService {
         compactionToolCode: null
       }
     };
-  }
-
-  private shouldRunKnowledgeToolPlanner(
-    hydratedMessages: ProviderGatewayTextMessage[],
-    projectedTools: RuntimeNativeToolProjection
-  ): boolean {
-    void projectedTools.tools.length;
-    const currentMessage = hydratedMessages.at(-1);
-    const currentText =
-      currentMessage === undefined
-        ? null
-        : this.extractTurnModelRoleMessageText(currentMessage.content);
-    if (currentText !== null && this.matchesKnowledgePlanningHint(currentText)) {
-      return true;
-    }
-    if (currentText === null || !this.isShortFollowupMessage(currentText)) {
-      return false;
-    }
-    const recentContext = this.buildTurnModelRoleRecentContext(hydratedMessages);
-    return recentContext !== null && this.matchesKnowledgePlanningHint(recentContext);
-  }
-
-  private shouldRunWebToolPlanner(
-    hydratedMessages: ProviderGatewayTextMessage[],
-    projectedTools: RuntimeNativeToolProjection
-  ): boolean {
-    void projectedTools.tools.length;
-    const currentMessage = hydratedMessages.at(-1);
-    const currentText =
-      currentMessage === undefined
-        ? null
-        : this.extractTurnModelRoleMessageText(currentMessage.content);
-    if (currentText !== null && this.matchesWebPlanningHint(currentText)) {
-      return true;
-    }
-    if (currentText === null || !this.isShortFollowupMessage(currentText)) {
-      return false;
-    }
-    const recentContext = this.buildTurnModelRoleRecentContext(hydratedMessages);
-    return recentContext !== null && this.matchesWebPlanningHint(recentContext);
   }
 
   private buildTurnModelRoleRecentContext(messages: ProviderGatewayTextMessage[]): string | null {
@@ -1184,7 +1045,6 @@ export class TurnExecutionService {
 
   private parseTurnExecutionPlannerResult(text: string | null): {
     modelRole: UserFacingTurnModelRole;
-    lookupStrategy: TurnLookupStrategy;
   } | null {
     if (text === null || text.trim().length === 0) {
       return null;
@@ -1196,136 +1056,15 @@ export class TurnExecutionService {
           ? (parsed as Record<string, unknown>)
           : null;
       const role = record?.role;
-      const lookupStrategy = record?.lookupStrategy;
-      const normalizedLookupStrategy =
-        typeof lookupStrategy === "string" &&
-        TURN_LOOKUP_STRATEGIES.includes(lookupStrategy as TurnLookupStrategy)
-          ? (lookupStrategy as TurnLookupStrategy)
-          : null;
-      if (
-        (role !== "normal_reply" && role !== "premium_reply" && role !== "reasoning") ||
-        normalizedLookupStrategy === null
-      ) {
+      if (role !== "normal_reply" && role !== "premium_reply" && role !== "reasoning") {
         return null;
       }
       return {
-        modelRole: role,
-        lookupStrategy: normalizedLookupStrategy
+        modelRole: role
       };
     } catch {
       return null;
     }
-  }
-
-  private matchesKnowledgePlanningHint(text: string): boolean {
-    const normalized = text.toLowerCase();
-    return [
-      "remember",
-      "recall",
-      "what did i",
-      "earlier",
-      "yesterday",
-      "last time",
-      "look up",
-      "find in",
-      "search",
-      "document",
-      "docs",
-      "policy",
-      "source",
-      "file",
-      "knowledge",
-      "memory",
-      "according to",
-      "помни",
-      "помнишь",
-      "вспомни",
-      "запомн",
-      "что я",
-      "вчера",
-      "раньше",
-      "документ",
-      "документа",
-      "файл",
-      "источник",
-      "найди",
-      "поищи",
-      "поиск",
-      "знани",
-      "памят"
-    ].some((hint) => normalized.includes(hint));
-  }
-
-  private matchesWebPlanningHint(text: string): boolean {
-    const normalized = text.toLowerCase();
-    return [
-      "weather",
-      "forecast",
-      "temperature",
-      "rain",
-      "snow",
-      "wind",
-      "news",
-      "headline",
-      "headlines",
-      "latest",
-      "current",
-      "today",
-      "right now",
-      "now",
-      "exchange rate",
-      "currency",
-      "stock",
-      "market",
-      "price",
-      "prices",
-      "search the web",
-      "online",
-      "internet",
-      "website",
-      "web",
-      "url",
-      "link",
-      "погод",
-      "курс",
-      "новост",
-      "сейчас",
-      "сегодня",
-      "последн",
-      "актуальн",
-      "интернет",
-      "веб",
-      "сайт",
-      "ссылк"
-    ].some((hint) => normalized.includes(hint));
-  }
-
-  private isShortFollowupMessage(text: string): boolean {
-    const normalized = text.trim().toLowerCase();
-    if (normalized.length === 0) {
-      return false;
-    }
-    return (
-      normalized.length <= 24 &&
-      [
-        "yes",
-        "no",
-        "ok",
-        "okay",
-        "continue",
-        "go on",
-        "sure",
-        "yep",
-        "nope",
-        "да",
-        "нет",
-        "ок",
-        "ага",
-        "угу",
-        "продолжай",
-        "дальше"
-      ].includes(normalized)
-    );
   }
 
   private toTurnModelRoleSelectionUsageEntries(
@@ -1438,9 +1177,6 @@ export class TurnExecutionService {
         this.applyToolExecutionOutcome(turnState, outcome);
         durableCompactionExecuted =
           durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
-        if (toolCall.name === ROUTE_CONTROL_TOOL_CODE) {
-          this.disableRouteControlForRemainingTurn(execution);
-        }
         if (outcome.routeControl !== undefined) {
           this.applyRouteControlOutcome(execution, input, outcome.routeControl);
         }
@@ -1696,8 +1432,7 @@ export class TurnExecutionService {
           action: "skipped",
           reason: "invalid_arguments",
           warning: routeControlReason.message,
-          modelRole: execution.selectedModelRole,
-          lookupStrategy: execution.selectedLookupStrategy
+          modelRole: execution.selectedModelRole
         },
         true
       );
@@ -1710,8 +1445,7 @@ export class TurnExecutionService {
         action: "skipped",
         reason: "tool_unavailable",
         warning: null,
-        modelRole: execution.selectedModelRole,
-        lookupStrategy: execution.selectedLookupStrategy
+        modelRole: execution.selectedModelRole
       });
     }
 
@@ -1736,7 +1470,6 @@ export class TurnExecutionService {
           reason: "planner_incomplete",
           warning: null,
           modelRole: execution.selectedModelRole,
-          lookupStrategy: execution.selectedLookupStrategy,
           usage: chooserResult.usage
         });
       }
@@ -1752,7 +1485,6 @@ export class TurnExecutionService {
           reason: "invalid_planner_output",
           warning: null,
           modelRole: execution.selectedModelRole,
-          lookupStrategy: execution.selectedLookupStrategy,
           usage: chooserResult.usage
         });
       }
@@ -1765,15 +1497,13 @@ export class TurnExecutionService {
           reason: routeControlReason,
           warning: null,
           modelRole: executionPlan.modelRole,
-          lookupStrategy: executionPlan.lookupStrategy,
           usage: chooserResult.usage
         },
         false,
         undefined,
         undefined,
         {
-          modelRole: executionPlan.modelRole,
-          lookupStrategy: executionPlan.lookupStrategy
+          modelRole: executionPlan.modelRole
         }
       );
     } catch (error) {
@@ -1787,8 +1517,7 @@ export class TurnExecutionService {
         action: "skipped",
         reason: "planner_failed",
         warning: null,
-        modelRole: execution.selectedModelRole,
-        lookupStrategy: execution.selectedLookupStrategy
+        modelRole: execution.selectedModelRole
       });
     }
   }
@@ -2296,7 +2025,6 @@ export class TurnExecutionService {
       },
       messages,
       execution.projectedTools,
-      execution.selectedLookupStrategy,
       execution.deepModeEnabled
     );
   }
@@ -2320,7 +2048,6 @@ export class TurnExecutionService {
     provider: NativeManagedProvider;
     family: string;
     messages?: ProviderGatewayTextMessage[];
-    lookupStrategy?: TurnLookupStrategy;
     deepModeEnabled?: boolean;
     projectedTools?: RuntimeNativeToolProjection;
   }): ProviderGatewayPromptCacheConfig | undefined {
@@ -2340,14 +2067,11 @@ export class TurnExecutionService {
         ? []
         : this.resolveHydratedStableBlockTokens(input.messages, input.family);
     const variantHash =
-      input.lookupStrategy === undefined &&
-      input.deepModeEnabled === undefined &&
-      input.projectedTools === undefined
+      input.deepModeEnabled === undefined && input.projectedTools === undefined
         ? null
         : createHash("sha256")
             .update(
               JSON.stringify({
-                lookupStrategy: input.lookupStrategy ?? null,
                 deepModeEnabled: input.deepModeEnabled ?? false,
                 tools: input.projectedTools?.tools ?? []
               })
@@ -2529,7 +2253,6 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     routeControl: NonNullable<ToolExecutionOutcome["routeControl"]>
   ): void {
-    execution.selectedLookupStrategy = routeControl.lookupStrategy;
     const nextModelRole =
       input.modelRoleOverride !== undefined ||
       input.providerOverride !== undefined ||
@@ -2547,31 +2270,6 @@ export class TurnExecutionService {
       providerSelection,
       execution.providerRequest.messages,
       execution.projectedTools,
-      execution.selectedLookupStrategy,
-      execution.deepModeEnabled
-    );
-  }
-
-  private disableRouteControlForRemainingTurn(execution: PreparedTurnExecution): void {
-    const nextTools = execution.projectedTools.tools.filter(
-      (tool) => tool.name !== ROUTE_CONTROL_TOOL_CODE
-    );
-    if (nextTools.length === execution.projectedTools.tools.length) {
-      return;
-    }
-    execution.projectedTools = {
-      ...execution.projectedTools,
-      tools: nextTools
-    };
-    execution.providerRequest = this.buildProviderRequest(
-      execution.bundle,
-      {
-        provider: execution.providerRequest.provider,
-        model: execution.providerRequest.model
-      },
-      execution.providerRequest.messages,
-      execution.projectedTools,
-      execution.selectedLookupStrategy,
       execution.deepModeEnabled
     );
   }

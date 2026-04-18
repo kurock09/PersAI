@@ -116,7 +116,8 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
     code: "memory_search",
     displayName: "Knowledge Search",
-    description: "Semantic search across assistant memory using remote embeddings.",
+    description:
+      "Search assistant memory and indexed knowledge with lexical retrieval, bounded hybrid rerank, and optional helper-model follow-through when configured.",
     modelDescription:
       "Search the assistant's durable memory and related knowledge records for relevant prior facts.",
     modelUsageGuidance:

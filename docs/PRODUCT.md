@@ -27,7 +27,7 @@ ADR-072 records how the native product/runtime baseline replaced the legacy path
 - web chat
 - Telegram interaction through the API-owned webhook/delivery path
 - assistant settings and publish/apply lifecycle
-- admin plan, ops, and business surfaces
+- admin plan, ops, business, and knowledge-management surfaces
 
 ## Runtime ownership
 
@@ -37,6 +37,7 @@ PersAI owns:
 - request-time turn execution
 - provider routing through `provider-gateway`
 - canonical message persistence
+- assistant/global knowledge retrieval policy and reference-first hybrid search behavior
 - media/quota/governance boundaries
 
 ## Historical traces

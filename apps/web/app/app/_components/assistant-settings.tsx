@@ -65,6 +65,7 @@ import {
   YANDEX_VOICE_OPTIONS,
   type VoiceOption
 } from "./assistant-voice-options";
+import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -360,6 +361,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [resetting, setResetting] = useState(false);
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
+  const [knowledgeManagerOpen, setKnowledgeManagerOpen] = useState(false);
 
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
@@ -1228,7 +1230,25 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         {resetConfirm && <p className="mt-2 text-xs text-destructive">{t("resetScopeWarning")}</p>}
       </Section>
 
-      {/* 3. Memory */}
+      {/* 3. Knowledge */}
+      <Section icon={<Upload className="h-4 w-4" />} title={t("knowledge")} defaultOpen={false}>
+        <div className="rounded-2xl border border-border/70 bg-surface p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-text">{t("knowledgeTitle")}</p>
+              <p className="mt-1 text-xs text-text-muted">{t("knowledgeDescription")}</p>
+            </div>
+            <ActionButton
+              icon={<Upload className="h-3.5 w-3.5" />}
+              label={t("knowledgeManage")}
+              onClick={() => setKnowledgeManagerOpen(true)}
+              busy={false}
+            />
+          </div>
+        </div>
+      </Section>
+
+      {/* 4. Memory */}
       <Section icon={<Brain className="h-4 w-4" />} title={t("memory")} defaultOpen={false}>
         <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
           {(["workspace", "registry"] as const).map((tab) => (
@@ -1387,6 +1407,12 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
           </>
         )}
       </Section>
+
+      <AssistantKnowledgeManager
+        getToken={getToken}
+        open={knowledgeManagerOpen}
+        onClose={() => setKnowledgeManagerOpen(false)}
+      />
 
       {/* 4. Tasks */}
       <Section icon={<ListTodo className="h-4 w-4" />} title={t("tasks")} defaultOpen={false}>

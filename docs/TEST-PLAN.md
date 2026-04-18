@@ -17,6 +17,25 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+For production slices that touch API contracts, runtime behavior, or shared control-plane seams, also run:
+
+```bash
+corepack pnpm run test
+```
+
+## Knowledge/admin focused checks
+
+When a change touches the active knowledge plane, retrieval policy, or admin knowledge surfaces, the focused verification pack should include the relevant targeted tests:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
+corepack pnpm --filter @persai/api exec tsx test/admin-authorization.test.ts
+corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts
+```
+
 ## Helm / deploy truth checks
 
 Validate rendered deploy truth:

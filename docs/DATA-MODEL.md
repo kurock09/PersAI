@@ -11,6 +11,9 @@ PersAI is the source of truth for:
 - assistants and published versions
 - runtime bundle materialization
 - canonical chats and messages
+- assistant/global knowledge source metadata and indexed chunks
+- plan-owned retrieval policy and admin-managed knowledge governance
+- durable retrieval observability rollups/events
 - governance, quota, audit, and admin state
 - integration state such as Telegram binding/config
 
@@ -22,6 +25,17 @@ The native runtime path uses PersAI-owned runtime state models for:
 - runtime sessions
 - turn receipts and idempotency state
 - session compaction metadata
+
+## Knowledge and retrieval state
+
+Current active knowledge/retrieval persistence includes:
+
+- assistant-scoped uploaded knowledge sources plus indexed assistant chunk rows
+- workspace-scoped global knowledge sources plus indexed global chunk rows
+- workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
+- workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
+
+The active retrieval-policy contract is plan-managed rather than hard-coded. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior.
 
 ## Secret ownership
 

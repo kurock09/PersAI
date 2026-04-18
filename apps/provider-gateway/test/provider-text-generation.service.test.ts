@@ -288,8 +288,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
         toolResult: {
           toolCallId: "call-route-control-1",
           name: "route_control",
-          content:
-            '{"toolCode":"route_control","action":"planned","modelRole":"reasoning","lookupStrategy":"web_required"}',
+          content: '{"toolCode":"route_control","action":"planned","modelRole":"reasoning"}',
           isError: false
         }
       }

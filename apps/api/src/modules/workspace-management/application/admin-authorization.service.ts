@@ -122,6 +122,19 @@ export class AdminAuthorizationService {
     return context;
   }
 
+  async assertCanWriteGlobalKnowledge(userId: string): Promise<AdminAccessContext> {
+    await this.requireAdminEmailAllowlist(userId);
+    const context = await this.resolveAdminAccessContext(userId);
+    if (
+      !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
+    ) {
+      throw new ForbiddenException(
+        "Global knowledge write access requires ops/business/security/super-admin role or legacy owner fallback."
+      );
+    }
+    return context;
+  }
+
   async assertCanManageAdminSystemNotifications(userId: string): Promise<AdminAccessContext> {
     await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);

@@ -1578,7 +1578,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       model: "gpt-4.1",
       text: JSON.stringify({
         role: "premium_reply",
-        lookupStrategy: "none",
         reason: "needs stronger synthesis"
       }),
       respondedAt: "2026-04-11T12:00:02.900Z",
@@ -1625,9 +1624,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.deepEqual(
     providerGatewayClient.calls[chooserCallOffset + 1]?.outputSchema?.schema.required,
-    ["role", "lookupStrategy", "reason"]
+    ["role", "reason"]
   );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-4.1");
+  assert.doesNotMatch(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.systemPrompt ?? "",
+    /lookupStrategy=/
+  );
   assert.equal(
     providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.retention,
     "in_memory"
@@ -1644,9 +1647,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
       (tool) => tool.name === "route_control"
     ),
-    false
+    true
   );
-  assert.doesNotMatch(
+  assert.match(
     providerGatewayClient.calls[chooserCallOffset + 2]?.systemPrompt ?? "",
     /## Route Control/
   );
@@ -1704,7 +1707,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       model: "gpt-4.1",
       text: JSON.stringify({
         role: "reasoning",
-        lookupStrategy: "none",
         reason: "short follow-up inherits prior complex task"
       }),
       respondedAt: "2026-04-11T12:00:03.050Z",
@@ -1828,7 +1830,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       model: "gpt-4.1",
       text: JSON.stringify({
         role: "normal_reply",
-        lookupStrategy: "internal_required",
         reason: "needs memory lookup but not premium prose"
       }),
       respondedAt: "2026-04-11T12:00:03.150Z",
@@ -1871,14 +1872,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const retrievalHintToolNames =
     providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.tools?.map((tool) => tool.name) ??
     [];
-  assert.equal(retrievalHintToolNames.includes("route_control"), false);
+  assert.equal(retrievalHintToolNames.includes("route_control"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
-  assert.match(
-    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance[\s\S]*Use internal assistant-owned knowledge or memory tools before answering/
-  );
   assert.doesNotMatch(
+    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
+    /Turn Route Guidance/
+  );
+  assert.match(
     providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
     /## Route Control/
   );
@@ -1932,7 +1933,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       model: "gpt-4.1",
       text: JSON.stringify({
         role: "normal_reply",
-        lookupStrategy: "web_required",
         reason: "live web needed for current weather"
       }),
       respondedAt: "2026-04-11T12:00:03.300Z",
@@ -1982,13 +1982,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[liveWebPlannerOffset + 2]?.tools?.some(
       (tool) => tool.name === "route_control"
     ),
-    false
-  );
-  assert.match(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance[\s\S]*Use live web lookup before answering/
+    true
   );
   assert.doesNotMatch(
+    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
+    /Turn Route Guidance/
+  );
+  assert.match(
     providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
     /## Route Control/
   );
@@ -2037,7 +2037,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       model: "gpt-4.1",
       text: JSON.stringify({
         role: "normal_reply",
-        lookupStrategy: "web_required",
         reason: "live web required but may be unavailable"
       }),
       respondedAt: "2026-04-11T12:00:03.450Z",
@@ -2077,9 +2076,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     false
   );
-  assert.match(
+  assert.doesNotMatch(
     providerGatewayClient.calls[unavailableLiveWebPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance[\s\S]*Available web tools for this turn: none currently available\./
+    /Turn Route Guidance/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);

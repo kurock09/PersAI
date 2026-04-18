@@ -13,6 +13,7 @@ Primary public API surface:
 - web and admin routes through `apps/api`
 - authenticated assistant routes under `/api/v1/assistant/*`
 - admin routes under `/api/v1/admin/*`
+- admin knowledge routes under `/api/v1/admin/knowledge-sources*`
 - Telegram webhook under `/telegram-webhook/*`
 
 ## Runtime-related boundaries
@@ -30,6 +31,31 @@ Primary public API surface:
 - current active mode: native-only
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping
 - `apps/runtime` owns request-time execution
+
+## Knowledge boundaries
+
+### Assistant knowledge
+
+- assistant-owned uploaded knowledge stays under `/api/v1/assistant/knowledge-sources/*`
+- request-time `knowledge_search` / `knowledge_fetch` execute through the native runtime knowledge contract
+- current active runtime contract publishes `ragMode: "hybrid"` with bounded reference-first fetch semantics
+
+### Admin global knowledge
+
+Current admin knowledge routes are served by `apps/api`:
+
+- `GET /api/v1/admin/knowledge-sources?scope=product|skill`
+- `GET /api/v1/admin/knowledge-sources/observability`
+- `GET /api/v1/admin/knowledge-sources/connectors?scope=product|skill`
+- `POST /api/v1/admin/knowledge-sources/:scope`
+- `DELETE /api/v1/admin/knowledge-sources/:sourceId`
+- `POST /api/v1/admin/knowledge-sources/:sourceId/reindex`
+
+Active boundary rules:
+
+- admin global-knowledge writes are workspace-scoped and require explicit admin authorization
+- workspace knowledge-storage quota is enforced for admin global-knowledge uploads/deletes
+- retrieval observability is a durable API surface, not a process-local debug cache
 
 ### Internal runtime
 

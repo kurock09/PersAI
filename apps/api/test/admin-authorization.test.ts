@@ -61,6 +61,10 @@ async function run(): Promise<void> {
   assert.equal(scopedContext.hasLegacyOwnerFallback, true);
   assert.equal(scopedContext.hasGlobalPlatformAdminScope, false);
   assert.equal(scopedContext.roles.includes("security_admin"), true);
+  const globalKnowledgeWriteContext =
+    await scopedRoleService.assertCanWriteGlobalKnowledge("user-1");
+  assert.equal(globalKnowledgeWriteContext.workspaceId, "ws-owner");
+  assert.equal(globalKnowledgeWriteContext.roles.includes("security_admin"), true);
 
   const issuer = createService({
     memberships: [

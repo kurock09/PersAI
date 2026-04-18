@@ -38,7 +38,7 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
   const processCalls: Array<{
     mimeType: string;
     originalFilename: string;
-    options: { enableDocumentVisualFallback?: boolean } | undefined;
+    embeddingModelKey: string | null;
   }> = [];
   let quotaUsed = BigInt(0);
   let nextSourceId = 1;
@@ -144,6 +144,9 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
               chunkIndex: number;
               locator: string | null;
               content: string;
+              embeddingModelKey: string | null;
+              embeddingVector: unknown;
+              embeddingGeneratedAt: Date | null;
             }>;
           }) => Promise<void>;
         };
@@ -181,19 +184,6 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
       findByUserId: async (userId: string) => (userId === "user-1" ? assistant : null)
     } as never,
     prisma as never,
-    {
-      process: async (
-        _buffer: Buffer,
-        mimeType: string,
-        originalFilename: string,
-        options?: { enableDocumentVisualFallback?: boolean }
-      ) => {
-        processCalls.push({ mimeType, originalFilename, options });
-        return {
-          textExtract: "PersAI knowledge sources keep durable workspace facts searchable."
-        };
-      }
-    } as never,
     {
       buildKnowledgeSourceObjectKey: ({
         assistantId,
@@ -273,6 +263,33 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
           }
         };
       }
+    } as never,
+    {
+      buildIndexedChunks: async ({
+        mimeType,
+        originalFilename,
+        embeddingModelKey
+      }: {
+        buffer: Buffer;
+        mimeType: string;
+        originalFilename: string;
+        embeddingModelKey: string | null;
+      }) => {
+        processCalls.push({ mimeType, originalFilename, embeddingModelKey });
+        return [
+          {
+            chunkIndex: 0,
+            locator: null,
+            content: "PersAI knowledge sources keep durable workspace facts searchable.",
+            embeddingModelKey,
+            embeddingVector: null,
+            embeddingGeneratedAt: null
+          }
+        ];
+      }
+    } as never,
+    {
+      resolveAssistantEmbeddingModelKey: async () => "text-embedding-3-small"
     } as never
   );
 
@@ -305,7 +322,7 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
   assert.equal(uploaded.currentVersion, 1);
   assert.ok(uploaded.chunkCount >= 1);
   assert.equal(harness.createdChunks.length, uploaded.chunkCount);
-  assert.equal(harness.processCalls[0]?.options?.enableDocumentVisualFallback, true);
+  assert.equal(harness.processCalls[0]?.embeddingModelKey, "text-embedding-3-small");
 
   const listed = await harness.service.list("user-1");
   assert.equal(listed.sources.length, 1);
@@ -319,7 +336,7 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
   const reindexed = await harness.service.reindex("user-1", uploaded.id);
   assert.equal(reindexed.status, "ready");
   assert.equal(reindexed.currentVersion, 2);
-  assert.equal(harness.processCalls[1]?.options?.enableDocumentVisualFallback, true);
+  assert.equal(harness.processCalls[1]?.embeddingModelKey, "text-embedding-3-small");
 
   await harness.service.delete("user-1", uploaded.id);
   assert.equal(harness.sources.size, 0);

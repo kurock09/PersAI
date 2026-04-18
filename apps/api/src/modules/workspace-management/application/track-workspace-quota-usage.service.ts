@@ -325,6 +325,26 @@ export class TrackWorkspaceQuotaUsageService {
     return { allowed: true, usedBytes, limitBytes };
   }
 
+  async checkWorkspaceKnowledgeStorageQuota(params: {
+    workspaceId: string;
+    userId: string;
+  }): Promise<{
+    allowed: boolean;
+    usedBytes: bigint;
+    limitBytes: bigint | null;
+  }> {
+    const limits = await this.resolveWorkspaceLimits(params.workspaceId, params.userId);
+    const state = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
+      params.workspaceId
+    );
+    const usedBytes = state?.knowledgeStorageBytesUsed ?? BigInt(0);
+    const limitBytes = limits.knowledgeStorageBytesLimit;
+    if (limitBytes !== null && usedBytes >= limitBytes) {
+      return { allowed: false, usedBytes, limitBytes };
+    }
+    return { allowed: true, usedBytes, limitBytes };
+  }
+
   async recordMediaUpload(params: {
     assistant: Assistant;
     sizeBytes: bigint;
@@ -417,6 +437,32 @@ export class TrackWorkspaceQuotaUsageService {
     return applied;
   }
 
+  async recordWorkspaceKnowledgeStorageUpload(params: {
+    workspaceId: string;
+    userId: string;
+    sizeBytes: bigint;
+    source: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ApplyKnowledgeStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        appliedDelta: BigInt(0),
+        capped: false,
+        state: this.buildNoopQuotaState(params.workspaceId)
+      };
+    }
+    const limits = await this.resolveWorkspaceLimits(params.workspaceId, params.userId);
+    return this.workspaceQuotaAccountingRepository.applyKnowledgeStorageUsage({
+      workspaceId: params.workspaceId,
+      assistantId: null,
+      userId: params.userId,
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: params.metadata ?? null,
+      limits
+    });
+  }
+
   async releaseMediaStorage(params: {
     assistant: Assistant;
     sizeBytes: bigint;
@@ -494,6 +540,31 @@ export class TrackWorkspaceQuotaUsageService {
       workspaceId: params.assistant.workspaceId,
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
+      delta: params.sizeBytes,
+      source: params.source,
+      metadata: params.metadata ?? null,
+      limits
+    });
+  }
+
+  async releaseWorkspaceKnowledgeStorage(params: {
+    workspaceId: string;
+    userId: string;
+    sizeBytes: bigint;
+    source: string;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ReleaseKnowledgeStorageUsageResult> {
+    if (params.sizeBytes <= BigInt(0)) {
+      return {
+        releasedDelta: BigInt(0),
+        state: this.buildNoopQuotaState(params.workspaceId)
+      };
+    }
+    const limits = await this.resolveWorkspaceLimits(params.workspaceId, params.userId);
+    return this.workspaceQuotaAccountingRepository.releaseKnowledgeStorageUsage({
+      workspaceId: params.workspaceId,
+      assistantId: null,
+      userId: params.userId,
       delta: params.sizeBytes,
       source: params.source,
       metadata: params.metadata ?? null,
@@ -637,6 +708,51 @@ export class TrackWorkspaceQuotaUsageService {
         plan?.billingProviderHints ?? null,
         plan?.entitlementModel?.limitsPermissions
       )
+    };
+  }
+
+  private async resolveWorkspaceLimits(
+    workspaceId: string,
+    userId: string
+  ): Promise<WorkspaceQuotaLimitsInput> {
+    const config = loadApiConfig(process.env);
+    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
+      userId,
+      workspaceId,
+      assistantId: "workspace-global-knowledge",
+      assistantPlanOverrideCode: null,
+      assistantQuotaPlanCode: null
+    });
+    const plan =
+      effectiveSubscription.planCode === null
+        ? null
+        : await this.assistantPlanCatalogRepository.findByCode(effectiveSubscription.planCode);
+    return this.buildWorkspaceQuotaLimits(
+      config,
+      parsePlanQuotaHints(
+        plan?.billingProviderHints ?? null,
+        plan?.entitlementModel?.limitsPermissions
+      )
+    );
+  }
+
+  private buildNoopQuotaState(workspaceId: string) {
+    return {
+      id: "noop",
+      workspaceId,
+      tokenBudgetUsed: BigInt(0),
+      tokenBudgetLimit: null,
+      costOrTokenDrivingToolClassUnitsUsed: 0,
+      costOrTokenDrivingToolClassUnitsLimit: null,
+      activeWebChatsCurrent: 0,
+      activeWebChatsLimit: null,
+      mediaStorageBytesUsed: BigInt(0),
+      mediaStorageBytesLimit: null,
+      knowledgeStorageBytesUsed: BigInt(0),
+      knowledgeStorageBytesLimit: null,
+      lastComputedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
   }
 
