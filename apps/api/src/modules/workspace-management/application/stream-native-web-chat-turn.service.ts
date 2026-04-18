@@ -25,7 +25,7 @@ import {
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
 import type { RuntimeTier } from "./runtime-assignment";
 
-const HIDDEN_RUNTIME_TOOL_NAMES = new Set(["route_control"]);
+const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
 
 export interface StreamNativeWebChatTurnInput {
   assistantId: string;

@@ -17,6 +17,21 @@ export interface AdminRuntimeProviderSettingsState {
   primary: AdminRuntimeProviderSettingsStatePrimary;
   /** @nullable */
   fallback: AdminRuntimeProviderSettingsStateFallback;
+  /** @nullable */
+  routingFastModelKey: string | null;
+  routerPolicy: {
+    enabled: boolean;
+    mode: "shadow" | "active";
+    classifierFailureFallbackMode: "normal" | "premium" | "reasoning";
+    clarifyOnMissingContext: boolean;
+    /** @nullable */
+    precheckRuleOverrides: {
+      continueTerms: string[];
+      retrievalTerms: string[];
+      reasoningTerms: string[];
+      toolTerms: string[];
+    } | null;
+  };
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   providerKeys: AdminRuntimeProviderSettingsStateProviderKeys;
   notes: string[];

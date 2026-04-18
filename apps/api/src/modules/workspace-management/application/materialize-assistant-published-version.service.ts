@@ -526,6 +526,8 @@ export class MaterializeAssistantPublishedVersionService {
         runtimeAssignment,
         runtimeProviderProfile,
         runtimeProviderRouting,
+        routingFastModelKey: platformRuntimeProviderSettings.routingFastModelKey,
+        routerPolicy: platformRuntimeProviderSettings.routerPolicy,
         contextHydration,
         sharedCompaction,
         knowledgeAccess,
@@ -575,6 +577,7 @@ export class MaterializeAssistantPublishedVersionService {
         tools: onboardingDocuments.toolsDocument,
         agents: onboardingDocuments.agentsDocument,
         heartbeat: onboardingDocuments.heartbeatDocument,
+        routerClassifier: promptTemplates.router_classifier ?? "",
         preview: onboardingDocuments.previewDocument,
         welcome: onboardingDocuments.welcomeDocument,
         bootstrap: onboardingDocuments.bootstrapDocument
@@ -939,6 +942,7 @@ export class MaterializeAssistantPublishedVersionService {
       agents: null,
       tools: null,
       heartbeat: null,
+      router_classifier: null,
       preview_bootstrap: null,
       welcome_bootstrap: null,
       bootstrap: null

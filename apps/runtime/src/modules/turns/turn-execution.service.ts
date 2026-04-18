@@ -80,6 +80,7 @@ import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
+import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -92,11 +93,6 @@ const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 
-type UserFacingTurnModelRole = Extract<
-  PersaiRuntimeModelRole,
-  "normal_reply" | "premium_reply" | "reasoning"
->;
-
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
@@ -105,6 +101,7 @@ type PreparedTurnExecution = {
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
+  routeDecision: TurnRouteDecision;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
 };
 
@@ -146,9 +143,6 @@ type ToolExecutionOutcome = {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     durableStatePersisted: boolean;
   };
-  routeControl?: {
-    modelRole: UserFacingTurnModelRole;
-  };
 };
 
 class TurnExecutionError extends Error {
@@ -177,34 +171,6 @@ const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
-const ROUTE_CONTROL_TOOL_CODE = "route_control";
-const TURN_MODEL_ROLE_SELECTION_MAX_OUTPUT_TOKENS = 120;
-const TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_COUNT = 3;
-const TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_MAX_CHARS = 280;
-const TURN_MODEL_ROLE_SELECTION_RECENT_CONTEXT_MAX_CHARS = 900;
-const USER_FACING_TURN_MODEL_ROLES: UserFacingTurnModelRole[] = [
-  "normal_reply",
-  "premium_reply",
-  "reasoning"
-];
-const TURN_MODEL_ROLE_SELECTION_OUTPUT_SCHEMA = {
-  name: "turn_execution_plan",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["role", "reason"],
-    properties: {
-      role: {
-        type: "string",
-        enum: USER_FACING_TURN_MODEL_ROLES
-      },
-      reason: {
-        type: "string"
-      }
-    }
-  }
-} as const;
 
 @Injectable()
 export class TurnExecutionService {
@@ -217,6 +183,7 @@ export class TurnExecutionService {
     private readonly runtimeBundleAutoRefreshService: RuntimeBundleAutoRefreshService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
+    private readonly turnRoutingService: TurnRoutingService,
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
@@ -378,13 +345,15 @@ export class TurnExecutionService {
       currentMessageAttachments: input.message.attachments,
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
+      routeDecision: executionPlan.routeDecision,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest: this.buildProviderRequest(
         bundleEntry.parsedBundle,
         providerSelection,
         hydratedMessages,
         baselineProjectedTools,
-        input.deepMode === true
+        input.deepMode === true,
+        executionPlan.routeDecision
       )
     };
   }
@@ -498,7 +467,6 @@ export class TurnExecutionService {
             }
 
             let durableCompactionExecuted = false;
-            let routeControl: ToolExecutionOutcome["routeControl"];
             for (const toolCall of event.result.toolCalls) {
               yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
               let outcome: ToolExecutionOutcome;
@@ -508,8 +476,7 @@ export class TurnExecutionService {
                   acceptedTurn,
                   input,
                   toolCall,
-                  input.idempotencyKey,
-                  signal
+                  input.idempotencyKey
                 );
               } catch (error) {
                 yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -520,7 +487,6 @@ export class TurnExecutionService {
               durableCompactionExecuted =
                 durableCompactionExecuted ||
                 outcome.sharedCompaction?.durableStatePersisted === true;
-              routeControl = outcome.routeControl ?? routeControl;
               yield this.createToolFinishedStreamEvent(
                 acceptedTurn,
                 toolCall,
@@ -531,13 +497,6 @@ export class TurnExecutionService {
                   yield this.createArtifactStreamEvent(acceptedTurn, artifact);
                 }
               }
-            }
-
-            if (routeControl !== undefined) {
-              this.logger.log(
-                `[route-control-apply] requestId=${acceptedTurn.receipt.requestId} nextModelRole=${routeControl.modelRole} iteration=${String(iteration)}`
-              );
-              this.applyRouteControlOutcome(execution, input, routeControl);
             }
             if (durableCompactionExecuted) {
               execution.providerRequest = await this.refreshProviderRequestMessages(
@@ -750,7 +709,8 @@ export class TurnExecutionService {
     providerSelection: ProviderSelection,
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
-    deepModeEnabled: boolean
+    deepModeEnabled: boolean,
+    routeDecision: TurnRouteDecision
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -763,7 +723,7 @@ export class TurnExecutionService {
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle, projectedTools, deepModeEnabled),
+      systemPrompt: this.buildSystemPrompt(bundle, projectedTools, deepModeEnabled, routeDecision),
       messages,
       ...(promptCache === undefined ? {} : { promptCache }),
       ...(projectedTools.tools.length === 0
@@ -778,39 +738,59 @@ export class TurnExecutionService {
   private buildSystemPrompt(
     bundle: AssistantRuntimeBundle,
     projectedTools?: RuntimeNativeToolProjection,
-    deepModeEnabled = false
+    deepModeEnabled = false,
+    routeDecision?: TurnRouteDecision
   ): string | null {
     const normalized = this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
-    const routeControlGuidance = this.buildRouteControlPrompt(
-      bundle,
+    const routingGuidance = this.buildTurnRoutingPrompt(
       projectedTools,
+      routeDecision,
       deepModeEnabled
     );
-    const sections = [normalized, routeControlGuidance]
+    const sections = [normalized, routingGuidance]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;
   }
 
-  private buildRouteControlPrompt(
-    bundle: AssistantRuntimeBundle,
+  private buildTurnRoutingPrompt(
     projectedTools: RuntimeNativeToolProjection | undefined,
+    routeDecision: TurnRouteDecision | undefined,
     deepModeEnabled: boolean
   ): string | null {
-    const availableToolNames =
-      projectedTools === undefined ? [] : projectedTools.tools.map((tool) => tool.name);
-    if (!availableToolNames.includes(ROUTE_CONTROL_TOOL_CODE)) {
+    if (routeDecision === undefined || routeDecision.mode !== "active") {
       return null;
     }
-    return [
-      "## Route Control",
+    const availableToolNames =
+      projectedTools === undefined ? [] : projectedTools.tools.map((tool) => tool.name);
+    const lines = [
+      "## Early Routing Hints",
       deepModeEnabled
-        ? "Deep mode is enabled for this turn. Spend more effort than usual on quality and completeness, and call route_control whenever you need hidden help choosing between premium_reply and reasoning. Do not downgrade this turn to normal_reply."
-        : "Stay on the ordinary reply path by default. Call route_control only when the turn is ambiguous, high-stakes, or clearly needs a stronger reply model.",
-      "Use route_control before answering when a short follow-up depends on earlier context or when the task may need premium or reasoning escalation.",
-      "route_control is only for reply-model selection. It does not recommend, hide, remove, or force tools.",
-      "If this turn already has enough context or prior route_control output, answer directly unless new evidence makes another route_control call truly necessary."
-    ].join("\n");
+        ? "Deep mode is enabled for this turn. Stay on premium-or-stronger quality."
+        : "Use the preselected execution mode for this turn unless user-visible evidence strongly contradicts it.",
+      `Selected execution mode: ${routeDecision.executionMode}.`,
+      routeDecision.clarifyNeeded
+        ? "If required context is still missing, ask one short clarifying question before taking action."
+        : null,
+      routeDecision.retrievalHint && availableToolNames.includes("knowledge_search")
+        ? "Assistant knowledge retrieval is likely needed before answering. Prefer knowledge_search first, then knowledge_fetch only for the exact excerpt you need."
+        : null,
+      routeDecision.toolHints === "web" && availableToolNames.includes("web_search")
+        ? "Fresh external information is likely needed. Prefer web_search before answering when recent facts or links matter."
+        : null,
+      routeDecision.toolHints === "browser" && availableToolNames.includes("browser")
+        ? "Interactive browser work is likely needed. Prefer browser only when a real page interaction or inspection is necessary."
+        : null,
+      routeDecision.toolHints === "media" &&
+      (availableToolNames.includes("image_generate") ||
+        availableToolNames.includes("image_edit") ||
+        availableToolNames.includes("video_generate") ||
+        availableToolNames.includes("tts"))
+        ? "Media tooling may be relevant for this turn. Use only the declared media tools that match the user's request."
+        : null
+    ];
+    const prompt = lines.filter((line): line is string => line !== null).join("\n");
+    return prompt.length === 0 ? null : prompt;
   }
 
   private resolveProviderSelection(
@@ -921,201 +901,69 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection
   ): Promise<{
     modelRole: PersaiRuntimeModelRole;
+    routeDecision: TurnRouteDecision;
     usageEntries: RuntimeUsageAccountingEntry[];
   }> {
-    void bundle;
     void hydratedMessages;
-    void projectedTools;
 
+    const defaultRouteDecision: TurnRouteDecision = {
+      executionMode: input.deepMode === true ? "premium" : "normal",
+      retrievalHint: false,
+      toolHints: "none",
+      confidence: "high",
+      clarifyNeeded: false,
+      fallbackMode: input.deepMode === true ? "premium" : "normal",
+      reasonCode: input.deepMode === true ? "deep_mode_default" : "default_normal",
+      source: "default",
+      mode: "shadow",
+      usage: null
+    };
     if (input.modelRoleOverride !== undefined) {
       return {
         modelRole: input.modelRoleOverride,
+        routeDecision: defaultRouteDecision,
         usageEntries: []
       };
     }
     if (input.providerOverride !== undefined || input.modelOverride !== undefined) {
       return {
         modelRole: "normal_reply",
+        routeDecision: defaultRouteDecision,
         usageEntries: []
       };
     }
-    return {
-      modelRole: input.deepMode === true ? "premium_reply" : "normal_reply",
-      usageEntries: []
-    };
-  }
-
-  private buildTurnExecutionPlanRequest(input: {
-    bundle: AssistantRuntimeBundle;
-    input: RuntimeTurnRequest;
-    providerSelection: ProviderSelection;
-    hydratedMessages: ProviderGatewayTextMessage[];
-    routeControlReason?: string | null;
-  }): ProviderGatewayTextGenerateRequest {
-    const promptCache = this.buildPromptCacheConfig({
-      bundle: input.bundle,
-      provider: input.providerSelection.provider,
-      family: "route_control"
+    const routeDecision = await this.turnRoutingService.decide({
+      bundle,
+      request: input,
+      projectedTools
     });
-    const attachmentSummary =
-      input.input.message.attachments.length === 0
-        ? "none"
-        : input.input.message.attachments
-            .map(
-              (attachment) => `${attachment.kind}:${attachment.filename ?? attachment.attachmentId}`
-            )
-            .join(", ");
-    const recentConversationTail = this.buildTurnModelRoleRecentContext(input.hydratedMessages);
+    const modelRole =
+      routeDecision.mode === "active"
+        ? this.mapExecutionModeToModelRole(routeDecision.executionMode)
+        : input.deepMode === true
+          ? "premium_reply"
+          : "normal_reply";
     return {
-      provider: input.providerSelection.provider,
-      model: input.providerSelection.model,
-      systemPrompt: [
-        "You are the hidden PersAI turn planner.",
-        "Choose the cheapest reply role that should still preserve answer quality.",
-        "normal_reply: ordinary chat, simple rewrites, brief help, low-risk replies.",
-        "premium_reply: polished user-facing writing, nuanced emotional tone, broader synthesis, higher quality wording.",
-        "reasoning: difficult debugging, planning, architecture, contracts, trade-offs, multi-step analysis, or high-stakes correctness.",
-        "Choose only the reply role. Do not plan tools, retrieval, knowledge lookup, or web lookup.",
-        "Short follow-ups like yes, no, continue, or ok can inherit complexity from the recent conversation tail.",
-        "Escalate only when deeper reasoning or noticeably better language quality is justified.",
-        input.input.deepMode === true
-          ? "Deep mode is enabled. Allowed roles are premium_reply or reasoning only. Never return normal_reply."
-          : "When deep mode is disabled, normal_reply remains allowed for ordinary turns.",
-        "Return only JSON matching the provided schema."
-      ].join("\n\n"),
-      messages: [
-        {
-          role: "user",
-          content: [
-            `Channel: ${input.input.conversation.channel}`,
-            `Conversation mode: ${input.input.conversation.mode}`,
-            `Attachment summary: ${attachmentSummary}`,
-            `User locale: ${input.input.message.locale ?? input.bundle.userContext.locale}`,
-            `Deep mode: ${input.input.deepMode === true ? "enabled" : "disabled"}`,
-            input.routeControlReason === null || input.routeControlReason === undefined
-              ? null
-              : `Route-control trigger: ${input.routeControlReason}`,
-            recentConversationTail === null ? null : "",
-            recentConversationTail === null ? null : "Recent conversation tail:",
-            recentConversationTail,
-            "",
-            "Current user message:",
-            input.input.message.text
-          ]
-            .filter((section): section is string => section !== null)
-            .join("\n")
-        }
-      ],
-      maxOutputTokens: TURN_MODEL_ROLE_SELECTION_MAX_OUTPUT_TOKENS,
-      outputSchema: TURN_MODEL_ROLE_SELECTION_OUTPUT_SCHEMA,
-      ...(promptCache === undefined ? {} : { promptCache }),
-      requestMetadata: {
-        classification: "role_selection",
-        runtimeRequestId: input.input.requestId,
-        runtimeSessionId: null,
-        toolLoopIteration: null,
-        compactionToolCode: null
-      }
+      modelRole,
+      routeDecision,
+      usageEntries: this.toTurnRoutingUsageEntries(routeDecision.usage)
     };
   }
 
-  private buildTurnModelRoleRecentContext(messages: ProviderGatewayTextMessage[]): string | null {
-    const previousMessages = messages.slice(0, -1);
-    if (previousMessages.length === 0) {
-      return null;
-    }
-    const recentMessages = previousMessages.slice(-TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_COUNT);
-    const lines: string[] = [];
-    let consumedChars = 0;
-    for (const message of recentMessages) {
-      const remainingChars = TURN_MODEL_ROLE_SELECTION_RECENT_CONTEXT_MAX_CHARS - consumedChars;
-      if (remainingChars <= 0) {
-        break;
-      }
-      const extractedText = this.extractTurnModelRoleMessageText(message.content);
-      if (extractedText === null) {
-        continue;
-      }
-      const boundedText = this.truncateTurnModelRoleMessageText(
-        extractedText,
-        Math.min(TURN_MODEL_ROLE_SELECTION_RECENT_MESSAGE_MAX_CHARS, remainingChars)
-      );
-      if (boundedText.length === 0) {
-        continue;
-      }
-      lines.push(`${message.role}: ${boundedText}`);
-      consumedChars += boundedText.length;
-    }
-    return lines.length === 0 ? null : lines.join("\n");
-  }
-
-  private extractTurnModelRoleMessageText(
-    content: ProviderGatewayTextMessage["content"]
-  ): string | null {
-    const rawText =
-      typeof content === "string"
-        ? content
-        : content
-            .map((block) =>
-              block.type === "text"
-                ? block.text
-                : block.type === "image"
-                  ? "[image attachment]"
-                  : "[pdf attachment]"
-            )
-            .join("\n");
-    const normalized = rawText.replace(/\s+/g, " ").trim();
-    return normalized.length === 0 ? null : normalized;
-  }
-
-  private truncateTurnModelRoleMessageText(text: string, maxChars: number): string {
-    if (maxChars <= 0) {
-      return "";
-    }
-    if (text.length <= maxChars) {
-      return text;
-    }
-    if (maxChars <= 3) {
-      return text.slice(0, maxChars);
-    }
-    return `${text.slice(0, maxChars - 3).trimEnd()}...`;
-  }
-
-  private parseTurnExecutionPlannerResult(text: string | null): {
-    modelRole: UserFacingTurnModelRole;
-  } | null {
-    if (text === null || text.trim().length === 0) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(text) as unknown;
-      const record =
-        parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-          ? (parsed as Record<string, unknown>)
-          : null;
-      const role = record?.role;
-      if (role !== "normal_reply" && role !== "premium_reply" && role !== "reasoning") {
-        return null;
-      }
-      return {
-        modelRole: role
-      };
-    } catch {
-      return null;
+  private mapExecutionModeToModelRole(
+    executionMode: TurnRouteDecision["executionMode"]
+  ): PersaiRuntimeModelRole {
+    switch (executionMode) {
+      case "premium":
+        return "premium_reply";
+      case "reasoning":
+        return "reasoning";
+      default:
+        return "normal_reply";
     }
   }
 
-  private coerceDeepModeRouteControlRole(
-    modelRole: UserFacingTurnModelRole,
-    deepModeEnabled: boolean
-  ): UserFacingTurnModelRole {
-    if (deepModeEnabled && modelRole === "normal_reply") {
-      return "premium_reply";
-    }
-    return modelRole;
-  }
-
-  private toTurnModelRoleSelectionUsageEntries(
+  private toTurnRoutingUsageEntries(
     usage: RuntimeUsageSnapshot | null
   ): RuntimeUsageAccountingEntry[] {
     if (usage === null) {
@@ -1123,7 +971,7 @@ export class TurnExecutionService {
     }
     return [
       {
-        stepType: "model_role_selection",
+        stepType: "turn_routing",
         modelRole: "system_tool",
         providerKey: usage.providerKey,
         modelKey: usage.modelKey,
@@ -1225,9 +1073,6 @@ export class TurnExecutionService {
         this.applyToolExecutionOutcome(turnState, outcome);
         durableCompactionExecuted =
           durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
-        if (outcome.routeControl !== undefined) {
-          this.applyRouteControlOutcome(execution, input, outcome.routeControl);
-        }
       }
       toolHistory.push(...exchanges);
       if (durableCompactionExecuted) {
@@ -1248,8 +1093,7 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeTurnRequest,
     toolCall: ProviderGatewayToolCall,
-    currentUserMessageId: string | null,
-    signal?: AbortSignal
+    currentUserMessageId: string | null
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -1342,8 +1186,6 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
-      case ROUTE_CONTROL_TOOL_CODE:
-        return this.executeRouteControlTool(execution, acceptedTurn, input, toolCall, signal);
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
@@ -1462,116 +1304,6 @@ export class TurnExecutionService {
         allowedSources: execution.projectedTools.knowledgeFetchSources
       })
       .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
-  }
-
-  private async executeRouteControlTool(
-    execution: PreparedTurnExecution,
-    acceptedTurn: AcceptedRuntimeTurn,
-    input: RuntimeTurnRequest,
-    toolCall: ProviderGatewayToolCall,
-    signal?: AbortSignal
-  ): Promise<ToolExecutionOutcome> {
-    const routeControlReason = this.readRouteControlReason(toolCall.arguments);
-    if (routeControlReason instanceof Error) {
-      return this.createToolExecutionOutcome(
-        toolCall,
-        {
-          toolCode: ROUTE_CONTROL_TOOL_CODE,
-          action: "skipped",
-          reason: "invalid_arguments",
-          warning: routeControlReason.message,
-          modelRole: execution.selectedModelRole
-        },
-        true
-      );
-    }
-
-    const chooserSelection = this.resolveProviderSelectionForRole(execution.bundle, "system_tool");
-    if (chooserSelection === null) {
-      return this.createToolExecutionOutcome(toolCall, {
-        toolCode: ROUTE_CONTROL_TOOL_CODE,
-        action: "skipped",
-        reason: "tool_unavailable",
-        warning: null,
-        modelRole: execution.selectedModelRole
-      });
-    }
-
-    try {
-      const chooserResult = await this.providerGatewayClientService.generateText(
-        this.buildTurnExecutionPlanRequest({
-          bundle: execution.bundle,
-          input,
-          providerSelection: chooserSelection,
-          hydratedMessages: execution.providerRequest.messages,
-          routeControlReason
-        }),
-        signal === undefined ? undefined : { signal }
-      );
-      if (chooserResult.stopReason !== "completed") {
-        this.logger.warn(
-          `[route-control] planner stopped with ${chooserResult.stopReason} for request ${acceptedTurn.receipt.requestId}`
-        );
-        return this.createToolExecutionOutcome(toolCall, {
-          toolCode: ROUTE_CONTROL_TOOL_CODE,
-          action: "skipped",
-          reason: "planner_incomplete",
-          warning: null,
-          modelRole: execution.selectedModelRole,
-          usage: chooserResult.usage
-        });
-      }
-
-      const executionPlan = this.parseTurnExecutionPlannerResult(chooserResult.text);
-      if (executionPlan === null) {
-        this.logger.warn(
-          `[route-control] invalid planner output for request ${acceptedTurn.receipt.requestId}`
-        );
-        return this.createToolExecutionOutcome(toolCall, {
-          toolCode: ROUTE_CONTROL_TOOL_CODE,
-          action: "skipped",
-          reason: "invalid_planner_output",
-          warning: null,
-          modelRole: execution.selectedModelRole,
-          usage: chooserResult.usage
-        });
-      }
-
-      const plannedModelRole = this.coerceDeepModeRouteControlRole(
-        executionPlan.modelRole,
-        execution.deepModeEnabled
-      );
-      return this.createToolExecutionOutcome(
-        toolCall,
-        {
-          toolCode: ROUTE_CONTROL_TOOL_CODE,
-          action: "planned",
-          reason: routeControlReason,
-          warning: null,
-          modelRole: plannedModelRole,
-          usage: chooserResult.usage
-        },
-        false,
-        undefined,
-        undefined,
-        {
-          modelRole: plannedModelRole
-        }
-      );
-    } catch (error) {
-      this.logger.warn(
-        `[route-control] planner failed for request ${acceptedTurn.receipt.requestId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return this.createToolExecutionOutcome(toolCall, {
-        toolCode: ROUTE_CONTROL_TOOL_CODE,
-        action: "skipped",
-        reason: "planner_failed",
-        warning: null,
-        modelRole: execution.selectedModelRole
-      });
-    }
   }
 
   private async executeWebSearchTool(
@@ -1846,8 +1578,7 @@ export class TurnExecutionService {
       | Record<string, unknown>,
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
-    artifacts?: RuntimeOutputArtifact[],
-    routeControl?: ToolExecutionOutcome["routeControl"]
+    artifacts?: RuntimeOutputArtifact[]
   ): ToolExecutionOutcome {
     return {
       exchange: {
@@ -1861,8 +1592,7 @@ export class TurnExecutionService {
       },
       payload,
       ...(artifacts === undefined ? {} : { artifacts }),
-      ...(sharedCompaction === undefined ? {} : { sharedCompaction }),
-      ...(routeControl === undefined ? {} : { routeControl })
+      ...(sharedCompaction === undefined ? {} : { sharedCompaction })
     };
   }
 
@@ -2077,7 +1807,8 @@ export class TurnExecutionService {
       },
       messages,
       execution.projectedTools,
-      execution.deepModeEnabled
+      execution.deepModeEnabled,
+      execution.routeDecision
     );
   }
 
@@ -2205,8 +1936,6 @@ export class TurnExecutionService {
         return "oc";
       case "deep_chat":
         return "dc";
-      case "route_control":
-        return "rc";
       default:
         return "uk";
     }
@@ -2293,69 +2022,9 @@ export class TurnExecutionService {
   }
 
   private resolveToolUsageModelRole(toolCode: string): PersaiRuntimeModelRole {
-    return toolCode === "summarize_context" ||
-      toolCode === "compact_context" ||
-      toolCode === ROUTE_CONTROL_TOOL_CODE
+    return toolCode === "summarize_context" || toolCode === "compact_context"
       ? "system_tool"
       : "tool_worker";
-  }
-
-  private applyRouteControlOutcome(
-    execution: PreparedTurnExecution,
-    input: RuntimeTurnRequest,
-    routeControl: NonNullable<ToolExecutionOutcome["routeControl"]>
-  ): void {
-    const nextModelRole =
-      input.modelRoleOverride !== undefined ||
-      input.providerOverride !== undefined ||
-      input.modelOverride !== undefined
-        ? execution.selectedModelRole
-        : this.coerceDeepModeRouteControlRole(routeControl.modelRole, execution.deepModeEnabled);
-    execution.selectedModelRole = nextModelRole;
-    const providerSelection = this.resolveProviderSelectionForExecution(
-      execution,
-      input,
-      nextModelRole
-    );
-    execution.providerRequest = this.buildProviderRequest(
-      execution.bundle,
-      providerSelection,
-      execution.providerRequest.messages,
-      execution.projectedTools,
-      execution.deepModeEnabled
-    );
-  }
-
-  private resolveProviderSelectionForExecution(
-    execution: PreparedTurnExecution,
-    input: RuntimeTurnRequest,
-    nextModelRole: PersaiRuntimeModelRole
-  ): ProviderSelection {
-    return input.providerOverride !== undefined && input.modelOverride !== undefined
-      ? {
-          provider: input.providerOverride,
-          model: input.modelOverride.trim()
-        }
-      : this.resolveProviderSelection(execution.bundle, {
-          modelRoleOverride: nextModelRole
-        });
-  }
-
-  private readRouteControlReason(argumentsObject: Record<string, unknown>): string | null | Error {
-    const unknownKeys = Object.keys(argumentsObject).filter((key) => key !== "reason");
-    if (unknownKeys.length > 0) {
-      return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
-    }
-    if (
-      !("reason" in argumentsObject) ||
-      argumentsObject.reason === null ||
-      argumentsObject.reason === undefined
-    ) {
-      return null;
-    }
-    return typeof argumentsObject.reason === "string" && argumentsObject.reason.trim().length > 0
-      ? argumentsObject.reason.trim()
-      : new Error("reason must be a non-empty string when provided");
   }
 
   private readOptionalInstructions(

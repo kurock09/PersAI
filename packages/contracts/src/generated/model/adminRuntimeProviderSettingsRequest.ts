@@ -13,6 +13,21 @@ export interface AdminRuntimeProviderSettingsRequest {
   primary: RuntimeProviderSelection;
   /** @nullable */
   fallback?: AdminRuntimeProviderSettingsRequestFallback;
+  /** @nullable */
+  routingFastModelKey: string | null;
+  routerPolicy: {
+    enabled: boolean;
+    mode: "shadow" | "active";
+    classifierFailureFallbackMode: "normal" | "premium" | "reasoning";
+    clarifyOnMissingContext: boolean;
+    /** @nullable */
+    precheckRuleOverrides: {
+      continueTerms: string[];
+      retrievalTerms: string[];
+      reasoningTerms: string[];
+      toolTerms: string[];
+    } | null;
+  };
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   providerKeys?: AdminRuntimeProviderSettingsProviderKeysInput;
 }

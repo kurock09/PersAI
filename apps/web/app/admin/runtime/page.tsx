@@ -26,6 +26,44 @@ function parseModelCatalogInput(value: string): string[] {
   );
 }
 
+export function parseRouterOverrideText(
+  value: string
+): AdminRuntimeProviderSettingsRequest["routerPolicy"]["precheckRuleOverrides"] {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Router precheck overrides must be valid JSON.");
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Router precheck overrides must be a JSON object.");
+  }
+  const row = parsed as Record<string, unknown>;
+  const normalizeList = (field: string): string[] => {
+    const raw = row[field];
+    if (raw === undefined) {
+      return [];
+    }
+    if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
+      throw new Error(`Router precheck overrides.${field} must be an array of strings.`);
+    }
+    return raw
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry, index, list) => list.indexOf(entry) === index);
+  };
+  return {
+    continueTerms: normalizeList("continueTerms"),
+    retrievalTerms: normalizeList("retrievalTerms"),
+    reasoningTerms: normalizeList("reasoningTerms"),
+    toolTerms: normalizeList("toolTerms")
+  };
+}
+
 function modeLabel(mode: AdminRuntimeProviderSettingsState["mode"]): string {
   return mode === "global_settings" ? "Global settings" : "Unconfigured default";
 }
@@ -46,6 +84,16 @@ export default function AdminRuntimePage() {
   const [fallbackProvider, setFallbackProvider] = useState<ManagedRuntimeProvider>("openai");
   const [fallbackModel, setFallbackModel] = useState("");
   const [fallbackEnabled, setFallbackEnabled] = useState(false);
+  const [routingFastModelKey, setRoutingFastModelKey] = useState("");
+  const [routerEnabled, setRouterEnabled] = useState(false);
+  const [routerMode, setRouterMode] =
+    useState<AdminRuntimeProviderSettingsState["routerPolicy"]["mode"]>("shadow");
+  const [routerFallbackMode, setRouterFallbackMode] =
+    useState<AdminRuntimeProviderSettingsState["routerPolicy"]["classifierFailureFallbackMode"]>(
+      "normal"
+    );
+  const [routerClarifyOnMissingContext, setRouterClarifyOnMissingContext] = useState(true);
+  const [routerOverridesText, setRouterOverridesText] = useState("");
   const [openaiKey, setOpenaiKey] = useState("");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [availableModels, setAvailableModels] =
@@ -77,6 +125,16 @@ export default function AdminRuntimePage() {
         setFallbackEnabled(false);
         setFallbackModel("");
       }
+      setRoutingFastModelKey(res.routingFastModelKey ?? "");
+      setRouterEnabled(res.routerPolicy.enabled);
+      setRouterMode(res.routerPolicy.mode);
+      setRouterFallbackMode(res.routerPolicy.classifierFailureFallbackMode);
+      setRouterClarifyOnMissingContext(res.routerPolicy.clarifyOnMissingContext);
+      setRouterOverridesText(
+        res.routerPolicy.precheckRuleOverrides
+          ? JSON.stringify(res.routerPolicy.precheckRuleOverrides, null, 2)
+          : ""
+      );
       setAvailableModels(res.availableModelsByProvider);
       setOpenaiModelsText(res.availableModelsByProvider.openai.join("\n"));
       setAnthropicModelsText(res.availableModelsByProvider.anthropic.join("\n"));
@@ -113,12 +171,34 @@ export default function AdminRuntimePage() {
       ) {
         throw new Error("Fallback model must be selected from the listed catalog.");
       }
+      if (
+        routingFastModelKey.trim().length > 0 &&
+        !parsedCatalog[primaryProvider].includes(routingFastModelKey.trim())
+      ) {
+        throw new Error(
+          "Fast routing model must be selected from the active primary-provider catalog."
+        );
+      }
+
+      const precheckRuleOverrides = parseRouterOverrideText(routerOverridesText);
+      if (routerEnabled && routingFastModelKey.trim().length === 0) {
+        throw new Error("Fast routing model is required when the router is enabled.");
+      }
 
       const request: AdminRuntimeProviderSettingsRequest = {
         primary: { provider: primaryProvider, model: primaryModel.trim() },
         ...(fallbackEnabled && fallbackModel.trim()
           ? { fallback: { provider: fallbackProvider, model: fallbackModel.trim() } }
           : { fallback: null }),
+        routingFastModelKey:
+          routingFastModelKey.trim().length > 0 ? routingFastModelKey.trim() : null,
+        routerPolicy: {
+          enabled: routerEnabled,
+          mode: routerMode,
+          classifierFailureFallbackMode: routerFallbackMode,
+          clarifyOnMissingContext: routerClarifyOnMissingContext,
+          precheckRuleOverrides
+        },
         availableModelsByProvider: parsedCatalog,
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
@@ -142,6 +222,12 @@ export default function AdminRuntimePage() {
     fallbackProvider,
     getToken,
     load,
+    routerClarifyOnMissingContext,
+    routerEnabled,
+    routerFallbackMode,
+    routerMode,
+    routerOverridesText,
+    routingFastModelKey,
     openaiKey,
     openaiModelsText,
     primaryModel,
@@ -245,6 +331,80 @@ export default function AdminRuntimePage() {
               onChange={setAnthropicModelsText}
               placeholder="claude-sonnet-4-5"
             />
+          </Card>
+        </div>
+      </Fold>
+
+      <Fold t="Router Policy">
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          <Card
+            title="Early Smart Router"
+            trailing={
+              <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-text-subtle">
+                <input
+                  type="checkbox"
+                  checked={routerEnabled}
+                  onChange={(event) => setRouterEnabled(event.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-border accent-accent"
+                />
+                Enabled
+              </label>
+            }
+          >
+            <ModelSelect
+              label="Fast routing model"
+              value={routingFastModelKey}
+              onChange={setRoutingFastModelKey}
+              options={availableModels[primaryProvider]}
+              emptyLabel="Select from primary-provider catalog"
+            />
+            <SelectField
+              label="Mode"
+              value={routerMode}
+              onChange={(value) =>
+                setRouterMode(value as AdminRuntimeProviderSettingsState["routerPolicy"]["mode"])
+              }
+              options={[
+                { value: "shadow", label: "Shadow - decide and observe only" },
+                { value: "active", label: "Active - route before main model call" }
+              ]}
+            />
+            <SelectField
+              label="Classifier failure fallback"
+              value={routerFallbackMode}
+              onChange={(value) =>
+                setRouterFallbackMode(
+                  value as AdminRuntimeProviderSettingsState["routerPolicy"]["classifierFailureFallbackMode"]
+                )
+              }
+              options={[
+                { value: "normal", label: "Normal reply" },
+                { value: "premium", label: "Premium reply" },
+                { value: "reasoning", label: "Reasoning" }
+              ]}
+            />
+            <label className="flex items-center gap-2 text-[10px] text-text-muted">
+              <input
+                type="checkbox"
+                checked={routerClarifyOnMissingContext}
+                onChange={(event) => setRouterClarifyOnMissingContext(event.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-accent"
+              />
+              Ask for clarification when the router detects missing context.
+            </label>
+          </Card>
+          <Card title="Compact Precheck Overrides">
+            <TextareaField
+              label="Optional JSON overrides"
+              value={routerOverridesText}
+              onChange={setRouterOverridesText}
+              placeholder={`{\n  "continueTerms": ["ok", "continue"],\n  "retrievalTerms": ["find in docs"],\n  "reasoningTerms": ["architecture"],\n  "toolTerms": ["browse"]\n}`}
+            />
+            <p className="text-[10px] text-text-subtle">
+              Keep this compact. Use it for deterministic exceptions, not as a giant pattern dump.
+              Router prompt wording lives separately in{" "}
+              <span className="font-mono">Admin &gt; Presets</span>.
+            </p>
           </Card>
         </div>
       </Fold>
@@ -475,6 +635,35 @@ function TextareaField({
         spellCheck={false}
         className="w-full resize-y rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
       />
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-[10px] font-medium text-text-muted">{label}</label>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded border border-border bg-surface-raised px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-border-strong"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

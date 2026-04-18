@@ -21,6 +21,19 @@ async function run(): Promise<void> {
       openai: ["gpt‑5.4", "gpt‑5.4-mini"],
       anthropic: ["claude-sonnet-4-5"]
     },
+    routingFastModelKey: "gpt‑5.4-mini",
+    routerPolicy: {
+      enabled: true,
+      mode: "shadow",
+      classifierFailureFallbackMode: "normal",
+      clarifyOnMissingContext: true,
+      precheckRuleOverrides: {
+        continueTerms: ["ok", "continue"],
+        retrievalTerms: ["find in docs"],
+        reasoningTerms: ["architecture"],
+        toolTerms: ["browse"]
+      }
+    },
     providerKeys: {
       openai: " sk-openai-new ",
       anthropic: "sk-anthropic-new"
@@ -30,6 +43,10 @@ async function run(): Promise<void> {
   assert.equal(parsed.primary.provider, "openai");
   assert.equal(parsed.fallback?.provider, "anthropic");
   assert.equal(parsed.primary.model, "gpt-5.4");
+  assert.equal(parsed.routingFastModelKey, "gpt-5.4-mini");
+  assert.equal(parsed.routerPolicy.enabled, true);
+  assert.equal(parsed.routerPolicy.mode, "shadow");
+  assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.continueTerms, ["ok", "continue"]);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
@@ -66,6 +83,14 @@ async function run(): Promise<void> {
       primaryModel: "gpt‑5.4",
       fallbackProvider: "anthropic",
       fallbackModel: "claude-sonnet-4-5",
+      routingFastModelKey: "gpt‑5.4-mini",
+      routerPolicy: {
+        enabled: true,
+        mode: "active",
+        classifierFailureFallbackMode: "premium",
+        clarifyOnMissingContext: false,
+        precheckRuleOverrides: null
+      },
       availableModelsByProvider: {
         openai: ["gpt‑5.4", "gpt‑5.4-mini"],
         anthropic: ["claude-sonnet-4-5"]
@@ -75,6 +100,9 @@ async function run(): Promise<void> {
   });
   assert.equal(settings.mode, "global_settings");
   assert.equal(settings.primary?.model, "gpt-5.4");
+  assert.equal(settings.routingFastModelKey, "gpt-5.4-mini");
+  assert.equal(settings.routerPolicy.mode, "active");
+  assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
 

@@ -1,5 +1,4 @@
 const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
-  | "route_control"
   | "summarize_context"
   | "compact_context"
   | "memory_write"
@@ -8,7 +7,6 @@ const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
   | "knowledge_fetch",
   string
 > = {
-  route_control: "route",
   summarize_context: "sumctx",
   compact_context: "cmpctx",
   memory_write: "memw",
@@ -19,7 +17,6 @@ const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
 
 export function buildSyntheticToolMetadataPromptTemplateId(
   toolCode:
-    | "route_control"
     | "summarize_context"
     | "compact_context"
     | "memory_write"
@@ -49,8 +46,6 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 {{user_block}}
 
 {{identity_block}}
-
-{{route_control_block}}
 
 {{tools_block}}
 
@@ -111,6 +106,18 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
 - If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
 - Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
 
+  router_classifier: `You are the hidden PersAI early router.
+
+Choose the cheapest execution mode that should still preserve answer quality.
+
+- \`normal\` for ordinary chat, simple help, brief rewrites, low-risk replies, and short direct requests.
+- \`premium\` for polished wording, better tone, and more careful user-facing writing when quality matters but deep reasoning is not necessary.
+- \`reasoning\` for debugging, architecture, contracts, trade-offs, science, multi-step analysis, and higher-stakes correctness.
+
+Set \`retrievalHint=true\` when the system should likely retrieve assistant knowledge or prior stored facts before answering.
+Set \`toolHints\` only as hints when browser, web, knowledge, or media tools are likely needed.
+Do not execute tools. Do not answer the user. Return only the requested structured result.`,
+
   preview_bootstrap: `# Character Preview
 
 You are testing how **{{assistant_name}}** should sound before launch.
@@ -160,11 +167,7 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
     "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:
-    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps.",
-  [buildSyntheticToolMetadataPromptTemplateId("route_control", "description")]:
-    "Hidden routing helper that decides whether the next step should stay ordinary, escalate to premium or reasoning, and whether internal knowledge or live web lookup should guide the answer.",
-  [buildSyntheticToolMetadataPromptTemplateId("route_control", "usage_guidance")]:
-    "Call this before answering when the turn is ambiguous, high-stakes, depends on short follow-up context, or likely needs stronger routing than the default normal path. Keep it hidden from the user."
+    "Use this to inspect the exact source passage instead of asking for whole documents, full chat histories, or full config dumps."
 };
 
 export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {

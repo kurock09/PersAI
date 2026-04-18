@@ -72,6 +72,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         primaryModel: input.primary.model,
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
+        routingFastModelKey: input.routingFastModelKey,
+        routerPolicy: input.routerPolicy as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         updatedByUserId: userId
       },
@@ -80,6 +82,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         primaryModel: input.primary.model,
         fallbackProvider: input.fallback?.provider ?? null,
         fallbackModel: input.fallback?.model ?? null,
+        routingFastModelKey: input.routingFastModelKey,
+        routerPolicy: input.routerPolicy as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
         updatedByUserId: userId
       }
@@ -110,6 +114,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         mode: settings.mode,
         primary: settings.primary,
         fallback: settings.fallback,
+        routingFastModelKey: settings.routingFastModelKey,
+        routerPolicy: settings.routerPolicy,
         updatedProviders: Object.entries(input.providerKeys)
           .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
           .map(([provider]) => provider),

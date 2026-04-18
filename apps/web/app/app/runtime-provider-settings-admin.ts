@@ -214,7 +214,15 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const request: AdminRuntimeProviderSettingsRequest = {
     primary,
     availableModelsByProvider,
-    fallback
+    fallback,
+    routingFastModelKey: null,
+    routerPolicy: {
+      enabled: false,
+      mode: "shadow",
+      classifierFailureFallbackMode: "normal",
+      clarifyOnMissingContext: true,
+      precheckRuleOverrides: null
+    }
   };
   if (Object.keys(providerKeys).length > 0) {
     request.providerKeys = providerKeys;

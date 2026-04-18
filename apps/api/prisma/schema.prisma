@@ -564,6 +564,8 @@ model PlatformRuntimeProviderSettings {
   primaryModel              String                          @map("primary_model") @db.VarChar(256)
   fallbackProvider          String?                         @map("fallback_provider") @db.VarChar(32)
   fallbackModel             String?                         @map("fallback_model") @db.VarChar(256)
+  routingFastModelKey       String?                         @map("routing_fast_model_key") @db.VarChar(256)
+  routerPolicy              Json                            @default("{}") @map("router_policy") @db.JsonB
   availableModelsByProvider Json                            @map("available_models_by_provider") @db.JsonB
   updatedByUserId           String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                 DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)

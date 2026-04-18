@@ -18,6 +18,14 @@ describe("runtime-provider-settings-admin", () => {
         provider: "anthropic",
         model: "claude-sonnet-4-5"
       },
+      routingFastModelKey: "gpt-4.1",
+      routerPolicy: {
+        enabled: true,
+        mode: "shadow",
+        classifierFailureFallbackMode: "normal",
+        clarifyOnMissingContext: true,
+        precheckRuleOverrides: null
+      },
       availableModelsByProvider: {
         openai: ["gpt-5.4", "gpt-4.1"],
         anthropic: ["claude-sonnet-4-5"]

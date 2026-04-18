@@ -33,6 +33,7 @@ import type {
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import { TurnRoutingService } from "../src/modules/turns/turn-routing.service";
 import type { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
 import type {
   AcceptedRuntimeTurn,
@@ -385,19 +386,6 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           dailyCallLimit: null
         },
         {
-          toolCode: "route_control",
-          displayName: "Route Control",
-          description:
-            "Hidden routing helper that decides whether the next step should stay ordinary, escalate to premium or reasoning, and whether internal knowledge or live web lookup should guide the answer.",
-          kind: "system",
-          executionMode: "inline",
-          usageRule: "allowed",
-          enabled: true,
-          visibleToModel: true,
-          visibleInPlanEditor: false,
-          dailyCallLimit: null
-        },
-        {
           toolCode: "browser",
           displayName: "Browser",
           description: "Navigate and interact with web pages.",
@@ -604,7 +592,6 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           soul: "# COMPILED SECTION\nOnly trust compiled prompt constructor output.",
           user: "# USER\nBe mindful of user context.",
           identity: "# IDENTITY\nYou are PersAI.",
-          routeControl: null,
           tools:
             "# TOOL RUNTIME\nsummarize_context\ncompact_context\nquota_status\nknowledge_search\nknowledge_fetch",
           agents: "",
@@ -928,6 +915,10 @@ class FakeProviderGatewayClientService {
       }
     }
   ];
+
+  isConfigured(): boolean {
+    return true;
+  }
 
   async generateText(
     input: ProviderGatewayTextGenerateRequest,
@@ -1448,6 +1439,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never
   );
+  const turnRoutingService = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
   const service = new TurnExecutionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
@@ -1462,6 +1456,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
+    turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
@@ -1512,7 +1507,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "compact_context",
       "memory_write",
       "quota_status",
-      "route_control",
       "knowledge_search",
       "knowledge_fetch"
     ]
@@ -1565,6 +1559,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
+    turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
@@ -1652,35 +1647,37 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.routerPolicy = {
+      enabled: true,
+      mode: "active",
+      classifierFailureFallbackMode: "normal",
+      clarifyOnMissingContext: true,
+      precheckRuleOverrides: null
+    };
+    bundleRegistry.entry.parsedBundle.runtime.routingFastModelKey = "gpt-4.1";
+    bundleRegistry.entry.parsedBundle.promptDocuments.routerClassifier =
+      "You are the hidden PersAI early router.";
+  }
   const chooserRequest = createRuntimeTurnRequest();
   chooserRequest.bundle.bundleHash = request.bundle.bundleHash;
+  chooserRequest.message.text =
+    "I need help choosing between two rollout options for next month because each changes team coordination, customer communication, and delivery timing, and I have not organized the background clearly enough for a quick default choice yet.";
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   providerGatewayClient.resultQueue = [
     {
       provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:02.850Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-1",
-          name: "route_control",
-          arguments: {
-            reason: "needs stronger synthesis"
-          }
-        }
-      ]
-    },
-    {
-      provider: "openai",
       model: "gpt-4.1",
       text: JSON.stringify({
-        role: "premium_reply",
-        reason: "needs stronger synthesis"
+        executionMode: "reasoning",
+        retrievalHint: false,
+        toolHints: "none",
+        confidence: "high",
+        clarifyNeeded: false,
+        fallbackMode: "normal",
+        reasonCode: "reasoning_request"
       }),
       respondedAt: "2026-04-11T12:00:02.900Z",
       usage: {
@@ -1696,12 +1693,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     },
     {
       provider: "openai",
-      model: "gpt-5.4-pro",
-      text: "chooser premium reply",
+      model: "gpt-5.4-thinking",
+      text: "reasoned reply",
       respondedAt: "2026-04-11T12:00:03.000Z",
       usage: {
         providerKey: "openai",
-        modelKey: "gpt-5.4-pro",
+        modelKey: "gpt-5.4-thinking",
         inputTokens: 14,
         outputTokens: 26,
         totalTokens: 40
@@ -1712,59 +1709,37 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ];
   const chooserCallOffset = providerGatewayClient.calls.length;
   const chooserCompleted = await service.createTurn(chooserRequest);
-  assert.equal(chooserCompleted.assistantText, "chooser premium reply");
-  assert.equal(providerGatewayClient.calls[chooserCallOffset]?.model, "gpt-5.4");
+  assert.equal(chooserCompleted.assistantText, "reasoned reply");
   assert.equal(
-    providerGatewayClient.calls[chooserCallOffset]?.tools?.some(
-      (tool) => tool.name === "route_control"
-    ),
-    true
+    providerGatewayClient.calls[chooserCallOffset]?.requestMetadata?.classification,
+    "turn_routing"
   );
-  assert.equal(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.outputSchema?.name,
-    "turn_execution_plan"
-  );
-  assert.deepEqual(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.outputSchema?.schema.required,
-    ["role", "reason"]
-  );
-  assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-4.1");
+  assert.equal(providerGatewayClient.calls[chooserCallOffset]?.model, "gpt-4.1");
   assert.doesNotMatch(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.systemPrompt ?? "",
-    /lookupStrategy=/
+    String(providerGatewayClient.calls[chooserCallOffset]?.messages[0]?.content ?? ""),
+    /Recent conversation tail/
   );
-  assert.equal(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.retention,
-    "in_memory"
-  );
+  assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-5.4-thinking");
   assert.match(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key ?? "",
-    /^ps1:rc:[a-f0-9]{32}:b\d{2}$/
+    providerGatewayClient.calls[chooserCallOffset + 1]?.systemPrompt ?? "",
+    /Selected execution mode: reasoning\./
   );
-  assert.ok(
-    (providerGatewayClient.calls[chooserCallOffset + 1]?.promptCache?.key?.length ?? 0) <= 64
-  );
-  assert.equal(providerGatewayClient.calls[chooserCallOffset + 2]?.model, "gpt-5.4-pro");
   assert.equal(
-    providerGatewayClient.calls[chooserCallOffset + 2]?.tools?.some(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.tools?.some(
       (tool) => tool.name === "route_control"
     ),
-    true
-  );
-  assert.match(
-    providerGatewayClient.calls[chooserCallOffset + 2]?.systemPrompt ?? "",
-    /## Route Control/
+    false
   );
   assert.equal(chooserCompleted.usageAccounting?.inputTokens, 17);
   assert.equal(chooserCompleted.usageAccounting?.cachedInputTokens, 1);
   assert.equal(chooserCompleted.usageAccounting?.outputTokens, 28);
   assert.equal(chooserCompleted.usageAccounting?.totalTokens, 45);
   assert.equal(
-    chooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "system_tool"),
+    chooserCompleted.usageAccounting?.entries.some((entry) => entry.stepType === "turn_routing"),
     true
   );
   assert.equal(
-    chooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "premium_reply"),
+    chooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "reasoning"),
     true
   );
   await flushTaskQueue();
@@ -1799,43 +1774,42 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       }
     };
   }
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.routerPolicy = {
+      enabled: true,
+      mode: "shadow",
+      classifierFailureFallbackMode: "normal",
+      clarifyOnMissingContext: true,
+      precheckRuleOverrides: null
+    };
+  }
   turnContextHydrationService.messages = [
     {
       role: "user",
-      content: "help me think through a product strategy decision"
+      content:
+        "I need help choosing between two upcoming rollout options because each changes team coordination, customer communication, and delivery timing, and the background is still messy."
     }
   ];
   const deepModeChooserRequest = createRuntimeTurnRequest();
   deepModeChooserRequest.bundle.bundleHash = request.bundle.bundleHash;
   deepModeChooserRequest.deepMode = true;
-  deepModeChooserRequest.message.text = "help me think through a product strategy decision";
+  deepModeChooserRequest.message.text =
+    "I need help choosing between two upcoming rollout options because each changes team coordination, customer communication, and delivery timing, and the background is still messy.";
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   providerGatewayClient.resultQueue = [
     {
       provider: "openai",
-      model: "gpt-5.4-pro",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.010Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-deep-1",
-          name: "route_control",
-          arguments: {
-            reason: "checking whether this can stay cheap"
-          }
-        }
-      ]
-    },
-    {
-      provider: "openai",
       model: "gpt-4.1",
       text: JSON.stringify({
-        role: "normal_reply",
-        reason: "planner attempted to downgrade despite deep mode"
+        executionMode: "reasoning",
+        retrievalHint: false,
+        toolHints: "none",
+        confidence: "high",
+        clarifyNeeded: false,
+        fallbackMode: "premium",
+        reasonCode: "reasoning_request"
       }),
       respondedAt: "2026-04-11T12:00:03.050Z",
       usage: {
@@ -1867,17 +1841,20 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const deepModeChooserOffset = providerGatewayClient.calls.length;
   const deepModeChooserCompleted = await service.createTurn(deepModeChooserRequest);
   assert.equal(deepModeChooserCompleted.assistantText, "deep mode stayed premium");
-  assert.equal(providerGatewayClient.calls[deepModeChooserOffset]?.model, "gpt-5.4-pro");
-  assert.equal(providerGatewayClient.calls[deepModeChooserOffset + 2]?.model, "gpt-5.4-pro");
-  assert.match(
+  assert.equal(
+    providerGatewayClient.calls[deepModeChooserOffset]?.requestMetadata?.classification,
+    "turn_routing"
+  );
+  assert.equal(providerGatewayClient.calls[deepModeChooserOffset + 1]?.model, "gpt-5.4-pro");
+  assert.doesNotMatch(
     providerGatewayClient.calls[deepModeChooserOffset + 1]?.systemPrompt ?? "",
-    /Allowed roles are premium_reply or reasoning only\. Never return normal_reply\./
+    /## Early Routing Hints/
   );
   assert.equal(
     deepModeChooserCompleted.usageAccounting?.entries.some(
-      (entry) => entry.modelRole === "normal_reply"
+      (entry) => entry.stepType === "turn_routing"
     ),
-    false
+    true
   );
   assert.equal(
     deepModeChooserCompleted.usageAccounting?.entries.some(
@@ -1904,77 +1881,30 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.025Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-2",
-          name: "route_control",
-          arguments: {
-            reason: "short follow-up depends on earlier context"
-          }
-        }
-      ]
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "short follow-up reply",
+    respondedAt: "2026-04-11T12:00:03.100Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 18,
+      outputTokens: 30,
+      totalTokens: 48
     },
-    {
-      provider: "openai",
-      model: "gpt-4.1",
-      text: JSON.stringify({
-        role: "reasoning",
-        reason: "short follow-up inherits prior complex task"
-      }),
-      respondedAt: "2026-04-11T12:00:03.050Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4.1",
-        inputTokens: 4,
-        outputTokens: 2,
-        totalTokens: 6
-      },
-      stopReason: "completed",
-      toolCalls: []
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4-thinking",
-      text: "reasoning follow-up reply",
-      respondedAt: "2026-04-11T12:00:03.100Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-5.4-thinking",
-        inputTokens: 18,
-        outputTokens: 30,
-        totalTokens: 48
-      },
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
+    stopReason: "completed",
+    toolCalls: []
+  };
   const shortFollowupChooserOffset = providerGatewayClient.calls.length;
   const shortFollowupCompleted = await service.createTurn(shortFollowupRequest);
-  assert.equal(shortFollowupCompleted.assistantText, "reasoning follow-up reply");
+  assert.equal(shortFollowupCompleted.assistantText, "short follow-up reply");
   assert.equal(providerGatewayClient.calls[shortFollowupChooserOffset]?.model, "gpt-5.4");
-  assert.match(
-    String(providerGatewayClient.calls[shortFollowupChooserOffset + 1]?.messages[0]?.content ?? ""),
-    /Recent conversation tail:\nassistant: We are comparing architecture trade-offs and need a careful migration plan\./
-  );
-  assert.equal(providerGatewayClient.calls[shortFollowupChooserOffset + 1]?.model, "gpt-4.1");
   assert.equal(
-    providerGatewayClient.calls[shortFollowupChooserOffset + 2]?.model,
-    "gpt-5.4-thinking"
+    providerGatewayClient.calls[shortFollowupChooserOffset]?.requestMetadata?.classification,
+    "main_turn"
   );
-  assert.equal(
-    shortFollowupCompleted.usageAccounting?.entries.some(
-      (entry) => entry.modelRole === "reasoning"
-    ),
-    true
-  );
+  assert.equal(providerGatewayClient.calls.length, shortFollowupChooserOffset + 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -2013,95 +1943,54 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         }
       }
     };
+    bundleRegistry.entry.parsedBundle.runtime.routerPolicy = {
+      enabled: true,
+      mode: "active",
+      classifierFailureFallbackMode: "normal",
+      clarifyOnMissingContext: true,
+      precheckRuleOverrides: null
+    };
   }
 
   const retrievalHintRequest = createRuntimeTurnRequest();
   retrievalHintRequest.bundle.bundleHash = request.bundle.bundleHash;
-  retrievalHintRequest.message.text = "what did I ask you to remember about my sleep yesterday?";
+  retrievalHintRequest.message.text =
+    "look in memory and tell me what I asked you to remember about my sleep yesterday.";
   turnContextHydrationService.messages = [
     {
       role: "user",
-      content: "what did I ask you to remember about my sleep yesterday?"
+      content: "look in memory and tell me what I asked you to remember about my sleep yesterday."
     }
   ];
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.125Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-3",
-          name: "route_control",
-          arguments: {
-            reason: "needs memory lookup but not premium prose"
-          }
-        }
-      ]
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "retrieval-aware reply",
+    respondedAt: "2026-04-11T12:00:03.250Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 16,
+      outputTokens: 24,
+      totalTokens: 40
     },
-    {
-      provider: "openai",
-      model: "gpt-4.1",
-      text: JSON.stringify({
-        role: "normal_reply",
-        reason: "needs memory lookup but not premium prose"
-      }),
-      respondedAt: "2026-04-11T12:00:03.150Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4.1",
-        inputTokens: 5,
-        outputTokens: 2,
-        totalTokens: 7
-      },
-      stopReason: "completed",
-      toolCalls: []
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "retrieval-aware reply",
-      respondedAt: "2026-04-11T12:00:03.250Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-5.4",
-        inputTokens: 16,
-        outputTokens: 24,
-        totalTokens: 40
-      },
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
+    stopReason: "completed",
+    toolCalls: []
+  };
   const retrievalHintPlannerOffset = providerGatewayClient.calls.length;
   const retrievalHintCompleted = await service.createTurn(retrievalHintRequest);
   assert.equal(retrievalHintCompleted.assistantText, "retrieval-aware reply");
   assert.equal(providerGatewayClient.calls[retrievalHintPlannerOffset]?.model, "gpt-5.4");
-  assert.equal(
-    providerGatewayClient.calls[retrievalHintPlannerOffset + 1]?.outputSchema?.name,
-    "turn_execution_plan"
-  );
-  assert.equal(providerGatewayClient.calls[retrievalHintPlannerOffset + 1]?.model, "gpt-4.1");
-  assert.equal(providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.model, "gpt-5.4");
   const retrievalHintToolNames =
-    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.tools?.map((tool) => tool.name) ??
-    [];
-  assert.equal(retrievalHintToolNames.includes("route_control"), true);
+    providerGatewayClient.calls[retrievalHintPlannerOffset]?.tools?.map((tool) => tool.name) ?? [];
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
-  assert.doesNotMatch(
-    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance/
-  );
   assert.match(
-    providerGatewayClient.calls[retrievalHintPlannerOffset + 2]?.systemPrompt ?? "",
-    /## Route Control/
+    providerGatewayClient.calls[retrievalHintPlannerOffset]?.systemPrompt ?? "",
+    /Assistant knowledge retrieval is likely needed before answering/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
@@ -2121,96 +2010,49 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnContextHydrationService.messages = [
     {
       role: "user",
-      content: "what's the weather in Berlin right now?"
+      content: "what's the current weather in Berlin today?"
     }
   ];
   const liveWebRequest = createRuntimeTurnRequest();
   liveWebRequest.bundle.bundleHash = request.bundle.bundleHash;
-  liveWebRequest.message.text = "what's the weather in Berlin right now?";
+  liveWebRequest.message.text = "what's the current weather in Berlin today?";
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.275Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-4",
-          name: "route_control",
-          arguments: {
-            reason: "live web needed for current weather"
-          }
-        }
-      ]
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "live-web-aware reply",
+    respondedAt: "2026-04-11T12:00:03.400Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 18,
+      outputTokens: 20,
+      totalTokens: 38
     },
-    {
-      provider: "openai",
-      model: "gpt-4.1",
-      text: JSON.stringify({
-        role: "normal_reply",
-        reason: "live web needed for current weather"
-      }),
-      respondedAt: "2026-04-11T12:00:03.300Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4.1",
-        inputTokens: 6,
-        outputTokens: 2,
-        totalTokens: 8
-      },
-      stopReason: "completed",
-      toolCalls: []
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "live-web-aware reply",
-      respondedAt: "2026-04-11T12:00:03.400Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-5.4",
-        inputTokens: 18,
-        outputTokens: 20,
-        totalTokens: 38
-      },
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
+    stopReason: "completed",
+    toolCalls: []
+  };
   const liveWebPlannerOffset = providerGatewayClient.calls.length;
   const liveWebCompleted = await service.createTurn(liveWebRequest);
   assert.equal(liveWebCompleted.assistantText, "live-web-aware reply");
   assert.equal(providerGatewayClient.calls[liveWebPlannerOffset]?.model, "gpt-5.4");
   assert.equal(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.tools?.some(
+    providerGatewayClient.calls[liveWebPlannerOffset]?.tools?.some(
       (tool) => tool.name === "web_search"
     ),
     true
   );
   assert.equal(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.tools?.some(
+    providerGatewayClient.calls[liveWebPlannerOffset]?.tools?.some(
       (tool) => tool.name === "knowledge_search"
     ),
     true
   );
-  assert.equal(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.tools?.some(
-      (tool) => tool.name === "route_control"
-    ),
-    true
-  );
-  assert.doesNotMatch(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance/
-  );
   assert.match(
-    providerGatewayClient.calls[liveWebPlannerOffset + 2]?.systemPrompt ?? "",
-    /## Route Control/
+    providerGatewayClient.calls[liveWebPlannerOffset]?.systemPrompt ?? "",
+    /Fresh external information is likely needed/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
@@ -2225,80 +2067,43 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnContextHydrationService.messages = [
     {
       role: "user",
-      content: "what's the weather in Berlin right now?"
+      content: "what's the current weather in Berlin today?"
     }
   ];
   const unavailableLiveWebRequest = createRuntimeTurnRequest();
   unavailableLiveWebRequest.bundle.bundleHash = request.bundle.bundleHash;
-  unavailableLiveWebRequest.message.text = "what's the weather in Berlin right now?";
+  unavailableLiveWebRequest.message.text = "what's the current weather in Berlin today?";
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
-  providerGatewayClient.resultQueue = [
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "",
-      respondedAt: "2026-04-11T12:00:03.425Z",
-      usage: null,
-      stopReason: "tool_calls",
-      toolCalls: [
-        {
-          id: "tool-call-route-control-5",
-          name: "route_control",
-          arguments: {
-            reason: "live web required but may be unavailable"
-          }
-        }
-      ]
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "weather guidance without web tool",
+    respondedAt: "2026-04-11T12:00:03.500Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 14,
+      outputTokens: 12,
+      totalTokens: 26
     },
-    {
-      provider: "openai",
-      model: "gpt-4.1",
-      text: JSON.stringify({
-        role: "normal_reply",
-        reason: "live web required but may be unavailable"
-      }),
-      respondedAt: "2026-04-11T12:00:03.450Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-4.1",
-        inputTokens: 6,
-        outputTokens: 2,
-        totalTokens: 8
-      },
-      stopReason: "completed",
-      toolCalls: []
-    },
-    {
-      provider: "openai",
-      model: "gpt-5.4",
-      text: "weather guidance without web tool",
-      respondedAt: "2026-04-11T12:00:03.500Z",
-      usage: {
-        providerKey: "openai",
-        modelKey: "gpt-5.4",
-        inputTokens: 14,
-        outputTokens: 12,
-        totalTokens: 26
-      },
-      stopReason: "completed",
-      toolCalls: []
-    }
-  ];
+    stopReason: "completed",
+    toolCalls: []
+  };
   const unavailableLiveWebPlannerOffset = providerGatewayClient.calls.length;
   const unavailableLiveWebCompleted = await service.createTurn(unavailableLiveWebRequest);
   assert.equal(unavailableLiveWebCompleted.assistantText, "weather guidance without web tool");
   assert.equal(providerGatewayClient.calls[unavailableLiveWebPlannerOffset]?.model, "gpt-5.4");
   assert.equal(
-    providerGatewayClient.calls[unavailableLiveWebPlannerOffset + 2]?.tools?.some(
+    providerGatewayClient.calls[unavailableLiveWebPlannerOffset]?.tools?.some(
       (tool) => tool.name === "web_search"
     ),
     false
   );
   assert.doesNotMatch(
-    providerGatewayClient.calls[unavailableLiveWebPlannerOffset + 2]?.systemPrompt ?? "",
-    /Turn Route Guidance/
+    providerGatewayClient.calls[unavailableLiveWebPlannerOffset]?.systemPrompt ?? "",
+    /Fresh external information is likely needed/
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
@@ -2795,7 +2600,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "compact_context",
       "memory_write",
       "quota_status",
-      "route_control",
       "knowledge_search",
       "knowledge_fetch"
     ]
@@ -2893,7 +2697,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "compact_context",
       "memory_write",
       "quota_status",
-      "route_control",
       "knowledge_search",
       "knowledge_fetch"
     ]
@@ -3170,7 +2973,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "compact_context",
       "memory_write",
       "quota_status",
-      "route_control",
       "knowledge_search",
       "knowledge_fetch",
       "web_fetch"

@@ -6,7 +6,6 @@ import {
 } from "../../../../prisma/bootstrap-preset-data";
 
 export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
-  "route_control",
   "summarize_context",
   "compact_context",
   "memory_write",
@@ -26,7 +25,6 @@ export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
 export type PromptConstructorModelToolCode = (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number];
 
 type SyntheticNativeToolCode =
-  | "route_control"
   | "summarize_context"
   | "compact_context"
   | "memory_write"
@@ -40,17 +38,6 @@ export const SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS: Record<
   SyntheticNativeToolCode,
   SyntheticNativeToolDefinition
 > = {
-  route_control: {
-    toolCode: "route_control",
-    displayName: "Route Control",
-    description: null,
-    modelDescription: null,
-    modelUsageGuidance: null,
-    toolClass: "utility",
-    capabilityGroup: "workspace_ops",
-    policyClass: "hidden_internal",
-    catalogStatus: "active"
-  },
   summarize_context: {
     toolCode: "summarize_context",
     displayName: "Summarize Context",

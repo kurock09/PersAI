@@ -303,16 +303,17 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
     toolHistory: [
       {
         toolCall: {
-          id: "call-route-control-1",
-          name: "route_control",
+          id: "call-knowledge-search-1",
+          name: "knowledge_search",
           arguments: {
-            reason: "Need smarter routing."
+            query: "routing architecture"
           }
         },
         toolResult: {
-          toolCallId: "call-route-control-1",
-          name: "route_control",
-          content: '{"toolCode":"route_control","action":"planned","modelRole":"reasoning"}',
+          toolCallId: "call-knowledge-search-1",
+          name: "knowledge_search",
+          content:
+            '{"toolCode":"knowledge_search","action":"completed","query":"routing architecture"}',
           isError: false
         }
       }
@@ -326,7 +327,7 @@ export async function runProviderTextGenerationServiceTest(): Promise<void> {
     }
   });
   assert.equal(historicalToolResult.text, "openai-result");
-  assert.equal(openaiClient.calls.at(-1)?.toolHistory?.[0]?.toolCall.name, "route_control");
+  assert.equal(openaiClient.calls.at(-1)?.toolHistory?.[0]?.toolCall.name, "knowledge_search");
   assert.equal(openaiClient.calls.at(-1)?.tools?.[0]?.name, "knowledge_search");
 
   const openaiStream = await service.streamText(createRequest("openai"));

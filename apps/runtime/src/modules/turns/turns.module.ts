@@ -23,6 +23,7 @@ import { TurnAcceptanceService } from "./turn-acceptance.service";
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
+import { TurnRoutingService } from "./turn-routing.service";
 
 @Module({
   imports: [BundlesModule, RuntimeStateModule, SessionsModule],
@@ -45,6 +46,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     TurnContextHydrationService,
     SessionCompactionService,
     TurnAcceptanceService,
+    TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,
     TurnLeaseHeartbeatService
@@ -67,6 +69,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     TurnContextHydrationService,
     SessionCompactionService,
     TurnAcceptanceService,
+    TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,
     TurnLeaseHeartbeatService

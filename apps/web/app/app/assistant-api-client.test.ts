@@ -132,6 +132,14 @@ describe("admin rollout client", () => {
             model: "gpt-5.4"
           },
           fallback: null,
+          routingFastModelKey: "gpt-4.1",
+          routerPolicy: {
+            enabled: true,
+            mode: "shadow",
+            classifierFailureFallbackMode: "normal",
+            clarifyOnMissingContext: true,
+            precheckRuleOverrides: null
+          },
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: []
@@ -161,6 +169,14 @@ describe("admin rollout client", () => {
           model: "gpt-5.4"
         },
         fallback: null,
+        routingFastModelKey: "gpt-4.1",
+        routerPolicy: {
+          enabled: true,
+          mode: "shadow",
+          classifierFailureFallbackMode: "normal",
+          clarifyOnMissingContext: true,
+          precheckRuleOverrides: null
+        },
         availableModelsByProvider: {
           openai: ["gpt-5.4"],
           anthropic: []

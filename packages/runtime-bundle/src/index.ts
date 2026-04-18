@@ -67,6 +67,8 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   runtimeAssignment: unknown;
   runtimeProviderProfile: unknown;
   runtimeProviderRouting: unknown;
+  routingFastModelKey?: string | null;
+  routerPolicy?: unknown;
   contextHydration: RuntimeContextHydrationConfig;
   sharedCompaction: RuntimeSharedCompactionConfig;
   knowledgeAccess: RuntimeKnowledgeAccessConfig;
@@ -112,6 +114,7 @@ export interface AssistantRuntimePromptDocuments {
   tools: string;
   agents: string;
   heartbeat: string;
+  routerClassifier?: string;
   preview: string;
   welcome: string;
   bootstrap?: string;
@@ -126,7 +129,6 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   soul: string;
   user: string;
   identity: string;
-  routeControl: string | null;
   tools: string;
   agents: string;
   heartbeat: string;
@@ -233,7 +235,6 @@ export function createAssistantRuntimeBundle(
         soul: input.promptDocuments.soul,
         user: input.promptDocuments.user,
         identity: input.promptDocuments.identity,
-        routeControl: null,
         tools: input.promptDocuments.tools,
         agents: input.promptDocuments.agents,
         heartbeat: input.promptDocuments.heartbeat

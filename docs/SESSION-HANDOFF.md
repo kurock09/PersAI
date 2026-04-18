@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - early turn router repo-truth sync
+
+### What changed
+
+1. Active repo-truth docs now describe the landed early `turn_routing` architecture instead of the older hidden `route_control` framing. `ADR-073` and `ROADMAP` now state that the current path uses a configurable early router with deterministic precheck plus an optional cheap classifier, while deep/smart mode still clamps user-selected premium turns away from `normal_reply`.
+2. `CHANGELOG` now reflects the same final unreleased truth: the active routing core is the early router driven by `routingFastModelKey`, `routerPolicy`, and the admin-managed `router_classifier` prompt surface, not a hidden `route_control` reply-selector inside the main reply loop.
+3. This closes the remaining repo-truth gap that existed after the runtime cutover: code and CI were already green, but active docs were still describing the superseded routing model.
+
+### Current active slice
+
+- `ADR-073 - economics/router truth sync`
+
+### Current active step
+
+- `Early router rollout is now locally clean in both code and active docs; the next honest step is bounded live deploy validation`
+
+### Files touched
+
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm test`
+- `corepack pnpm lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm typecheck`
+
+### Risks / notes
+
+1. Historical `route_control` references may still remain in older handoff/changelog entries as archive, but active repo-truth docs now point at the landed early router.
+2. Live deploy validation is still pending; this entry closes repo-truth drift, not runtime production proof.
+
+### Next recommended step
+
+1. Deploy the current branch through the normal dev flow and run bounded live validation of the early routing behavior on `shadow` / `active` settings as planned.
+
 ## 2026-04-18 - Step 19 pod-truth and session-backed proxy pre-rollout pack
 
 ### What changed

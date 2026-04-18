@@ -21,6 +21,8 @@ const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropi
 const MAX_MODEL_LENGTH = 256;
 const MAX_MODELS_PER_PROVIDER = 64;
 const MAX_PROVIDER_KEY_LENGTH = 512;
+const MAX_ROUTER_OVERRIDE_ITEMS = 32;
+const MAX_ROUTER_OVERRIDE_ENTRY_LENGTH = 128;
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -33,11 +35,41 @@ export type PlatformRuntimeProviderKeyMetadata = {
   updatedAt: string | null;
 };
 
+export type PlatformRuntimeRoutingMode = "shadow" | "active";
+export type PlatformRuntimeRoutingExecutionMode = "normal" | "premium" | "reasoning";
+
+export type PlatformRuntimeRouterPrecheckRuleOverrides = {
+  continueTerms: string[];
+  retrievalTerms: string[];
+  reasoningTerms: string[];
+  toolTerms: string[];
+};
+
+export type PlatformRuntimeRouterPolicy = {
+  enabled: boolean;
+  mode: PlatformRuntimeRoutingMode;
+  classifierFailureFallbackMode: PlatformRuntimeRoutingExecutionMode;
+  clarifyOnMissingContext: boolean;
+  precheckRuleOverrides: PlatformRuntimeRouterPrecheckRuleOverrides | null;
+};
+
+export function createDefaultPlatformRuntimeRouterPolicy(): PlatformRuntimeRouterPolicy {
+  return {
+    enabled: false,
+    mode: "shadow",
+    classifierFailureFallbackMode: "normal",
+    clarifyOnMissingContext: true,
+    precheckRuleOverrides: null
+  };
+}
+
 export type PlatformRuntimeProviderSettingsState = {
   schema: typeof PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA;
   mode: "unconfigured_default" | "global_settings";
   primary: PlatformRuntimeProviderSelection | null;
   fallback: PlatformRuntimeProviderSelection | null;
+  routingFastModelKey: string | null;
+  routerPolicy: PlatformRuntimeRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
   notes: string[];
@@ -48,12 +80,16 @@ export type PlatformRuntimeProviderSettingsRecord = {
   primaryModel: string;
   fallbackProvider: ManagedRuntimeProvider | null;
   fallbackModel: string | null;
+  routingFastModelKey: string | null;
+  routerPolicy: unknown;
   availableModelsByProvider: unknown;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
   primary: PlatformRuntimeProviderSelection;
   fallback: PlatformRuntimeProviderSelection | null;
+  routingFastModelKey: string | null;
+  routerPolicy: PlatformRuntimeRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   providerKeys: Partial<Record<ManagedRuntimeProvider, string>>;
 };
@@ -209,6 +245,131 @@ function normalizeProviderKeyInput(value: unknown, path: string): string | undef
   return normalized;
 }
 
+function normalizeRoutingExecutionMode(
+  value: unknown,
+  path: string
+): PlatformRuntimeRoutingExecutionMode {
+  const normalized = asNonEmptyString(value)?.toLowerCase();
+  if (normalized === "normal" || normalized === "premium" || normalized === "reasoning") {
+    return normalized;
+  }
+  throw new Error(`${path} must be one of: normal, premium, reasoning.`);
+}
+
+function normalizeRoutingMode(value: unknown, path: string): PlatformRuntimeRoutingMode {
+  const normalized = asNonEmptyString(value)?.toLowerCase();
+  if (normalized === "shadow" || normalized === "active") {
+    return normalized;
+  }
+  throw new Error(`${path} must be one of: shadow, active.`);
+}
+
+function normalizeBoolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${path} must be a boolean.`);
+  }
+  return value;
+}
+
+function normalizeRouterOverrideList(value: unknown, path: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array of strings.`);
+  }
+  if (value.length > MAX_ROUTER_OVERRIDE_ITEMS) {
+    throw new Error(`${path} must contain at most ${String(MAX_ROUTER_OVERRIDE_ITEMS)} entries.`);
+  }
+  const deduped = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    const normalized = asNonEmptyString(entry);
+    if (normalized === null) {
+      throw new Error(`${path}[${String(index)}] must be a non-empty string.`);
+    }
+    if (normalized.length > MAX_ROUTER_OVERRIDE_ENTRY_LENGTH) {
+      throw new Error(
+        `${path}[${String(index)}] must be at most ${String(MAX_ROUTER_OVERRIDE_ENTRY_LENGTH)} characters.`
+      );
+    }
+    if (containsControlCharacters(normalized)) {
+      throw new Error(`${path}[${String(index)}] contains invalid control characters.`);
+    }
+    deduped.add(normalized.toLowerCase());
+  }
+  return Array.from(deduped);
+}
+
+function normalizeRouterPrecheckRuleOverrides(
+  value: unknown,
+  path: string
+): PlatformRuntimeRouterPrecheckRuleOverrides | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const row = asObject(value);
+  if (row === null) {
+    throw new Error(`${path} must be an object when provided.`);
+  }
+  return {
+    continueTerms: Array.isArray(row.continueTerms)
+      ? normalizeRouterOverrideList(row.continueTerms, `${path}.continueTerms`)
+      : [],
+    retrievalTerms: Array.isArray(row.retrievalTerms)
+      ? normalizeRouterOverrideList(row.retrievalTerms, `${path}.retrievalTerms`)
+      : [],
+    reasoningTerms: Array.isArray(row.reasoningTerms)
+      ? normalizeRouterOverrideList(row.reasoningTerms, `${path}.reasoningTerms`)
+      : [],
+    toolTerms: Array.isArray(row.toolTerms)
+      ? normalizeRouterOverrideList(row.toolTerms, `${path}.toolTerms`)
+      : []
+  };
+}
+
+function normalizeRouterPolicy(value: unknown, path = "routerPolicy"): PlatformRuntimeRouterPolicy {
+  const row = asObject(value);
+  if (row === null) {
+    return createDefaultPlatformRuntimeRouterPolicy();
+  }
+  return {
+    enabled: normalizeBoolean(row.enabled ?? false, `${path}.enabled`),
+    mode: normalizeRoutingMode(row.mode ?? "shadow", `${path}.mode`),
+    classifierFailureFallbackMode: normalizeRoutingExecutionMode(
+      row.classifierFailureFallbackMode ?? "normal",
+      `${path}.classifierFailureFallbackMode`
+    ),
+    clarifyOnMissingContext: normalizeBoolean(
+      row.clarifyOnMissingContext ?? true,
+      `${path}.clarifyOnMissingContext`
+    ),
+    precheckRuleOverrides: normalizeRouterPrecheckRuleOverrides(
+      row.precheckRuleOverrides ?? null,
+      `${path}.precheckRuleOverrides`
+    )
+  };
+}
+
+function normalizeOptionalModel(value: unknown, path: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  return normalizeModel(value, path);
+}
+
+function assertOptionalModelInCatalog(params: {
+  model: string | null;
+  provider: ManagedRuntimeProvider;
+  availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  path: string;
+}): void {
+  if (params.model === null) {
+    return;
+  }
+  if (!params.availableModelsByProvider[params.provider].includes(params.model)) {
+    throw new Error(
+      `${params.path} must be listed in availableModelsByProvider.${params.provider}.`
+    );
+  }
+}
+
 export function parseUpdatePlatformRuntimeProviderSettingsInput(
   body: unknown
 ): UpdatePlatformRuntimeProviderSettingsInput {
@@ -235,6 +396,20 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     availableModelsByProvider,
     path: "fallback"
   });
+  const routingFastModelKey = normalizeOptionalModel(
+    row.routingFastModelKey,
+    "routingFastModelKey"
+  );
+  assertOptionalModelInCatalog({
+    model: routingFastModelKey,
+    provider: primary.provider,
+    availableModelsByProvider,
+    path: "routingFastModelKey"
+  });
+  const routerPolicy = normalizeRouterPolicy(row.routerPolicy);
+  if (routerPolicy.enabled && routingFastModelKey === null) {
+    throw new Error("routingFastModelKey is required when routerPolicy.enabled is true.");
+  }
   const providerKeysRow = asObject(row.providerKeys ?? null);
   const providerKeys: Partial<Record<ManagedRuntimeProvider, string>> = {};
   const openaiKey = normalizeProviderKeyInput(providerKeysRow?.openai, "providerKeys.openai");
@@ -251,6 +426,8 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
   return {
     primary,
     fallback,
+    routingFastModelKey,
+    routerPolicy,
     availableModelsByProvider,
     providerKeys
   };
@@ -266,11 +443,14 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       mode: "unconfigured_default",
       primary: null,
       fallback: null,
+      routingFastModelKey: null,
+      routerPolicy: createDefaultPlatformRuntimeRouterPolicy(),
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       providerKeys: params.providerKeys,
       notes: [
         "Global runtime provider settings are not configured yet.",
-        "The active runtime keeps its existing configured default model path until global settings are saved."
+        "The active runtime keeps its existing configured default model path until global settings are saved.",
+        "Early smart routing stays disabled until global runtime settings are configured."
       ]
     };
   }
@@ -289,17 +469,30 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   const availableModelsByProvider = normalizeAvailableModelsByProvider(
     params.settings.availableModelsByProvider
   );
+  const routingFastModelKey = normalizeOptionalModel(
+    params.settings.routingFastModelKey,
+    "routingFastModelKey"
+  );
+  const routerPolicy = normalizeRouterPolicy(params.settings.routerPolicy);
 
   return {
     schema: PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA,
     mode: "global_settings",
     primary,
     fallback,
+    routingFastModelKey,
+    routerPolicy,
     availableModelsByProvider,
     providerKeys: params.providerKeys,
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
-      "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage."
+      "Raw provider keys are write-only in the admin UI and stay in encrypted PersAI storage.",
+      routerPolicy.enabled
+        ? `Early smart routing is enabled in ${routerPolicy.mode} mode.`
+        : "Early smart routing is currently disabled.",
+      routingFastModelKey === null
+        ? "No dedicated fast routing model is configured yet."
+        : `Fast routing model: ${routingFastModelKey}.`
     ]
   };
 }

@@ -2,17 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  Check,
-  CheckCircle,
-  Copy,
-  Eye,
-  FileText,
-  Loader2,
-  Save,
-  Sparkles,
-  Wrench
-} from "lucide-react";
+import { Check, CheckCircle, Copy, Eye, FileText, Loader2, Save, Wrench } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
 interface PromptTemplateState {
@@ -35,10 +25,9 @@ interface ToolPromptState {
 
 const SYSTEM_TEMPLATE_IDS = ["system"] as const;
 const ORDINARY_TEMPLATE_IDS = ["soul", "user", "identity", "tools", "agents", "heartbeat"] as const;
+const ROUTER_TEMPLATE_IDS = ["router_classifier"] as const;
 const ONBOARDING_TEMPLATE_IDS = ["preview_bootstrap", "welcome_bootstrap"] as const;
-const ROUTE_CONTROL_TOOL_CODE = "route_control";
 const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
-  ROUTE_CONTROL_TOOL_CODE,
   "summarize_context",
   "compact_context",
   "memory_write",
@@ -76,10 +65,6 @@ const PRESET_META: Record<
       { key: "soul_block", hint: "Compiled soul prompt block" },
       { key: "user_block", hint: "Compiled user-context block" },
       { key: "identity_block", hint: "Compiled identity block" },
-      {
-        key: "route_control_block",
-        hint: "Hidden route-control block for smart/deep turn routing"
-      },
       { key: "tools_block", hint: "Compiled native tool runtime block" },
       { key: "agents_block", hint: "Compiled memory and task governance block" },
       { key: "heartbeat_block", hint: "Compiled task heartbeat block" }
@@ -135,6 +120,12 @@ const PRESET_META: Record<
   heartbeat: {
     label: "Task Heartbeat",
     description: "Directly editable follow-through instructions for reminders and delayed checks.",
+    variables: []
+  },
+  router_classifier: {
+    label: "Routing Classifier Prompt",
+    description:
+      "Hidden descriptor/system prompt for the early routing classifier. This prompt guides execution-mode, retrieval, and tool hints without answering the user.",
     variables: []
   },
   preview_bootstrap: {
@@ -220,9 +211,6 @@ function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
   });
   const blocks: string[] = [];
   for (const tool of orderedTools) {
-    if (tool.toolCode === ROUTE_CONTROL_TOOL_CODE) {
-      continue;
-    }
     const description = tool.modelDescription?.trim() || tool.description?.trim() || null;
     const guidance = tool.modelUsageGuidance?.trim() || null;
     const instruction =
@@ -234,18 +222,6 @@ function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
   return blocks.join("\n\n").trimEnd();
 }
 
-function buildPreviewRouteControlBlock(toolStates: ToolPromptState[]): string {
-  const tool = toolStates.find((entry) => entry.toolCode === ROUTE_CONTROL_TOOL_CODE);
-  if (!tool) {
-    return "";
-  }
-  const description = tool.modelDescription?.trim() || tool.description?.trim() || null;
-  const guidance = tool.modelUsageGuidance?.trim() || null;
-  const instruction =
-    description && guidance ? `${description} ${guidance}` : (description ?? guidance);
-  return instruction ? `**\`${tool.toolCode}\`**\n${instruction}` : "";
-}
-
 function buildOrdinaryPreview(
   templates: PromptTemplateState[],
   toolStates: ToolPromptState[]
@@ -255,7 +231,7 @@ function buildOrdinaryPreview(
   );
   const sectionVariables = {
     ...SAMPLE_VARIABLES,
-    route_control_block: buildPreviewRouteControlBlock(toolStates),
+    route_control_block: "",
     tools_catalog_block: buildPreviewToolCatalogBlock(toolStates)
   };
   const sectionById = Object.fromEntries(
@@ -281,8 +257,6 @@ function buildOrdinaryPreview(
 {{user_block}}
 
 {{identity_block}}
-
-{{route_control_block}}
 
 {{tools_block}}
 
@@ -538,15 +512,13 @@ function PromptTemplateEditor({
 
 function ToolPromptEditor({
   tool,
-  onSave,
-  tone = "default"
+  onSave
 }: {
   tool: ToolPromptState;
   onSave: (
     toolCode: string,
     patch: { modelDescription: string; modelUsageGuidance: string }
   ) => Promise<void>;
-  tone?: "default" | "priority";
 }) {
   const [modelDescription, setModelDescription] = useState(tool.modelDescription ?? "");
   const [modelUsageGuidance, setModelUsageGuidance] = useState(tool.modelUsageGuidance ?? "");
@@ -566,35 +538,16 @@ function ToolPromptEditor({
   };
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-surface p-4",
-        tone === "priority"
-          ? "border-amber-400/40 bg-gradient-to-br from-amber-500/10 via-surface to-violet-500/5 shadow-[0_0_0_1px_rgba(251,191,36,0.08)]"
-          : "border-border"
-      )}
-    >
+    <div className="rounded-lg border border-border bg-surface p-4">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-sm font-semibold text-text">{tool.displayName}</h3>
-            {tone === "priority" ? (
-              <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                Priority hidden block
-              </span>
-            ) : null}
           </div>
           <p className="text-[11px] text-text-muted">
             <span className="font-mono">{tool.toolCode}</span> · {tool.policyClass} ·{" "}
             {tool.toolClass}
           </p>
-          {tone === "priority" ? (
-            <p className="mt-1 max-w-2xl text-[11px] text-text-muted">
-              This hidden helper is rendered as its own prompt block and can be positioned before
-              the normal tool catalog from System Prompt Assembly via{" "}
-              <code className="font-mono text-[10px] text-text">{"{{route_control_block}}"}</code>.
-            </p>
-          ) : null}
         </div>
         <button
           type="button"
@@ -731,14 +684,7 @@ export default function AdminPresetsPage() {
     () => buildOnboardingPreview(templates, "welcome_bootstrap"),
     [templates]
   );
-  const routeControlTool = useMemo(
-    () => tools.find((tool) => tool.toolCode === ROUTE_CONTROL_TOOL_CODE) ?? null,
-    [tools]
-  );
-  const generalTools = useMemo(
-    () => tools.filter((tool) => tool.toolCode !== ROUTE_CONTROL_TOOL_CODE),
-    [tools]
-  );
+  const generalTools = useMemo(() => tools, [tools]);
 
   if (loading) {
     return (
@@ -816,6 +762,32 @@ export default function AdminPresetsPage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-accent" />
+          <h2 className="text-sm font-semibold text-text">Routing Prompt</h2>
+        </div>
+        <p className="text-xs text-text-muted">
+          This hidden prompt guides the early routing classifier only. It does not answer the user
+          and is separate from runtime policy knobs in Admin &gt; Runtime.
+        </p>
+        <div className="grid gap-4">
+          {ROUTER_TEMPLATE_IDS.map((id) => {
+            const template = templates.find((entry) => entry.id === id);
+            const meta = PRESET_META[id];
+            if (!template || !meta) return null;
+            return (
+              <PromptTemplateEditor
+                key={id}
+                template={template}
+                meta={meta}
+                onSave={handleSaveTemplate}
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-accent" />
           <h2 className="text-sm font-semibold text-text">Preview / Welcome Prompts</h2>
         </div>
         <p className="text-xs text-text-muted">
@@ -848,24 +820,6 @@ export default function AdminPresetsPage() {
           These fields control the model-facing description and usage guidance injected into runtime
           tool policy and native tool definitions.
         </p>
-        {routeControlTool ? (
-          <div className="grid gap-4">
-            <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold text-text">Route Control</h3>
-              </div>
-              <p className="text-xs text-text-muted">
-                Edit the hidden routing helper separately from the rest of the tool catalog. Its
-                prompt block can be placed near the top of System Prompt Assembly with{" "}
-                <code className="font-mono text-[11px] text-text">{"{{route_control_block}}"}</code>
-                , while the normal tools list still renders through{" "}
-                <code className="font-mono text-[11px] text-text">{"{{tools_block}}"}</code>.
-              </p>
-            </div>
-            <ToolPromptEditor tool={routeControlTool} onSave={handleSaveTool} tone="priority" />
-          </div>
-        ) : null}
         <div className="grid gap-4">
           {generalTools.map((tool) => (
             <ToolPromptEditor key={tool.toolCode} tool={tool} onSave={handleSaveTool} />

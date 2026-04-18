@@ -161,8 +161,10 @@ async function run(): Promise<void> {
 
   const projected = projectRuntimeNativeTools(artifact.bundle);
   const webSearch = projected.tools.find((tool) => tool.name === "web_search");
+  const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
+  assert.equal(routeControl, undefined);
   assert.equal(
     webSearch?.description,
     "Search the public web for current external facts. Use this when the answer depends on recent external information or links."

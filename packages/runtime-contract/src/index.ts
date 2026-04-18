@@ -1106,6 +1106,7 @@ export interface ProviderGatewayToolExchange {
 
 export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "role_selection",
+  "turn_routing",
   "main_turn",
   "tool_loop_followup",
   "manual_compaction",
