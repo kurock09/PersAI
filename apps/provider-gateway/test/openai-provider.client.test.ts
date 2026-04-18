@@ -694,7 +694,9 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     ...createConfig(),
     PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20
   });
-  (delayedClient as unknown as { client: unknown }).client = (client as unknown as { client: unknown }).client;
+  (delayedClient as unknown as { client: unknown }).client = (
+    client as unknown as { client: unknown }
+  ).client;
   const delayedStream = await delayedClient.streamText({
     ...request,
     model: "gpt-5.4-delayed"

@@ -91,8 +91,8 @@ The active system now has the first real plan-scoped routing baseline from Econo
 
 - `runtimeProviderRouting.primaryPath` and `fallbackMatrix` are real and still materialized
 - the runtime now resolves explicit plan-scoped slots for `normal`, `premium`, `reasoning`, hidden `system/tool`, and optional `retrieval` helper work
-- the main reply path can call hidden `route_control` for ambiguous turns while keeping raw model choice out of ordinary UX
-- explicit deeper-thinking mode is live on the user surface without introducing raw model pickers
+- the main reply path can call hidden `route_control` for ambiguous turns, but that helper is now strictly model-role selection only; it does not emit tool guidance, hide tools, or choose retrieval strategy
+- explicit deep/smart mode is live on the user surface without introducing raw model pickers, and once enabled the turn must stay on `premium_reply` or escalate to `reasoning` rather than silently falling back to `normal_reply`
 - turn-level usage accounting now records `input`, `cached input`, and `output` usage across internal model calls
 - remaining economics gaps now move to prompt-cache-first context architecture and the later retrieval/embedding follow-through, not the Slice A slot/accounting contract itself
 
@@ -117,8 +117,8 @@ The active runtime has a real bounded tool loop and now also has the first expli
 
 - the main runtime model still plans and executes tool calls in one bounded loop
 - inline tools and worker tools are already separated operationally
-- hidden system/tool-model work now has an explicit contract for planning/selection-style tasks such as `route_control`
-- the current architecture keeps tools visible when policy allows them and uses hidden route guidance instead of hard-hiding tools from the model
+- hidden system/tool-model work now has an explicit contract for planning/selection-style tasks such as reply-role selection through `route_control`
+- the current architecture keeps tools visible when policy allows them, and tool projection/policy now owns tool availability directly instead of letting hidden route guidance mutate that surface
 - a more isolated deterministic tool-runner layer for every low-thinking operation is still later follow-through rather than already-finished repo truth
 
 ## Decision
@@ -232,12 +232,14 @@ During a turn, the main user-facing reply agent remains the orchestrator. It dec
 
 This is not a giant all-purpose trigger router. Most work types should be known by the pipeline step that requested the model, and only ambiguous user-facing turns should need a small bounded classifier or an explicit deeper-thinking mode.
 
+Hidden `route_control` is therefore a bounded reply-role selector, not a tool router. In ordinary mode it may keep the turn on `normal_reply` or escalate to `premium_reply` / `reasoning`; when explicit deep mode is enabled, the effective allowed set narrows to `premium_reply` and `reasoning`, and the runtime must clamp any attempted `normal_reply` downgrade back to `premium_reply`.
+
 The runtime then resolves the concrete model from the active plan slot instead of hard-coding model ids in code.
 
 User-facing UX should stay simple:
 
 - ordinary chat should not expose raw model choice
-- the only acceptable surface override is an explicit deeper-thinking mode if the product wants it
+- the only acceptable surface override is an explicit deeper-thinking mode if the product wants it; when enabled, it promises at least the premium path and may further escalate to reasoning, but it must not silently fall back to `normal_reply`
 - hidden system/tool model use stays invisible unless the product later exposes economics diagnostics
 
 ### C. Prompt-cache-first context target
@@ -439,7 +441,7 @@ The first implementation wave after ADR-073 approval is grouped into larger slic
    - future UI changes should now be driven by the remaining lifecycle/economics work
 3. **Economics Slice A - plan-scoped model slots and turn accounting** (completed; ready for deploy/live validation)
    - plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work are landed on the active path
-   - hidden `route_control` plus explicit deeper-thinking mode now steer ambiguous turns without exposing raw model pickers
+   - hidden `route_control` now acts as model-only role selection, and explicit deeper-thinking mode keeps user-selected smart turns on `premium` / `reasoning` without exposing raw model pickers
    - honest per-turn accounting now records `input`, `cached input`, `output`, and per-call totals across internal model work
 4. **Economics Slice B - prompt-cache-first context architecture** (completed on the current active path)
    - bounded OpenAI request-side cache-routing support is now landed on the active text path: provider requests can carry stable `prompt_cache_key` plus explicit retention policy hints, and a live probe already confirmed large cached-input reuse on a repeated long prefix
@@ -480,7 +482,7 @@ ADR-073 does not:
 | ADR-072 Step 18 closeout                      | completed | Native baseline is live and active-path cleanup is complete                                                                                                                                      |
 | Create/recreate lifecycle polish              | completed | Preview/create dedupe, reset cleanup, preview/welcome split, explicit recover/recreate wizard path, redirect-loop fix, and gender-safe default voice selection are now landed on the active path |
 | User UI polish                                | completed | Assistant/chat/sidebar/profile/auth polish landed on the active native path                                                                                                                      |
-| Smart-model and plan-slot contract            | completed | Plan-scoped normal/premium/reasoning/system-tool/retrieval slots, hidden `route_control`, and deeper-thinking mode are now landed on the active path                                             |
+| Smart-model and plan-slot contract            | completed | Plan-scoped normal/premium/reasoning/system-tool/retrieval slots, model-only hidden `route_control`, and deeper-thinking mode with no deep-to-normal downgrade are now landed on the active path |
 | Prompt-cache-first context architecture       | completed | Bundle cache exists; OpenAI text requests now carry provider-side cache-routing hints, ordinary compiled prompt output materializes a stable-prefix record for bundle-owned cache identity, hydrated durable-memory/shared-summary leading blocks participate in ordinary/deep cache identity via explicit versioned stable-family tokens, and `/admin/business` now exposes rolling averaged runtime token/cache economics from persisted completed-turn receipts on the active path |
 | Knowledge correction and retrieval-model path | completed | Active retrieval now publishes `hybrid`, private/global knowledge use bounded lexical plus vector retrieval with plan-managed helper/budget policy, and durable admin-visible observability plus global-write governance are landed on the active path |
 | Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                 |

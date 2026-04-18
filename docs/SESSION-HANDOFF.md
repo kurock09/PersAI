@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - route_control semantics sync
+
+### What changed
+
+1. `route_control` is now explicitly repo-truth as a hidden reply-model selector only. It no longer owns `lookupStrategy`, tool guidance, tool hiding, or retrieval-strategy hints.
+2. Explicit web smart/deep mode now has a hard runtime guarantee: once the user enables it, the effective reply-role set is `premium_reply` or `reasoning` only, and any attempted planner downgrade to `normal_reply` is clamped back to `premium_reply`.
+3. Active docs (`ADR-073`, `ROADMAP`, `CHANGELOG`, and this handoff`) were refreshed so future sessions do not revert to the older mixed model-plus-tool-guidance framing.
+
+### Current truth
+
+1. Ordinary mode may stay on `normal_reply` or escalate through hidden `route_control` to `premium_reply` / `reasoning`.
+2. Smart/deep mode starts on the premium path and may escalate to `reasoning`, but it must never fall back to `normal_reply`.
+3. Tool availability is governed by projected tool policy/materialization, not by `route_control`.
+
 ## 2026-04-18 - ADR-073 Slice C prod closeout
 
 ### What changed

@@ -501,10 +501,11 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         argumentsText: string;
       }
     >();
-    const { signal: timedSignal, reset, dispose } = this.createTimedSignal(
-      this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS,
-      signal
-    );
+    const {
+      signal: timedSignal,
+      reset,
+      dispose
+    } = this.createTimedSignal(this.config.PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, signal);
 
     try {
       const toolChoice = this.toOpenAIToolChoice(input);

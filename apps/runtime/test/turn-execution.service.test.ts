@@ -1772,11 +1772,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     /Allowed roles are premium_reply or reasoning only\. Never return normal_reply\./
   );
   assert.equal(
-    deepModeChooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "normal_reply"),
+    deepModeChooserCompleted.usageAccounting?.entries.some(
+      (entry) => entry.modelRole === "normal_reply"
+    ),
     false
   );
   assert.equal(
-    deepModeChooserCompleted.usageAccounting?.entries.some((entry) => entry.modelRole === "premium_reply"),
+    deepModeChooserCompleted.usageAccounting?.entries.some(
+      (entry) => entry.modelRole === "premium_reply"
+    ),
     true
   );
   await flushTaskQueue();
