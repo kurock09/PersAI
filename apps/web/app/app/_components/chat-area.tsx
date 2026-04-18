@@ -319,7 +319,7 @@ export function ChatArea({
                     }}
                     onBlur={() => void commitEdit()}
                     maxLength={80}
-                    className="min-w-0 flex-1 rounded-xl border border-accent/50 bg-bg/70 px-2.5 py-1.5 text-sm font-semibold text-text outline-none"
+                    className="min-w-0 flex-1 rounded-xl border border-accent/50 bg-bg/70 px-2.5 py-1.5 text-sm font-medium text-text/90 outline-none"
                   />
                   <button
                     type="button"
@@ -331,7 +331,7 @@ export function ChatArea({
                 </div>
               ) : (
                 <div className="group flex min-w-0 max-w-[12rem] items-center gap-1 sm:max-w-[16rem] md:max-w-[20rem] lg:max-w-[24rem]">
-                  <h1 className="truncate text-[15px] font-semibold text-text md:text-base">
+                  <h1 className="truncate text-sm font-medium text-text/85 md:text-[15px]">
                     {displayTitle}
                   </h1>
                   {canEdit && (

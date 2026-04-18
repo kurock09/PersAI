@@ -2,9 +2,13 @@ import { Body, Controller, HttpCode, HttpStatus, Logger, Post, Req, Res } from "
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   ProviderGatewayTextGenerateRequest,
+  ProviderGatewayTextDeltaEvent,
   ProviderGatewayTextGenerateResult
 } from "@persai/runtime-contract";
 import { ProviderTextGenerationService } from "../../provider-text-generation.service";
+
+const STREAM_DELTA_BATCH_WINDOW_MS = 40;
+const STREAM_DELTA_BATCH_MAX_CHARS = 96;
 
 @Controller("api/v1/providers")
 export class ProviderTextGenerationController {
@@ -49,14 +53,68 @@ export class ProviderTextGenerationController {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
-    for await (const event of stream) {
+    let pendingDelta: ProviderGatewayTextDeltaEvent | null = null;
+    let pendingDeltaTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const writeEvent = (event: unknown): void => {
       if (res.writableEnded) {
         return;
       }
       res.write(`${JSON.stringify(event)}\n`);
       res.flush?.();
+    };
+
+    const clearPendingDeltaTimer = (): void => {
+      if (pendingDeltaTimer !== null) {
+        clearTimeout(pendingDeltaTimer);
+        pendingDeltaTimer = null;
+      }
+    };
+
+    const flushPendingDelta = (): void => {
+      clearPendingDeltaTimer();
+      if (pendingDelta === null) {
+        return;
+      }
+      writeEvent(pendingDelta);
+      pendingDelta = null;
+    };
+
+    const schedulePendingDeltaFlush = (): void => {
+      if (pendingDeltaTimer !== null) {
+        return;
+      }
+      pendingDeltaTimer = setTimeout(() => {
+        pendingDeltaTimer = null;
+        flushPendingDelta();
+      }, STREAM_DELTA_BATCH_WINDOW_MS);
+    };
+
+    for await (const event of stream) {
+      if (res.writableEnded) {
+        clearPendingDeltaTimer();
+        return;
+      }
+      if (event.type === "text_delta") {
+        pendingDelta =
+          pendingDelta === null
+            ? event
+            : {
+                ...event,
+                delta: pendingDelta.delta + event.delta
+              };
+        if (pendingDelta.delta.length >= STREAM_DELTA_BATCH_MAX_CHARS) {
+          flushPendingDelta();
+        } else {
+          schedulePendingDeltaFlush();
+        }
+        continue;
+      }
+      flushPendingDelta();
+      writeEvent(event);
     }
 
+    flushPendingDelta();
     if (!res.writableEnded) {
       res.end();
     }

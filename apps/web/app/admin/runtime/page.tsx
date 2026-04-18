@@ -447,9 +447,10 @@ export default function AdminRuntimePage() {
               </div>
             </div>
             <p className="text-[10px] text-text-subtle">
-              Add one phrase per line. These lists extend the built-in router defaults, so you can
-              tune deterministic routing without touching JSON. Router prompt wording lives
-              separately in <span className="font-mono">Admin &gt; Presets</span>.
+              Add one phrase per line. These lists only tune the deterministic precheck layer and
+              extend the built-in router defaults without touching JSON. If you want to change the
+              LLM router prompt itself, edit it separately in{" "}
+              <span className="font-mono">Admin &gt; Prompt Constructor</span>.
             </p>
           </Card>
         </div>

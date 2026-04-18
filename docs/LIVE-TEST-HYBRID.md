@@ -83,8 +83,10 @@ With a signed-in browser session:
 
 1. Open `/app`
 2. Send a normal web message
-3. Confirm the turn completes without transport failure
-4. Check `/api/v1/assistant/runtime/preflight` from the same session and confirm `live=true` and `ready=true`
+3. If router mode is `shadow`, confirm the owner/admin viewer can see the compact under-message routing badge on fresh replies
+4. Confirm the turn completes without transport failure and the stream does not degrade into pathological “slow motion” output on an otherwise ordinary reply
+5. Check `/api/v1/assistant/runtime/preflight` from the same session and confirm `live=true` and `ready=true`
+6. If you are validating the post-rollout bundle-recovery fix, tail fresh `runtime` logs during the turn and confirm no new `runtime_bundle_hash_mismatch` appears
 
 The active path truth is:
 

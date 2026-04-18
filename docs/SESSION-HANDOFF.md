@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - post-rollout router validation + stream batching
+
+### What changed
+
+1. The current `persai-dev` rollout is now honestly confirmed on the post-fix images (`api` / `web` / `runtime` at `da05e06`). Fresh cluster inspection showed the new pods serving traffic, and bounded live checks no longer reproduced the earlier one-off web-turn `runtime_bundle_hash_mismatch` failure after rollout.
+2. Shadow routing observability is now verified on the live web path rather than only by local tests. Owner/admin viewers can see the compact under-message badge on fresh replies in `shadow`, and the runtime path is serving current router-enabled code rather than the older pre-rollout images.
+3. A separate intermittent “slow motion” stream symptom was traced to pathological micro-delta fanout across the streaming transport path. `apps/provider-gateway` now batches consecutive `text_delta` chunks inside the HTTP stream controller before flush, while still forcing an immediate boundary flush before non-text events (`tool_calls`, `completed`, errors).
+
+### Current active slice
+
+- `ADR-073 - router/live polish`
+
+### Current active step
+
+- `Router rollout is live and bounded validation is green; the next honest step is to watch one fresh deploy for the stream-batching follow-through and confirm the slow-motion symptom drops or disappears on real traffic`
+
+### Files touched
+
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts`
+- `apps/provider-gateway/test/provider-text-generation.controller.test.ts`
+- `apps/web/app/admin/runtime/page.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/LIVE-TEST-HYBRID.md`
+
+### Verification run
+
+- `kubectl get pods -n persai-dev -o wide`
+- `kubectl get deployment api web runtime -n persai-dev -o jsonpath="{range .items[*]}{.metadata.name}{'\t'}{.spec.template.spec.containers[0].image}{'\n'}{end}"`
+- `kubectl logs deployment/runtime -n persai-dev -c runtime --all-pods=true --since=15m`
+- `kubectl logs deployment/api -n persai-dev -c api --all-pods=true --since=15m`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway test -- provider-text-generation.controller.test.ts`
+
+### Risks / notes
+
+1. The post-rollout bundle-mismatch check is bounded live evidence, not a mathematical proof that no future runtime/materialization drift is possible under different rollout timing.
+2. The stream-batching fix is intentionally transport-only and conservative: it reduces pathological micro-delta flush volume without changing model/tool semantics or browser-side render order.
+
+### Next recommended step
+
+1. After the next normal deploy, run one bounded live stream check on a tool-heavy turn and confirm the earlier “slow motion” symptom is no longer visible on the observed path.
+
 ## 2026-04-18 - router trigger editing + shadow visibility
 
 ### What changed

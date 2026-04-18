@@ -10,6 +10,9 @@ import type { ProviderTextGenerationService } from "../src/modules/providers/pro
 class FakeProviderTextGenerationService {
   calls: Array<{ body: ProviderGatewayTextGenerateRequest; signal?: AbortSignal }> = [];
   order: string[] = [];
+  streamFactory:
+    | ((body: ProviderGatewayTextGenerateRequest) => AsyncGenerator<ProviderGatewayTextStreamEvent>)
+    | null = null;
 
   async streamText(
     body: ProviderGatewayTextGenerateRequest,
@@ -19,6 +22,9 @@ class FakeProviderTextGenerationService {
       body,
       ...(signal === undefined ? {} : { signal })
     });
+    if (this.streamFactory !== null) {
+      return this.streamFactory(body);
+    }
     const order = this.order;
     return (async function* () {
       order.push("generator_started");
@@ -113,4 +119,40 @@ export async function runProviderTextGenerationControllerTest(): Promise<void> {
     "flushHeaders",
     "generator_started"
   ]);
+
+  service.streamFactory = (streamBody) =>
+    (async function* () {
+      yield {
+        type: "text_delta",
+        delta: "Hel",
+        accumulatedText: "Hel"
+      };
+      yield {
+        type: "text_delta",
+        delta: "lo",
+        accumulatedText: "Hello"
+      };
+      yield {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: streamBody.model,
+          text: "Hello",
+          respondedAt: "2026-04-18T09:30:01.000Z",
+          usage: null,
+          stopReason: "completed",
+          toolCalls: []
+        }
+      };
+    })();
+
+  const resWithBatchedDeltas = new FakeResponse();
+  await controller.streamText(req as never, resWithBatchedDeltas as never, body);
+  assert.equal(resWithBatchedDeltas.writes.length, 2);
+  assert.ok(
+    resWithBatchedDeltas.writes[0]?.includes('"type":"text_delta"') &&
+      resWithBatchedDeltas.writes[0]?.includes('"delta":"Hello"') &&
+      resWithBatchedDeltas.writes[0]?.includes('"accumulatedText":"Hello"')
+  );
+  assert.ok(resWithBatchedDeltas.writes[1]?.includes('"type":"completed"'));
 }
