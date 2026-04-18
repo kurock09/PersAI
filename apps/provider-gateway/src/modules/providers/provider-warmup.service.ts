@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, type OnModuleInit } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  ServiceUnavailableException,
+  type OnModuleInit
+} from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
 import { AnthropicProviderClient } from "./anthropic/anthropic-provider.client";
@@ -13,6 +19,7 @@ import type {
   ProviderWarmableClient,
   ProviderWarmupSnapshot
 } from "./provider-client.types";
+import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -57,6 +64,7 @@ export class ProviderWarmupService implements OnModuleInit {
 
   constructor(
     @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     openaiProviderClient: OpenAIProviderClient,
     anthropicProviderClient: AnthropicProviderClient
   ) {
@@ -182,6 +190,38 @@ export class ProviderWarmupService implements OnModuleInit {
     };
   }
 
+  async ensureReadyForRequest(input: {
+    provider: ProviderGatewayProvider;
+    model: string;
+  }): Promise<ProviderWarmStatus> {
+    let state = this.getSnapshot().providers.find(
+      (provider) => provider.provider === input.provider
+    );
+    if (this.matchesRequest(state, input.model)) {
+      return state!;
+    }
+
+    if (this.persaiInternalApiClientService.isConfigured()) {
+      const settings = await this.persaiInternalApiClientService.getDefaultProviderSettings();
+      await this.warmProviders({
+        schema: "persai.providerGatewayWarmupRequest.v1",
+        source: "control_plane_apply",
+        availableModelsByProvider: settings.availableModelsByProvider
+      });
+      state = this.getSnapshot().providers.find((provider) => provider.provider === input.provider);
+    }
+
+    if (!state || state.state !== "ready") {
+      throw new ServiceUnavailableException(`Provider "${input.provider}" is not ready.`);
+    }
+    if (!this.matchesCatalogModel(state, input.model)) {
+      throw new BadRequestException(
+        `Model "${input.model}" is not present in the warmed provider catalog for "${input.provider}".`
+      );
+    }
+    return state;
+  }
+
   private resolveCatalogState(
     client: ProviderWarmableClient,
     request: ProviderGatewayWarmupRequest | null
@@ -259,5 +299,22 @@ export class ProviderWarmupService implements OnModuleInit {
       return error.message;
     }
     return String(error);
+  }
+
+  private matchesRequest(state: ProviderWarmStatus | undefined, model: string): boolean {
+    return state !== undefined && state.state === "ready" && this.matchesCatalogModel(state, model);
+  }
+
+  private matchesCatalogModel(state: ProviderWarmStatus, model: string): boolean {
+    const requestedModel = toNormalizedNonEmptyModelKey(model);
+    if (requestedModel === null) {
+      return false;
+    }
+    if (state.catalogModels.length === 0) {
+      return true;
+    }
+    return state.catalogModels.some(
+      (catalogModel) => toNormalizedNonEmptyModelKey(catalogModel) === requestedModel
+    );
   }
 }

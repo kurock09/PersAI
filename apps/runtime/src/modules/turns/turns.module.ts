@@ -16,6 +16,7 @@ import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.servi
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService } from "./turn-acceptance.service";
@@ -36,6 +37,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeMemoryWriteToolService,
     RuntimeQuotaStatusToolService,
     RuntimeVideoGenerateToolService,
+    RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,
     IdempotencyService,
@@ -57,6 +59,7 @@ import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
     RuntimeMemoryWriteToolService,
     RuntimeQuotaStatusToolService,
     RuntimeVideoGenerateToolService,
+    RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeTtsToolService,
     IdempotencyService,

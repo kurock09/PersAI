@@ -251,6 +251,12 @@
     "createAssistant": "Create assistant",
     "creating": "Creating...",
     "preparingPreview": "Preparing preview...",
+    "assistantFallbackName": "your assistant",
+    "createSuccessTitle": "{name} is ready",
+    "recoverSuccessTitle": "{name} is back",
+    "recreateSuccessTitle": "{name} is rebuilt",
+    "createSuccessBody": "Your draft is now published and the welcome chat is getting ready. Opening the first conversation with {name}.",
+    "openingWelcomeChat": "Opening your welcome chat...",
     "sessionExpired": "Session expired. Sign in again and refresh the page.",
     "createFailed": "Something went wrong. Please try again."
   },
@@ -338,9 +344,11 @@
     "knowledgeQuotaUsedOnly": "{used} used",
     "knowledgeQuotaUsage": "{used} / {limit}",
     "knowledgeChunks": "{count, plural, one {# chunk} other {# chunks}}",
-    "knowledgeStatus.processing": "Indexing",
-    "knowledgeStatus.ready": "Ready",
-    "knowledgeStatus.failed": "Failed",
+    "knowledgeStatus": {
+      "processing": "Indexing",
+      "ready": "Ready",
+      "failed": "Failed"
+    },
     "memory": "Memory",
     "workspace": "Workspace",
     "history": "History",

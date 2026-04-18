@@ -98,6 +98,9 @@ const DEFAULT_SETUP_VOICE_PROFILE: AssistantLifecycleState["draft"]["voiceProfil
     voice: "sage"
   }
 };
+const COMPLETION_TRANSITION_MS = 650;
+const COMPLETION_TRANSITION_DELAY_MS =
+  process.env.NODE_ENV === "test" ? 0 : COMPLETION_TRANSITION_MS;
 
 function normalizeBirthdayForDateInput(value: string | null | undefined): string {
   if (!value) return "";
@@ -107,6 +110,12 @@ function normalizeBirthdayForDateInput(value: string | null | undefined): string
 function findAvatarIdByEmoji(emoji: string | null | undefined): string | null {
   if (!emoji) return null;
   return AVATARS.find((avatar) => avatar.emoji === emoji)?.id ?? null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function resolveSetupMode(assistant: AssistantLifecycleState | null): SetupMode {
@@ -218,6 +227,11 @@ export default function SetupWizardPage() {
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [setupMode, setSetupMode] = useState<SetupMode>("create");
+  const [completionScreen, setCompletionScreen] = useState<{
+    title: string;
+    body: string;
+  } | null>(null);
+  const reloadAppDataRef = useRef(appData.reload);
   const currentAvatarPreviewUrl = customAvatarPreviewUrl ?? persistedAvatarUrl;
   const setupVoiceProfile = useMemo(
     () =>
@@ -230,6 +244,10 @@ export default function SetupWizardPage() {
   );
 
   useEffect(() => {
+    reloadAppDataRef.current = appData.reload;
+  }, [appData.reload]);
+
+  useEffect(() => {
     setTimezone(detectTimezone());
 
     void (async () => {
@@ -239,7 +257,7 @@ export default function SetupWizardPage() {
 
         const existing = await getAssistant(token);
         if (existing && existing.runtimeApply.status === "succeeded") {
-          await appData.reload();
+          await reloadAppDataRef.current();
           router.replace("/app");
           return;
         }
@@ -281,7 +299,7 @@ export default function SetupWizardPage() {
         // Pre-fill is best-effort; ignore errors.
       }
     })();
-  }, [appData, getToken, router]);
+  }, [getToken, router]);
 
   // Auto-apply first preset when entering step 2, reset when gender changes
   useEffect(() => {
@@ -475,12 +493,34 @@ export default function SetupWizardPage() {
 
       await postAssistantPublish(await resolveSetupToken(true));
       await appData.reload();
+      await appData.reloadChats();
+      const assistantDisplayName = assistantName.trim() || t("assistantFallbackName");
+      const title =
+        setupMode === "recover"
+          ? t("recoverSuccessTitle", { name: assistantDisplayName })
+          : setupMode === "recreate"
+            ? t("recreateSuccessTitle", { name: assistantDisplayName })
+            : t("createSuccessTitle", { name: assistantDisplayName });
+      setCompletionScreen({
+        title,
+        body: t("createSuccessBody", { name: assistantDisplayName })
+      });
+      await sleep(COMPLETION_TRANSITION_DELAY_MS);
       router.replace("/app/chat?thread=welcome&welcome=1");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("createFailed"));
       setCreating(false);
     }
-  }, [appData, customAvatarFile, persistDraftForPreview, resolveSetupToken, router, t]);
+  }, [
+    appData,
+    assistantName,
+    customAvatarFile,
+    persistDraftForPreview,
+    resolveSetupToken,
+    router,
+    setupMode,
+    t
+  ]);
 
   const setupModeTitle = setupMode === "recover" ? t("recoverModeTitle") : t("recreateModeTitle");
   const setupModeBody = setupMode === "recover" ? t("recoverModeBody") : t("recreateModeBody");
@@ -493,6 +533,40 @@ export default function SetupWizardPage() {
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-bg">
+      <AnimatePresence>
+        {completionScreen && (
+          <motion.div
+            className="absolute inset-0 z-[80] flex items-center justify-center bg-bg/92 px-6 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <motion.div
+              className="w-full max-w-md rounded-3xl border border-accent/30 bg-surface px-8 py-10 text-center shadow-[0_0_60px_rgba(102,187,106,0.18)]"
+              initial={{ opacity: 0, y: 24, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -16, scale: 0.98 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/12 text-accent shadow-[0_0_32px_rgba(102,187,106,0.18)]">
+                <Sparkles className="h-8 w-8" />
+              </div>
+              <h2 className="mt-5 text-2xl font-semibold text-text sm:text-3xl">
+                {completionScreen.title}
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-text-muted sm:text-base">
+                {completionScreen.body}
+              </p>
+              <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/8 px-4 py-2 text-sm text-text">
+                <Loader2 className="h-4 w-4 animate-spin text-accent" />
+                {t("openingWelcomeChat")}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between px-6 py-4">
         <span className="text-lg font-bold tracking-tight text-text">
@@ -743,7 +817,7 @@ export default function SetupWizardPage() {
                     </p>
                   </div>
 
-                  <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-end">
+                  <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-stretch">
                     <div className="space-y-6">
                       <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
                         <p className="mb-2.5 text-xs font-medium text-text-muted">
@@ -818,7 +892,7 @@ export default function SetupWizardPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
+                    <div className="flex h-full flex-col rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
                       <label className="block text-xs font-medium text-text-muted">
                         {t("describeCharacter")}
                       </label>
@@ -826,7 +900,7 @@ export default function SetupWizardPage() {
                         value={assistantNotes}
                         onChange={(e) => setAssistantNotes(e.target.value)}
                         rows={10}
-                        className="mt-2 min-h-[320px] w-full rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
+                        className="mt-2 min-h-[320px] w-full flex-1 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
                         placeholder={t("instructionPlaceholder")}
                       />
                       <p className="mt-2 text-[11px] text-text-subtle">{t("instructionHint")}</p>
@@ -979,7 +1053,7 @@ export default function SetupWizardPage() {
 function StepContainer({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <motion.div
-      className={cn("flex w-full max-w-lg flex-col items-center text-center", className)}
+      className={cn("mx-auto flex w-full max-w-lg flex-col items-center text-center", className)}
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -24 }}

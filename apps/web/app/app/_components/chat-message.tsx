@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -39,6 +39,7 @@ import {
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import { AssistantAvatar } from "./assistant-avatar";
+import { splitStreamingMarkdownContent } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
@@ -67,6 +68,9 @@ hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("html", xml);
 hljs.registerLanguage("yaml", yaml);
 hljs.registerLanguage("yml", yaml);
+
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath];
+const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex];
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -327,6 +331,38 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+const MarkdownMessageContent = memo(function MarkdownMessageContent({
+  content
+}: {
+  content: string;
+}) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+      components={markdownComponents}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
+
+function StreamingMarkdownMessageContent({ content }: { content: string }) {
+  const { stableContent, liveTail } = useMemo(
+    () => splitStreamingMarkdownContent(content),
+    [content]
+  );
+
+  return (
+    <>
+      {stableContent.length > 0 ? <MarkdownMessageContent content={stableContent} /> : null}
+      {liveTail.length > 0 ? (
+        <div className="whitespace-pre-wrap leading-relaxed break-words text-text">{liveTail}</div>
+      ) : null}
+    </>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -521,13 +557,11 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert text-sm text-text">
             <ThoughtBlock message={message} />
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[rehypeKatex]}
-              components={markdownComponents}
-            >
-              {message.content}
-            </ReactMarkdown>
+            {isStreaming ? (
+              <StreamingMarkdownMessageContent content={message.content} />
+            ) : (
+              <MarkdownMessageContent content={message.content} />
+            )}
 
             {/* Streaming cursor */}
             {isStreaming && (

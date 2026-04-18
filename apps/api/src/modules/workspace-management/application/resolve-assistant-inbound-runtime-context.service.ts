@@ -1,9 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
-  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
-  type AssistantMaterializedSpecRepository
-} from "../domain/assistant-materialized-spec.repository";
-import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../domain/assistant-published-version.repository";
@@ -16,6 +12,7 @@ import {
 } from "./runtime-assignment";
 import type { RuntimeProviderRoutingState } from "./runtime-provider-routing.types";
 import { normalizeModelKey } from "./model-key-normalization";
+import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 
 type RuntimeModelOverride = {
   provider: "openai" | "anthropic";
@@ -91,10 +88,9 @@ export class ResolveAssistantInboundRuntimeContextService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository
+    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService
   ) {}
 
   async resolveByUserId(userId: string): Promise<ResolvedAssistantInboundRuntimeContext> {
@@ -135,9 +131,11 @@ export class ResolveAssistantInboundRuntimeContextService {
       );
     }
 
-    const materializedSpec = await this.assistantMaterializedSpecRepository.findLatestByAssistantId(
-      assistant.id
-    );
+    const materializedSpec =
+      await this.ensureAssistantMaterializedSpecCurrentService.resolveCurrent(
+        assistant,
+        latestPublishedVersion
+      );
     const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
       materializedSpec?.layers ?? null
     );

@@ -5,6 +5,7 @@ import type {
   ProviderGatewayTextStreamEvent
 } from "@persai/runtime-contract";
 import type { ProviderWarmupSnapshot } from "../src/modules/providers/provider-client.types";
+import { normalizeModelKey } from "../src/modules/providers/model-key-normalization";
 import { ProviderTextGenerationService } from "../src/modules/providers/provider-text-generation.service";
 import type { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
 import type { AnthropicProviderClient } from "../src/modules/providers/anthropic/anthropic-provider.client";
@@ -47,6 +48,29 @@ class FakeProviderWarmupService {
 
   getSnapshot(): ProviderWarmupSnapshot {
     return this.snapshot;
+  }
+
+  async ensureReadyForRequest(input: {
+    provider: "openai" | "anthropic";
+    model: string;
+  }): Promise<ProviderWarmupSnapshot["providers"][number]> {
+    const providerState = this.snapshot.providers.find(
+      (provider) => provider.provider === input.provider
+    );
+    if (!providerState || providerState.state !== "ready") {
+      throw new Error(`Provider "${input.provider}" is not ready.`);
+    }
+    if (
+      providerState.catalogModels.length > 0 &&
+      !providerState.catalogModels
+        .map((model) => normalizeModelKey(model))
+        .includes(normalizeModelKey(input.model))
+    ) {
+      throw new Error(
+        `Model "${input.model}" is not present in the warmed provider catalog for "${input.provider}".`
+      );
+    }
+    return providerState;
   }
 }
 

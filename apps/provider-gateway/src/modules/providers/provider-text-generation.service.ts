@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  ServiceUnavailableException
-} from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
   PERSAI_PROVIDER_PROMPT_CACHE_RETENTIONS,
   PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS,
@@ -32,7 +27,7 @@ export class ProviderTextGenerationService {
     input: ProviderGatewayTextGenerateRequest
   ): Promise<ProviderGatewayTextGenerateResult> {
     this.assertValidRequest(input);
-    this.assertProviderReady(input);
+    await this.assertProviderReady(input);
 
     switch (input.provider) {
       case "openai":
@@ -47,7 +42,7 @@ export class ProviderTextGenerationService {
     signal?: AbortSignal
   ): Promise<AsyncGenerator<ProviderGatewayTextStreamEvent>> {
     this.assertValidRequest(input);
-    this.assertProviderReady(input);
+    await this.assertProviderReady(input);
     this.logger.log(
       `[stream-text-dispatch] requestId=${input.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${input.requestMetadata?.classification ?? "unknown"} iteration=${
         input.requestMetadata?.toolLoopIteration === null ||
@@ -89,20 +84,11 @@ export class ProviderTextGenerationService {
     this.assertValidPromptCache(input);
   }
 
-  private assertProviderReady(input: ProviderGatewayTextGenerateRequest): void {
-    const providerState = this.providerWarmupService
-      .getSnapshot()
-      .providers.find((provider) => provider.provider === input.provider);
-    if (!providerState || providerState.state !== "ready") {
-      throw new ServiceUnavailableException(`Provider "${input.provider}" is not ready.`);
-    }
-    const requestedModelKey = normalizeModelKey(input.model);
-    const catalogModelKeys = providerState.catalogModels.map((model) => normalizeModelKey(model));
-    if (catalogModelKeys.length > 0 && !catalogModelKeys.includes(requestedModelKey)) {
-      throw new BadRequestException(
-        `Model "${input.model}" is not present in the warmed provider catalog for "${input.provider}".`
-      );
-    }
+  private async assertProviderReady(input: ProviderGatewayTextGenerateRequest): Promise<void> {
+    await this.providerWarmupService.ensureReadyForRequest({
+      provider: input.provider,
+      model: normalizeModelKey(input.model)
+    });
   }
 
   private assertValidMessageContent(content: ProviderGatewayMessageContent, index: number): void {

@@ -91,3 +91,12 @@ Each run writes one JSON file with:
 - Telegram load uses the internal PersAI Telegram turn seam, not public Telegram delivery infrastructure.
 - Media upload uses generated small files by default; it validates flow pressure, not large-object bandwidth ceilings.
 - `100 / 500 / 1000` is a practical execution ladder for now; canonical final `SR10` evidence in docs still requires the full `1000 / 3000 / 5000` gate later.
+
+## Step 19 usage
+
+For `Step 19`, treat this as a fixed-scale readiness harness first, not as an HPA justification tool.
+
+- Keep `runtime` and `provider-gateway` on fixed `2` replicas with HPA disabled while gathering the first rollout/load evidence.
+- Save each real run report under `artifacts/sr10-loadtest/` and do not claim a higher safe ceiling than the highest passing saved profile.
+- Record the next bottleneck after each run, even on failure. Typical first suspects are runtime bundle warm/cold-start behavior, provider catalog warm recovery, and Redis/Postgres pressure during burst + soak.
+- A `--dry-run` only validates config and traffic shape; it is not evidence for closing the load-readiness slice by itself.

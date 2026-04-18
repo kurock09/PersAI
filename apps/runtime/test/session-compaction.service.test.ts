@@ -17,6 +17,7 @@ import {
 import type { SessionStoreService } from "../src/modules/sessions/session-store.service";
 import type { RuntimeStatePostgresService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { SessionCompactionService } from "../src/modules/turns/session-compaction.service";
 import { REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA } from "../src/modules/turns/shared-compaction-state";
 import type {
@@ -559,6 +560,14 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   const service = new SessionCompactionService(
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGateway as unknown as ProviderGatewayClientService,
+    {
+      async ensureAssistantVersionBundle() {
+        return false;
+      }
+    } as Pick<
+      RuntimeBundleAutoRefreshService,
+      "ensureAssistantVersionBundle"
+    > as RuntimeBundleAutoRefreshService,
     hydration as unknown as TurnContextHydrationService,
     sessionStore as unknown as SessionStoreService,
     leaseService as unknown as SessionLeaseService,

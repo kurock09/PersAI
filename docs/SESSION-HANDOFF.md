@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - ADR-073 lifecycle closeout + Step 19 framing sync
+
+### What changed
+
+1. Active docs now close `Assistant lifecycle closeout` on the current path. Repo truth no longer keeps the lack of one separate backend lifecycle command or the local-until-publish uploaded-avatar preview behavior open as blockers for this slice; the explicit wizard-driven lifecycle plus explicit welcome handoff are now the accepted active-path contract.
+2. `ADR-073`, `ROADMAP`, and `TEST-PLAN` now describe `Step 19` more sharply as deploy/restart/pod-replacement recovery plus bounded load-readiness proof for the native path, not just generic response-speed tuning.
+3. The same docs sync now calls out `/admin` `System Overview` as the main operator surface for honest discovered pod status/readiness and fleet-pressure truth during `Step 19`.
+
+### Current active slice
+
+- `ADR-073 - Step 19 scale hardening`
+
+### Current active step
+
+- `Earlier-order lifecycle, user UI, and economics slices are now complete on the active path; Step 19 is the next primary production-path step`
+
+### Files touched
+
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. Lifecycle is now closed in repo truth because the active user-visible flow is coherent and honest, not because PersAI has introduced a separate backend lifecycle command or a persisted preview-avatar asset.
+2. `System Overview` already aggregates discovered `api` pods and active runtime health signals, but `Step 19` may still need a more explicit per-pod status/readiness surface before the scale-hardening step can honestly close.
+3. Bounded load-readiness proof is still future work; the docs now describe it as an explicit completion criterion for `Step 19` rather than leaving it implicit.
+
+### Next recommended step
+
+1. Land the first bounded `Step 19` slice: routine deploy/restart recovery without fleet-wide manual `reapply all`, paired with the `System Overview` pod-status/readiness visibility needed to operate that path honestly under rollout and pressure.
+
 ## 2026-04-18 - route_control semantics sync
 
 ### What changed

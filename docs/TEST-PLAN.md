@@ -92,6 +92,30 @@ Expected env truth:
 - `PERSAI_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
 - `RUNTIME_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
 
+## Step 19 scale-hardening focus
+
+When the active slice is `Step 19`, do not treat it as generic speed tuning only.
+
+It should verify all of the following:
+
+1. routine deploy/restart/pod-replacement recovery keeps live assistants live without normal-ops fleet-wide `reapply all`
+2. bounded load evidence demonstrates that the active native path is ready for production pressure rather than merely faster in one happy-path sample
+3. `/admin` `System Overview` exposes honest discovered pod status/readiness and fleet-pressure truth for the current admin-visible slice, or the gap is called out explicitly before the step is considered closed
+
+For the current bounded repo-local readiness pass, use the fixed-scale `SR10` ladder before any execution-side HPA work:
+
+```bash
+node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --profile 100
+node scripts/loadtest/run-sr10.cjs --config scripts/loadtest/sr10.local.json --profile 100,500,1000
+```
+
+Interpretation rules:
+
+1. do not claim a safe ceiling above the highest profile with a saved JSON report in `artifacts/sr10-loadtest/`
+2. the report must include phase summaries plus admin snapshots before/after phases so restart/degradation evidence is visible alongside latency/error gates
+3. the next bottleneck must be written down explicitly after each ladder run, even if the run fails below `1000`
+4. `runtime` and `provider-gateway` HPA must stay disabled in active Helm values until the fixed-2-replica path passes rollout/restart recovery and at least one bounded load ladder with honest bottleneck evidence
+
 ## User-path smoke
 
 At minimum, prove:

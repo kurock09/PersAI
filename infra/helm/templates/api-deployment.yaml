@@ -38,6 +38,26 @@ spec:
             - name: {{ $name }}
               value: {{ $value | quote }}
 {{- end }}
+            - name: PERSAI_RUNTIME_DISCOVERY_DNS
+              value: "runtime-headless"
+            - name: PERSAI_RUNTIME_TARGET_REPLICAS
+              value: {{ printf "%v" .Values.runtime.replicaCount | quote }}
+            - name: PERSAI_RUNTIME_AUTOSCALING_ENABLED
+              value: {{ ternary "true" "false" .Values.runtime.autoscaling.enabled | quote }}
+            - name: PERSAI_RUNTIME_AUTOSCALING_MIN_REPLICAS
+              value: {{ printf "%v" .Values.runtime.autoscaling.minReplicas | quote }}
+            - name: PERSAI_RUNTIME_AUTOSCALING_MAX_REPLICAS
+              value: {{ printf "%v" .Values.runtime.autoscaling.maxReplicas | quote }}
+            - name: PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS
+              value: "provider-gateway-headless"
+            - name: PERSAI_PROVIDER_GATEWAY_TARGET_REPLICAS
+              value: {{ printf "%v" .Values.providerGateway.replicaCount | quote }}
+            - name: PERSAI_PROVIDER_GATEWAY_AUTOSCALING_ENABLED
+              value: {{ ternary "true" "false" .Values.providerGateway.autoscaling.enabled | quote }}
+            - name: PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MIN_REPLICAS
+              value: {{ printf "%v" .Values.providerGateway.autoscaling.minReplicas | quote }}
+            - name: PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MAX_REPLICAS
+              value: {{ printf "%v" .Values.providerGateway.autoscaling.maxReplicas | quote }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:

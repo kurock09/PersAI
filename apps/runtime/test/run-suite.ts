@@ -1,6 +1,7 @@
 import { runRuntimeConfigTest } from "./runtime-config.test";
 import { runRuntimeBundleCoordinatorServiceTest } from "./runtime-bundle-coordinator.service.test";
 import { runRuntimeBundleRegistryServiceTest } from "./runtime-bundle-registry.service.test";
+import { runRuntimeBundleAutoRefreshServiceTest } from "./runtime-bundle-auto-refresh.service.test";
 import { runRuntimeStateKeyspaceServiceTest } from "./runtime-state-keyspace.service.test";
 import { runRuntimeStatePostgresServiceTest } from "./runtime-state-postgres.service.test";
 import { runRuntimeStateRedisServiceTest } from "./runtime-state-redis.service.test";
@@ -24,6 +25,7 @@ async function run(): Promise<void> {
   await runRuntimeConfigTest();
   await runRuntimeBundleCoordinatorServiceTest();
   await runRuntimeBundleRegistryServiceTest();
+  await runRuntimeBundleAutoRefreshServiceTest();
   await runRuntimeStateKeyspaceServiceTest();
   await runRuntimeStatePostgresServiceTest();
   await runRuntimeStateRedisServiceTest();

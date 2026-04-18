@@ -87,14 +87,39 @@ type LatencyRollup = {
   maxMs: number;
   buckets: LatencyBucket[];
 };
-type RuntimeState = {
-  runtimeBaseUrlConfigured: boolean;
-  providerGatewayBaseUrlConfigured: boolean;
-  runtimeEndpointHost: string | null;
-  providerGatewayEndpointHost: string | null;
+type ExecutionWorkloadPodState = {
+  podIp: string;
+  address: string;
   live: boolean;
   ready: boolean;
   checkedAt: string;
+};
+type ExecutionWorkloadState = {
+  key: "runtime" | "provider_gateway";
+  label: string;
+  baseUrlConfigured: boolean;
+  endpointHost: string | null;
+  desiredReplicas: number | null;
+  autoscalingEnabled: boolean;
+  autoscalingMinReplicas: number | null;
+  autoscalingMaxReplicas: number | null;
+  discoveryMode: "headless_dns" | "service_base_url" | "unconfigured";
+  discoveryTarget: string | null;
+  opaque: boolean;
+  live: boolean;
+  ready: boolean;
+  observedPodCount: number;
+  discoveredReadyPodCount: number;
+  checkedAt: string;
+  notes: string[];
+  pods: ExecutionWorkloadPodState[];
+};
+type RuntimeState = {
+  live: boolean;
+  ready: boolean;
+  checkedAt: string;
+  runtime: ExecutionWorkloadState;
+  providerGateway: ExecutionWorkloadState;
 };
 type Dash = {
   dataSource: DataSource;
@@ -126,13 +151,31 @@ type AggregatedTraceState = {
   recent: AggregatedTraceEntry[];
 };
 type AggregatedRuntimeState = {
-  runtimeBaseUrlConfigured: boolean;
-  providerGatewayBaseUrlConfigured: boolean;
-  runtimeEndpointHosts: string[];
-  providerGatewayEndpointHosts: string[];
   live: boolean;
   ready: boolean;
   checkedAt: string | null;
+  runtime: AggregatedExecutionWorkloadState;
+  providerGateway: AggregatedExecutionWorkloadState;
+};
+type AggregatedExecutionWorkloadState = {
+  key: "runtime" | "provider_gateway";
+  label: string;
+  baseUrlConfigured: boolean;
+  endpointHosts: string[];
+  desiredReplicas: number | null;
+  autoscalingEnabled: boolean;
+  autoscalingMinReplicas: number | null;
+  autoscalingMaxReplicas: number | null;
+  discoveryModes: Array<ExecutionWorkloadState["discoveryMode"]>;
+  discoveryTargets: string[];
+  opaque: boolean;
+  live: boolean;
+  ready: boolean;
+  observedPodCount: number;
+  discoveredReadyPodCount: number;
+  checkedAt: string | null;
+  notes: string[];
+  pods: ExecutionWorkloadPodState[];
 };
 type AggregatedOverview = {
   apiSources: DataSource[];
@@ -314,6 +357,80 @@ function uniqueSorted(values: Array<string | null | undefined>): string[] {
   ].sort((left, right) => left.localeCompare(right));
 }
 
+function aggregateExecutionWorkloadState(
+  workloads: ExecutionWorkloadState[]
+): AggregatedExecutionWorkloadState {
+  const first = workloads[0];
+  if (!first) {
+    return {
+      key: "runtime",
+      label: "Runtime",
+      baseUrlConfigured: false,
+      endpointHosts: [],
+      desiredReplicas: null,
+      autoscalingEnabled: false,
+      autoscalingMinReplicas: null,
+      autoscalingMaxReplicas: null,
+      discoveryModes: [],
+      discoveryTargets: [],
+      opaque: true,
+      live: false,
+      ready: false,
+      observedPodCount: 0,
+      discoveredReadyPodCount: 0,
+      checkedAt: null,
+      notes: [],
+      pods: []
+    };
+  }
+
+  const podMap = new Map<string, ExecutionWorkloadPodState>();
+  for (const workload of workloads) {
+    for (const pod of workload.pods) {
+      const key = pod.podIp || pod.address;
+      const existing = podMap.get(key);
+      if (
+        !existing ||
+        pod.checkedAt.localeCompare(existing.checkedAt) > 0 ||
+        (pod.ready && !existing.ready)
+      ) {
+        podMap.set(key, pod);
+      }
+    }
+  }
+  const pods = [...podMap.values()].sort((left, right) =>
+    (left.podIp || left.address).localeCompare(right.podIp || right.address)
+  );
+
+  return {
+    key: first.key,
+    label: first.label,
+    baseUrlConfigured: workloads.some((workload) => workload.baseUrlConfigured),
+    endpointHosts: uniqueSorted(workloads.map((workload) => workload.endpointHost)),
+    desiredReplicas:
+      workloads.find((workload) => workload.desiredReplicas !== null)?.desiredReplicas ?? null,
+    autoscalingEnabled: workloads.some((workload) => workload.autoscalingEnabled),
+    autoscalingMinReplicas:
+      workloads.find((workload) => workload.autoscalingMinReplicas !== null)
+        ?.autoscalingMinReplicas ?? null,
+    autoscalingMaxReplicas:
+      workloads.find((workload) => workload.autoscalingMaxReplicas !== null)
+        ?.autoscalingMaxReplicas ?? null,
+    discoveryModes: [...new Set(workloads.map((workload) => workload.discoveryMode))],
+    discoveryTargets: uniqueSorted(workloads.map((workload) => workload.discoveryTarget)),
+    opaque: workloads.some((workload) => workload.opaque),
+    live: workloads.every((workload) => workload.live),
+    ready: workloads.every((workload) => workload.ready),
+    observedPodCount: Math.max(...workloads.map((workload) => workload.observedPodCount)),
+    discoveredReadyPodCount: Math.max(
+      ...workloads.map((workload) => workload.discoveredReadyPodCount)
+    ),
+    checkedAt: latestIso(workloads.map((workload) => workload.checkedAt)),
+    notes: uniqueSorted(workloads.flatMap((workload) => workload.notes)),
+    pods
+  };
+}
+
 function dedupeDashboards(dashboards: Dash[]): Dash[] {
   const map = new Map<string, Dash>();
   for (const dashboard of dashboards) {
@@ -339,8 +456,36 @@ function buildAggregateWarnings(
     warnings.push({
       code: "runtime_unhealthy",
       severity: "critical",
-      message: `Native runtime preflight failed (live=${aggregate.runtime.live}, ready=${aggregate.runtime.ready}).`
+      message: `Execution path unhealthy (runtime ready=${aggregate.runtime.runtime.ready}, provider-gateway ready=${aggregate.runtime.providerGateway.ready}).`
     });
+  }
+
+  for (const workload of [aggregate.runtime.runtime, aggregate.runtime.providerGateway]) {
+    if (workload.opaque) {
+      warnings.push({
+        code: `${workload.key}_opaque`,
+        severity: "info",
+        message: `${workload.label} still exposes only service-level health.`
+      });
+    }
+    if (workload.desiredReplicas !== null && workload.desiredReplicas <= 1) {
+      warnings.push({
+        code: `${workload.key}_singleton`,
+        severity: "warning",
+        message: `${workload.label} is still a singleton workload.`
+      });
+    }
+    if (
+      workload.desiredReplicas !== null &&
+      !workload.opaque &&
+      workload.discoveredReadyPodCount < workload.desiredReplicas
+    ) {
+      warnings.push({
+        code: `${workload.key}_partial`,
+        severity: "warning",
+        message: `${workload.label} has ${workload.discoveredReadyPodCount}/${workload.desiredReplicas} ready endpoints.`
+      });
+    }
   }
 
   if (
@@ -460,18 +605,16 @@ function buildAggregatedOverview(dashboards: Dash[]): AggregatedOverview {
     null
   );
 
+  const runtimeWorkload = aggregateExecutionWorkloadState(pods.map((pod) => pod.runtime.runtime));
+  const providerGatewayWorkload = aggregateExecutionWorkloadState(
+    pods.map((pod) => pod.runtime.providerGateway)
+  );
   const runtime: AggregatedRuntimeState = {
-    runtimeBaseUrlConfigured: pods.every((pod) => pod.runtime.runtimeBaseUrlConfigured),
-    providerGatewayBaseUrlConfigured: pods.every(
-      (pod) => pod.runtime.providerGatewayBaseUrlConfigured
-    ),
-    runtimeEndpointHosts: uniqueSorted(pods.map((pod) => pod.runtime.runtimeEndpointHost)),
-    providerGatewayEndpointHosts: uniqueSorted(
-      pods.map((pod) => pod.runtime.providerGatewayEndpointHost)
-    ),
     live: pods.every((pod) => pod.runtime.live),
     ready: pods.every((pod) => pod.runtime.ready),
-    checkedAt: latestIso(pods.map((pod) => pod.runtime.checkedAt))
+    checkedAt: latestIso(pods.map((pod) => pod.runtime.checkedAt)),
+    runtime: runtimeWorkload,
+    providerGateway: providerGatewayWorkload
   };
 
   const health: AggregatedHealth = {
@@ -1063,53 +1206,116 @@ export default function AdminOverviewPage() {
                 . The old tier matrix is removed; Step 19 should scale the runtime deployment
                 horizontally instead of pretending there are fixed logical tiers here.
               </p>
-              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                    Runtime service
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-0.5 text-[13px] font-semibold",
-                      d.runtime.live && d.runtime.ready ? "text-success" : "text-destructive"
-                    )}
+              <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+                {[d.runtime.runtime, d.runtime.providerGateway].map((workload) => (
+                  <div
+                    key={workload.key}
+                    className="rounded border border-border/40 bg-surface-raised px-2.5 py-2"
                   >
-                    {d.runtime.live && d.runtime.ready ? "live + ready" : "degraded"}
-                  </p>
-                  <p className="text-[10px] text-text-muted">
-                    {d.runtime.runtimeEndpointHosts.length > 0
-                      ? d.runtime.runtimeEndpointHosts.join(", ")
-                      : "runtime URL not configured"}
-                  </p>
-                </div>
-                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                    Provider gateway
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-0.5 text-[13px] font-semibold",
-                      d.runtime.providerGatewayBaseUrlConfigured ? "text-success" : "text-warning"
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
+                          {workload.label}
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-0.5 text-[13px] font-semibold",
+                            workload.live && workload.ready
+                              ? "text-success"
+                              : workload.live
+                                ? "text-warning"
+                                : "text-destructive"
+                          )}
+                        >
+                          {workload.live && workload.ready
+                            ? "live + ready"
+                            : workload.live
+                              ? "live but partial"
+                              : "degraded"}
+                        </p>
+                      </div>
+                      <div className="text-right text-[10px] text-text-subtle">
+                        <p>
+                          Ready endpoints: {workload.discoveredReadyPodCount}
+                          {workload.desiredReplicas !== null
+                            ? ` / ${workload.desiredReplicas}`
+                            : ""}
+                        </p>
+                        <p>
+                          Scale:{" "}
+                          {workload.autoscalingEnabled
+                            ? `${workload.autoscalingMinReplicas ?? workload.desiredReplicas ?? 1}-${workload.autoscalingMaxReplicas ?? workload.desiredReplicas ?? 1} HPA`
+                            : `${workload.desiredReplicas ?? "?"} fixed`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
+                      <span>
+                        Host:{" "}
+                        {workload.endpointHosts.length > 0
+                          ? workload.endpointHosts.join(", ")
+                          : "not configured"}
+                      </span>
+                      <span>
+                        Discovery:{" "}
+                        {workload.discoveryModes.length > 0
+                          ? workload.discoveryModes.join(", ")
+                          : "unconfigured"}
+                      </span>
+                      {workload.discoveryTargets.length > 0 ? (
+                        <span>Target: {workload.discoveryTargets.join(", ")}</span>
+                      ) : null}
+                    </div>
+                    {workload.notes.length > 0 ? (
+                      <div className="mt-1 space-y-0.5">
+                        {workload.notes.map((note) => (
+                          <p
+                            key={`${workload.key}-${note}`}
+                            className="text-[10px] text-text-subtle"
+                          >
+                            {note}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                    {workload.pods.length > 0 ? (
+                      <div className="mt-1.5 space-y-1">
+                        {workload.pods.map((pod) => (
+                          <div
+                            key={`${workload.key}-${pod.podIp || pod.address}`}
+                            className="flex items-center justify-between rounded border border-border/30 px-1.5 py-1 text-[10px]"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate font-mono text-text">
+                                {pod.podIp || pod.address}
+                              </p>
+                              <p className="truncate text-text-subtle">{pod.address}</p>
+                            </div>
+                            <div className="text-right">
+                              <p
+                                className={cn(
+                                  "font-semibold",
+                                  pod.ready
+                                    ? "text-success"
+                                    : pod.live
+                                      ? "text-warning"
+                                      : "text-destructive"
+                                )}
+                              >
+                                {pod.ready ? "ready" : pod.live ? "live" : "down"}
+                              </p>
+                              <p className="text-text-subtle">{formatWhen(pod.checkedAt)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-1.5 text-[10px] text-text-subtle">
+                        No direct pod endpoints discovered for this workload.
+                      </p>
                     )}
-                  >
-                    {d.runtime.providerGatewayBaseUrlConfigured ? "configured" : "not configured"}
-                  </p>
-                  <p className="text-[10px] text-text-muted">
-                    {d.runtime.providerGatewayEndpointHosts.length > 0
-                      ? d.runtime.providerGatewayEndpointHosts.join(", ")
-                      : "provider-gateway URL not configured"}
-                  </p>
-                </div>
-                <div className="rounded border border-border/40 bg-surface-raised px-2.5 py-2">
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                    Step 19 shape
-                  </p>
-                  <p className="mt-0.5 text-[13px] font-semibold text-text">Horizontal runtime</p>
-                  <p className="text-[10px] text-text-muted">
-                    Pod count should come from deployment scale and live health, not from a static
-                    tier list in the admin UI.
-                  </p>
-                </div>
+                  </div>
+                ))}
               </div>
               <p className="text-[10px] text-text-subtle">
                 Runtime checked: {formatWhen(d.runtime.checkedAt)}

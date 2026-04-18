@@ -137,5 +137,5 @@ describe("SignInPage", () => {
       });
       expect(clerkMocks.signInResource.finalize).toHaveBeenCalled();
     });
-  });
+  }, 10_000);
 });

@@ -113,6 +113,16 @@ export type InternalMemoryWriteOutcome = {
   item: RuntimeMemoryWriteItem | null;
 };
 
+export type InternalFreshRuntimeSpec = {
+  generation: number;
+  assistantId: string;
+  materializedSpecId: string;
+  publishedVersionId: string;
+  contentHash: string;
+  bundleHash: string;
+  bundleDocument: string;
+};
+
 @Injectable()
 export class PersaiInternalApiClientService {
   constructor(@Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig) {}
@@ -444,6 +454,66 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the memory write request."
+    );
+  }
+
+  async ensureFreshSpec(input: {
+    assistantId: string;
+    currentConfigGeneration: number;
+  }): Promise<InternalFreshRuntimeSpec | null> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/ensure-fresh-spec", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.status === 204) {
+      return null;
+    }
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (
+        typeof payload?.generation === "number" &&
+        Number.isInteger(payload.generation) &&
+        typeof payload.assistantId === "string" &&
+        typeof payload.materializedSpecId === "string" &&
+        typeof payload.publishedVersionId === "string" &&
+        typeof payload.contentHash === "string" &&
+        typeof payload.bundleHash === "string" &&
+        typeof payload.bundleDocument === "string"
+      ) {
+        return {
+          generation: payload.generation,
+          assistantId: payload.assistantId,
+          materializedSpecId: payload.materializedSpecId,
+          publishedVersionId: payload.publishedVersionId,
+          contentHash: payload.contentHash,
+          bundleHash: payload.bundleHash,
+          bundleDocument: payload.bundleDocument
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid ensure-fresh-spec response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API ensure-fresh-spec request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the ensure-fresh-spec request."
     );
   }
 

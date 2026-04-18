@@ -79,6 +79,7 @@ import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -213,6 +214,7 @@ export class TurnExecutionService {
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly runtimeBundleAutoRefreshService: RuntimeBundleAutoRefreshService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnFinalizationService: TurnFinalizationService,
@@ -318,7 +320,16 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     options?: { allowModelToolExposure?: boolean }
   ): Promise<PreparedTurnExecution> {
-    const bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+    let bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+    if (bundleEntry === null) {
+      const warmed = await this.runtimeBundleAutoRefreshService.ensureRequestedBundle({
+        bundle: input.bundle,
+        runtimeTier: input.runtimeTier
+      });
+      if (warmed) {
+        bundleEntry = this.runtimeBundleRegistryService.getBundle(input.bundle.bundleId);
+      }
+    }
     if (bundleEntry === null) {
       throw new TurnExecutionError(
         "runtime_bundle_missing",

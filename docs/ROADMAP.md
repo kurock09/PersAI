@@ -18,7 +18,7 @@ ADR-072 is closed for the active migration baseline through Step 18. The active 
 
 Primary execution order:
 
-1. create/recreate lifecycle polish (`in progress`; explicit recreate/recover path landed, but one backend lifecycle contract plus preview-avatar truth still remain)
+1. create/recreate lifecycle polish (`completed`; explicit wizard-driven recover/recreate, honest welcome handoff, and the current local-until-publish uploaded-avatar behavior are now accepted active-path truth)
 2. user UI polish on the active native path (`completed`)
 3. memory, knowledge, cache, and model-routing cost architecture (`Slice A`, `Slice B`, and `Slice C` completed on the active path, including model-only `route_control` and smart/deep-mode routing truth)
 4. Step 19 scale and deploy-recovery hardening
@@ -27,11 +27,12 @@ Primary execution order:
 
 ## Near-term focus
 
-1. Finish the remaining lifecycle residue by moving preview/create/recover/reset behind one explicit backend lifecycle contract and by removing the last local-only uploaded-avatar truth gap
-2. Close Step 19 so routine deploys and restarts recover without normal-ops fleet-wide `reapply all`
-3. Keep the economics wave honest about the current landed baseline: plan-scoped model slots, model-only hidden `route_control`, smart/deep mode that stays on `premium` / `reasoning` once user-enabled, prompt-cache-first context routing, hybrid knowledge retrieval, plan-managed retrieval budgets, and durable retrieval observability are now real active-path behavior
-4. Treat further knowledge work as follow-through on top of the landed Slice C baseline rather than as unfinished `pattern_only` correction work
-5. Keep deferred runtime work (`Step 15a`, `Step 20`, `max_ru`) behind the active lifecycle/economics and scale program
+1. Start `Step 19` by proving routine deploys, restarts, and pod replacement keep live assistants live without normal-ops fleet-wide `reapply all`
+2. Treat `Step 19` as readiness proof, not just latency tuning: gather bounded load evidence that the active native path is safe under real pressure
+3. Use `/admin` `System Overview` as the operator surface for `Step 19` truth, including honest discovered pod status/readiness plus aggregated pressure and trace state
+4. Keep the economics wave honest about the current landed baseline: plan-scoped model slots, model-only hidden `route_control`, smart/deep mode that stays on `premium` / `reasoning` once user-enabled, prompt-cache-first context routing, hybrid knowledge retrieval, plan-managed retrieval budgets, and durable retrieval observability are now real active-path behavior
+5. Treat further knowledge work as follow-through on top of the landed Slice C baseline rather than as unfinished `pattern_only` correction work
+6. Keep deferred runtime work (`Step 15a`, `Step 20`, `max_ru`) behind the active lifecycle/economics and scale program
 
 ## Roadmap rule
 

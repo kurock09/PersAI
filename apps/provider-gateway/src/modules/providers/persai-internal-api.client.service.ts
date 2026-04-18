@@ -15,6 +15,13 @@ type JsonResponse = {
   body: unknown;
 };
 
+export type InternalDefaultProviderSettings = {
+  generation: number;
+  mode: "unconfigured_default" | "global_settings";
+  primary: { provider: "openai" | "anthropic"; model: string } | null;
+  availableModelsByProvider: Record<"openai" | "anthropic", string[]>;
+};
+
 @Injectable()
 export class PersaiInternalApiClientService {
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
@@ -69,6 +76,67 @@ export class PersaiInternalApiClientService {
 
     throw new BadGatewayException(
       `PersAI internal API did not return a value for secret "${secretId}".`
+    );
+  }
+
+  async getDefaultProviderSettings(): Promise<InternalDefaultProviderSettings> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/provider-settings/default", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      const message = this.extractErrorMessage(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          message ?? "PersAI internal API provider-settings request failed."
+        );
+      }
+      throw new BadGatewayException(
+        message ?? "PersAI internal API rejected the provider-settings request."
+      );
+    }
+
+    const payload = this.asObject(response.body);
+    const availableModelsByProvider = this.asObject(payload?.availableModelsByProvider);
+    const primary = this.asObject(payload?.primary);
+    if (
+      typeof payload?.generation === "number" &&
+      Number.isInteger(payload.generation) &&
+      (payload.mode === "unconfigured_default" || payload.mode === "global_settings") &&
+      availableModelsByProvider !== null &&
+      Array.isArray(availableModelsByProvider.openai) &&
+      Array.isArray(availableModelsByProvider.anthropic) &&
+      (payload.primary === null ||
+        (primary !== null &&
+          (primary.provider === "openai" || primary.provider === "anthropic") &&
+          typeof primary.model === "string"))
+    ) {
+      return {
+        generation: payload.generation,
+        mode: payload.mode,
+        primary:
+          payload.primary === null
+            ? null
+            : {
+                provider: primary!.provider as "openai" | "anthropic",
+                model: primary!.model as string
+              },
+        availableModelsByProvider: {
+          openai: [...(availableModelsByProvider.openai as string[])],
+          anthropic: [...(availableModelsByProvider.anthropic as string[])]
+        }
+      };
+    }
+
+    throw new BadGatewayException(
+      "PersAI internal API returned an invalid default provider-settings response."
     );
   }
 

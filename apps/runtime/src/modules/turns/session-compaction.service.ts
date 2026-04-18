@@ -34,6 +34,7 @@ import {
   resolveRuntimeContextHydrationConfig,
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
+import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -86,6 +87,7 @@ export class SessionCompactionService {
   constructor(
     private readonly runtimeBundleRegistryService: RuntimeBundleRegistryService,
     private readonly providerGatewayClientService: ProviderGatewayClientService,
+    private readonly runtimeBundleAutoRefreshService: RuntimeBundleAutoRefreshService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly sessionStoreService: SessionStoreService,
     private readonly sessionLeaseService: SessionLeaseService,
@@ -207,11 +209,31 @@ export class SessionCompactionService {
     }
 
     try {
-      const bundleEntry = this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+      let bundleEntry = this.runtimeBundleRegistryService.findBundleByAssistantVersion({
         assistantId: persistedSession.assistantId,
         publishedVersionId: persistedSession.currentPublishedVersionId,
         bundleHash: persistedSession.currentBundleHash
       });
+      if (bundleEntry === null && persistedSession.currentPublishedVersionId !== null) {
+        const warmed = await this.runtimeBundleAutoRefreshService.ensureAssistantVersionBundle({
+          assistantId: persistedSession.assistantId,
+          workspaceId: persistedSession.workspaceId,
+          publishedVersionId: persistedSession.currentPublishedVersionId,
+          runtimeTier: input.input.runtimeTier
+        });
+        if (warmed) {
+          bundleEntry =
+            this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+              assistantId: persistedSession.assistantId,
+              publishedVersionId: persistedSession.currentPublishedVersionId,
+              bundleHash: persistedSession.currentBundleHash
+            }) ??
+            this.runtimeBundleRegistryService.findBundleByAssistantVersion({
+              assistantId: persistedSession.assistantId,
+              publishedVersionId: persistedSession.currentPublishedVersionId
+            });
+        }
+      }
       if (bundleEntry === null) {
         return this.buildCompactionResult({
           toolCode: input.toolCode,

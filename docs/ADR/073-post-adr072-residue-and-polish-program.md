@@ -38,6 +38,8 @@ The following remain active program items and move under ADR-073 governance:
   - deploy/restart recovery must stop depending on normal-ops fleet-wide `reapply all`
   - published, materialized, and warmed runtime states must stay separate
   - runtime/provider recovery must become bounded and self-healing
+  - the native `api -> runtime -> provider-gateway` path must be proven ready for bounded production load, not merely tuned for faster median response time
+  - admin `System Overview` must remain the honest operator surface for discovered pod count, status/readiness, and fleet pressure during deploy/restart/load events
 - **Step 15a - native web TTS streaming/output**
   - channel voice output remains deferred and separate from the explicit `tts` tool
 - **Step 20 - isolated sandbox service**
@@ -56,11 +58,11 @@ The first lifecycle polish wave is now complete on the active path:
 - preview and welcome prompts are split into separate admin-managed first-turn templates
 - welcome chat creation is explicit after publish/recreate instead of being inferred from empty history
 - setup now detects an existing assistant up front and enters an explicit `recover` / `recreate` path instead of hiding that branch behind `POST /assistant` `409 already existed`
+- setup/create/recreate pages now keep the active centered layout instead of drifting off the intended visual axis
+- the character editor now stays aligned from the top edge of the style block and uses the available vertical space more honestly
+- publish/recreate now show a short explicit completion handoff before routing into the welcome chat, rather than risking a flat or confusing transition
 
-Residual architecture notes remain, but they are no longer blockers for this polish slice:
-
-- setup preview still keeps an uploaded custom avatar local until final publish instead of round-tripping it through a persisted preview asset
-- final create/recover behavior is still orchestrated by the explicit frontend wizard path rather than one separate backend lifecycle command
+The active repo truth now treats the explicit frontend setup wizard as the lifecycle contract for the current path. Uploaded custom avatars may still stay local until final publish, and preview/create/recover remain wizard-orchestrated rather than exposed as one separate backend lifecycle command, but those choices are no longer treated as blockers for closing this lifecycle slice because the active user-visible flow is now coherent and honest.
 
 ### 4. User UI audit
 
@@ -70,7 +72,7 @@ The first user UI polish wave is now complete on the active path:
 - chat/sidebar UX now has explicit deletion feedback, smaller context-pressure UX, collapsed integrations, and paged memory/task surfaces
 - custom account/auth surfaces now support profile edits, avatar upload, password change, and a real custom forgot-password flow
 
-Future user-surface work should now follow the remaining lifecycle/economics program rather than staying as a separate top-priority polish track.
+Future user-surface work should now follow the remaining economics/scale program rather than staying as a separate top-priority polish track.
 
 ### 5. Memory, knowledge, and search audit
 
@@ -181,7 +183,7 @@ PersAI should distinguish:
 
 ### 7. Scale hardening comes before sandbox ambition
 
-Routine deploy, restart, and warm recovery for the ordinary active path must be proven first. Sandbox/file/process capability remains deliberately late-stage.
+Routine deploy, restart, pod replacement, warm recovery, and bounded load readiness for the ordinary active path must be proven first. `System Overview` should expose honest discovered-pod status/readiness and pressure signals so operators can see when live assistants are actually safe through rollout and load events. Sandbox/file/process capability remains deliberately late-stage.
 
 ## Target product and runtime architecture
 
@@ -199,9 +201,10 @@ The target user path is:
 The target polish rules are:
 
 - no duplicated write calls just because preview and final create are separate buttons
-- no local-only avatar truth that diverges from runtime preview truth
 - no hidden recreate semantics inside an ordinary create call
+- no misleading avatar or publish-state truth on the active path, even when a custom uploaded avatar remains local until final publish during setup
 - no misleading “assistant is ready” state before runtime/apply state actually is ready
+- post-publish handoff into the welcome chat is explicit and honest
 
 ### B. Plan-scoped model contract target
 
@@ -431,14 +434,15 @@ The main assistant decides **what** to do. The deterministic tool runner decides
 
 The first implementation wave after ADR-073 approval is grouped into larger slices:
 
-1. **Assistant lifecycle closeout** (in progress)
+1. **Assistant lifecycle closeout** (completed)
    - explicit recreate/recover path is now first-class on the wizard entry path
    - hidden `POST /assistant` `409 already existed` happy-path fallback is removed
-   - finish one backend-owned preview/create/recover/reset lifecycle contract
-   - close the uploaded-avatar preview truth gap
+   - the active lifecycle contract is now the explicit setup wizard path with one persisted preview draft, explicit completion handoff, and explicit welcome-chat routing
+   - uploaded custom avatars may remain local until final publish on the current path; this is now treated as accepted lifecycle truth rather than as an open blocker
 2. **User UI polish** (completed)
    - settings/chat/sidebar/profile/auth polish landed on the active native path
-   - future UI changes should now be driven by the remaining lifecycle/economics work
+   - setup centering, personality-editor alignment, and post-publish handoff polish are now also part of the completed user-facing baseline
+   - future UI changes should now be driven by the remaining economics/Step-19 work
 3. **Economics Slice A - plan-scoped model slots and turn accounting** (completed; ready for deploy/live validation)
    - plan slots for normal reply, premium/reasoning, hidden system/tool work, and optional retrieval-specialized work are landed on the active path
    - hidden `route_control` now acts as model-only role selection, and explicit deeper-thinking mode keeps user-selected smart turns on `premium` / `reasoning` without exposing raw model pickers
@@ -486,7 +490,7 @@ ADR-073 does not:
 | Prompt-cache-first context architecture       | completed | Bundle cache exists; OpenAI text requests now carry provider-side cache-routing hints, ordinary compiled prompt output materializes a stable-prefix record for bundle-owned cache identity, hydrated durable-memory/shared-summary leading blocks participate in ordinary/deep cache identity via explicit versioned stable-family tokens, and `/admin/business` now exposes rolling averaged runtime token/cache economics from persisted completed-turn receipts on the active path |
 | Knowledge correction and retrieval-model path | completed | Active retrieval now publishes `hybrid`, private/global knowledge use bounded lexical plus vector retrieval with plan-managed helper/budget policy, and durable admin-visible observability plus global-write governance are landed on the active path |
 | Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                 |
-| Step 19 scale hardening                       | planned   | Deploy/restart recovery and self-healing warm semantics remain active blockers                                                                                                                   |
+| Step 19 scale hardening                       | planned   | Deploy/restart/pod-replacement recovery, bounded load-readiness proof, and honest `System Overview` pod-status visibility remain active blockers                                                |
 | Step 15a native web TTS output                | deferred  | Not part of the first active polish/economics wave                                                                                                                                               |
 | Step 20 isolated sandbox                      | deferred  | Remains after scale hardening and outside the ordinary active path                                                                                                                               |
 

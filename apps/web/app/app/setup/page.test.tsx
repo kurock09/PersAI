@@ -269,6 +269,7 @@ function makeVoiceSettings() {
 
 describe("SetupWizardPage", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.stubGlobal("URL", {
       ...URL,
       createObjectURL: vi.fn(() => "blob:avatar-preview"),
@@ -405,6 +406,7 @@ describe("SetupWizardPage", () => {
     );
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
+    expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   }, 10000);
 
@@ -452,6 +454,7 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
     expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
+    expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
 
@@ -485,6 +488,8 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
+    expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
 
   it("uses an explicit recreate path after reset without relying on a 409 fallback", async () => {
@@ -528,6 +533,8 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
+    expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
 });
 

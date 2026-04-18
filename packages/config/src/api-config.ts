@@ -3,6 +3,8 @@ import { z } from "zod";
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace"] as const;
 const APP_ENVS = ["local", "dev"] as const;
 const WEB_CHAT_RUNTIME_MODES = ["native"] as const;
+const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
+const FALSE_VALUES = new Set(["0", "false", "no", "off", ""]);
 
 const optionalUrl = z.preprocess((value) => {
   if (typeof value === "string" && value.trim().length === 0) {
@@ -10,6 +12,26 @@ const optionalUrl = z.preprocess((value) => {
   }
   return value;
 }, z.string().url().optional());
+
+const optionalNonEmptyString = z.preprocess((value) => {
+  if (typeof value === "string" && value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
+}, z.string().min(1).optional());
+
+const envBoolean = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (TRUE_VALUES.has(normalized)) {
+      return true;
+    }
+    if (FALSE_VALUES.has(normalized)) {
+      return false;
+    }
+  }
+  return value;
+}, z.boolean());
 
 const baseApiConfigSchema = z.object({
   APP_ENV: z.enum(APP_ENVS).default("local"),
@@ -23,10 +45,20 @@ const baseApiConfigSchema = z.object({
   PERSAI_WEB_CHAT_SYNC_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("native"),
   PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: z.enum(WEB_CHAT_RUNTIME_MODES).default("native"),
   PERSAI_RUNTIME_BASE_URL: optionalUrl,
+  PERSAI_RUNTIME_DISCOVERY_DNS: optionalNonEmptyString,
+  PERSAI_RUNTIME_TARGET_REPLICAS: z.coerce.number().int().positive().optional(),
+  PERSAI_RUNTIME_AUTOSCALING_ENABLED: envBoolean.default(false),
+  PERSAI_RUNTIME_AUTOSCALING_MIN_REPLICAS: z.coerce.number().int().positive().optional(),
+  PERSAI_RUNTIME_AUTOSCALING_MAX_REPLICAS: z.coerce.number().int().positive().optional(),
   PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_RUNTIME_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PERSAI_RUNTIME_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   PERSAI_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
+  PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS: optionalNonEmptyString,
+  PERSAI_PROVIDER_GATEWAY_TARGET_REPLICAS: z.coerce.number().int().positive().optional(),
+  PERSAI_PROVIDER_GATEWAY_AUTOSCALING_ENABLED: envBoolean.default(false),
+  PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MIN_REPLICAS: z.coerce.number().int().positive().optional(),
+  PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MAX_REPLICAS: z.coerce.number().int().positive().optional(),
   PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_MEDIA_BUCKET_NAME: z.string().optional(),
   PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),

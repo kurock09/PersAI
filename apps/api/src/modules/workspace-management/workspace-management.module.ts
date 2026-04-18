@@ -48,6 +48,7 @@ import { AdminDeleteUserService } from "./application/admin-delete-user.service"
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ResolveAdminBusinessPlatformService } from "./application/resolve-admin-business-platform.service";
 import { ResolveAdminOverviewDashboardService } from "./application/resolve-admin-overview-dashboard.service";
+import { ResolveExecutionWorkloadOverviewService } from "./application/resolve-execution-workload-overview.service";
 import { ResolveAdminKnowledgeObservabilityService } from "./application/resolve-admin-knowledge-observability.service";
 import { ResolveAdminKnowledgeConnectorsService } from "./application/resolve-admin-knowledge-connectors.service";
 import { OverviewLatencyTraceService } from "./application/overview-latency-trace.service";
@@ -119,6 +120,7 @@ import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consu
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
 import { ResolveAssistantRuntimeTierService } from "./application/resolve-assistant-runtime-tier.service";
+import { EnsureAssistantMaterializedSpecCurrentService } from "./application/ensure-assistant-materialized-spec-current.service";
 import { RenderAssistantInboundSurfaceMessageService } from "./application/render-assistant-inbound-surface-message.service";
 import { SyncAssistantTaskRegistryService } from "./application/sync-assistant-task-registry.service";
 import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-target.service";
@@ -230,6 +232,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAdminBusinessCockpitService,
     ResolveAdminBusinessPlatformService,
     ResolveAdminOverviewDashboardService,
+    ResolveExecutionWorkloadOverviewService,
     ResolveAdminKnowledgeObservabilityService,
     ResolveAdminKnowledgeConnectorsService,
     OverviewLatencyTraceService,
@@ -264,6 +267,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ReadInternalRuntimeQuotaStatusService,
     ResolveAssistantInboundRuntimeContextService,
     ResolveAssistantRuntimeTierService,
+    EnsureAssistantMaterializedSpecCurrentService,
     RenderAssistantInboundSurfaceMessageService,
     GetAssistantByUserIdService,
     ManageAssistantAvatarService,

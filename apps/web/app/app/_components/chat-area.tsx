@@ -89,6 +89,7 @@ export function ChatArea({
   const isInitialLoad = useRef(true);
   const prevMessageCount = useRef(0);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const preserveScrollOnOlderLoadRef = useRef(false);
 
   // Scroll to bottom on new outgoing/incoming messages, but not on history prepend.
   useEffect(() => {
@@ -111,13 +112,14 @@ export function ChatArea({
   const prevScrollHeight = useRef(0);
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || !preserveScrollOnOlderLoadRef.current || chat.olderMessagesLoading) return;
     if (el.scrollHeight > prevScrollHeight.current && prevScrollHeight.current > 0) {
       const delta = el.scrollHeight - prevScrollHeight.current;
       el.scrollTop += delta;
     }
-    prevScrollHeight.current = el.scrollHeight;
-  });
+    preserveScrollOnOlderLoadRef.current = false;
+    prevScrollHeight.current = 0;
+  }, [chat.chatId, chat.messages.length, chat.olderMessagesLoading]);
 
   // IntersectionObserver on the top sentinel to trigger loading older messages.
   useEffect(() => {
@@ -128,6 +130,7 @@ export function ChatArea({
       (entries) => {
         if (entries[0]?.isIntersecting && chat.hasOlderMessages && !chat.olderMessagesLoading) {
           prevScrollHeight.current = container.scrollHeight;
+          preserveScrollOnOlderLoadRef.current = true;
           void chat.loadOlderMessages();
         }
       },

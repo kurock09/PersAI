@@ -5,6 +5,7 @@ import { OpenAIProviderClient } from "../src/modules/providers/openai/openai-pro
 import { ProviderCatalogService } from "../src/modules/providers/provider-catalog.service";
 import { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
 import { ProviderGatewayReadinessService } from "../src/modules/platform-core/application/provider-gateway-readiness.service";
+import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
 
 function createConfig(): ProviderGatewayConfig {
   return {
@@ -27,7 +28,16 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   const config = createConfig();
   const openaiClient = new OpenAIProviderClient(config);
   const anthropicClient = new AnthropicProviderClient(config);
-  const warmupService = new ProviderWarmupService(config, openaiClient, anthropicClient);
+  const warmupService = new ProviderWarmupService(
+    config,
+    {
+      isConfigured() {
+        return false;
+      }
+    } as Pick<PersaiInternalApiClientService, "isConfigured"> as PersaiInternalApiClientService,
+    openaiClient,
+    anthropicClient
+  );
   const catalogService = new ProviderCatalogService(warmupService);
   const readinessService = new ProviderGatewayReadinessService(warmupService);
 
@@ -74,6 +84,12 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   const afterWarmup = readinessService.getSnapshot();
   assert.equal(afterWarmup.ready, true);
   assert.equal(afterWarmup.providerCacheReady, true);
+  const ensured = await warmupService.ensureReadyForRequest({
+    provider: "openai",
+    model: "gpt-5.4"
+  });
+  assert.equal(ensured.provider, "openai");
+  assert.equal(ensured.state, "ready");
   assert.deepEqual(catalogService.getSnapshot().providers, [
     {
       provider: "openai",
@@ -99,4 +115,41 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
       }),
     /source must equal "control_plane_apply"/
   );
+
+  let internalRefreshCalls = 0;
+  const autoRefreshService = new ProviderWarmupService(
+    config,
+    {
+      isConfigured() {
+        return true;
+      },
+      async getDefaultProviderSettings() {
+        internalRefreshCalls += 1;
+        return {
+          generation: 7,
+          mode: "global_settings",
+          primary: { provider: "openai", model: "gpt-5.4-mini" },
+          availableModelsByProvider: {
+            openai: ["gpt-5.4-mini", "gpt-5.4"],
+            anthropic: []
+          }
+        };
+      }
+    } as Pick<
+      PersaiInternalApiClientService,
+      "isConfigured" | "getDefaultProviderSettings"
+    > as PersaiInternalApiClientService,
+    new OpenAIProviderClient(config),
+    new AnthropicProviderClient(config)
+  );
+
+  const refreshed = await autoRefreshService.ensureReadyForRequest({
+    provider: "openai",
+    model: "gpt-5.4-mini"
+  });
+  assert.equal(internalRefreshCalls, 1);
+  assert.equal(refreshed.provider, "openai");
+  assert.equal(refreshed.state, "ready");
+  assert.equal(refreshed.catalogSource, "control_plane_apply");
+  assert.deepEqual(refreshed.catalogModels, ["gpt-5.4-mini", "gpt-5.4"]);
 }

@@ -12,15 +12,11 @@ import {
 import { BumpConfigGenerationService } from "../../application/bump-config-generation.service";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
 import {
-  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
-  type AssistantMaterializedSpecRepository
-} from "../../domain/assistant-materialized-spec.repository";
-import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
 } from "../../domain/assistant-published-version.repository";
-import { MaterializeAssistantPublishedVersionService } from "../../application/materialize-assistant-published-version.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "../../application/resolve-platform-runtime-provider-settings.service";
+import { EnsureAssistantMaterializedSpecCurrentService } from "../../application/ensure-assistant-materialized-spec-current.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -35,8 +31,11 @@ type EnsureFreshSpecRequest = {
 type EnsureFreshSpecResponse = {
   generation: number;
   assistantId: string;
+  materializedSpecId: string;
   publishedVersionId: string;
   contentHash: string;
+  bundleHash: string;
+  bundleDocument: string;
   spec: {
     assistantConfig: unknown;
     assistantWorkspace: unknown;
@@ -69,12 +68,10 @@ export class InternalRuntimeConfigGenerationController {
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly materializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly publishedVersionRepository: AssistantPublishedVersionRepository,
-    private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
-    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService
   ) {}
 
   @Get("config-generation")
@@ -116,24 +113,9 @@ export class InternalRuntimeConfigGenerationController {
     this.assertAuthorized(req);
     const input = parseEnsureFreshSpecInput(body);
 
-    const currentGeneration = await this.bumpConfigGenerationService.current();
     const assistant = await this.assistantRepository.findById(input.assistantId);
     if (assistant === null) {
       throw new BadRequestException("Assistant not found.");
-    }
-
-    const latestSpec = await this.materializedSpecRepository.findLatestByAssistantId(
-      input.assistantId
-    );
-    const specGeneration = latestSpec?.materializedAtConfigGeneration ?? 0;
-    const globalStale = specGeneration < currentGeneration;
-    const perUserStale =
-      assistant.configDirtyAt !== null &&
-      (latestSpec === null || assistant.configDirtyAt.getTime() > latestSpec.createdAt.getTime());
-
-    if (!globalStale && !perUserStale) {
-      res.status(204);
-      return;
     }
 
     const latestPublished = await this.publishedVersionRepository.findLatestByAssistantId(
@@ -144,24 +126,34 @@ export class InternalRuntimeConfigGenerationController {
       return;
     }
 
-    await this.materializeAssistantPublishedVersionService.execute(
+    const freshness = await this.ensureAssistantMaterializedSpecCurrentService.resolveFreshness(
       assistant,
-      latestPublished,
-      latestSpec?.sourceAction ?? "publish"
+      latestPublished
     );
-
-    const refreshedSpec = await this.materializedSpecRepository.findByPublishedVersionId(
-      latestPublished.id
-    );
+    const refreshedSpec = freshness.materializedSpec;
     if (refreshedSpec === null) {
       throw new BadRequestException("Fresh materialized spec was not found.");
     }
+    const specGeneration = refreshedSpec.materializedAtConfigGeneration;
+    const runtimeBehind = input.currentConfigGeneration < specGeneration;
+    if (!freshness.refreshed && !runtimeBehind) {
+      res.status(204);
+      return;
+    }
+    const bundleHash = refreshedSpec.runtimeBundleHash?.trim() ?? "";
+    const bundleDocument = refreshedSpec.runtimeBundleDocument?.trim() ?? "";
+    if (!bundleHash || !bundleDocument) {
+      throw new BadRequestException("Fresh materialized runtime bundle document/hash is missing.");
+    }
 
     return {
-      generation: currentGeneration,
+      generation: freshness.currentGeneration,
       assistantId: assistant.id,
+      materializedSpecId: refreshedSpec.id,
       publishedVersionId: refreshedSpec.publishedVersionId,
       contentHash: refreshedSpec.contentHash,
+      bundleHash,
+      bundleDocument,
       spec: {
         assistantConfig: refreshedSpec.assistantConfig,
         assistantWorkspace: refreshedSpec.assistantWorkspace

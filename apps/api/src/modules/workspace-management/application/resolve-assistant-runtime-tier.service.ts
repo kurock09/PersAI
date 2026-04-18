@@ -1,21 +1,18 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
-import {
-  ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
-  type AssistantMaterializedSpecRepository
-} from "../domain/assistant-materialized-spec.repository";
+import type { Assistant } from "../domain/assistant.entity";
 import {
   readRuntimeAssignmentStateFromMaterializedLayers,
   type RuntimeTier
 } from "./runtime-assignment";
+import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 
 @Injectable()
 export class ResolveAssistantRuntimeTierService {
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
-    private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository
+    private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService
   ) {}
 
   async resolveByAssistantId(assistantId: string): Promise<RuntimeTier> {
@@ -23,7 +20,7 @@ export class ResolveAssistantRuntimeTierService {
     if (assistant === null) {
       throw new NotFoundException("Assistant not found.");
     }
-    return this.resolveEffectiveTier(assistant.id);
+    return this.resolveEffectiveTier(assistant);
   }
 
   async resolveByUserId(
@@ -35,13 +32,13 @@ export class ResolveAssistantRuntimeTierService {
     }
     return {
       assistantId: assistant.id,
-      runtimeTier: await this.resolveEffectiveTier(assistant.id)
+      runtimeTier: await this.resolveEffectiveTier(assistant)
     };
   }
 
-  private async resolveEffectiveTier(assistantId: string): Promise<RuntimeTier> {
+  private async resolveEffectiveTier(assistant: Assistant): Promise<RuntimeTier> {
     const materializedSpec =
-      await this.assistantMaterializedSpecRepository.findLatestByAssistantId(assistantId);
+      await this.ensureAssistantMaterializedSpecCurrentService.resolveCurrent(assistant);
     const runtimeAssignment = readRuntimeAssignmentStateFromMaterializedLayers(
       materializedSpec?.layers ?? null
     );

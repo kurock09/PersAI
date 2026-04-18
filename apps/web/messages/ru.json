@@ -251,6 +251,12 @@
     "createAssistant": "Создать ассистента",
     "creating": "Создаём...",
     "preparingPreview": "Готовим превью...",
+    "assistantFallbackName": "твой ассистент",
+    "createSuccessTitle": "{name} готов",
+    "recoverSuccessTitle": "{name} восстановлен",
+    "recreateSuccessTitle": "{name} пересоздан",
+    "createSuccessBody": "Черновик опубликован, welcome-чат готовится. Сейчас откроем первый разговор с {name}.",
+    "openingWelcomeChat": "Открываем welcome-чат...",
     "sessionExpired": "Сессия истекла — войди заново и обнови страницу.",
     "createFailed": "Что-то пошло не так — попробуй ещё раз."
   },
@@ -338,9 +344,11 @@
     "knowledgeQuotaUsedOnly": "Использовано {used}",
     "knowledgeQuotaUsage": "{used} / {limit}",
     "knowledgeChunks": "{count, plural, one {# чанк} few {# чанка} other {# чанков}}",
-    "knowledgeStatus.processing": "Индексируется",
-    "knowledgeStatus.ready": "Готово",
-    "knowledgeStatus.failed": "Ошибка",
+    "knowledgeStatus": {
+      "processing": "Индексируется",
+      "ready": "Готово",
+      "failed": "Ошибка"
+    },
     "memory": "Память",
     "workspace": "Рабочая область",
     "history": "История",

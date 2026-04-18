@@ -54,6 +54,7 @@ import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quot
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
+import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -1416,6 +1417,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     bundleRegistry as unknown as RuntimeBundleRegistryService,
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {
+      async ensureRequestedBundle() {
+        return false;
+      }
+    } as Pick<
+      RuntimeBundleAutoRefreshService,
+      "ensureRequestedBundle"
+    > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnFinalizationService as unknown as TurnFinalizationService,

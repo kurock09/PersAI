@@ -218,6 +218,14 @@ web:
 
 providerGateway:
   enabled: true
+  replicaCount: 2
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   env:
     APP_ENV: dev
     PORT: "3011"
@@ -241,6 +249,45 @@ providerGateway:
       secretName: persai-runtime-secrets
       secretKey: ANTHROPIC_API_KEY
       optional: true
+  probes:
+    readiness:
+      path: /ready
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 3
+    liveness:
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      timeoutSeconds: 2
+      failureThreshold: 3
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  service:
+    type: ClusterIP
+    port: 3011
 
 runtime:
   enabled: true
@@ -273,7 +320,7 @@ runtime:
     RUNTIME_STATE_REDIS_URL:
       secretName: persai-runtime-secrets
       secretKey: PERSAI_RUNTIME_SPEC_STORE_REDIS_URL
-  replicaCount: 1
+  replicaCount: 2
   revisionHistoryLimit: 2
   minReadySeconds: 5
   strategy:
@@ -290,14 +337,20 @@ runtime:
       memory: 1536Mi
   autoscaling:
     enabled: false
-    minReplicas: 1
-    maxReplicas: 3
+    minReplicas: 2
+    maxReplicas: 4
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
   podDisruptionBudget:
-    enabled: false
+    enabled: true
     minAvailable: 1
-  topologySpreadConstraints: []
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
   service:
     type: ClusterIP
     port: 3012

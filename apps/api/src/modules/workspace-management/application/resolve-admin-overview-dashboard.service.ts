@@ -1,9 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { resolveAdminOverviewDataSource } from "./admin-overview-data-source";
-import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.service";
+import { ResolveExecutionWorkloadOverviewService } from "./resolve-execution-workload-overview.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { WebRuntimeShadowComparisonService } from "./web-runtime-shadow-comparison.service";
@@ -11,6 +10,7 @@ import type {
   AdminOverviewDashboardState,
   LatencyPercentiles,
   OverviewChannelLatency,
+  OverviewExecutionWorkloadState,
   OverviewLatencyBucket,
   OverviewLatencySnapshot,
   OverviewLatencyRollup,
@@ -53,7 +53,7 @@ export class ResolveAdminOverviewDashboardService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
-    private readonly assistantRuntimePreflightService: AssistantRuntimePreflightService,
+    private readonly resolveExecutionWorkloadOverviewService: ResolveExecutionWorkloadOverviewService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly webRuntimeShadowComparisonService: WebRuntimeShadowComparisonService
@@ -61,11 +61,10 @@ export class ResolveAdminOverviewDashboardService {
 
   async execute(callerUserId: string): Promise<AdminOverviewDashboardState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(callerUserId);
-    const config = loadApiConfig(process.env);
     const httpSnapshot = this.platformHttpMetricsService.getSnapshot();
 
-    const [runtimePreflight, activeUsersResult, activeWebChats] = await Promise.all([
-      this.assistantRuntimePreflightService.execute(),
+    const [executionWorkloads, activeUsersResult, activeWebChats] = await Promise.all([
+      this.resolveExecutionWorkloadOverviewService.execute(),
       this.prisma.assistantChat.groupBy({
         by: ["userId"],
         where: { updatedAt: { gte: new Date(Date.now() - ACTIVE_USERS_WINDOW_MINUTES * 60_000) } }
@@ -103,7 +102,18 @@ export class ResolveAdminOverviewDashboardService {
         uptimeSeconds > 0 ? Math.round((totalRequests / uptimeSeconds) * 100) / 100 : 0
     };
 
-    const warnings = this.deriveWarnings(latency.snapshot, health, runtimePreflight, queuePressure);
+    const runtime = {
+      live: executionWorkloads.runtime.live && executionWorkloads.providerGateway.live,
+      ready: executionWorkloads.runtime.ready && executionWorkloads.providerGateway.ready,
+      checkedAt:
+        [executionWorkloads.runtime.checkedAt, executionWorkloads.providerGateway.checkedAt].sort(
+          (left, right) => right.localeCompare(left)
+        )[0] ?? new Date().toISOString(),
+      runtime: executionWorkloads.runtime,
+      providerGateway: executionWorkloads.providerGateway
+    };
+
+    const warnings = this.deriveWarnings(latency.snapshot, health, runtime, queuePressure);
 
     return {
       dataSource: resolveAdminOverviewDataSource(),
@@ -115,15 +125,7 @@ export class ResolveAdminOverviewDashboardService {
       webRuntimeShadowComparisons: this.webRuntimeShadowComparisonService.getState(),
       activeUsers: activeUsersResult.length,
       activeWebChats,
-      runtime: {
-        runtimeBaseUrlConfigured: Boolean(config.PERSAI_RUNTIME_BASE_URL?.trim()),
-        providerGatewayBaseUrlConfigured: Boolean(config.PERSAI_PROVIDER_GATEWAY_BASE_URL?.trim()),
-        runtimeEndpointHost: this.toHostOrNull(config.PERSAI_RUNTIME_BASE_URL),
-        providerGatewayEndpointHost: this.toHostOrNull(config.PERSAI_PROVIDER_GATEWAY_BASE_URL),
-        live: runtimePreflight.live,
-        ready: runtimePreflight.ready,
-        checkedAt: runtimePreflight.checkedAt
-      },
+      runtime,
       health,
       queuePressure,
       warnings,
@@ -258,17 +260,50 @@ export class ResolveAdminOverviewDashboardService {
   private deriveWarnings(
     latency: OverviewLatencySnapshot,
     health: AdminOverviewDashboardState["health"],
-    runtimePreflight: { live: boolean; ready: boolean },
+    runtimeState: {
+      live: boolean;
+      ready: boolean;
+      runtime: OverviewExecutionWorkloadState;
+      providerGateway: OverviewExecutionWorkloadState;
+    },
     queuePressure: OverviewQueuePressure
   ): OverviewSystemWarning[] {
     const warnings: OverviewSystemWarning[] = [];
 
-    if (!runtimePreflight.live || !runtimePreflight.ready) {
+    if (!runtimeState.live || !runtimeState.ready) {
       warnings.push({
         code: "runtime_unhealthy",
         severity: "critical",
-        message: `Native runtime preflight failed (live=${runtimePreflight.live}, ready=${runtimePreflight.ready})`
+        message: `Execution path unhealthy (runtime ready=${runtimeState.runtime.ready}, provider-gateway ready=${runtimeState.providerGateway.ready}).`
       });
+    }
+
+    for (const workload of [runtimeState.runtime, runtimeState.providerGateway]) {
+      if (workload.opaque) {
+        warnings.push({
+          code: `${workload.key}_opaque`,
+          severity: "info",
+          message: `${workload.label} still has only service-level health; per-pod truth is opaque.`
+        });
+      }
+      if (workload.desiredReplicas !== null && workload.desiredReplicas <= 1) {
+        warnings.push({
+          code: `${workload.key}_singleton`,
+          severity: "warning",
+          message: `${workload.label} is still configured as a singleton workload.`
+        });
+      }
+      if (
+        workload.desiredReplicas !== null &&
+        !workload.opaque &&
+        workload.discoveredReadyPodCount < workload.desiredReplicas
+      ) {
+        warnings.push({
+          code: `${workload.key}_partial`,
+          severity: "warning",
+          message: `${workload.label} has ${workload.discoveredReadyPodCount}/${workload.desiredReplicas} ready endpoints.`
+        });
+      }
     }
 
     if (health.rssBytes > HIGH_MEMORY_THRESHOLD_BYTES) {
@@ -307,17 +342,5 @@ export class ResolveAdminOverviewDashboardService {
     }
 
     return warnings;
-  }
-
-  private toHostOrNull(value: string | null | undefined): string | null {
-    const normalized = value?.trim() ?? "";
-    if (!normalized) {
-      return null;
-    }
-    try {
-      return new URL(normalized).host || null;
-    } catch {
-      return null;
-    }
   }
 }

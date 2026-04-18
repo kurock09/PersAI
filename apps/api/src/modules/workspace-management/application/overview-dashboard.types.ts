@@ -36,13 +36,47 @@ export type OverviewSystemWarning = {
 };
 
 export type OverviewNativeRuntimeState = {
-  runtimeBaseUrlConfigured: boolean;
-  providerGatewayBaseUrlConfigured: boolean;
-  runtimeEndpointHost: string | null;
-  providerGatewayEndpointHost: string | null;
   live: boolean;
   ready: boolean;
   checkedAt: string;
+  runtime: OverviewExecutionWorkloadState;
+  providerGateway: OverviewExecutionWorkloadState;
+};
+
+export type OverviewExecutionWorkloadKey = "runtime" | "provider_gateway";
+
+export type OverviewExecutionWorkloadDiscoveryMode =
+  | "headless_dns"
+  | "service_base_url"
+  | "unconfigured";
+
+export type OverviewExecutionWorkloadPodState = {
+  podIp: string;
+  address: string;
+  live: boolean;
+  ready: boolean;
+  checkedAt: string;
+};
+
+export type OverviewExecutionWorkloadState = {
+  key: OverviewExecutionWorkloadKey;
+  label: string;
+  baseUrlConfigured: boolean;
+  endpointHost: string | null;
+  desiredReplicas: number | null;
+  autoscalingEnabled: boolean;
+  autoscalingMinReplicas: number | null;
+  autoscalingMaxReplicas: number | null;
+  discoveryMode: OverviewExecutionWorkloadDiscoveryMode;
+  discoveryTarget: string | null;
+  opaque: boolean;
+  live: boolean;
+  ready: boolean;
+  observedPodCount: number;
+  discoveredReadyPodCount: number;
+  checkedAt: string;
+  notes: string[];
+  pods: OverviewExecutionWorkloadPodState[];
 };
 
 export type OverviewQueuePressure = {

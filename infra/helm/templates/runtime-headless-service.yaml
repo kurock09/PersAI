@@ -1,0 +1,18 @@
+{{- if .Values.runtime.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: runtime-headless
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: runtime
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  selector:
+    app.kubernetes.io/name: runtime
+  ports:
+    - name: http
+      port: {{ .Values.runtime.service.port }}
+      targetPort: {{ .Values.runtime.service.port }}
+{{- end }}
