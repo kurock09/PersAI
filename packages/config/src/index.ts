@@ -4,3 +4,5 @@ export { loadProviderGatewayConfig } from "./provider-gateway-config";
 export type { ProviderGatewayConfig } from "./provider-gateway-config";
 export { loadRuntimeConfig } from "./runtime-config";
 export type { RuntimeConfig } from "./runtime-config";
+export { loadSandboxConfig } from "./sandbox-config";
+export type { SandboxConfig } from "./sandbox-config";

@@ -1,0 +1,96 @@
+{{- if .Values.sandbox.enabled }}
+{{- $sandboxTag := default .Values.global.images.tag .Values.sandbox.image.tag }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: sandbox
+spec:
+  revisionHistoryLimit: {{ default 2 .Values.sandbox.revisionHistoryLimit }}
+  minReadySeconds: {{ default 0 .Values.sandbox.minReadySeconds }}
+{{- with .Values.sandbox.strategy }}
+  strategy:
+{{ toYaml . | indent 4 }}
+{{- end }}
+  replicas: {{ .Values.sandbox.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandbox
+    spec:
+{{- if .Values.sandbox.serviceAccount.name }}
+      serviceAccountName: {{ .Values.sandbox.serviceAccount.name }}
+{{- end }}
+{{- if .Values.sandbox.topologySpreadConstraints }}
+      topologySpreadConstraints:
+{{ include "persai.workloadTopologySpreadConstraints" (dict "constraints" .Values.sandbox.topologySpreadConstraints "labels" (dict "app.kubernetes.io/name" "sandbox")) | indent 8 }}
+{{- end }}
+      containers:
+        - name: sandbox
+          image: "{{ .Values.global.images.registryHost }}/{{ .Values.global.images.projectId }}/{{ .Values.global.images.repository }}/{{ .Values.sandbox.image.name }}:{{ $sandboxTag }}"
+          imagePullPolicy: {{ .Values.sandbox.image.pullPolicy }}
+{{- if or .Values.sandbox.env .Values.sandbox.secretEnv }}
+          env:
+{{- range $name, $value := .Values.sandbox.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+{{- end }}
+{{- range $name, $ref := .Values.sandbox.secretEnv }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ref.secretName | quote }}
+                  key: {{ $ref.secretKey | quote }}
+{{- if hasKey $ref "optional" }}
+                  optional: {{ $ref.optional }}
+{{- end }}
+{{- end }}
+{{- end }}
+          ports:
+            - containerPort: {{ .Values.sandbox.service.port }}
+{{- with .Values.sandbox.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+{{- end }}
+{{- with .Values.sandbox.probes.readiness }}
+          readinessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.sandbox.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
+{{- with .Values.sandbox.probes.liveness }}
+          livenessProbe:
+            httpGet:
+              path: {{ .path | quote }}
+              port: {{ $.Values.sandbox.service.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+            timeoutSeconds: {{ .timeoutSeconds }}
+            failureThreshold: {{ .failureThreshold }}
+{{- end }}
+{{- if .Values.sandbox.cloudSqlProxy.enabled }}
+        - name: cloud-sql-proxy
+          image: "{{ .Values.sandbox.cloudSqlProxy.image }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--structured-logs"
+            - "--port={{ .Values.sandbox.cloudSqlProxy.port }}"
+{{- if .Values.sandbox.cloudSqlProxy.usePrivateIp }}
+            - "--private-ip"
+{{- end }}
+            - "{{ .Values.sandbox.cloudSqlProxy.instanceConnectionName }}"
+{{- if .Values.sandbox.cloudSqlProxy.port }}
+          ports:
+            - containerPort: {{ .Values.sandbox.cloudSqlProxy.port }}
+{{- end }}
+{{- end }}
+{{- end }}

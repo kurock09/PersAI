@@ -43,6 +43,12 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   memory_search: "inline",
   memory_get: "inline",
   scheduled_action: "worker",
+  read_file: "sandbox",
+  write_file: "sandbox",
+  edit_file: "sandbox",
+  exec: "sandbox",
+  shell: "sandbox",
+  send_media_to_user: "inline",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
   cron: "worker"
@@ -170,6 +176,7 @@ function hasNativeModelExecution(
   params: {
     toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
     knowledgeAccessEnabled: boolean;
+    sandboxEnabled: boolean;
   }
 ): boolean {
   if (
@@ -223,6 +230,16 @@ function hasNativeModelExecution(
     return supportsCurrentNativeTtsProvider(
       hasConfiguredCredential(params.toolCredentialRefs, "tts")
     );
+  }
+  if (
+    runtimeToolCode === "read_file" ||
+    runtimeToolCode === "write_file" ||
+    runtimeToolCode === "edit_file" ||
+    runtimeToolCode === "exec" ||
+    runtimeToolCode === "shell" ||
+    runtimeToolCode === "send_media_to_user"
+  ) {
+    return params.sandboxEnabled;
   }
   return false;
 }
@@ -292,6 +309,7 @@ export function resolveRuntimeToolPolicies(params: {
   planToolQuotaPolicy: ToolQuotaPolicyEntry[];
   toolCredentialRefs: Record<string, AssistantRuntimeBundleToolCredentialRef>;
   knowledgeAccessEnabled: boolean;
+  sandboxEnabled: boolean;
   syntheticToolOverrides?: SyntheticPromptToolOverrideMap;
 }): RuntimeToolPolicy[] {
   const dailyLimitByCode = new Map(
@@ -306,7 +324,8 @@ export function resolveRuntimeToolPolicies(params: {
       !HIDDEN_TOOL_CODES.has(tool.code) &&
       hasNativeModelExecution(runtimeToolCode, {
         toolCredentialRefs: params.toolCredentialRefs,
-        knowledgeAccessEnabled: params.knowledgeAccessEnabled
+        knowledgeAccessEnabled: params.knowledgeAccessEnabled,
+        sandboxEnabled: params.sandboxEnabled
       });
     return {
       toolCode: runtimeToolCode,

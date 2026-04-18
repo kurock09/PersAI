@@ -59,7 +59,13 @@ export class MediaDeliveryService {
         const persisted = await this.persistArtifact(artifact, params);
 
         if (adapter && params.channelTarget) {
-          await this.sendViaAdapter(adapter, artifact, persisted.buffer, persisted.filename);
+          await this.sendViaAdapter(
+            adapter,
+            params.channelTarget,
+            artifact,
+            persisted.buffer,
+            persisted.filename
+          );
         }
 
         results.push(persisted.state);
@@ -182,11 +188,14 @@ export class MediaDeliveryService {
 
   private async sendViaAdapter(
     adapter: ChannelMediaAdapter,
+    target: OutboundMediaDeliverParams["channelTarget"],
     artifact: MediaArtifact,
     buffer: Buffer,
     filename: string
   ): Promise<void> {
-    const target = { channel: adapter.channel, chatId: "", threadId: "" };
+    if (!target) {
+      return;
+    }
 
     switch (artifact.type) {
       case "image":

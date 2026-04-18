@@ -231,6 +231,100 @@ async function run(): Promise<void> {
   assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
+
+  let adapterTarget: {
+    channel: string;
+    chatId: string | number;
+    metadata?: Record<string, unknown>;
+  } | null = null;
+  let adapterCaption: string | undefined;
+  const adapterService = new MediaDeliveryService(
+    {
+      async create(input: {
+        storagePath: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+      }) {
+        return createAttachment({
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes
+        });
+      }
+    } as never,
+    [
+      {
+        channel: "telegram",
+        async sendImage(target, _buffer, _filename, caption) {
+          adapterTarget = target;
+          adapterCaption = caption;
+        },
+        async sendVoice() {},
+        async sendAudio() {},
+        async sendDocument() {},
+        async sendVideo() {}
+      }
+    ],
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/telegram.png";
+      },
+      async downloadObject(objectKey: string) {
+        assert.equal(objectKey, "assistant-media/runtime-output/telegram.png");
+        return {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          contentType: "image/png"
+        };
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/telegram.png",
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject() {}
+    } as never,
+    new PlatformHttpMetricsService()
+  );
+
+  await adapterService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/telegram.png",
+        type: "image",
+        mimeType: "image/png",
+        filename: "telegram.png",
+        sizeBytes: 9,
+        caption: "Runtime caption"
+      }
+    ],
+    channel: "telegram",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1",
+    channelTarget: {
+      channel: "telegram",
+      chatId: "tg-chat-1",
+      metadata: {
+        botToken: "bot-token"
+      }
+    }
+  });
+
+  assert.deepEqual(adapterTarget, {
+    channel: "telegram",
+    chatId: "tg-chat-1",
+    metadata: {
+      botToken: "bot-token"
+    }
+  });
+  assert.equal(adapterCaption, "Runtime caption");
   globalThis.fetch = originalFetch;
 }
 

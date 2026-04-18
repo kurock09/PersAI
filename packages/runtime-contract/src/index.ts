@@ -95,6 +95,142 @@ export interface RuntimeOutputArtifact {
   filename: string | null;
   sizeBytes: number | null;
   voiceNote: boolean;
+  caption?: string | null;
+}
+
+export const PERSAI_SANDBOX_FILE_ORIGINS = [
+  "sandbox_output",
+  "runtime_output",
+  "uploaded_attachment"
+] as const;
+
+export type PersaiSandboxFileOrigin = (typeof PERSAI_SANDBOX_FILE_ORIGINS)[number];
+
+export interface RuntimeFileRef {
+  fileRef: string;
+  origin: PersaiSandboxFileOrigin;
+  sourceToolCode: string | null;
+  objectKey: string;
+  relativePath: string;
+  displayName: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  logicalSizeBytes: number | null;
+}
+
+export interface RuntimeSandboxPolicy {
+  enabled: boolean;
+  maxSingleFileWriteBytes: number;
+  maxWorkspaceBytesPerJob: number;
+  maxPersistedArtifactsPerJob: number;
+  maxFileCountPerJob: number;
+  maxDirectoryCountPerJob: number;
+  maxProcessRuntimeMs: number;
+  maxCpuMsPerJob: number;
+  maxMemoryBytesPerJob: number;
+  maxConcurrentProcesses: number;
+  maxStdoutBytes: number;
+  maxStderrBytes: number;
+  networkAccessEnabled: boolean;
+  artifactMimeAllowlist: string[];
+  webMaxOutboundBytes: number;
+  telegramMaxOutboundBytes: number;
+  sandboxJobsPerDay: number | null;
+  maxArtifactSendCountPerTurn: number;
+}
+
+export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
+  enabled: false,
+  maxSingleFileWriteBytes: 10 * 1024 * 1024,
+  maxWorkspaceBytesPerJob: 25 * 1024 * 1024,
+  maxPersistedArtifactsPerJob: 8,
+  maxFileCountPerJob: 32,
+  maxDirectoryCountPerJob: 16,
+  maxProcessRuntimeMs: 15_000,
+  maxCpuMsPerJob: 15_000,
+  maxMemoryBytesPerJob: 256 * 1024 * 1024,
+  maxConcurrentProcesses: 4,
+  maxStdoutBytes: 128 * 1024,
+  maxStderrBytes: 128 * 1024,
+  networkAccessEnabled: false,
+  artifactMimeAllowlist: [
+    "text/plain",
+    "text/markdown",
+    "application/json",
+    "application/pdf",
+    "application/zip",
+    "image/png",
+    "image/jpeg",
+    "audio/mpeg",
+    "audio/ogg",
+    "video/mp4"
+  ],
+  webMaxOutboundBytes: 25 * 1024 * 1024,
+  telegramMaxOutboundBytes: 50 * 1024 * 1024,
+  sandboxJobsPerDay: null,
+  maxArtifactSendCountPerTurn: 4
+};
+
+export type RuntimeSandboxJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "cancelled";
+
+export interface RuntimeSandboxProducedFile {
+  relativePath: string;
+  displayName: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  logicalSizeBytes: number | null;
+  fileRef: RuntimeFileRef;
+}
+
+export interface RuntimeSandboxJobResult {
+  jobId: string;
+  status: RuntimeSandboxJobStatus;
+  toolCode: string;
+  reason: string | null;
+  warning: string | null;
+  violationCode: string | null;
+  violationMessage: string | null;
+  exitCode: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  content: string | null;
+  files: RuntimeSandboxProducedFile[];
+}
+
+export interface RuntimeSandboxJobRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeRequestId: string | null;
+  runtimeSessionId: string | null;
+  toolCode: string;
+  policy: RuntimeSandboxPolicy;
+  args: Record<string, unknown>;
+}
+
+export interface RuntimeSandboxToolResult {
+  toolCode: string;
+  executionMode: "sandbox";
+  action: "completed" | "blocked" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  job: RuntimeSandboxJobResult | null;
+}
+
+export interface RuntimeSendMediaToUserToolResult {
+  toolCode: "send_media_to_user";
+  executionMode: "inline";
+  action: "queued" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  fileRefs: string[];
+  artifactIds: string[];
+  queuedArtifacts: number;
 }
 
 export interface RuntimeInboundMessage {

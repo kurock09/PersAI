@@ -34,7 +34,9 @@ import {
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeOutputArtifact,
+  type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
+  type RuntimeSendMediaToUserToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
   type RuntimeVideoGenerateToolResult,
@@ -68,7 +70,9 @@ import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.s
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
+import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
+import { RuntimeSendMediaToUserService } from "./runtime-send-media-to-user.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import {
@@ -133,7 +137,9 @@ type ToolExecutionOutcome = {
     | RuntimeBrowserToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
+    | RuntimeSandboxToolResult
     | RuntimeScheduledActionToolResult
+    | RuntimeSendMediaToUserToolResult
     | RuntimeTtsToolResult
     | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
@@ -172,6 +178,12 @@ const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
+const READ_FILE_TOOL_CODE = "read_file";
+const WRITE_FILE_TOOL_CODE = "write_file";
+const EDIT_FILE_TOOL_CODE = "edit_file";
+const EXEC_TOOL_CODE = "exec";
+const SHELL_TOOL_CODE = "shell";
+const SEND_MEDIA_TO_USER_TOOL_CODE = "send_media_to_user";
 
 @Injectable()
 export class TurnExecutionService {
@@ -193,7 +205,9 @@ export class TurnExecutionService {
     private readonly runtimeKnowledgeToolService: RuntimeKnowledgeToolService,
     private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
+    private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
+    private readonly runtimeSendMediaToUserService: RuntimeSendMediaToUserService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
   ) {}
@@ -488,7 +502,8 @@ export class TurnExecutionService {
                   acceptedTurn,
                   input,
                   toolCall,
-                  input.idempotencyKey
+                  input.idempotencyKey,
+                  turnState.artifacts
                 );
               } catch (error) {
                 yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -1109,7 +1124,8 @@ export class TurnExecutionService {
           acceptedTurn,
           input,
           toolCall,
-          input.idempotencyKey
+          input.idempotencyKey,
+          turnState.artifacts
         );
         exchanges.push(outcome.exchange);
         this.applyToolExecutionOutcome(turnState, outcome);
@@ -1135,7 +1151,8 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     input: RuntimeTurnRequest,
     toolCall: ProviderGatewayToolCall,
-    currentUserMessageId: string | null
+    currentUserMessageId: string | null,
+    currentArtifacts: RuntimeOutputArtifact[]
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -1228,6 +1245,19 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case READ_FILE_TOOL_CODE:
+      case WRITE_FILE_TOOL_CODE:
+      case EDIT_FILE_TOOL_CODE:
+      case EXEC_TOOL_CODE:
+      case SHELL_TOOL_CODE: {
+        const result = await this.runtimeSandboxToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
@@ -1308,6 +1338,21 @@ export class TurnExecutionService {
           conversation: acceptedTurn.session.conversation
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
+      case SEND_MEDIA_TO_USER_TOOL_CODE: {
+        const result = await this.runtimeSendMediaToUserService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          currentArtifacts,
+          channel: acceptedTurn.session.conversation.channel
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
       }
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
@@ -1612,7 +1657,9 @@ export class TurnExecutionService {
       | RuntimeBrowserToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
+      | RuntimeSandboxToolResult
       | RuntimeScheduledActionToolResult
+      | RuntimeSendMediaToUserToolResult
       | RuntimeTtsToolResult
       | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult
@@ -1816,7 +1863,16 @@ export class TurnExecutionService {
     outcome: ToolExecutionOutcome
   ): void {
     if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
-      turnState.artifacts.push(...outcome.artifacts);
+      for (const artifact of outcome.artifacts) {
+        const existingIndex = turnState.artifacts.findIndex(
+          (existingArtifact) => existingArtifact.artifactId === artifact.artifactId
+        );
+        if (existingIndex >= 0) {
+          turnState.artifacts[existingIndex] = artifact;
+        } else {
+          turnState.artifacts.push(artifact);
+        }
+      }
     }
     const toolUsage = this.extractToolUsageSnapshot(outcome.payload);
     if (toolUsage !== null) {

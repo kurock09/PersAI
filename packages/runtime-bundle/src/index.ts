@@ -6,6 +6,7 @@ import {
   type RuntimeBrowserConfig,
   type RuntimeContextHydrationConfig,
   type RuntimeKnowledgeAccessConfig,
+  type RuntimeSandboxPolicy,
   type RuntimeSharedCompactionConfig,
   type RuntimeToolPolicy,
   type RuntimeWorkerToolsConfig
@@ -74,6 +75,7 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   knowledgeAccess: RuntimeKnowledgeAccessConfig;
   workerTools: RuntimeWorkerToolsConfig;
   browser: RuntimeBrowserConfig;
+  sandbox?: RuntimeSandboxPolicy;
 }
 
 export interface AssistantRuntimeBundleGovernance {

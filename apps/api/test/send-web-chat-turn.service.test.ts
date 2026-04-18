@@ -335,4 +335,135 @@ describe("SendWebChatTurnService", () => {
       "You just came online. Introduce yourself warmly to Alex."
     );
   });
+
+  test("delivers native runtime media through the shared web media delivery path", async () => {
+    const deliveredAttachments = [
+      {
+        id: "attachment-1",
+        attachmentType: "document",
+        originalFilename: "program.cpp",
+        mimeType: "text/plain",
+        sizeBytes: 64,
+        processingStatus: "ready",
+        createdAt: "2026-04-05T12:00:03.000Z"
+      }
+    ];
+    let deliverInput: Record<string, unknown> | null = null;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          assistantMessage: "native with file",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/sandbox/jobs/job-1/program.cpp",
+              type: "document",
+              mimeType: "text/plain",
+              filename: "program.cpp",
+              sizeBytes: 64,
+              caption: "Here is your program"
+            }
+          ]
+        })
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "write me a cpp file",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        deliver: async (input: Record<string, unknown>) => {
+          deliverInput = input;
+          return { attachments: deliveredAttachments };
+        }
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
+    );
+
+    const result = await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "write me a cpp file"
+    });
+
+    assert.deepEqual(deliverInput, {
+      artifacts: [
+        {
+          source: "persai_object_storage",
+          objectKey: "assistant-media/sandbox/jobs/job-1/program.cpp",
+          type: "document",
+          mimeType: "text/plain",
+          filename: "program.cpp",
+          sizeBytes: 64,
+          caption: "Here is your program"
+        }
+      ],
+      channel: "web",
+      assistantId: "assistant-1",
+      chatId: "chat-1",
+      messageId: "assistant-msg-1",
+      workspaceId: "workspace-1"
+    });
+    assert.deepEqual(result.assistantMessage.attachments, deliveredAttachments);
+  });
 });

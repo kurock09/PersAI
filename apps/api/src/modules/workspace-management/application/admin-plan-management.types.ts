@@ -1,6 +1,7 @@
 import type {
   PersaiRuntimeVideoGenerateModelKey,
-  RuntimeContextHydrationConfig
+  RuntimeContextHydrationConfig,
+  RuntimeSandboxPolicy
 } from "@persai/runtime-contract";
 
 export type AdminPlanStatus = "active" | "inactive";
@@ -62,6 +63,8 @@ export type AdminPlanRetrievalPolicy = {
   embeddingSearchEnabled: boolean;
 };
 
+export type AdminPlanSandboxPolicy = RuntimeSandboxPolicy;
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -81,6 +84,7 @@ export type AdminPlanInput = {
   };
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
+  sandboxPolicy: AdminPlanSandboxPolicy;
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;
@@ -115,6 +119,7 @@ export type AdminPlanState = {
   };
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
+  sandboxPolicy: AdminPlanSandboxPolicy;
   primaryModelKey: string | null;
   premiumModelKey: string | null;
   reasoningModelKey: string | null;

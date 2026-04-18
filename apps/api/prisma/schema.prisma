@@ -184,6 +184,25 @@ enum AttachmentProcessingStatus {
   @@map("attachment_processing_status")
 }
 
+enum SandboxJobStatus {
+  queued
+  running
+  completed
+  failed
+  blocked
+  cancelled
+
+  @@map("sandbox_job_status")
+}
+
+enum SandboxFileOrigin {
+  sandbox_output
+  runtime_output
+  uploaded_attachment
+
+  @@map("sandbox_file_origin")
+}
+
 enum AssistantIntegrationProviderKey {
   web_internal
   telegram
@@ -330,6 +349,8 @@ model Workspace {
   runtimeSessions             RuntimeSession[]
   runtimeSessionCompactions   RuntimeSessionCompaction[]
   runtimeTurnReceipts         RuntimeTurnReceipt[]
+  sandboxJobs                 SandboxJob[]
+  sandboxFileRefs             SandboxFileRef[]
 
   @@map("workspaces")
 }
@@ -404,6 +425,8 @@ model Assistant {
   runtimeSessions              RuntimeSession[]
   runtimeSessionCompactions    RuntimeSessionCompaction[]
   runtimeTurnReceipts          RuntimeTurnReceipt[]
+  sandboxJobs                  SandboxJob[]
+  sandboxFileRefs              SandboxFileRef[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -983,6 +1006,61 @@ model RuntimeTurnReceipt {
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([runtimeSessionId, createdAt(sort: Desc)])
   @@map("runtime_turn_receipts")
+}
+
+model SandboxJob {
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId       String           @map("assistant_id") @db.Uuid
+  workspaceId       String           @map("workspace_id") @db.Uuid
+  runtimeRequestId  String?          @map("runtime_request_id") @db.VarChar(128)
+  runtimeSessionId  String?          @map("runtime_session_id") @db.Uuid
+  toolCode          String           @map("tool_code") @db.VarChar(64)
+  status            SandboxJobStatus @default(queued)
+  relativeWorkspace String?          @map("relative_workspace") @db.VarChar(255)
+  policySnapshot    Json?            @map("policy_snapshot") @db.JsonB
+  requestPayload    Json?            @map("request_payload") @db.JsonB
+  resultPayload     Json?            @map("result_payload") @db.JsonB
+  resourceUsage     Json?            @map("resource_usage") @db.JsonB
+  violationCode     String?          @map("violation_code") @db.VarChar(128)
+  violationMessage  String?          @map("violation_message") @db.Text
+  startedAt         DateTime?        @map("started_at") @db.Timestamptz(6)
+  completedAt       DateTime?        @map("completed_at") @db.Timestamptz(6)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant         Assistant        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fileRefs          SandboxFileRef[]
+
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([runtimeRequestId])
+  @@map("sandbox_jobs")
+}
+
+model SandboxFileRef {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId      String            @map("assistant_id") @db.Uuid
+  workspaceId      String            @map("workspace_id") @db.Uuid
+  sandboxJobId     String?           @map("sandbox_job_id") @db.Uuid
+  origin           SandboxFileOrigin @default(sandbox_output)
+  sourceToolCode   String?           @map("source_tool_code") @db.VarChar(64)
+  objectKey        String            @map("object_key") @db.VarChar(512)
+  relativePath     String            @map("relative_path") @db.VarChar(512)
+  displayName      String?           @map("display_name") @db.VarChar(255)
+  mimeType         String            @map("mime_type") @db.VarChar(128)
+  sizeBytes        BigInt            @map("size_bytes")
+  logicalSizeBytes BigInt?           @map("logical_size_bytes")
+  sha256           String?           @db.VarChar(64)
+  metadata         Json?             @db.JsonB
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant        Assistant         @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sandboxJob       SandboxJob?       @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([sandboxJobId])
+  @@map("sandbox_file_refs")
 }
 
 model AssistantChat {

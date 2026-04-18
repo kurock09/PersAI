@@ -7,8 +7,8 @@ This roadmap tracks the active PersAI-native path only.
 Completed baseline:
 
 - PersAI-native request-time runtime path for web and current active surfaces
-- internal `runtime` and `provider-gateway` services
-- GitOps/Helm deploy path for `api`, `web`, `runtime`, and `provider-gateway`
+- internal `runtime` and `provider-gateway` services, plus sandbox deploy wiring ready for the next dev rollout
+- GitOps/Helm deploy path for `api`, `web`, `runtime`, `provider-gateway`, and the new sandbox workload
 - admin/control-plane/runtime bundle materialization on the native path
 - removal of OpenClaw from the active repo deploy/runtime/control-plane path
 
@@ -21,18 +21,19 @@ Primary execution order:
 1. create/recreate lifecycle polish (`completed`; explicit wizard-driven recover/recreate, honest welcome handoff, and the current local-until-publish uploaded-avatar behavior are now accepted active-path truth)
 2. user UI polish on the active native path (`completed`)
 3. memory, knowledge, cache, and model-routing cost architecture (`Slice A`, `Slice B`, and `Slice C` completed on the active path, including the configurable early `turn_routing` layer and smart/deep-mode routing truth)
-4. Step 19 scale and deploy-recovery hardening (`deploy/restart/pod-replacement recovery now observed on live dev rollout without routine manual fleet-wide reapply; bounded load proof and rollout-speed residuals remain`)
+4. Step 19 core deploy and operator hardening (`completed`; deploy/restart/pod-replacement recovery is observed on the live dev rollout path, bounded self-healing recovery is landed, and `/admin` `System Overview` now carries honest pod-truth for the active path)
 5. deferred Step 15a native web voice output
-6. deferred Step 20 sandbox and attach-by-ref follow-through
+6. Step 20 sandbox and attach-by-ref follow-through (`in progress`; local sandbox/fileRef/send-media baseline, enforcement, operator truth, and dev deploy wiring are landing, while the final live surface proof is still pending)
+7. final bounded load-readiness proof and rollout-speed follow-through (`planned`; keep one saved pressure proof and any residual convergence cleanup as the very last program step)
 
 ## Near-term focus
 
-1. Continue `Step 19` from the now-observed deploy-recovery baseline: gather bounded load evidence that the active native path is safe under real pressure
-2. Keep `/admin` `System Overview` as the operator surface for `Step 19` truth, including honest discovered pod status/readiness plus aggregated pressure and trace state
-3. Treat long image pull / rollout convergence time as the main remaining deploy residual after the bundle-recovery blocker closure
+1. Keep the now-observed Step 19 core closure honest in active docs: deploy/restart/pod-replacement recovery and current `/admin` `System Overview` pod truth are accepted baseline behavior on the native path
+2. Leave the remaining bounded load proof plus any rollout-speed/image-pull cleanup as the very last program step rather than treating them as current blockers for the main path
+3. If the final pressure-validation step is reopened, require a saved bounded load report and explicit safe-ceiling wording instead of anecdotal "felt fast" evidence
 4. Keep the economics wave honest about the current landed baseline: plan-scoped model slots, a configurable early `turn_routing` layer (deterministic precheck plus optional cheap classifier), smart/deep mode that stays on `premium` / `reasoning` once user-enabled, prompt-cache-first context routing, hybrid knowledge retrieval, plan-managed retrieval budgets, and durable retrieval observability are now real active-path behavior
 5. Treat further knowledge work as follow-through on top of the landed Slice C baseline rather than as unfinished `pattern_only` correction work
-6. Keep deferred runtime work (`Step 15a`, `Step 20`, `max_ru`) behind the active lifecycle/economics and scale program
+6. Keep the remaining runtime follow-through (`Step 15a`, live Step 20 proof, `max_ru`) behind the active lifecycle/economics baseline, with the final scale-proof tail still last
 
 ## Roadmap rule
 

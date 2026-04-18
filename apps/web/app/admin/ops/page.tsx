@@ -296,6 +296,37 @@ function formatStorageMb(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
+function formatBytesCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1_048_576).toFixed(1)} MB`;
+  return `${(value / 1_073_741_824).toFixed(1)} GB`;
+}
+
+function formatDurationMs(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value < 1000) return `${Math.round(value)} ms`;
+  if (value < 60_000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)} s`;
+  return `${(value / 60_000).toFixed(1)} min`;
+}
+
+function sandboxJobTone(status: string): string {
+  switch (status) {
+    case "completed":
+      return "bg-success/15 text-success";
+    case "blocked":
+    case "failed":
+      return "bg-destructive/15 text-destructive";
+    case "running":
+      return "bg-warning/15 text-warning";
+    case "queued":
+      return "bg-blue-500/15 text-blue-300";
+    default:
+      return "bg-surface text-text-muted";
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Users Directory                                                    */
 /* ------------------------------------------------------------------ */
@@ -1238,6 +1269,192 @@ export default function AdminOpsPage() {
               </div>
             );
           })()}
+
+          {cockpit.sandbox && (
+            <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <CardShell title="Sandbox Limits" icon={Gauge}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">Sandbox</span>
+                  <span
+                    className={cn(
+                      "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      cockpit.sandbox.effectivePolicy.enabled
+                        ? "bg-success/15 text-success"
+                        : "bg-surface text-text-muted ring-1 ring-border"
+                    )}
+                  >
+                    {cockpit.sandbox.effectivePolicy.enabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 rounded border border-border/50 bg-surface-raised px-2 py-1.5 text-center">
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.activeJobs}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">Active</p>
+                  </div>
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.jobsStartedToday}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                      Started Today
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-base font-bold tabular-nums text-text">
+                      {cockpit.sandbox.usage.remainingJobsToday ?? "∞"}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-wide text-text-subtle">
+                      Remaining Today
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-t border-border pt-2">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Daily Usage
+                  </p>
+                  <DetailRow
+                    label="Daily limit"
+                    value={formatNullable(cockpit.sandbox.usage.dailyLimit ?? "Unlimited")}
+                  />
+                  <DetailRow
+                    label="Completed / blocked / failed"
+                    value={`${cockpit.sandbox.usage.completedToday} / ${cockpit.sandbox.usage.blockedToday} / ${cockpit.sandbox.usage.failedToday}`}
+                  />
+                </div>
+
+                <div className="border-t border-border pt-2">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Process Guardrails
+                  </p>
+                  <DetailRow
+                    label="Runtime cap"
+                    value={formatDurationMs(cockpit.sandbox.effectivePolicy.maxProcessRuntimeMs)}
+                  />
+                  <DetailRow
+                    label="CPU cap"
+                    value={formatDurationMs(cockpit.sandbox.effectivePolicy.maxCpuMsPerJob)}
+                  />
+                  <DetailRow
+                    label="Memory cap"
+                    value={formatBytesCompact(cockpit.sandbox.effectivePolicy.maxMemoryBytesPerJob)}
+                  />
+                  <DetailRow
+                    label="Max processes"
+                    value={cockpit.sandbox.effectivePolicy.maxConcurrentProcesses}
+                  />
+                </div>
+
+                <div className="border-t border-border pt-2">
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                    Files And Delivery
+                  </p>
+                  <DetailRow
+                    label="Single file / workspace"
+                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxSingleFileWriteBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxWorkspaceBytesPerJob)}`}
+                  />
+                  <DetailRow
+                    label="Files / dirs / artifacts"
+                    value={`${cockpit.sandbox.effectivePolicy.maxFileCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxDirectoryCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxPersistedArtifactsPerJob}`}
+                  />
+                  <DetailRow
+                    label="Send count per turn"
+                    value={cockpit.sandbox.effectivePolicy.maxArtifactSendCountPerTurn}
+                  />
+                  <DetailRow
+                    label="Web / Telegram outbound"
+                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.webMaxOutboundBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.telegramMaxOutboundBytes)}`}
+                  />
+                  <DetailRow
+                    label="Stdout / stderr cap"
+                    value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStdoutBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStderrBytes)}`}
+                  />
+                  <DetailRow
+                    label="Network / mime allowlist"
+                    value={`${cockpit.sandbox.effectivePolicy.networkAccessEnabled ? "On" : "Off"} / ${cockpit.sandbox.effectivePolicy.artifactMimeAllowlist.length}`}
+                  />
+                </div>
+              </CardShell>
+
+              <CardShell title="Recent Sandbox Jobs" icon={Activity}>
+                {cockpit.sandbox.recentJobs.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">
+                    No sandbox jobs recorded for this assistant yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {cockpit.sandbox.recentJobs.map((job) => (
+                      <div
+                        key={job.id}
+                        className="rounded border border-border/60 bg-surface-raised px-2.5 py-2"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-text">{job.toolCode}</p>
+                            <p className="text-[9px] font-mono text-text-subtle">
+                              {truncateId(job.id)}
+                              {job.relativeWorkspace ? ` • ${job.relativeWorkspace}` : ""}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                              sandboxJobTone(job.status)
+                            )}
+                          >
+                            {job.status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+
+                        <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
+                          <span>Created: {formatTs(job.createdAt)}</span>
+                          <span className="text-right">Done: {formatTs(job.completedAt)}</span>
+                        </div>
+
+                        <p className="mt-1 text-[10px] text-text-muted">
+                          {job.violationCode ? (
+                            <>
+                              <span className="font-mono font-semibold text-destructive">
+                                {job.violationCode}
+                              </span>
+                              {job.violationMessage ? ` • ${job.violationMessage}` : ""}
+                            </>
+                          ) : job.resultWarning ? (
+                            job.resultWarning
+                          ) : job.resultReason ? (
+                            job.resultReason
+                          ) : (
+                            "No warning or violation recorded."
+                          )}
+                        </p>
+
+                        <div className="mt-1.5 flex flex-wrap gap-1.5 text-[9px] text-text-subtle">
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Files {job.persistedFileCount}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Workspace {formatBytesCompact(job.resourceUsage?.workspaceBytes)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            CPU {formatDurationMs(job.resourceUsage?.peakCpuMs)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Mem {formatBytesCompact(job.resourceUsage?.peakMemoryBytes)}
+                          </span>
+                          <span className="rounded border border-border px-1.5 py-0.5">
+                            Proc {formatNullable(job.resourceUsage?.peakProcessCount)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardShell>
+            </div>
+          )}
 
           {/* --- Row 2: Controls + Incidents side by side --- */}
           <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">

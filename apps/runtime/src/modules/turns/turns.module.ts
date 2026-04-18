@@ -14,8 +14,11 @@ import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
+import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { RuntimeSendMediaToUserService } from "./runtime-send-media-to-user.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import { SandboxClientService } from "./sandbox-client.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { SessionCompactionService } from "./session-compaction.service";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
@@ -40,7 +43,10 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeVideoGenerateToolService,
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
+    RuntimeSandboxToolService,
+    RuntimeSendMediaToUserService,
     RuntimeTtsToolService,
+    SandboxClientService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,
@@ -63,7 +69,10 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeVideoGenerateToolService,
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
+    RuntimeSandboxToolService,
+    RuntimeSendMediaToUserService,
     RuntimeTtsToolService,
+    SandboxClientService,
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,

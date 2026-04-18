@@ -152,24 +152,6 @@ function createChatRepositoryMock() {
   };
 }
 
-function createMediaDeliveryServiceMock() {
-  return {
-    async deliver() {
-      return { attachments: [] };
-    }
-  };
-}
-
-function createAttachmentRepositoryMock(
-  listByMessageIdImpl: (messageId: string) => Promise<unknown[]> = async () => []
-) {
-  return {
-    async listByMessageId(messageId: string) {
-      return listByMessageIdImpl(messageId);
-    }
-  };
-}
-
 async function run(): Promise<void> {
   let resolveFirstRuntime: (() => void) | null = null;
   const firstRuntimeStarted = new Promise<void>((resolve) => {
@@ -185,11 +167,8 @@ async function run(): Promise<void> {
   let concurrentUsageCalls = 0;
   const traceService = createOverviewLatencyTraceServiceMock();
   const chatRepository = createChatRepositoryMock();
-  const attachmentRepository = createAttachmentRepositoryMock();
-  const mediaDeliveryService = createMediaDeliveryServiceMock();
   const concurrentService = new HandleInternalTelegramTurnService(
     chatRepository as never,
-    attachmentRepository as never,
     concurrentBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -223,7 +202,6 @@ async function run(): Promise<void> {
         throw new Error("attachments not expected");
       }
     } as never,
-    mediaDeliveryService as never,
     traceService as never,
     {
       async execute() {
@@ -270,11 +248,8 @@ async function run(): Promise<void> {
   const releasedBindingRepository = createBindingRepository();
   let releaseRuntimeCalls = 0;
   const releasedChatRepository = createChatRepositoryMock();
-  const releasedAttachmentRepository = createAttachmentRepositoryMock();
-  const releasedMediaDeliveryService = createMediaDeliveryServiceMock();
   const fixedReleaseService = new HandleInternalTelegramTurnService(
     releasedChatRepository as never,
-    releasedAttachmentRepository as never,
     releasedBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -308,7 +283,6 @@ async function run(): Promise<void> {
         throw new Error("attachments not expected");
       }
     } as never,
-    releasedMediaDeliveryService as never,
     traceService as never,
     {
       async execute() {
@@ -351,34 +325,6 @@ async function run(): Promise<void> {
 
   const mediaBindingRepository = createBindingRepository();
   const mediaChatRepository = createChatRepositoryMock();
-  const deliveryCalls: Array<{ artifacts: unknown[]; messageId: string }> = [];
-  const persistedObjectKey =
-    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-2/generated.png";
-  const attachmentLookupIds: string[] = [];
-  const mediaAttachmentRepository = createAttachmentRepositoryMock(async (messageId) => {
-    attachmentLookupIds.push(messageId);
-    return [
-      {
-        id: "attachment-1",
-        messageId,
-        chatId: "chat-1",
-        assistantId: "assistant-1",
-        workspaceId: "workspace-1",
-        attachmentType: "image",
-        storagePath: persistedObjectKey,
-        originalFilename: "tuz_virtual_assistant.png",
-        mimeType: "image/png",
-        sizeBytes: BigInt(123),
-        durationMs: null,
-        width: null,
-        height: null,
-        processingStatus: "ready",
-        transcription: null,
-        metadata: null,
-        createdAt: new Date("2026-04-06T00:00:00.000Z")
-      }
-    ];
-  });
   const runtimeMedia = [
     {
       source: "persai_object_storage" as const,
@@ -391,7 +337,6 @@ async function run(): Promise<void> {
   ];
   const mediaRewriteService = new HandleInternalTelegramTurnService(
     mediaChatRepository as never,
-    mediaAttachmentRepository as never,
     mediaBindingRepository as never,
     {
       async enforceInboundTurn() {
@@ -425,15 +370,6 @@ async function run(): Promise<void> {
         throw new Error("attachments not expected");
       }
     } as never,
-    {
-      async deliver(input: { artifacts: unknown[]; messageId: string }) {
-        deliveryCalls.push({
-          artifacts: input.artifacts,
-          messageId: input.messageId
-        });
-        return { attachments: [] };
-      }
-    } as never,
     traceService as never,
     {
       async execute() {
@@ -454,23 +390,7 @@ async function run(): Promise<void> {
     message: "show me an image",
     updateId: 99
   });
-  assert.deepEqual(deliveryCalls, [
-    {
-      artifacts: runtimeMedia,
-      messageId: "message-2"
-    }
-  ]);
-  assert.deepEqual(attachmentLookupIds, ["message-2"]);
-  assert.deepEqual(rewrittenMedia.media, [
-    {
-      source: "persai_object_storage",
-      objectKey: persistedObjectKey,
-      type: "image",
-      mimeType: "image/png",
-      filename: "tuz_virtual_assistant.png",
-      sizeBytes: 123
-    }
-  ]);
+  assert.deepEqual(rewrittenMedia.media, runtimeMedia);
 }
 
 void run();

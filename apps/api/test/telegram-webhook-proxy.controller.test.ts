@@ -8,6 +8,8 @@ async function run(): Promise<void> {
   let executeTurnCalls = 0;
   let syncedTargets = 0;
   let syncedGroups = 0;
+  const mediaDeliveryCalls: Array<Record<string, unknown>> = [];
+  const sendReplyPayloads: Array<Record<string, unknown>> = [];
 
   const service = new TelegramChannelAdapterService(
     {
@@ -39,8 +41,9 @@ async function run(): Promise<void> {
       async sendPlainText() {
         return undefined;
       },
-      async sendAssistantTurnReply() {
+      async sendAssistantTurnReply(params: Record<string, unknown>) {
         sendReplyCalls += 1;
+        sendReplyPayloads.push(params);
       },
       async downloadInboundFile() {
         throw new Error("not expected");
@@ -52,8 +55,27 @@ async function run(): Promise<void> {
         return {
           assistantMessage: "native reply",
           respondedAt: "2026-04-12T10:00:00.000Z",
-          media: []
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/sandbox/jobs/job-1/program.cpp",
+              type: "document",
+              mimeType: "text/plain",
+              filename: "program.cpp",
+              sizeBytes: 64,
+              caption: "Here is your program"
+            }
+          ],
+          assistantMessageId: "assistant-msg-1",
+          chatId: "chat-1",
+          workspaceId: "workspace-1"
         };
+      }
+    } as never,
+    {
+      async deliver(input: Record<string, unknown>) {
+        mediaDeliveryCalls.push(input);
+        return { attachments: [] };
       }
     } as never,
     {
@@ -91,6 +113,34 @@ async function run(): Promise<void> {
   assert.equal(sendReplyCalls, 1);
   assert.equal(syncedTargets, 1);
   assert.equal(syncedGroups, 0);
+  assert.deepEqual(mediaDeliveryCalls, [
+    {
+      artifacts: [
+        {
+          source: "persai_object_storage",
+          objectKey: "assistant-media/sandbox/jobs/job-1/program.cpp",
+          type: "document",
+          mimeType: "text/plain",
+          filename: "program.cpp",
+          sizeBytes: 64,
+          caption: "Here is your program"
+        }
+      ],
+      channel: "telegram",
+      assistantId: "assistant-1",
+      chatId: "chat-1",
+      messageId: "assistant-msg-1",
+      workspaceId: "workspace-1",
+      channelTarget: {
+        channel: "telegram",
+        chatId: "42",
+        metadata: {
+          botToken: "bot-token"
+        }
+      }
+    }
+  ]);
+  assert.equal(sendReplyPayloads[0]?.mediaAlreadyDelivered, true);
 
   const unauthorized = await service.handleWebhook({
     assistantId: "assistant-1",
@@ -155,6 +205,11 @@ async function run(): Promise<void> {
           };
         }
         throw new AssistantRuntimeError("timeout", "timed out");
+      }
+    } as never,
+    {
+      async deliver() {
+        throw new Error("not expected");
       }
     } as never,
     {

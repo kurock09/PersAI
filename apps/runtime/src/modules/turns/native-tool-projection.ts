@@ -176,6 +176,34 @@ export function projectRuntimeNativeTools(
   if (scheduledActionPolicy !== null) {
     projectedTools.push(createScheduledActionToolDefinition(scheduledActionPolicy));
   }
+  const readFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "read_file", "sandbox");
+  if (readFilePolicy !== null) {
+    projectedTools.push(createReadFileToolDefinition(readFilePolicy));
+  }
+  const writeFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "write_file", "sandbox");
+  if (writeFilePolicy !== null) {
+    projectedTools.push(createWriteFileToolDefinition(writeFilePolicy));
+  }
+  const editFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "edit_file", "sandbox");
+  if (editFilePolicy !== null) {
+    projectedTools.push(createEditFileToolDefinition(editFilePolicy));
+  }
+  const execPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "exec", "sandbox");
+  if (execPolicy !== null) {
+    projectedTools.push(createExecToolDefinition(execPolicy));
+  }
+  const shellPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "shell", "sandbox");
+  if (shellPolicy !== null) {
+    projectedTools.push(createShellToolDefinition(shellPolicy));
+  }
+  const sendMediaToUserPolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    "send_media_to_user",
+    "inline"
+  );
+  if (sendMediaToUserPolicy !== null) {
+    projectedTools.push(createSendMediaToUserToolDefinition(sendMediaToUserPolicy));
+  }
 
   return {
     tools: projectedTools,
@@ -720,6 +748,176 @@ function createScheduledActionToolDefinition(
           maximum: REMINDER_CONTEXT_MESSAGES_MAX,
           description:
             "Optional number of recent chat messages to snapshot into the scheduled action context."
+        }
+      }
+    }
+  };
+}
+
+function createReadFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "read_file",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Read a sandbox-managed file by relative path or canonical file reference."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        path: {
+          type: "string",
+          description: "Sandbox-relative file path to read."
+        },
+        fileRef: {
+          type: "string",
+          description: "Optional canonical file reference to read."
+        }
+      }
+    }
+  };
+}
+
+function createWriteFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "write_file",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Create or overwrite one sandbox-managed file."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["path", "content"],
+      properties: {
+        path: {
+          type: "string",
+          description: "Sandbox-relative file path to create or overwrite."
+        },
+        content: {
+          type: "string",
+          description: "UTF-8 text content to write."
+        }
+      }
+    }
+  };
+}
+
+function createEditFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "edit_file",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Apply a focused text replacement in one sandbox-managed file."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["path", "oldText", "newText"],
+      properties: {
+        path: {
+          type: "string",
+          description: "Sandbox-relative file path to edit."
+        },
+        oldText: {
+          type: "string",
+          description: "Existing exact text to replace."
+        },
+        newText: {
+          type: "string",
+          description: "Replacement text."
+        }
+      }
+    }
+  };
+}
+
+function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "exec",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Run one executable with explicit arguments inside the sandbox workspace."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["command"],
+      properties: {
+        command: {
+          type: "string",
+          description: "Executable name or relative binary path."
+        },
+        args: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional argument list."
+        },
+        cwd: {
+          type: "string",
+          description: "Optional sandbox-relative working directory."
+        }
+      }
+    }
+  };
+}
+
+function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+  return {
+    name: "shell",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Run a bounded shell command inside the sandbox workspace."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["command"],
+      properties: {
+        command: {
+          type: "string",
+          description: "Shell command to execute."
+        },
+        cwd: {
+          type: "string",
+          description: "Optional sandbox-relative working directory."
+        }
+      }
+    }
+  };
+}
+
+function createSendMediaToUserToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
+  return {
+    name: "send_media_to_user",
+    description: resolveToolDefinitionDescription(
+      policy,
+      "Queue existing file references or current-turn artifacts for delivery to the user."
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        fileRefs: {
+          type: "array",
+          items: { type: "string" },
+          description: "Canonical file references to deliver."
+        },
+        artifactIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Current-turn artifact ids to include."
+        },
+        caption: {
+          type: "string",
+          description: "Optional caption to attach to delivered files."
+        },
+        filename: {
+          type: "string",
+          description:
+            "Optional filename override when exactly one file reference or artifact is selected."
         }
       }
     }

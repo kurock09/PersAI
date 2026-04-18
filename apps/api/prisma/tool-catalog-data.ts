@@ -189,6 +189,83 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
+  },
+  {
+    id: "17171717-1717-1717-1717-171717171717",
+    code: "read_file",
+    displayName: "Read File",
+    description: "Read a file from the isolated sandbox workspace or mounted file references.",
+    modelDescription:
+      "Read a file only through the isolated sandbox boundary. Never assume direct host filesystem access.",
+    modelUsageGuidance:
+      "Use this only when the user explicitly needs file contents or focused inspection inside sandbox-managed files.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "18181818-1818-1818-1818-181818181818",
+    code: "write_file",
+    displayName: "Write File",
+    description: "Create or overwrite a file inside the isolated sandbox workspace.",
+    modelDescription:
+      "Create or overwrite files only inside the isolated sandbox workspace, never by raw host path access.",
+    modelUsageGuidance:
+      "Use this when the user explicitly wants a file created, exported, or saved for later delivery.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "19191919-1919-1919-1919-191919191919",
+    code: "edit_file",
+    displayName: "Edit File",
+    description: "Apply focused edits to an existing file inside the isolated sandbox workspace.",
+    modelDescription:
+      "Modify existing sandbox-managed files without direct host filesystem access.",
+    modelUsageGuidance:
+      "Use this when the user wants a targeted file edit instead of rewriting the whole file from scratch.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "20202020-2020-2020-2020-202020202020",
+    code: "exec",
+    displayName: "Exec",
+    description: "Run a bounded executable inside the isolated sandbox workspace.",
+    modelDescription: "Run a bounded process only through the isolated sandbox execution boundary.",
+    modelUsageGuidance:
+      "Use this only when a real process execution is necessary and stay within the sandbox limits.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "21212121-2121-2121-2121-212121212121",
+    code: "shell",
+    displayName: "Shell",
+    description: "Run a bounded shell command inside the isolated sandbox workspace.",
+    modelDescription: "Run shell commands only through the isolated sandbox execution boundary.",
+    modelUsageGuidance:
+      "Use this only when a shell command is actually needed and prefer narrower file tools when possible.",
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "22222222-2222-2222-2222-222222222223",
+    code: "send_media_to_user",
+    displayName: "Send Media To User",
+    description:
+      "Attach existing sandbox or runtime artifacts to the current user-facing reply across supported channels.",
+    modelDescription:
+      "Send existing file or media references to the user through the active channel without exposing raw filesystem paths.",
+    modelUsageGuidance:
+      "Use this after you already have a canonical fileRef or artifact reference that should be delivered to the user.",
+    capabilityGroup: "communication" as ToolCatalogCapabilityGroup,
+    toolClass: "utility" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
   }
 ];
 
@@ -206,7 +283,13 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   memory_search: { active: true, dailyCallLimit: null },
   memory_get: { active: true, dailyCallLimit: null },
   cron: { active: false, dailyCallLimit: null },
-  scheduled_action: { active: true, dailyCallLimit: null }
+  scheduled_action: { active: true, dailyCallLimit: null },
+  read_file: { active: false, dailyCallLimit: 20 },
+  write_file: { active: false, dailyCallLimit: 10 },
+  edit_file: { active: false, dailyCallLimit: 10 },
+  exec: { active: false, dailyCallLimit: 5 },
+  shell: { active: false, dailyCallLimit: 5 },
+  send_media_to_user: { active: false, dailyCallLimit: 10 }
 };
 
 const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));

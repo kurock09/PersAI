@@ -192,6 +192,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
       mimeType: artifact.mimeType,
       filename: artifact.filename,
       sizeBytes: artifact.sizeBytes,
+      ...(artifact.caption ? { caption: artifact.caption } : {}),
       ...(artifact.voiceNote ? { audioAsVoice: true } : {})
     });
   }

@@ -41,3 +41,25 @@ spec:
           port: {{ .Values.api.internalService.port }}
 {{- end }}
 ---
+{{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled .Values.runtime.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-ingress-runtime-only
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: runtime
+      ports:
+        - protocol: TCP
+          port: {{ .Values.sandbox.service.port }}
+{{- end }}
+---

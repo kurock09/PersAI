@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantWebChatRuntimeStateQuotaFallbackReason } from "./assistantWebChatRuntimeStateQuotaFallbackReason";
+import type { AssistantWebChatRuntimeStateTurnRouting } from "./assistantWebChatRuntimeStateTurnRouting";
 
 export interface AssistantWebChatRuntimeState {
   respondedAt: string;
@@ -14,9 +15,5 @@ export interface AssistantWebChatRuntimeState {
   /** @nullable */
   quotaFallbackModel: string | null;
   /** @nullable */
-  turnRouting?: {
-    mode: "shadow" | "active";
-    executionMode: "normal" | "premium" | "reasoning";
-    source: "precheck" | "llm" | "fallback";
-  } | null;
+  turnRouting?: AssistantWebChatRuntimeStateTurnRouting;
 }

@@ -78,6 +78,24 @@ export type PlanDraft = {
   retrievalHelperCandidateLimit: string;
   retrievalHelperMaxOutputTokens: string;
   retrievalEmbeddingSearchEnabled: boolean;
+  sandboxEnabled: boolean;
+  sandboxMaxSingleFileMb: string;
+  sandboxMaxWorkspaceMb: string;
+  sandboxMaxArtifactsPerJob: string;
+  sandboxMaxFilesPerJob: string;
+  sandboxMaxDirsPerJob: string;
+  sandboxMaxProcessRuntimeMs: string;
+  sandboxMaxCpuMs: string;
+  sandboxMaxMemoryMb: string;
+  sandboxMaxConcurrentProcesses: string;
+  sandboxMaxStdoutKb: string;
+  sandboxMaxStderrKb: string;
+  sandboxNetworkAccessEnabled: boolean;
+  sandboxArtifactMimeAllowlist: string;
+  sandboxWebOutboundMb: string;
+  sandboxTelegramOutboundMb: string;
+  sandboxJobsPerDay: string;
+  sandboxMaxArtifactSendCountPerTurn: string;
   contextPolicyPreset: ContextPolicyPresetDraft;
   targetContextBudget: string;
   compactionTriggerThreshold: string;
@@ -228,6 +246,13 @@ function parseOptionalPositiveIntDraft(value: string): number | undefined {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseMimeAllowlistDraft(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
 function deriveSharedCompactionSummaryBudgetTokens(targetContextBudget: number): number {
   const derived = Math.floor(targetContextBudget * DEFAULT_SHARED_COMPACTION_SUMMARY_BUDGET_RATIO);
   return Math.max(
@@ -286,6 +311,25 @@ function emptyDraft(): PlanDraft {
     retrievalHelperCandidateLimit: "6",
     retrievalHelperMaxOutputTokens: "220",
     retrievalEmbeddingSearchEnabled: true,
+    sandboxEnabled: false,
+    sandboxMaxSingleFileMb: "10",
+    sandboxMaxWorkspaceMb: "25",
+    sandboxMaxArtifactsPerJob: "8",
+    sandboxMaxFilesPerJob: "32",
+    sandboxMaxDirsPerJob: "16",
+    sandboxMaxProcessRuntimeMs: "15000",
+    sandboxMaxCpuMs: "15000",
+    sandboxMaxMemoryMb: "256",
+    sandboxMaxConcurrentProcesses: "4",
+    sandboxMaxStdoutKb: "128",
+    sandboxMaxStderrKb: "128",
+    sandboxNetworkAccessEnabled: false,
+    sandboxArtifactMimeAllowlist:
+      "text/plain, text/markdown, application/json, application/pdf, application/zip, image/png, image/jpeg, audio/mpeg, audio/ogg, video/mp4",
+    sandboxWebOutboundMb: "25",
+    sandboxTelegramOutboundMb: "50",
+    sandboxJobsPerDay: "",
+    sandboxMaxArtifactSendCountPerTurn: "4",
     ...applyContextPolicyPreset("balanced"),
     primaryModelKey: "",
     premiumModelKey: "",
@@ -336,6 +380,28 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     retrievalHelperCandidateLimit: String(plan.retrievalPolicy.helperCandidateLimit),
     retrievalHelperMaxOutputTokens: String(plan.retrievalPolicy.helperMaxOutputTokens),
     retrievalEmbeddingSearchEnabled: plan.retrievalPolicy.embeddingSearchEnabled,
+    sandboxEnabled: plan.sandboxPolicy.enabled,
+    sandboxMaxSingleFileMb: String(
+      Math.round(plan.sandboxPolicy.maxSingleFileWriteBytes / 1048576)
+    ),
+    sandboxMaxWorkspaceMb: String(Math.round(plan.sandboxPolicy.maxWorkspaceBytesPerJob / 1048576)),
+    sandboxMaxArtifactsPerJob: String(plan.sandboxPolicy.maxPersistedArtifactsPerJob),
+    sandboxMaxFilesPerJob: String(plan.sandboxPolicy.maxFileCountPerJob),
+    sandboxMaxDirsPerJob: String(plan.sandboxPolicy.maxDirectoryCountPerJob),
+    sandboxMaxProcessRuntimeMs: String(plan.sandboxPolicy.maxProcessRuntimeMs),
+    sandboxMaxCpuMs: String(plan.sandboxPolicy.maxCpuMsPerJob),
+    sandboxMaxMemoryMb: String(Math.round(plan.sandboxPolicy.maxMemoryBytesPerJob / 1048576)),
+    sandboxMaxConcurrentProcesses: String(plan.sandboxPolicy.maxConcurrentProcesses),
+    sandboxMaxStdoutKb: String(Math.round(plan.sandboxPolicy.maxStdoutBytes / 1024)),
+    sandboxMaxStderrKb: String(Math.round(plan.sandboxPolicy.maxStderrBytes / 1024)),
+    sandboxNetworkAccessEnabled: plan.sandboxPolicy.networkAccessEnabled,
+    sandboxArtifactMimeAllowlist: plan.sandboxPolicy.artifactMimeAllowlist.join(", "),
+    sandboxWebOutboundMb: String(Math.round(plan.sandboxPolicy.webMaxOutboundBytes / 1048576)),
+    sandboxTelegramOutboundMb: String(
+      Math.round(plan.sandboxPolicy.telegramMaxOutboundBytes / 1048576)
+    ),
+    sandboxJobsPerDay: plan.sandboxPolicy.sandboxJobsPerDay?.toString() ?? "",
+    sandboxMaxArtifactSendCountPerTurn: String(plan.sandboxPolicy.maxArtifactSendCountPerTurn),
     contextPolicyPreset: plan.contextPolicy.preset,
     targetContextBudget: plan.contextPolicy.targetContextBudget.toString(),
     compactionTriggerThreshold: plan.contextPolicy.compactionTriggerThreshold.toString(),
@@ -427,6 +493,30 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       helperCandidateLimit: parsePositiveIntDraft(draft.retrievalHelperCandidateLimit, 6),
       helperMaxOutputTokens: parsePositiveIntDraft(draft.retrievalHelperMaxOutputTokens, 220),
       embeddingSearchEnabled: draft.retrievalEmbeddingSearchEnabled
+    },
+    sandboxPolicy: {
+      enabled: draft.sandboxEnabled,
+      maxSingleFileWriteBytes: parsePositiveIntDraft(draft.sandboxMaxSingleFileMb, 10) * 1048576,
+      maxWorkspaceBytesPerJob: parsePositiveIntDraft(draft.sandboxMaxWorkspaceMb, 25) * 1048576,
+      maxPersistedArtifactsPerJob: parsePositiveIntDraft(draft.sandboxMaxArtifactsPerJob, 8),
+      maxFileCountPerJob: parsePositiveIntDraft(draft.sandboxMaxFilesPerJob, 32),
+      maxDirectoryCountPerJob: parsePositiveIntDraft(draft.sandboxMaxDirsPerJob, 16),
+      maxProcessRuntimeMs: parsePositiveIntDraft(draft.sandboxMaxProcessRuntimeMs, 15000),
+      maxCpuMsPerJob: parsePositiveIntDraft(draft.sandboxMaxCpuMs, 15000),
+      maxMemoryBytesPerJob: parsePositiveIntDraft(draft.sandboxMaxMemoryMb, 256) * 1048576,
+      maxConcurrentProcesses: parsePositiveIntDraft(draft.sandboxMaxConcurrentProcesses, 4),
+      maxStdoutBytes: parsePositiveIntDraft(draft.sandboxMaxStdoutKb, 128) * 1024,
+      maxStderrBytes: parsePositiveIntDraft(draft.sandboxMaxStderrKb, 128) * 1024,
+      networkAccessEnabled: draft.sandboxNetworkAccessEnabled,
+      artifactMimeAllowlist: parseMimeAllowlistDraft(draft.sandboxArtifactMimeAllowlist),
+      webMaxOutboundBytes: parsePositiveIntDraft(draft.sandboxWebOutboundMb, 25) * 1048576,
+      telegramMaxOutboundBytes:
+        parsePositiveIntDraft(draft.sandboxTelegramOutboundMb, 50) * 1048576,
+      sandboxJobsPerDay: parseOptionalPositiveIntDraft(draft.sandboxJobsPerDay) ?? null,
+      maxArtifactSendCountPerTurn: parsePositiveIntDraft(
+        draft.sandboxMaxArtifactSendCountPerTurn,
+        4
+      )
     },
     contextPolicy: {
       preset: draft.contextPolicyPreset,
@@ -1148,6 +1238,121 @@ function PlanForm({
           </Sec>
         </div>
       </div>
+
+      <Sec label="Sandbox policy">
+        <div className="rounded border border-border bg-surface px-3 py-2">
+          <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
+            <Check
+              label="Enable sandbox tools"
+              checked={draft.sandboxEnabled}
+              onChange={(value) => onPatch({ sandboxEnabled: value })}
+            />
+            <Check
+              label="Allow sandbox network"
+              checked={draft.sandboxNetworkAccessEnabled}
+              onChange={(value) => onPatch({ sandboxNetworkAccessEnabled: value })}
+            />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: "Max single file (MB)",
+                value: draft.sandboxMaxSingleFileMb,
+                patch: (value: string) => onPatch({ sandboxMaxSingleFileMb: value })
+              },
+              {
+                label: "Workspace budget (MB)",
+                value: draft.sandboxMaxWorkspaceMb,
+                patch: (value: string) => onPatch({ sandboxMaxWorkspaceMb: value })
+              },
+              {
+                label: "Artifacts per job",
+                value: draft.sandboxMaxArtifactsPerJob,
+                patch: (value: string) => onPatch({ sandboxMaxArtifactsPerJob: value })
+              },
+              {
+                label: "Files per job",
+                value: draft.sandboxMaxFilesPerJob,
+                patch: (value: string) => onPatch({ sandboxMaxFilesPerJob: value })
+              },
+              {
+                label: "Directories per job",
+                value: draft.sandboxMaxDirsPerJob,
+                patch: (value: string) => onPatch({ sandboxMaxDirsPerJob: value })
+              },
+              {
+                label: "Process timeout (ms)",
+                value: draft.sandboxMaxProcessRuntimeMs,
+                patch: (value: string) => onPatch({ sandboxMaxProcessRuntimeMs: value })
+              },
+              {
+                label: "CPU budget (ms)",
+                value: draft.sandboxMaxCpuMs,
+                patch: (value: string) => onPatch({ sandboxMaxCpuMs: value })
+              },
+              {
+                label: "Memory cap (MB)",
+                value: draft.sandboxMaxMemoryMb,
+                patch: (value: string) => onPatch({ sandboxMaxMemoryMb: value })
+              },
+              {
+                label: "Concurrent processes",
+                value: draft.sandboxMaxConcurrentProcesses,
+                patch: (value: string) => onPatch({ sandboxMaxConcurrentProcesses: value })
+              },
+              {
+                label: "Stdout cap (KB)",
+                value: draft.sandboxMaxStdoutKb,
+                patch: (value: string) => onPatch({ sandboxMaxStdoutKb: value })
+              },
+              {
+                label: "Stderr cap (KB)",
+                value: draft.sandboxMaxStderrKb,
+                patch: (value: string) => onPatch({ sandboxMaxStderrKb: value })
+              },
+              {
+                label: "Jobs per day",
+                value: draft.sandboxJobsPerDay,
+                patch: (value: string) => onPatch({ sandboxJobsPerDay: value })
+              },
+              {
+                label: "Web outbound (MB)",
+                value: draft.sandboxWebOutboundMb,
+                patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
+              },
+              {
+                label: "Telegram outbound (MB)",
+                value: draft.sandboxTelegramOutboundMb,
+                patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
+              },
+              {
+                label: "Max sends per turn",
+                value: draft.sandboxMaxArtifactSendCountPerTurn,
+                patch: (value: string) => onPatch({ sandboxMaxArtifactSendCountPerTurn: value })
+              }
+            ].map((field) => (
+              <label key={field.label} className="space-y-1 text-[11px] font-medium text-text">
+                <span className="block">{field.label}</span>
+                <Input type="number" min={0} value={field.value} onValue={field.patch} />
+              </label>
+            ))}
+          </div>
+          <label className="mt-2 block space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Allowed delivery mime types</span>
+            <textarea
+              value={draft.sandboxArtifactMimeAllowlist}
+              onChange={(e) => onPatch({ sandboxArtifactMimeAllowlist: e.target.value })}
+              rows={3}
+              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+              placeholder="text/plain, application/json, image/png"
+            />
+            <span className="block text-[10px] font-normal leading-snug text-text-subtle/80">
+              Comma-separated allowlist for files that may be delivered through
+              `send_media_to_user`.
+            </span>
+          </label>
+        </div>
+      </Sec>
 
       {/* row 5: context policy */}
       <Sec label="Context policy">

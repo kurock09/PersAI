@@ -37,6 +37,7 @@ import {
   buildRuntimeContextHydrationConfig,
   resolveStoredPlanContextHydrationPolicy
 } from "./context-hydration-policy";
+import { resolveStoredPlanSandboxPolicy } from "./sandbox-policy";
 import { buildRuntimeKnowledgeAccessConfig } from "./runtime-knowledge-access";
 import { buildRuntimeWorkerToolsConfig } from "./runtime-worker-tools";
 import { buildRuntimeSharedCompactionConfig } from "./runtime-shared-compaction";
@@ -403,11 +404,13 @@ export class MaterializeAssistantPublishedVersionService {
       planToolQuotaPolicy
     );
     const knowledgeAccess = buildRuntimeKnowledgeAccessConfig();
+    const sandboxPolicy = await this.resolvePlanSandboxPolicy(effectivePlanCode);
     const toolPolicies = resolveRuntimeToolPolicies({
       tools: toolAvailability.tools,
       planToolQuotaPolicy,
       toolCredentialRefs,
       knowledgeAccessEnabled: knowledgeAccess.sources.length > 0,
+      sandboxEnabled: sandboxPolicy.enabled,
       syntheticToolOverrides: buildSyntheticPromptToolOverrideMap(promptTemplateRows)
     });
     const telegramChannel = await this.resolveTelegramChannelConfig(assistant.id);
@@ -532,7 +535,8 @@ export class MaterializeAssistantPublishedVersionService {
         sharedCompaction,
         knowledgeAccess,
         workerTools,
-        browser
+        browser,
+        sandbox: sandboxPolicy
       },
       governance: {
         capabilityEnvelope: governance.capabilityEnvelope,
@@ -810,6 +814,25 @@ export class MaterializeAssistantPublishedVersionService {
     }
     const record = hints as Record<string, unknown>;
     return resolveStoredPlanContextHydrationPolicy(record.contextPolicy);
+  }
+
+  private async resolvePlanSandboxPolicy(planCode: string | null) {
+    if (planCode === null) {
+      return resolveStoredPlanSandboxPolicy(null);
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return resolveStoredPlanSandboxPolicy(null);
+    }
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) {
+      return resolveStoredPlanSandboxPolicy(null);
+    }
+    const record = hints as Record<string, unknown>;
+    return resolveStoredPlanSandboxPolicy(record.sandboxPolicy);
   }
 
   private async resolveWorkspaceQuotaBytes(

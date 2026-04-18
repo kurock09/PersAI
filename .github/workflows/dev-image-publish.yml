@@ -8,6 +8,7 @@ on:
       - .github/workflows/dev-image-publish.yml
       - apps/api/**
       - apps/runtime/**
+      - apps/sandbox/**
       - apps/provider-gateway/**
       - apps/web/**
       - packages/**
@@ -38,6 +39,9 @@ jobs:
             build-args: ""
           - image: runtime
             dockerfile: apps/runtime/Dockerfile
+            build-args: ""
+          - image: sandbox
+            dockerfile: apps/sandbox/Dockerfile
             build-args: ""
           - image: provider-gateway
             dockerfile: apps/provider-gateway/Dockerfile

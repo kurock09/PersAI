@@ -22,6 +22,7 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-inbound-surface-message.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
+import { MediaDeliveryService } from "./media/media-delivery.service";
 
 const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 
@@ -395,6 +396,7 @@ export class TelegramChannelAdapterService {
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly telegramBotClientService: TelegramBotClientService,
     private readonly handleInternalTelegramTurnService: HandleInternalTelegramTurnService,
+    private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly syncTelegramGroupMembershipService: SyncTelegramGroupMembershipService,
     private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
@@ -601,12 +603,31 @@ export class TelegramChannelAdapterService {
     }
 
     try {
+      if (turnResult.media.length > 0 && turnResult.deduplicated !== true) {
+        await this.mediaDeliveryService.deliver({
+          artifacts: turnResult.media,
+          channel: "telegram",
+          assistantId: config.assistantId,
+          chatId: turnResult.chatId,
+          messageId: turnResult.assistantMessageId,
+          workspaceId: turnResult.workspaceId,
+          channelTarget: {
+            channel: "telegram",
+            chatId: event.chatId,
+            metadata: {
+              botToken: config.botToken
+            }
+          }
+        });
+      }
+
       await this.telegramBotClientService.sendAssistantTurnReply({
         botToken: config.botToken,
         chatId: event.chatId,
         assistantId: config.assistantId,
         parseMode: config.parseMode,
         turnResult,
+        mediaAlreadyDelivered: turnResult.media.length > 0,
         postReplyNotices:
           turnResult.autoCompaction === undefined
             ? undefined

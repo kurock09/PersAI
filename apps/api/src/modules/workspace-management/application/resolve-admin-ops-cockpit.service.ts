@@ -11,7 +11,9 @@ import type {
   AdminOpsCockpitState,
   AdminOpsCockpitQuotaUsage,
   AdminOpsCockpitChannelBinding,
-  AdminOpsCockpitChatStats
+  AdminOpsCockpitChatStats,
+  AdminOpsCockpitSandbox,
+  AdminOpsCockpitSandboxJobResourceUsage
 } from "./ops-cockpit.types";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import {
@@ -25,9 +27,16 @@ import {
 } from "../domain/workspace-quota-accounting.repository";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { resolveStoredPlanSandboxPolicy } from "./sandbox-policy";
 
 function asIso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 @Injectable()
@@ -95,6 +104,7 @@ export class ResolveAdminOpsCockpitService {
         quotaUsage: null,
         chatStats: null,
         channels: [],
+        sandbox: null,
         assistant: {
           exists: false,
           assistantId: null,
@@ -172,11 +182,17 @@ export class ResolveAdminOpsCockpitService {
     const quotaUsage = await this.resolveQuotaUsage(assistant.workspaceId, assistant);
     const chatStats = await this.resolveChatStats(assistant.workspaceId, assistant.id);
     const channels = await this.resolveChannelBindings(assistant.id);
+    const sandbox = await this.resolveSandboxState(
+      assistant.id,
+      assistant.workspaceId,
+      effectiveSubscription?.planCode ?? null
+    );
 
     return {
       quotaUsage,
       chatStats,
       channels,
+      sandbox,
       assistant: {
         exists: true,
         assistantId: assistant.id,
@@ -287,5 +303,157 @@ export class ResolveAdminOpsCockpitService {
       surface: b.surfaceType,
       state: b.bindingState
     }));
+  }
+
+  private async resolveSandboxState(
+    assistantId: string,
+    workspaceId: string,
+    planCode: string | null
+  ): Promise<AdminOpsCockpitSandbox> {
+    const effectivePolicy = await this.resolvePlanSandboxPolicy(planCode);
+    const startOfTodayUtc = new Date();
+    startOfTodayUtc.setUTCHours(0, 0, 0, 0);
+
+    const [activeJobs, jobsStartedToday, completedToday, blockedToday, failedToday, recentJobs] =
+      await this.prisma.$transaction([
+        this.prisma.sandboxJob.count({
+          where: {
+            assistantId,
+            workspaceId,
+            status: { in: ["queued", "running"] }
+          }
+        }),
+        this.prisma.sandboxJob.count({
+          where: {
+            assistantId,
+            workspaceId,
+            createdAt: { gte: startOfTodayUtc }
+          }
+        }),
+        this.prisma.sandboxJob.count({
+          where: {
+            assistantId,
+            workspaceId,
+            createdAt: { gte: startOfTodayUtc },
+            status: "completed"
+          }
+        }),
+        this.prisma.sandboxJob.count({
+          where: {
+            assistantId,
+            workspaceId,
+            createdAt: { gte: startOfTodayUtc },
+            status: "blocked"
+          }
+        }),
+        this.prisma.sandboxJob.count({
+          where: {
+            assistantId,
+            workspaceId,
+            createdAt: { gte: startOfTodayUtc },
+            status: "failed"
+          }
+        }),
+        this.prisma.sandboxJob.findMany({
+          where: { assistantId, workspaceId },
+          orderBy: { createdAt: "desc" },
+          take: 6,
+          select: {
+            id: true,
+            toolCode: true,
+            status: true,
+            relativeWorkspace: true,
+            createdAt: true,
+            startedAt: true,
+            completedAt: true,
+            violationCode: true,
+            violationMessage: true,
+            resultPayload: true,
+            resourceUsage: true,
+            _count: {
+              select: {
+                fileRefs: true
+              }
+            }
+          }
+        })
+      ]);
+
+    return {
+      effectivePolicy,
+      usage: {
+        activeJobs,
+        jobsStartedToday,
+        completedToday,
+        blockedToday,
+        failedToday,
+        dailyLimit: effectivePolicy.sandboxJobsPerDay,
+        remainingJobsToday:
+          effectivePolicy.sandboxJobsPerDay === null
+            ? null
+            : Math.max(effectivePolicy.sandboxJobsPerDay - jobsStartedToday, 0)
+      },
+      recentJobs: recentJobs.map((job) => {
+        const payload = asObject(job.resultPayload);
+        return {
+          id: job.id,
+          toolCode: job.toolCode,
+          status: job.status,
+          relativeWorkspace: job.relativeWorkspace,
+          createdAt: job.createdAt.toISOString(),
+          startedAt: asIso(job.startedAt),
+          completedAt: asIso(job.completedAt),
+          violationCode: job.violationCode,
+          violationMessage: job.violationMessage,
+          resultReason: this.readNullableString(payload?.reason),
+          resultWarning: this.readNullableString(payload?.warning),
+          persistedFileCount: job._count.fileRefs,
+          resourceUsage: this.readSandboxJobResourceUsage(job.resourceUsage)
+        };
+      })
+    };
+  }
+
+  private async resolvePlanSandboxPolicy(planCode: string | null) {
+    if (planCode === null) {
+      return resolveStoredPlanSandboxPolicy(null);
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) {
+      return resolveStoredPlanSandboxPolicy(null);
+    }
+    const hints = asObject(plan.billingProviderHints);
+    return resolveStoredPlanSandboxPolicy(hints?.sandboxPolicy);
+  }
+
+  private readSandboxJobResourceUsage(
+    value: unknown
+  ): AdminOpsCockpitSandboxJobResourceUsage | null {
+    const row = asObject(value);
+    if (row === null) {
+      return null;
+    }
+    return {
+      workspaceBytes: this.readNullableNumber(row.workspaceBytes),
+      fileCount: this.readNullableNumber(row.fileCount),
+      directoryCount: this.readNullableNumber(row.directoryCount),
+      stdoutBytes: this.readNullableNumber(row.stdoutBytes),
+      stderrBytes: this.readNullableNumber(row.stderrBytes),
+      peakProcessCount: this.readNullableNumber(row.peakProcessCount),
+      peakCpuMs: this.readNullableNumber(row.peakCpuMs),
+      peakMemoryBytes: this.readNullableNumber(row.peakMemoryBytes),
+      processDurationMs: this.readNullableNumber(row.processDurationMs)
+    };
+  }
+
+  private readNullableString(value: unknown): string | null {
+    return typeof value === "string" ? value : null;
+  }
+
+  private readNullableNumber(value: unknown): number | null {
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 }

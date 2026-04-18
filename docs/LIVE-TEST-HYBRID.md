@@ -66,16 +66,18 @@ Expected without auth: `401 Unauthorized`.
 
 ## Native runtime checks
 
-Run these when validating the active runtime/provider-gateway path:
+Run these when validating the active runtime/provider-gateway/sandbox path:
 
 ```powershell
 kubectl exec -n persai-dev deployment/api -- node -e "(async()=>{for (const url of ['http://runtime:3012/ready','http://provider-gateway:3011/ready']) { const res = await fetch(url); console.log(url); console.log(res.status); console.log(await res.text()); }} )().catch((error)=>{console.error(error); process.exit(1);})"
+kubectl exec -n persai-dev deployment/runtime -- node -e "(async()=>{const res = await fetch('http://sandbox:3013/ready'); console.log('http://sandbox:3013/ready'); console.log(res.status); console.log(await res.text());})().catch((error)=>{console.error(error); process.exit(1);})"
 ```
 
 Expected:
 
 - `runtime` `/ready` returns healthy status
 - `provider-gateway` `/ready` returns healthy status
+- `sandbox` `/ready` returns healthy status
 
 ## Browser-path validation
 
@@ -95,13 +97,29 @@ The active path truth is:
 - API owns canonical chat/message persistence
 - runtime owns request-time execution
 - provider-gateway owns provider client interaction
+- sandbox owns isolated file/process execution plus canonical persisted `SandboxFileRef` output
+
+## Step 20 Sandbox Smoke
+
+Use this only after the selected assistant's effective plan enables sandbox tools and `send_media_to_user`.
+
+With a signed-in browser session on `/app`:
+
+1. Send a bounded prompt that requires sandbox execution plus delivery, for example: create a tiny text file such as `hello.txt`, then send that file back to the user in the same turn.
+2. Confirm the reply completes successfully and the user-visible assistant message shows the delivered attachment instead of dropping the artifact after tool execution.
+3. Confirm `Admin > Ops` for the same assistant now shows:
+   - an increased `jobs started today` or `recent sandbox jobs` entry
+   - the actual tool code (`write_file`, `exec`, or `shell`)
+   - a completed or blocked status with persisted `resourceUsage` truth
+4. If the file is blocked by policy, confirm the blocked reason is explicit rather than a generic runtime failure.
+5. If the run succeeds, open/download the delivered file from the web surface to prove the final user path, not only the sandbox job path.
 
 ## Common failure signatures
 
 - `Failed to fetch`: local web is not using same-origin `/api/v1` or the port-forward is down
 - `ECONNREFUSED` on `localhost:3001`: API port-forward is not running
 - `401` on `/api/v1/me`: expected when unauthenticated
-- unhealthy preflight: inspect `api`, `runtime`, and `provider-gateway` deployments rather than looking for removed legacy services
+- unhealthy preflight: inspect `api`, `runtime`, `provider-gateway`, and `sandbox` deployments rather than looking for removed legacy services
 
 ## Shutdown
 

@@ -310,6 +310,8 @@ runtime:
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
+    RUNTIME_SANDBOX_BASE_URL: "http://sandbox:3013"
+    RUNTIME_SANDBOX_TIMEOUT_MS: "20000"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
@@ -354,6 +356,67 @@ runtime:
   service:
     type: ClusterIP
     port: 3012
+
+sandbox:
+  enabled: true
+  serviceAccount:
+    create: false
+    name: api-sa
+  cloudSqlProxy:
+    enabled: true
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.18.3
+    port: 5432
+    instanceConnectionName: project-44786b14-b7d7-4554-a8a:europe-west1:persai-dev-postgres
+    usePrivateIp: true
+  env:
+    APP_ENV: dev
+    PORT: "3013"
+    LOG_LEVEL: info
+    GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
+    GCP_REGION: europe-west1
+    PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
+    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+  secretEnv:
+    PERSAI_INTERNAL_API_TOKEN:
+      secretName: persai-runtime-secrets
+      secretKey: PERSAI_INTERNAL_API_TOKEN
+    DATABASE_URL:
+      secretName: persai-api-secrets
+      secretKey: DATABASE_URL
+  replicaCount: 1
+  revisionHistoryLimit: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 768Mi
+    limits:
+      cpu: "2"
+      memory: 1536Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  service:
+    type: ClusterIP
+    port: 3013
 
 ingress:
   enabled: true

@@ -7,6 +7,7 @@
 import type { AdminRuntimeProviderSettingsMode } from "./adminRuntimeProviderSettingsMode";
 import type { AdminRuntimeProviderSettingsStatePrimary } from "./adminRuntimeProviderSettingsStatePrimary";
 import type { AdminRuntimeProviderSettingsStateFallback } from "./adminRuntimeProviderSettingsStateFallback";
+import type { AdminRuntimeProviderSettingsStateRouterPolicy } from "./adminRuntimeProviderSettingsStateRouterPolicy";
 import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
 import type { AdminRuntimeProviderSettingsStateProviderKeys } from "./adminRuntimeProviderSettingsStateProviderKeys";
 
@@ -19,20 +20,7 @@ export interface AdminRuntimeProviderSettingsState {
   fallback: AdminRuntimeProviderSettingsStateFallback;
   /** @nullable */
   routingFastModelKey: string | null;
-  routerPolicy: {
-    enabled: boolean;
-    mode: "shadow" | "active";
-    classifierFailureFallbackMode: "normal" | "premium" | "reasoning";
-    clarifyOnMissingContext: boolean;
-    /** @nullable */
-    precheckRuleOverrides: {
-      continueTerms: string[];
-      retrievalTerms: string[];
-      reasoningTerms: string[];
-      premiumTerms: string[];
-      toolTerms: string[];
-    } | null;
-  };
+  routerPolicy: AdminRuntimeProviderSettingsStateRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   providerKeys: AdminRuntimeProviderSettingsStateProviderKeys;
   notes: string[];

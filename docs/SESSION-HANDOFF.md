@@ -1,5 +1,331 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Step 20 live-test prep wiring
+
+### What changed
+
+1. `Prompt Constructor` UI ordering is now re-synced with the backend tool metadata order for the Step 20 sandbox/delivery tools. `apps/web/app/admin/presets/page.tsx` now keeps `read_file`, `write_file`, `edit_file`, `exec`, `shell`, and `send_media_to_user` in the same model-tool sequence as `apps/api/src/modules/workspace-management/application/prompt-constructor-tool-metadata.ts`, so those tools remain visible and admin-editable in the same per-tool instructions surface as the older catalog tools.
+2. The `sandbox` workload is now wired into the dev deploy path instead of existing only as local code. `infra/helm` now includes `sandbox` deployment/service/service-account templates plus values for `sandbox`, `RUNTIME_SANDBOX_BASE_URL`, and the internal token/database wiring needed for runtime-to-sandbox calls on `persai-dev`.
+3. The normal dev image publish path now knows about `apps/sandbox`. `.github/workflows/dev-image-publish.yml` now includes the `sandbox` image in the watched paths and build matrix, so the regular `main -> dev image publish -> values-dev pin -> Argo CD rollout` path can carry sandbox changes without one-off manual image handling.
+4. Active docs are now more honest about Step 20 status before live smoke. `docs/LIVE-TEST-HYBRID.md`, `docs/TEST-PLAN.md`, `docs/ROADMAP.md`, and `docs/ADR/073-post-adr072-residue-and-polish-program.md` now stop treating Step 20 as fully deferred and instead frame the remaining closure honestly: dev deploy wiring is landing, but the final user-surface proof is still pending.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `The remaining honest Step 20 closure is now the real live web/GKE smoke: sandbox service healthy in dev, runtime wired to it, and one successful sandbox -> fileRef -> send_media_to_user -> user-receives-file proof on a real surface`
+
+### Files touched
+
+- `apps/web/app/admin/presets/page.tsx`
+- `.github/workflows/dev-image-publish.yml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `infra/helm/templates/sandbox-deployment.yaml`
+- `infra/helm/templates/sandbox-service.yaml`
+- `infra/helm/templates/sandbox-serviceaccount.yaml`
+- `infra/helm/templates/workload-hpa.yaml`
+- `infra/helm/templates/workload-pdb.yaml`
+- `infra/helm/templates/networkpolicies.yaml`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/TEST-PLAN.md`
+- `docs/ROADMAP.md`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- `helm lint infra/helm -f infra/helm/values-dev.yaml`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > /dev/null`
+
+### Risks / notes
+
+1. This slice prepares the dev rollout path; it does not itself prove the live user-facing artifact roundtrip yet.
+2. `sandbox` is now expected as a real internal workload in dev, so the next rollout must confirm image publish, pod readiness, and runtime-to-sandbox reachability on `persai-dev`, not only local typecheck/render success.
+3. ADR/program docs are now less stale, but the final repo-truth closeout for Step 20 still depends on the live smoke result, not on deploy wiring alone.
+
+### Next recommended step
+
+1. Roll out the new `sandbox` workload to `persai-dev`, confirm `runtime -> sandbox` readiness in-cluster, and then execute one real web smoke where the assistant creates a tiny file and delivers it back to the user through `send_media_to_user`.
+
+## 2026-04-19 - Step 20 sandbox operator/admin truth in Ops Cockpit
+
+### What changed
+
+1. `Admin > Ops` now exposes the first real Step 20 operator truth surface instead of leaving `SandboxJob` telemetry dark in the database. `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts` now resolves assistant-scoped sandbox state into the existing cockpit payload, and `apps/web/app/admin/ops/page.tsx` renders that state directly.
+2. The cockpit sandbox block now shows the effective active sandbox policy for the selected assistant/workspace plan, including the process-tree guardrails that were just made real (`maxProcessRuntimeMs`, `maxCpuMsPerJob`, `maxMemoryBytesPerJob`, `maxConcurrentProcesses`) plus file/delivery limits such as outbound web/Telegram caps and `maxArtifactSendCountPerTurn`.
+3. Sandbox quota/usage truth is now visible to operators in the same place: the cockpit reports active queued/running jobs, jobs started today, completed/blocked/failed counts for the UTC day, the effective `sandboxJobsPerDay` limit, and the remaining jobs today figure when that limit exists.
+4. Recent persisted sandbox jobs are now surfaced with their real stored telemetry instead of hand-wavy docs. The new recent-jobs panel shows status, blocked reason, persisted file count, and recorded `SandboxJob.resourceUsage` fields including workspace bytes, peak CPU, peak memory, peak process count, and process duration.
+5. Contract/admin truth was aligned together for this slice: `packages/contracts/openapi.yaml` and regenerated `@persai/contracts` now include the cockpit sandbox payload, and a focused API test (`apps/api/test/resolve-admin-ops-cockpit.service.test.ts`) locks the new effective-policy plus recent-job mapping.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Step 20 sandbox baseline, enforcement, and operator/admin truth are now locally landed; the remaining honest product proof is a live sandbox -> fileRef -> send_media_to_user -> user receives file roundtrip on a real surface`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/ops-cockpit.types.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/test/resolve-admin-ops-cockpit.service.test.ts`
+- `apps/web/app/admin/ops/page.tsx`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `packages/contracts/openapi.yaml`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+
+### Risks / notes
+
+1. This is operator/admin observability, not the final user-visible proof. The repo still does not contain a live, real-surface end-to-end check that a sandbox-produced artifact reaches and is consumable by the actual end user.
+2. `networkAccessEnabled` is still only reflected as policy truth in the cockpit; the sandbox backend still enforces it heuristically at command-shape level rather than through a true network isolation boundary.
+3. `docs/ADR/073-post-adr072-residue-and-polish-program.md` still contains older planning text that understates how much of Step 20 is already landed in code. Treat code plus this handoff as the current source of truth until the larger program ADR is resynced.
+
+### Next recommended step
+
+1. Stop doing admin-truth slices for Step 20 and move to the last honest product proof: run the live sandbox -> `fileRef` -> `send_media_to_user` -> user-receives-file roundtrip on one real surface, then sync the larger ADR/program docs if that proof succeeds.
+
+## 2026-04-19 - Step 20 process-tree guardrails enforcement
+
+### What changed
+
+1. Independent code audit now confirms the honest Step 20 baseline: the sandbox tool family, canonical `SandboxFileRef` path, separate `send_media_to_user` tool, and the unified web/Telegram outbound delivery seam are already locally landed. The current Step 20 tail is no longer “do sandbox at all”; it is guardrail hardening plus operator/admin truth.
+2. `apps/sandbox/src/sandbox.service.ts` now turns three previously paper-only policy fields into real sandbox behavior for `exec` and `shell`: `maxConcurrentProcesses`, `maxCpuMsPerJob`, and `maxMemoryBytesPerJob` are enforced against the full spawned process tree, not just the root child process.
+3. Sandbox job persistence is now a little more operator-honest even before a dedicated admin surface exists. Completed and blocked jobs now record peak process count, peak CPU ms, peak memory bytes, and process duration inside `SandboxJob.resourceUsage`, so the stored job row matches the limits that actually stopped or allowed the run.
+4. Focused proof now exists for the new enforcement slice. `apps/sandbox/test/sandbox.service.test.ts` now covers process-tree fanout rejection, memory-cap rejection, CPU-budget rejection, and direct tree accounting on top of the earlier mounted-`fileRef` and daily-job-quota coverage.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Step 20 baseline is already landed locally; the active tail is now honest guardrail enforcement, persisted operator truth for sandbox jobs, and the remaining admin/live-surface follow-through`
+
+### Files touched
+
+- `apps\sandbox\src\sandbox.service.ts`
+- `apps\sandbox\test\sandbox.service.test.ts`
+- `docs\CHANGELOG.md`
+- `docs\SESSION-HANDOFF.md`
+- `docs\TEST-PLAN.md`
+
+### Verification run
+
+- `pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `pnpm --filter @persai/sandbox run typecheck`
+
+### Risks / notes
+
+1. `maxConcurrentProcesses`, `maxCpuMsPerJob`, and `maxMemoryBytesPerJob` are now enforced in the sandbox data plane, but there is still no dedicated admin/operator API or UI that lists recent `SandboxJob` rows, blocked reasons, or active limit snapshots cleanly.
+2. `networkAccessEnabled` is still only a command-shape heuristic inside `apps/sandbox`; it is not yet a true network namespace / firewall boundary.
+3. `docs/ADR/073-post-adr072-residue-and-polish-program.md` still contains historical text that treats Step 20 as deferred. Treat code plus this handoff as the current truth until that larger program doc is re-synced.
+
+### Next recommended step
+
+1. Continue the same `add-sandbox-guardrails-admin` track instead of another verification-only slice: surface persisted `SandboxJob` truth and active plan/runtime limits to operators/admins, and only then move on to the live end-to-end user-receives-file proof.
+
+## 2026-04-18 - Step 20 guardrail enforcement follow-through
+
+### What changed
+
+1. Step 20 guardrails are now a little less “paper policy” and a little more real runtime behavior. `apps/sandbox/src/sandbox.service.ts` now enforces `sandboxJobsPerDay` as a preflight quota at job submission time: once the assistant/workspace reaches the plan-owned daily sandbox-job cap for the UTC day, the service records a blocked `SandboxJob` row immediately and returns a structured `sandbox_daily_job_limit_reached` result instead of pretending the request can still enter execution.
+2. `send_media_to_user` now treats channel outbound size caps as a final delivery-budget rule rather than a per-artifact spot check. `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts` now computes the final outbound artifact set for the turn and blocks the tool call if the combined bytes for the active channel would exceed `webMaxOutboundBytes` or `telegramMaxOutboundBytes`.
+3. Focused proof now exists for both enforcement points. `apps/sandbox/test/sandbox.service.test.ts` now covers blocked preflight when the daily sandbox quota is exhausted, and `apps/runtime/test/runtime-send-media-to-user.service.test.ts` now covers channel-cap blocking based on the total outbound payload instead of only a single artifact’s size.
+4. Todo truth is now clearer than the original plan file snapshot: the baseline file-authority contract, `apps/sandbox`, sandbox tool family, shared send tool, and unified channel-delivery seam are already locally landed. The remaining active Step 20 work is now mainly deeper guardrail/admin-policy completion plus a truly live end-to-end user-receives-file proof.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Step 20 core baseline is already landed locally; the active implementation tail is now honest policy enforcement and operator/admin truth, plus one higher-level live proof that sandbox-produced files really reach the user surface`
+
+### Files touched
+
+- `apps\sandbox\src\sandbox.service.ts`
+- `apps\runtime\src\modules\turns\runtime-send-media-to-user.service.ts`
+- `apps\sandbox\test\sandbox.service.test.ts`
+- `apps\runtime\test\runtime-send-media-to-user.service.test.ts`
+- `docs\CHANGELOG.md`
+- `docs\SESSION-HANDOFF.md`
+- `docs\TEST-PLAN.md`
+
+### Verification run
+
+- `pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `pnpm --filter @persai/sandbox run typecheck`
+- `pnpm --filter @persai/runtime run typecheck`
+
+### Risks / notes
+
+1. `sandboxJobsPerDay` is now enforced, but still at the sandbox-service/data-plane boundary, not yet through a broader operator quota dashboard or richer internal quota API.
+2. Channel outbound size caps now protect the final combined artifact set, but the deeper process-level limits (`maxCpuMsPerJob`, `maxMemoryBytesPerJob`, stronger subprocess accounting) still remain follow-through inside the guardrail slice.
+
+### Next recommended step
+
+1. Continue the same guardrail/admin slice instead of another verification-only slice: finish the remaining high-signal enforcement gaps and align the admin/operator surfaces with the limits that now actually govern Step 20 behavior.
+
+## 2026-04-18 - Step 20 API/channel delivery proof checkpoint
+
+### What changed
+
+1. The Step 20 branch now has focused API-boundary proof for the final user-visible media handoff on both active surfaces. `apps/api/test/send-web-chat-turn.service.test.ts` now verifies that a native runtime response carrying a produced file/document artifact is handed into `MediaDeliveryService` on the web sync path and that the returned persisted attachments are exposed on the assistant message returned to the caller.
+2. Telegram now has a matching boundary proof at the webhook adapter layer. `apps/api/test/telegram-webhook-proxy.controller.test.ts` now verifies that when the internal turn result already includes outbound media, `TelegramChannelAdapterService` routes that media through the shared `MediaDeliveryService` with the real `channelTarget`/`botToken`, then calls `sendAssistantTurnReply` with `mediaAlreadyDelivered: true` so the Bot API upload is not duplicated.
+3. The local contract is now more honest about Telegram identity normalization: the channel target chat id is asserted as the normalized string value on the shared delivery seam, not assumed to remain a raw numeric webhook payload.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Runtime/native-loop semantics and the API/channel delivery seam are now both locally covered; the next honest Step 20 work is above this boundary again: either a real multi-service/live proof that the surfaced file is fetchable/receivable by the actual user surface, or deeper sandbox guardrail enforcement and admin-facing quota validation`
+
+### Files touched
+
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/telegram-webhook-proxy.controller.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+
+### Risks / notes
+
+1. This is still a local/mock proof at the API boundary. It proves that produced artifacts are not dropped or duplicated when crossing the `apps/api` surface seams, but it does not yet prove a full live environment roundtrip with real sandbox job execution plus real user fetch/open behavior.
+2. Web and Telegram intentionally diverge after the shared delivery seam: web persists attachments for later fetch through the existing web transport, while Telegram performs an immediate outbound upload. The tests now prove the shared seam handoff without pretending the last-mile mechanics are identical.
+
+### Next recommended step
+
+1. Add the next honest Step 20 proof one layer above this pack: either a live/manual smoke that exercises `sandbox -> fileRef -> send_media_to_user -> user receives file` on a real surface, or the remaining sandbox guardrail/admin-policy slice so abusive outputs/processes are blocked with explicit product-facing policy behavior.
+
+## 2026-04-18 - Step 20 sandbox/media delivery seam checkpoint
+
+### What changed
+
+1. The current `Step 20` branch now has a real local baseline for sandbox-owned file/process execution plus plan-owned sandbox policy materialization. `packages/runtime-contract`, `packages/runtime-bundle`, `apps/api`, `apps/runtime`, `apps/sandbox`, and `apps/web` already carry the first end-to-end contract for sandbox jobs, `SandboxFileRef` persistence, plan-configured guardrails, and the separate `send_media_to_user` tool surface.
+2. Telegram outbound media delivery no longer depends on a split-brain path where runtime/API bookkeeping and actual Bot API upload happen through different seams. `MediaDeliveryService` now receives the real channel target, `TelegramMediaAdapter` is a live adapter instead of a no-op placeholder, and Telegram media sends now preserve `caption` on the actual outbound media request.
+3. `HandleInternalTelegramTurnService` no longer performs direct side-send delivery itself. The current path is now closer to the intended Step 20 shape: runtime/tool execution returns artifact references, the shared media-delivery seam persists canonical attachment rows, and the channel adapter performs channel-specific send behavior.
+4. The current `send_media_to_user` path now handles already-produced current-turn artifacts more honestly. Re-selecting an existing artifact no longer trips the per-turn artifact cap by double-counting the same artifact id, and later send-to-user metadata overrides now replace the prior artifact record in runtime turn state instead of silently losing the override behind dedupe order.
+5. Focused verification now exists for this seam. `apps/runtime/test/runtime-send-media-to-user.service.test.ts` covers current-artifact delivery semantics plus artifact-state replacement behavior, and `apps/api/test/media-delivery.service.test.ts` now asserts that shared media delivery forwards the real Telegram channel target plus `caption`.
+6. `apps/sandbox` now has the first honest file-reference semantics coverage. `read_file` can now resolve a mounted `fileRef` without requiring a duplicate `path` argument, and sandbox output persistence no longer re-emits unchanged mounted input files as new sandbox outputs. `apps/sandbox/test/sandbox.service.test.ts` now proves both behaviors directly.
+7. `apps/runtime/test/turn-execution.service.test.ts` now includes a mini native-loop proof for the main Step 20 happy path inside runtime: model calls `write_file`, receives a sandbox job result containing a produced `fileRef`, then calls `send_media_to_user`, and the final runtime turn result carries the delivered artifact instead of dropping it between tool iterations.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Sandbox contracts/policy/admin surfaces are locally landed, and Telegram now uses the shared outbound delivery seam; the next honest prod step is to tighten send_media_to_user semantics and add focused verification so current-artifact delivery, fileRef delivery, and channel fanout behave deterministically`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/handle-internal-telegram-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts`
+- `apps/api/src/modules/workspace-management/application/media/channel-adapters/telegram-media.adapter.ts`
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts`
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/idempotency.service.test.ts`
+- `apps/runtime/test/provider-gateway.client.service.test.ts`
+- `apps/runtime/test/runtime-bundle-coordinator.service.test.ts`
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts`
+- `apps/runtime/test/runtime-config.test.ts`
+- `apps/runtime/test/runtime-state-keyspace.service.test.ts`
+- `apps/runtime/test/runtime-state-redis.service.test.ts`
+- `apps/runtime/test/session-store.service.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/run-suite.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `pnpm install`
+- `pnpm --filter @persai/sandbox test`
+- `pnpm --filter @persai/sandbox typecheck`
+- `pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `pnpm --filter @persai/runtime typecheck`
+- `pnpm --filter @persai/api typecheck`
+
+### Risks / notes
+
+1. The Step 20 branch is still in-progress. The next remaining honesty risk is now above the native runtime loop itself: runtime-side fileRef semantics and the core tool-loop handoff are locally verified, but the full API/channel end-to-end path still needs one honest "assistant creates file and the user really receives it on the surface" verification pack.
+2. Web delivery is intentionally still "persist then fetch via existing web transport/proxy" rather than a Telegram-style push send, so the shared abstraction should be kept honest about that difference instead of pretending both channels have identical mechanics.
+
+### Next recommended step
+
+1. Add the next bounded Step 20 verification slice at the API/channel boundary: native runtime produces the artifact/fileRef correctly already, so the remaining proof should cover the final user-visible path on web and Telegram without duplicating, dropping, or mutating the delivery metadata.
+
+## 2026-04-18 - ADR-073 Step 19 core closeout docs sync
+
+### What changed
+
+1. Active repo-truth docs no longer treat all of `Step 19` as a current blocker. `ADR-073` and `ROADMAP` now mark the core deploy/operator part as completed on the active path: deploy/restart/pod-replacement recovery is already observed on live dev rollout, bounded self-healing runtime recovery is landed, and `/admin` `System Overview` now provides the current honest pod-truth surface.
+2. The remaining scale-oriented residue is now separated into one explicit final step instead of being mixed back into the main path: a bounded saved load-readiness proof plus any rollout-speed or image-pull convergence cleanup.
+3. `TEST-PLAN` now reflects the same contract. The remaining scale verification is the final bounded load-readiness pass; deploy/operator closure is treated as existing baseline that must only be re-opened if a later pressure run falsifies it.
+
+### Current active slice
+
+- `ADR-073 - program truth sync`
+
+### Current active step
+
+- `Core Step 19 deploy/operator hardening is now docs-complete; the only remaining scale tail is the final bounded load/readiness proof and rollout-speed cleanup at the very end of the program`
+
+### Files touched
+
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ROADMAP.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `rg "Step 19|bounded load|System Overview|rollout-speed" docs/ADR/073-post-adr072-residue-and-polish-program.md docs/ROADMAP.md docs/TEST-PLAN.md docs/CHANGELOG.md docs/SESSION-HANDOFF.md`
+
+### Risks / notes
+
+1. This sync changes repo-truth ordering and status wording only; it does not add new runtime evidence beyond the already-recorded live rollout observations.
+2. The final load-readiness step is still genuinely open. The docs now place it last instead of overstating it as a current main-path blocker.
+
+### Next recommended step
+
+1. Leave the final bounded load-readiness run for the last program step, and avoid reopening `Step 19` core wording unless new live evidence contradicts the current deploy/operator baseline.
+
 ## 2026-04-18 - post-rollout router validation + stream batching
 
 ### What changed

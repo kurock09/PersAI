@@ -58,3 +58,18 @@ spec:
       app.kubernetes.io/name: runtime
 ---
 {{- end }}
+{{- if and .Values.sandbox.enabled .Values.sandbox.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sandbox
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: sandbox
+spec:
+  minAvailable: {{ .Values.sandbox.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox
+---
+{{- end }}

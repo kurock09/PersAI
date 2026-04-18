@@ -4,12 +4,23 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminOpsCockpitStateQuotaUsage } from "./adminOpsCockpitStateQuotaUsage";
+import type { AdminOpsCockpitStateChatStats } from "./adminOpsCockpitStateChatStats";
+import type { AdminOpsCockpitChannelBinding } from "./adminOpsCockpitChannelBinding";
+import type { AdminOpsCockpitStateSandbox } from "./adminOpsCockpitStateSandbox";
 import type { AdminOpsCockpitStateAssistant } from "./adminOpsCockpitStateAssistant";
 import type { AdminOpsCockpitStateRuntime } from "./adminOpsCockpitStateRuntime";
 import type { AdminOpsCockpitStateControls } from "./adminOpsCockpitStateControls";
 import type { AdminOpsIncidentSignal } from "./adminOpsIncidentSignal";
 
 export interface AdminOpsCockpitState {
+  /** @nullable */
+  quotaUsage: AdminOpsCockpitStateQuotaUsage;
+  /** @nullable */
+  chatStats: AdminOpsCockpitStateChatStats;
+  channels: AdminOpsCockpitChannelBinding[];
+  /** @nullable */
+  sandbox: AdminOpsCockpitStateSandbox;
   assistant: AdminOpsCockpitStateAssistant;
   runtime: AdminOpsCockpitStateRuntime;
   controls: AdminOpsCockpitStateControls;

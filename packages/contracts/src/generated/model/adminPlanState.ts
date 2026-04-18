@@ -10,6 +10,7 @@ import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanContextPolicy } from "./adminPlanContextPolicy";
 import type { AdminPlanRetrievalPolicy } from "./adminPlanRetrievalPolicy";
+import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
 import type { AdminPlanStateVideoGenerateModelKey } from "./adminPlanStateVideoGenerateModelKey";
 import type { AdminPlanStateRuntimeTierDefault } from "./adminPlanStateRuntimeTierDefault";
 import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
@@ -29,6 +30,7 @@ export interface AdminPlanState {
   quotaLimits?: AdminPlanQuotaLimits;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
+  sandboxPolicy: AdminPlanSandboxPolicy;
   /** @nullable */
   primaryModelKey?: string | null;
   /** @nullable */

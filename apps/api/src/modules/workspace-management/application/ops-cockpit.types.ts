@@ -1,3 +1,5 @@
+import type { RuntimeSandboxJobStatus, RuntimeSandboxPolicy } from "@persai/runtime-contract";
+
 export type OpsIncidentSeverity = "info" | "elevated" | "high";
 
 export type AdminOpsCockpitQuotaUsage = {
@@ -21,10 +23,55 @@ export type AdminOpsCockpitChatStats = {
   archivedWebChats: number;
 };
 
+export type AdminOpsCockpitSandboxUsage = {
+  activeJobs: number;
+  jobsStartedToday: number;
+  completedToday: number;
+  blockedToday: number;
+  failedToday: number;
+  dailyLimit: number | null;
+  remainingJobsToday: number | null;
+};
+
+export type AdminOpsCockpitSandboxJobResourceUsage = {
+  workspaceBytes: number | null;
+  fileCount: number | null;
+  directoryCount: number | null;
+  stdoutBytes: number | null;
+  stderrBytes: number | null;
+  peakProcessCount: number | null;
+  peakCpuMs: number | null;
+  peakMemoryBytes: number | null;
+  processDurationMs: number | null;
+};
+
+export type AdminOpsCockpitSandboxJob = {
+  id: string;
+  toolCode: string;
+  status: RuntimeSandboxJobStatus;
+  relativeWorkspace: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  violationCode: string | null;
+  violationMessage: string | null;
+  resultReason: string | null;
+  resultWarning: string | null;
+  persistedFileCount: number;
+  resourceUsage: AdminOpsCockpitSandboxJobResourceUsage | null;
+};
+
+export type AdminOpsCockpitSandbox = {
+  effectivePolicy: RuntimeSandboxPolicy;
+  usage: AdminOpsCockpitSandboxUsage;
+  recentJobs: AdminOpsCockpitSandboxJob[];
+};
+
 export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
   chatStats: AdminOpsCockpitChatStats | null;
   channels: AdminOpsCockpitChannelBinding[];
+  sandbox: AdminOpsCockpitSandbox | null;
   assistant: {
     exists: boolean;
     assistantId: string | null;

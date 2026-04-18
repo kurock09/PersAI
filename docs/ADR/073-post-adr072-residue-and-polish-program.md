@@ -30,20 +30,23 @@ The following are treated as complete on the active path:
 - PersAI-owned secrets split and GitOps image pinning path
 - Step 15 core native tool/runtime baseline already landed on the active path
 
-### 2. ADR-072 residuals still alive
+### 2. ADR-072 residuals under ADR-073 governance
 
-The following remain active program items and move under ADR-073 governance:
+The following residuals are governed here, with current status called out explicitly:
 
-- **Step 19 - scale hardening for 10000+ active users**
-  - deploy/restart recovery must stop depending on normal-ops fleet-wide `reapply all`
-  - published, materialized, and warmed runtime states must stay separate
-  - runtime/provider recovery must become bounded and self-healing
-  - the native `api -> runtime -> provider-gateway` path must be proven ready for bounded production load, not merely tuned for faster median response time
-  - admin `System Overview` must remain the honest operator surface for discovered pod count, status/readiness, and fleet pressure during deploy/restart/load events
+- **Step 19 core deploy/operator hardening** (`completed`)
+  - deploy/restart recovery no longer depends on normal-ops fleet-wide `reapply all` on the observed active dev rollout path
+  - published, materialized, and warmed runtime states now stay meaningfully separated on the active runtime path
+  - runtime/provider recovery now has a bounded self-healing path instead of failing closed into a routine manual mass reapply expectation
+  - admin `System Overview` is now the honest operator surface for current discovered pod count, status/readiness, and fleet pressure truth on the active path
+- **final bounded load-readiness and rollout-speed follow-through** (`planned`, last step)
+  - the native `api -> runtime -> provider-gateway` path still needs one bounded saved production-pressure proof rather than anecdotal “it feels fine” evidence
+  - any remaining rollout-speed or image-pull convergence cleanup should stay here because it no longer blocks ordinary deploy/restart recovery truth
 - **Step 15a - native web TTS streaming/output**
   - channel voice output remains deferred and separate from the explicit `tts` tool
 - **Step 20 - isolated sandbox service**
-  - `apps/sandbox/*`, file/process tools, and sandbox authority remain deferred
+  - local code now already includes `apps/sandbox/*`, the sandbox file/process tool family, canonical `SandboxFileRef` authority, shared `send_media_to_user`, guardrail enforcement, and admin/operator truth
+  - the remaining honest closure for this item is live dev proof on a real surface plus any later attach-by-ref successor cleanup
 - **post-Step-20 attach-by-ref follow-through**
   - any successor to `persai_workspace_attach` must be attach-by-ref over a real file authority boundary
 - **`max_ru` follow-through**
@@ -132,11 +135,12 @@ The active order after ADR-072 Step 18 is:
 1. create/recreate lifecycle polish
 2. user UI polish
 3. memory, knowledge, cache, and model-routing economics
-4. Step 19 scale and deploy-recovery hardening
+4. Step 19 core deploy/operator hardening
 5. deferred channel voice output (`Step 15a`)
 6. deferred sandbox/file-authority program (`Step 20`)
+7. final bounded load-readiness and rollout-speed follow-through
 
-The system must not jump to sandbox or other late-stage capabilities before the user lifecycle, cost architecture, and scale semantics are honest on the active path.
+The system must not jump to sandbox or other late-stage capabilities before the user lifecycle, cost architecture, and core deploy/operator scale semantics are honest on the active path.
 
 ## Program principles
 
@@ -183,7 +187,7 @@ PersAI should distinguish:
 
 ### 7. Scale hardening comes before sandbox ambition
 
-Routine deploy, restart, pod replacement, warm recovery, and bounded load readiness for the ordinary active path must be proven first. `System Overview` should expose honest discovered-pod status/readiness and pressure signals so operators can see when live assistants are actually safe through rollout and load events. Sandbox/file/process capability remains deliberately late-stage.
+Routine deploy, restart, pod replacement, warm recovery, and operator-visible pod truth for the ordinary active path must be honest before sandbox ambition. Those core deploy/operator semantics are now observed on the active path; the only remaining scale residual is the final bounded load-readiness and rollout-speed follow-through, which stays deliberately later than the main lifecycle/economics cleanup.
 
 ## Target product and runtime architecture
 
@@ -468,7 +472,7 @@ These are valuable but not first-wave blockers:
 - more sophisticated rerank and retrieval-quality telemetry
 - deeper tool-runner isolation and specialization
 - `Step 15a` native web voice output
-- `Step 20` sandbox and attach-by-ref follow-through
+- `Step 20` sandbox live-proof and attach-by-ref follow-through
 - `max_ru` delivery/runtime adapter completion
 
 ## Non-goals
@@ -491,9 +495,10 @@ ADR-073 does not:
 | Prompt-cache-first context architecture       | completed | Bundle cache exists; OpenAI text requests now carry provider-side cache-routing hints, ordinary compiled prompt output materializes a stable-prefix record for bundle-owned cache identity, hydrated durable-memory/shared-summary leading blocks participate in ordinary/deep cache identity via explicit versioned stable-family tokens, and `/admin/business` now exposes rolling averaged runtime token/cache economics from persisted completed-turn receipts on the active path |
 | Knowledge correction and retrieval-model path | completed | Active retrieval now publishes `hybrid`, private/global knowledge use bounded lexical plus vector retrieval with plan-managed helper/budget policy, and durable admin-visible observability plus global-write governance are landed on the active path                                                                                                                                                                                                                                |
 | Hidden system/tool model and turn economics   | completed | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                                                                                                                                                                                                                                                                                                      |
-| Step 19 scale hardening                       | planned   | Deploy/restart/pod-replacement recovery, bounded load-readiness proof, and honest `System Overview` pod-status visibility remain active blockers                                                                                                                                                                                                                                                                                                                                      |
+| Step 19 core deploy/operator hardening        | completed | Deploy/restart/pod-replacement recovery is now observed on the live dev rollout path without routine fleet-wide manual `reapply all`, bounded runtime self-healing is landed on the active path, and `/admin` `System Overview` now provides the current honest pod-status/readiness operator surface                                                                                                                                                                                 |
 | Step 15a native web TTS output                | deferred  | Not part of the first active polish/economics wave                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Step 20 isolated sandbox                      | deferred  | Remains after scale hardening and outside the ordinary active path                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Step 20 isolated sandbox                      | in_progress | Local sandbox/fileRef/send-media baseline, enforcement, operator truth, and dev deploy wiring are now landing; the remaining honest closure is one live `sandbox -> fileRef -> send_media_to_user -> user receives file` proof plus later attach-by-ref follow-through                                                                                                                                                                                                             |
+| Final bounded load-readiness follow-through   | planned   | One saved bounded production-pressure proof plus any remaining rollout-speed/image-pull cleanup stays as the last program step because it no longer blocks ordinary deploy recovery or current operator truth                                                                                                                                                                                                                                                                       |
 
 ## Consequences
 
@@ -534,7 +539,7 @@ Operating rules for this ADR:
 - Treat ADR-073 as the active follow-through program.
 - Do not hardcode model ids, vendor names, or tariff-to-model bindings into architecture truth when those choices should come from admin-managed catalog/configuration and per-plan policy.
 - Any model-routing, reasoning, cache, or quota policy must be described in terms of admin-managed catalog, provider settings, plan policy, and runtime materialization, unless the code already proves a narrower live constraint.
-- Keep implementation slices bounded. Do not mix create/recreate polish, memory/KB economics, Step 19 scale hardening, and Step 20 sandbox work into one oversized change unless explicitly asked.
+- Keep implementation slices bounded. Do not mix create/recreate polish, memory/KB economics, core Step 19 hardening or final load-proof follow-through, and Step 20 sandbox work into one oversized change unless explicitly asked.
 - Verify every claim against current code, contracts, Helm values, and active docs. Do not trust old ADR text by itself.
 - If docs and code diverge, fix or explicitly surface the divergence.
 
@@ -542,9 +547,10 @@ Current ADR-073 execution order:
 1. create/recreate lifecycle polish
 2. user UI polish
 3. memory, knowledge, cache, and smart-model economics
-4. Step 19 scale/deploy-recovery hardening
+4. Step 19 core deploy/operator hardening
 5. deferred Step 15a native web voice output
-6. deferred Step 20 sandbox and attach-by-ref follow-through
+6. Step 20 sandbox live-proof and attach-by-ref follow-through
+7. final bounded load-readiness and rollout-speed follow-through
 
 Inside item 3, keep these as the active economics tracks:
 1. plan-scoped `normal`, `premium/reasoning`, `system/tool`, and optional retrieval-specialized model slots

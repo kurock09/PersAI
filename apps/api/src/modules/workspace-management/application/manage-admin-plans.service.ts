@@ -36,6 +36,12 @@ import {
   resolveStoredPlanContextHydrationPolicy,
   toPlanContextHydrationPolicyDocument
 } from "./context-hydration-policy";
+import {
+  createDefaultPlanSandboxPolicy,
+  parsePlanSandboxPolicy,
+  resolveStoredPlanSandboxPolicy,
+  toPlanSandboxPolicyDocument
+} from "./sandbox-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
@@ -446,6 +452,10 @@ export class ManageAdminPlansService {
         ? createDefaultPlanContextHydrationPolicy()
         : parsePlanContextHydrationPolicy(parsed.contextPolicy, "contextPolicy");
     const retrievalPolicy = parseAdminPlanRetrievalPolicy(parsed.retrievalPolicy);
+    const sandboxPolicy =
+      parsed.sandboxPolicy === undefined || parsed.sandboxPolicy === null
+        ? createDefaultPlanSandboxPolicy()
+        : parsePlanSandboxPolicy(parsed.sandboxPolicy, "sandboxPolicy");
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -487,6 +497,7 @@ export class ManageAdminPlansService {
       },
       contextPolicy,
       retrievalPolicy,
+      sandboxPolicy,
       primaryModelKey: toNormalizedNonEmptyModelKey(parsed.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(parsed.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
@@ -566,6 +577,7 @@ export class ManageAdminPlansService {
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
         contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
         retrievalPolicy: input.retrievalPolicy,
+        sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
         ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
         ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
         ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
@@ -652,6 +664,7 @@ export class ManageAdminPlansService {
     const mediaClasses = entitlement?.mediaClasses ?? [];
     const contextPolicy = resolveStoredPlanContextHydrationPolicy(billingHints.contextPolicy);
     const retrievalPolicy = parseAdminPlanRetrievalPolicy(billingHints.retrievalPolicy);
+    const sandboxPolicy = resolveStoredPlanSandboxPolicy(billingHints.sandboxPolicy);
 
     return {
       code: plan.code,
@@ -694,6 +707,7 @@ export class ManageAdminPlansService {
       },
       contextPolicy,
       retrievalPolicy,
+      sandboxPolicy,
       primaryModelKey: toNormalizedNonEmptyModelKey(billingHints.primaryModelKey),
       premiumModelKey: toNormalizedNonEmptyModelKey(billingHints.premiumModelKey),
       reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),

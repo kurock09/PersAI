@@ -19,7 +19,13 @@ export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "image_edit",
   "video_generate",
   "tts",
-  "scheduled_action"
+  "scheduled_action",
+  "read_file",
+  "write_file",
+  "edit_file",
+  "exec",
+  "shell",
+  "send_media_to_user"
 ] as const;
 
 export type PromptConstructorModelToolCode = (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number];

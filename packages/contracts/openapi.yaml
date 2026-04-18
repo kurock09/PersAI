@@ -5352,6 +5352,67 @@ components:
           type: integer
         embeddingSearchEnabled:
           type: boolean
+    AdminPlanSandboxPolicy:
+      type: object
+      required:
+        - enabled
+        - maxSingleFileWriteBytes
+        - maxWorkspaceBytesPerJob
+        - maxPersistedArtifactsPerJob
+        - maxFileCountPerJob
+        - maxDirectoryCountPerJob
+        - maxProcessRuntimeMs
+        - maxCpuMsPerJob
+        - maxMemoryBytesPerJob
+        - maxConcurrentProcesses
+        - maxStdoutBytes
+        - maxStderrBytes
+        - networkAccessEnabled
+        - artifactMimeAllowlist
+        - webMaxOutboundBytes
+        - telegramMaxOutboundBytes
+        - sandboxJobsPerDay
+        - maxArtifactSendCountPerTurn
+      properties:
+        enabled:
+          type: boolean
+        maxSingleFileWriteBytes:
+          type: integer
+        maxWorkspaceBytesPerJob:
+          type: integer
+        maxPersistedArtifactsPerJob:
+          type: integer
+        maxFileCountPerJob:
+          type: integer
+        maxDirectoryCountPerJob:
+          type: integer
+        maxProcessRuntimeMs:
+          type: integer
+        maxCpuMsPerJob:
+          type: integer
+        maxMemoryBytesPerJob:
+          type: integer
+        maxConcurrentProcesses:
+          type: integer
+        maxStdoutBytes:
+          type: integer
+        maxStderrBytes:
+          type: integer
+        networkAccessEnabled:
+          type: boolean
+        artifactMimeAllowlist:
+          type: array
+          items:
+            type: string
+        webMaxOutboundBytes:
+          type: integer
+        telegramMaxOutboundBytes:
+          type: integer
+        sandboxJobsPerDay:
+          type: integer
+          nullable: true
+        maxArtifactSendCountPerTurn:
+          type: integer
     AdminPlanState:
       type: object
       required:
@@ -5366,6 +5427,7 @@ components:
         - entitlements
         - contextPolicy
         - retrievalPolicy
+        - sandboxPolicy
         - createdAt
         - updatedAt
       properties:
@@ -5398,6 +5460,8 @@ components:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
         retrievalPolicy:
           $ref: "#/components/schemas/AdminPlanRetrievalPolicy"
+        sandboxPolicy:
+          $ref: "#/components/schemas/AdminPlanSandboxPolicy"
         primaryModelKey:
           type: string
           nullable: true
@@ -5493,6 +5557,7 @@ components:
         - entitlements
         - contextPolicy
         - retrievalPolicy
+        - sandboxPolicy
       properties:
         displayName:
           type: string
@@ -5521,6 +5586,8 @@ components:
           $ref: "#/components/schemas/AdminPlanContextPolicy"
         retrievalPolicy:
           $ref: "#/components/schemas/AdminPlanRetrievalPolicy"
+        sandboxPolicy:
+          $ref: "#/components/schemas/AdminPlanSandboxPolicy"
         primaryModelKey:
           type: string
           nullable: true
@@ -5604,12 +5671,32 @@ components:
     AdminOpsCockpitState:
       type: object
       required:
+        - quotaUsage
+        - chatStats
+        - channels
+        - sandbox
         - assistant
         - runtime
         - controls
         - incidentSignals
         - updatedAt
       properties:
+        quotaUsage:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsCockpitQuotaUsage"
+        chatStats:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsCockpitChatStats"
+        channels:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminOpsCockpitChannelBinding"
+        sandbox:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsCockpitSandbox"
         assistant:
           type: object
           required:
@@ -5715,6 +5802,201 @@ components:
         updatedAt:
           type: string
           format: date-time
+    AdminOpsCockpitQuotaUsage:
+      type: object
+      required:
+        - tokenBudgetUsed
+        - tokenBudgetLimit
+        - mediaStorageBytesUsed
+        - mediaStorageBytesLimit
+        - activeWebChats
+        - activeWebChatsLimit
+      properties:
+        tokenBudgetUsed:
+          type: integer
+        tokenBudgetLimit:
+          type: integer
+          nullable: true
+        mediaStorageBytesUsed:
+          type: integer
+        mediaStorageBytesLimit:
+          type: integer
+          nullable: true
+        activeWebChats:
+          type: integer
+        activeWebChatsLimit:
+          type: integer
+          nullable: true
+    AdminOpsCockpitChatStats:
+      type: object
+      required:
+        - totalChats
+        - activeWebChats
+        - archivedWebChats
+      properties:
+        totalChats:
+          type: integer
+        activeWebChats:
+          type: integer
+        archivedWebChats:
+          type: integer
+    AdminOpsCockpitChannelBinding:
+      type: object
+      required:
+        - provider
+        - surface
+        - state
+      properties:
+        provider:
+          type: string
+        surface:
+          type: string
+        state:
+          type: string
+    AdminOpsCockpitSandbox:
+      type: object
+      required:
+        - effectivePolicy
+        - usage
+        - recentJobs
+      properties:
+        effectivePolicy:
+          $ref: "#/components/schemas/AdminPlanSandboxPolicy"
+        usage:
+          $ref: "#/components/schemas/AdminOpsCockpitSandboxUsage"
+        recentJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminOpsCockpitSandboxJob"
+    AdminOpsCockpitSandboxUsage:
+      type: object
+      required:
+        - activeJobs
+        - jobsStartedToday
+        - completedToday
+        - blockedToday
+        - failedToday
+        - dailyLimit
+        - remainingJobsToday
+      properties:
+        activeJobs:
+          type: integer
+        jobsStartedToday:
+          type: integer
+        completedToday:
+          type: integer
+        blockedToday:
+          type: integer
+        failedToday:
+          type: integer
+        dailyLimit:
+          type: integer
+          nullable: true
+        remainingJobsToday:
+          type: integer
+          nullable: true
+    AdminOpsCockpitSandboxJob:
+      type: object
+      required:
+        - id
+        - toolCode
+        - status
+        - relativeWorkspace
+        - createdAt
+        - startedAt
+        - completedAt
+        - violationCode
+        - violationMessage
+        - resultReason
+        - resultWarning
+        - persistedFileCount
+        - resourceUsage
+      properties:
+        id:
+          type: string
+        toolCode:
+          type: string
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - completed
+            - failed
+            - blocked
+            - cancelled
+        relativeWorkspace:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        violationCode:
+          type: string
+          nullable: true
+        violationMessage:
+          type: string
+          nullable: true
+        resultReason:
+          type: string
+          nullable: true
+        resultWarning:
+          type: string
+          nullable: true
+        persistedFileCount:
+          type: integer
+        resourceUsage:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsCockpitSandboxJobResourceUsage"
+    AdminOpsCockpitSandboxJobResourceUsage:
+      type: object
+      required:
+        - workspaceBytes
+        - fileCount
+        - directoryCount
+        - stdoutBytes
+        - stderrBytes
+        - peakProcessCount
+        - peakCpuMs
+        - peakMemoryBytes
+        - processDurationMs
+      properties:
+        workspaceBytes:
+          type: integer
+          nullable: true
+        fileCount:
+          type: integer
+          nullable: true
+        directoryCount:
+          type: integer
+          nullable: true
+        stdoutBytes:
+          type: integer
+          nullable: true
+        stderrBytes:
+          type: integer
+          nullable: true
+        peakProcessCount:
+          type: integer
+          nullable: true
+        peakCpuMs:
+          type: integer
+          nullable: true
+        peakMemoryBytes:
+          type: integer
+          nullable: true
+        processDurationMs:
+          type: integer
+          nullable: true
     GetAdminOpsCockpitResponse:
       type: object
       required:

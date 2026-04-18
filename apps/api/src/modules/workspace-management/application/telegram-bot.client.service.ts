@@ -228,6 +228,7 @@ export class TelegramBotClientService {
     assistantId: string;
     parseMode: string;
     turnResult: InternalTelegramTurnResult;
+    mediaAlreadyDelivered?: boolean;
     onBeforeMediaSend?: ((media: RuntimeMediaArtifact[]) => Promise<void> | void) | undefined;
     postReplyNotices?: string[] | undefined;
   }): Promise<void> {
@@ -244,7 +245,7 @@ export class TelegramBotClientService {
       );
     }
 
-    if (params.turnResult.media.length > 0) {
+    if (params.turnResult.media.length > 0 && params.mediaAlreadyDelivered !== true) {
       await params.onBeforeMediaSend?.(params.turnResult.media);
       for (const item of params.turnResult.media) {
         try {
@@ -285,7 +286,7 @@ export class TelegramBotClientService {
     }
   }
 
-  private async sendMedia(params: {
+  async sendMedia(params: {
     botToken: string;
     chatId: string;
     artifact: RuntimeMediaArtifact;
@@ -314,6 +315,7 @@ export class TelegramBotClientService {
               : "document";
     await this.requestMultipart(params.botToken, endpoint, {
       chat_id: params.chatId,
+      ...(params.artifact.caption ? { caption: params.artifact.caption } : {}),
       [fileField]: {
         buffer: params.buffer,
         filename: params.filename

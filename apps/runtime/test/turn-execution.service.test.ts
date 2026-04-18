@@ -5,7 +5,9 @@ import {
   buildAssistantRuntimePromptStablePrefix,
   compileAssistantRuntimeBundle
 } from "@persai/runtime-bundle";
+import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  ProviderGatewayToolCall,
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayImageEditRequest,
@@ -28,6 +30,7 @@ import type {
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
+  RuntimeOutputArtifact,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
@@ -1318,6 +1321,113 @@ class FakeSessionCompactionService {
   }
 }
 
+class FakeRuntimeSandboxToolService {
+  calls: Array<{
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+  }> = [];
+
+  async executeToolCall(input: {
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
+  }) {
+    this.calls.push(input);
+    return {
+      payload: {
+        toolCode: input.toolCall.name,
+        executionMode: "sandbox" as const,
+        action: "completed" as const,
+        reason: null,
+        warning: null,
+        job: {
+          jobId: "sandbox-job-1",
+          status: "completed" as const,
+          toolCode: input.toolCall.name,
+          reason: null,
+          warning: null,
+          violationCode: null,
+          violationMessage: null,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null,
+          files: [
+            {
+              relativePath: "outputs/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64,
+              fileRef: {
+                fileRef: "file-ref-1",
+                origin: "sandbox_output" as const,
+                sourceToolCode: input.toolCall.name,
+                objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+                relativePath: "outputs/report.txt",
+                displayName: "report.txt",
+                mimeType: "text/plain",
+                sizeBytes: 64,
+                logicalSizeBytes: 64
+              }
+            }
+          ]
+        }
+      },
+      isError: false
+    };
+  }
+}
+
+class FakeRuntimeSendMediaToUserService {
+  calls: Array<{
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    currentArtifacts: RuntimeOutputArtifact[];
+    channel: "web" | "telegram" | "max_ru";
+  }> = [];
+
+  async executeToolCall(input: {
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    currentArtifacts: RuntimeOutputArtifact[];
+    channel: "web" | "telegram" | "max_ru";
+  }) {
+    this.calls.push({
+      ...input,
+      currentArtifacts: [...input.currentArtifacts]
+    });
+    return {
+      payload: {
+        toolCode: "send_media_to_user" as const,
+        executionMode: "inline" as const,
+        action: "queued" as const,
+        reason: null,
+        warning: null,
+        fileRefs: ["file-ref-1"],
+        artifactIds: [],
+        queuedArtifacts: 1
+      },
+      artifacts: [
+        {
+          artifactId: "artifact-sent-1",
+          kind: "file" as const,
+          objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+          mimeType: "text/plain",
+          filename: "report.txt",
+          sizeBytes: 64,
+          voiceNote: false,
+          caption: "Here is your file"
+        }
+      ],
+      isError: false
+    };
+  }
+}
+
 async function collectStreamEvents(
   generator: AsyncGenerator<RuntimeTurnStreamEvent>
 ): Promise<RuntimeTurnStreamEvent[]> {
@@ -1394,6 +1504,63 @@ function enableScheduledActionTool(entry: RuntimeBundleCacheEntry | null): void 
   }
 }
 
+function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): void {
+  if (entry === null) {
+    return;
+  }
+  entry.parsedBundle.runtime.sandbox = {
+    enabled: true,
+    maxSingleFileWriteBytes: 10 * 1024 * 1024,
+    maxWorkspaceBytesPerJob: 25 * 1024 * 1024,
+    maxPersistedArtifactsPerJob: 8,
+    maxFileCountPerJob: 32,
+    maxDirectoryCountPerJob: 16,
+    maxProcessRuntimeMs: 15_000,
+    maxCpuMsPerJob: 15_000,
+    maxMemoryBytesPerJob: 256 * 1024 * 1024,
+    maxConcurrentProcesses: 4,
+    maxStdoutBytes: 128 * 1024,
+    maxStderrBytes: 128 * 1024,
+    networkAccessEnabled: false,
+    artifactMimeAllowlist: ["text/plain", "image/png"],
+    webMaxOutboundBytes: 25 * 1024 * 1024,
+    telegramMaxOutboundBytes: 50 * 1024 * 1024,
+    sandboxJobsPerDay: null,
+    maxArtifactSendCountPerTurn: 4
+  };
+  for (const tool of [
+    {
+      toolCode: "write_file",
+      displayName: "Write File",
+      description: "Create or overwrite one sandbox-managed file.",
+      executionMode: "sandbox" as const
+    },
+    {
+      toolCode: "send_media_to_user",
+      displayName: "Send Media To User",
+      description: "Queue file references or current-turn artifacts for delivery.",
+      executionMode: "inline" as const
+    }
+  ]) {
+    if (
+      !entry.parsedBundle.governance.toolPolicies.some((item) => item.toolCode === tool.toolCode)
+    ) {
+      entry.parsedBundle.governance.toolPolicies.push({
+        toolCode: tool.toolCode,
+        displayName: tool.displayName,
+        description: tool.description,
+        kind: "plan",
+        executionMode: tool.executionMode,
+        usageRule: "allowed",
+        enabled: true,
+        visibleToModel: true,
+        visibleInPlanEditor: true,
+        dailyCallLimit: null
+      });
+    }
+  }
+}
+
 export async function runTurnExecutionServiceTest(): Promise<void> {
   const bundleRegistry = new FakeRuntimeBundleRegistryService();
   const providerGatewayClient = new FakeProviderGatewayClientService();
@@ -1439,6 +1606,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never
   );
+  const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
+  const runtimeSendMediaToUserService = new FakeRuntimeSendMediaToUserService();
   const turnRoutingService = new TurnRoutingService(
     providerGatewayClient as unknown as ProviderGatewayClientService
   );
@@ -1465,7 +1634,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
+    runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
+    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -1568,7 +1739,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
+    runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
+    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -1634,7 +1807,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeKnowledgeToolService,
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
+    runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
+    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -2294,6 +2469,88 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  enableSandboxAndSendMediaTools(bundleRegistry.entry);
+  const sandboxDeliveryRequest = createRuntimeTurnRequest();
+  sandboxDeliveryRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.500Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-write-file-1",
+          name: "write_file",
+          arguments: {
+            path: "outputs/report.txt",
+            content: "sandbox output"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.700Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-send-media-1",
+          name: "send_media_to_user",
+          arguments: {
+            fileRefs: ["file-ref-1"],
+            caption: "Here is your file"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after sandbox delivery",
+      respondedAt: "2026-04-11T12:00:03.900Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const sandboxDeliveryCompleted = await service.createTurn(sandboxDeliveryRequest);
+  assert.equal(sandboxDeliveryCompleted.assistantText, "reply after sandbox delivery");
+  assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "write_file");
+  assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.toolCall.name, "send_media_to_user");
+  assert.deepEqual(runtimeSendMediaToUserService.calls.at(-1)?.currentArtifacts, []);
+  assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.channel, "web");
+  assert.equal(sandboxDeliveryCompleted.artifacts.length, 1);
+  assert.equal(sandboxDeliveryCompleted.artifacts[0]?.artifactId, "artifact-sent-1");
+  const sandboxToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    job?: { files?: Array<{ fileRef?: { fileRef?: string } }> };
+  };
+  assert.equal(sandboxToolHistory.action, "completed");
+  assert.equal(sandboxToolHistory.job?.files?.[0]?.fileRef?.fileRef, "file-ref-1");
+  const sendMediaToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[1]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    fileRefs?: string[];
+    queuedArtifacts?: number;
+  };
+  assert.equal(sendMediaToolHistory.action, "queued");
+  assert.equal(sendMediaToolHistory.fileRefs?.[0], "file-ref-1");
+  assert.equal(sendMediaToolHistory.queuedArtifacts, 1);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
   const overrideRequest = createRuntimeTurnRequest();
   overrideRequest.bundle.bundleHash = request.bundle.bundleHash;
   overrideRequest.providerOverride = "anthropic";
@@ -2670,7 +2927,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "memory_write",
       "quota_status",
       "knowledge_search",
-      "knowledge_fetch"
+      "knowledge_fetch",
+      "write_file",
+      "send_media_to_user"
     ]
   );
   assert.match(
@@ -2767,7 +3026,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "memory_write",
       "quota_status",
       "knowledge_search",
-      "knowledge_fetch"
+      "knowledge_fetch",
+      "write_file",
+      "send_media_to_user"
     ]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
@@ -3044,7 +3305,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "quota_status",
       "knowledge_search",
       "knowledge_fetch",
-      "web_fetch"
+      "web_fetch",
+      "write_file",
+      "send_media_to_user"
     ]
   );
   assert.deepEqual(providerGatewayClient.webFetchCalls.at(-1), {

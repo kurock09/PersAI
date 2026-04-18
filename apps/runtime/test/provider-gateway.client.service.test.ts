@@ -33,7 +33,8 @@ function createConfig(
     RUNTIME_BUNDLE_MARKER_TTL_SECONDS: 7200,
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: baseUrl,
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: 5_000,
-    RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 15_000
+    RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 15_000,
+    RUNTIME_SANDBOX_TIMEOUT_MS: 30_000
   };
 }
 
@@ -561,7 +562,8 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     const service = new ProviderGatewayClientService(createConfig());
     const idleResetService = new ProviderGatewayClientService({
       ...createConfig(),
-      RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20
+      RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20,
+      RUNTIME_SANDBOX_TIMEOUT_MS: 30_000
     });
     const readiness = await service.getReadiness();
     assert.deepEqual(readiness, {
