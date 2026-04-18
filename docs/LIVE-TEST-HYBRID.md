@@ -23,7 +23,7 @@ ADR-072 is closed for the active migration baseline through Step 18. Current fol
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=/api/v1
-PERSAI_WEB_API_PROXY_TARGET=http://127.0.0.1:3001/api/v1
+PERSAI_WEB_API_PROXY_TARGET=http://127.0.0.1:3001
 ```
 
 ## Run sequence

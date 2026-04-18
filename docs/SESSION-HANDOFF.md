@@ -1,5 +1,96 @@
 # SESSION-HANDOFF
 
+## 2026-04-18 - Step 19 pod-truth and session-backed proxy pre-rollout pack
+
+### What changed
+
+1. `infra/helm/templates/api-deployment.yaml` now injects full cluster FQDN values for `PERSAI_RUNTIME_DISCOVERY_DNS` and `PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS` instead of short headless service names. Live cluster inspection confirmed the endpoints existed, but Node `resolve4()` inside `api` returned `ENOTFOUND` for `runtime-headless` / `provider-gateway-headless` while resolving `*.svc.cluster.local` correctly, which explained the false `/admin` `opaque` / `0/2 ready endpoints` state.
+2. `apps/web/app/api/v1/[[...path]]/route.ts` now fills `Authorization: Bearer <fresh Clerk session token>` from server-side `auth().getToken()` when the caller did not already send an explicit bearer. This keeps the same-origin web proxy usable from a live signed-in browser session without forcing every caller to manually refresh a one-minute token.
+3. Active web-proxy config truth is now aligned: `apps/web/Dockerfile` and `docs/LIVE-TEST-HYBRID.md` now use `PERSAI_WEB_API_PROXY_TARGET=http://...:3001` (base origin only), matching the existing live Helm value and the route implementation that appends `/api/v1` itself.
+
+### Current active slice
+
+- `ADR-073 - Step 19 scale hardening`
+
+### Current active step
+
+- `Single pre-rollout hardening pack is ready locally; one live rollout should now validate System Overview pod-truth repair before the separate bounded load-readiness proof`
+
+### Files touched
+
+- `infra/helm/templates/api-deployment.yaml`
+- `apps/web/app/api/v1/[[...path]]/route.ts`
+- `apps/web/app/api/v1/[[...path]]/route.test.ts`
+- `apps/web/Dockerfile`
+- `docs/LIVE-TEST-HYBRID.md`
+
+### Verification run
+
+- `kubectl -n persai-dev get svc`
+- `kubectl -n persai-dev get endpoints,endpointslices | Select-String "runtime|provider-gateway"`
+- `kubectl -n persai-dev exec api-cbbfd8c47-2wd8v -c api -- node -e "... resolve4(host) ..."`
+- `helm lint infra/helm -f infra/helm/values.yaml`
+- `helm lint infra/helm -f infra/helm/values-dev.yaml`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > $null`
+- `corepack pnpm --filter @persai/web test -- app/api/v1/[[...path]]/route.test.ts`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/api/v1/[[...path]]/route.ts" "apps/web/app/api/v1/[[...path]]/route.test.ts" "docs/LIVE-TEST-HYBRID.md" "infra/helm/templates/api-deployment.yaml"`
+
+### Risks / notes
+
+1. This pack should remove the false `runtime/provider-gateway opaque` state only after a new `api` and `web` rollout lands on dev; it is not yet live-proof.
+2. The new session-backed `/api/v1` proxy path reduces auth friction for browser-session-backed smoke or tooling, but the bounded `SR10` ladder still needs a deliberate final live execution pass with honest evidence capture.
+3. Long image pull / rollout convergence time remains a separate residual and is not addressed by this pack.
+
+### Next recommended step
+
+1. Deploy once through the normal dev flow and verify `/admin` now shows discovered `runtime` and `provider-gateway` endpoints instead of `opaque` / `0/2`.
+2. If that passes, spend the next live window on the bounded final `Step 19` load-readiness run rather than another correctness deploy.
+
+## 2026-04-18 - Step 19 deploy-recovery live rollout confirmation
+
+### What changed
+
+1. The current `Step 19` deploy-recovery blocker is now closed in live dev evidence, not just local tests. The `6de0f36` runtime recovery fix was built, auto-pinned through the normal dev image publish flow, and rolled out on `persai-dev` through Argo CD.
+2. During that live rollout, both new `runtime` pods reached `Ready`, entered service endpoints, and served real turn traffic without the earlier `runtime_bundle_missing` / `503` failure pattern.
+3. The earlier requirement "routine deploy / restart / pod replacement must not require fleet-wide manual `reapply all` to make chats live again" is now satisfied for the observed dev rollout path.
+
+### Current active slice
+
+- `ADR-073 - Step 19 scale hardening`
+
+### Current active step
+
+- `Step 19 deploy-recovery proof is now observed on a real GKE rollout; the remaining primary work is bounded load-readiness proof plus rollout-speed residual cleanup`
+
+### Files touched
+
+- `docs/ROADMAP.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `gh run list --limit 10 --json databaseId,headSha,displayTitle,status,conclusion,workflowName,event,createdAt,updatedAt,url`
+- `kubectl -n argocd get applications.argoproj.io persai-dev`
+- `kubectl -n persai-dev get deploy,pods`
+- `kubectl -n persai-dev rollout status deploy/runtime --timeout=180s`
+- `kubectl -n persai-dev rollout status deploy/web --timeout=180s`
+- `kubectl -n persai-dev logs pod/runtime-9fd4598fc-zjx62 -c runtime --since=15m`
+- `kubectl -n persai-dev logs pod/runtime-9fd4598fc-8z94x -c runtime --since=10m`
+
+### Risks / notes
+
+1. The rollout no longer reproduced `runtime_bundle_missing` on the new `runtime` pods, and live requests were observed returning `200` after the new pods joined service.
+2. The main remaining rollout residual is still long image pull time, not bundle warm recovery. Observed image pull waits were still on the order of multiple minutes for some pods.
+3. This session confirms deploy-time recovery on the current dev path; it does not replace the separate bounded load-readiness proof for `1000+` users.
+
+### Next recommended step
+
+1. Continue `Step 19` with bounded live load validation and an honest safe-ceiling report.
+2. If deploy convergence time is now the main operator pain, treat image-size/pull-time reduction as a separate rollout-speed follow-through after the deploy-recovery blocker closure.
+
 ## 2026-04-18 - ADR-073 lifecycle closeout + Step 19 framing sync
 
 ### What changed
@@ -230,7 +321,7 @@
    - the materialized ordinary stable-prefix hash from the runtime bundle
    - turn-variant state (`lookupStrategy`, `deepModeEnabled`)
    - the projected tool envelope for that turn
-   while leaving user-visible prompt wording, warmth, and flexibility unchanged.
+     while leaving user-visible prompt wording, warmth, and flexibility unchanged.
 4. Focused API/runtime tests now cover both the new bundle materialization seam and the runtime cache-key shaping rule that uses the materialized stable prompt identity.
 
 ### Current active slice

@@ -39,7 +39,7 @@ spec:
               value: {{ $value | quote }}
 {{- end }}
             - name: PERSAI_RUNTIME_DISCOVERY_DNS
-              value: "runtime-headless"
+              value: {{ printf "runtime-headless.%s.svc.cluster.local" .Values.global.namespace | quote }}
             - name: PERSAI_RUNTIME_TARGET_REPLICAS
               value: {{ printf "%v" .Values.runtime.replicaCount | quote }}
             - name: PERSAI_RUNTIME_AUTOSCALING_ENABLED
@@ -49,7 +49,7 @@ spec:
             - name: PERSAI_RUNTIME_AUTOSCALING_MAX_REPLICAS
               value: {{ printf "%v" .Values.runtime.autoscaling.maxReplicas | quote }}
             - name: PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS
-              value: "provider-gateway-headless"
+              value: {{ printf "provider-gateway-headless.%s.svc.cluster.local" .Values.global.namespace | quote }}
             - name: PERSAI_PROVIDER_GATEWAY_TARGET_REPLICAS
               value: {{ printf "%v" .Values.providerGateway.replicaCount | quote }}
             - name: PERSAI_PROVIDER_GATEWAY_AUTOSCALING_ENABLED

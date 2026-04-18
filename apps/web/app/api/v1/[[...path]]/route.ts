@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -81,6 +82,18 @@ function isEventStream(headers: Headers): boolean {
   return contentType.toLowerCase().includes("text/event-stream");
 }
 
+async function attachSessionAuthorizationIfMissing(headers: Headers): Promise<void> {
+  if (headers.has("authorization")) {
+    return;
+  }
+
+  const { getToken } = await auth();
+  const token = await getToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+}
+
 async function proxy(req: NextRequest, pathSegments: string[] | undefined): Promise<Response> {
   const upstreamCandidates = buildUpstreamCandidates(req, pathSegments);
   if (upstreamCandidates.length === 0) {
@@ -99,6 +112,7 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
       headers.set(key, value);
     }
   });
+  await attachSessionAuthorizationIfMissing(headers);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {
