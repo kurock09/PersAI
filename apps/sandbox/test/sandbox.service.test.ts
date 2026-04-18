@@ -220,8 +220,10 @@ async function run(): Promise<void> {
 
     const memoryGrowthScript = [
       "const buffers = [];",
-      "setInterval(() => buffers.push(Buffer.alloc(8 * 1024 * 1024)), 25);",
-      "setTimeout(() => {}, 5000);"
+      "const consume = () => { const buffer = Buffer.allocUnsafe(16 * 1024 * 1024); buffer.fill(1); buffers.push(buffer); };",
+      "consume();",
+      "setInterval(consume, 25);",
+      "setTimeout(() => {}, 15000);"
     ].join(" ");
     await assert.rejects(
       () =>
@@ -230,6 +232,7 @@ async function run(): Promise<void> {
           policy: {
             ...processGuardPolicy,
             maxConcurrentProcesses: 4,
+            maxProcessRuntimeMs: 15_000,
             maxMemoryBytesPerJob: 48 * 1024 * 1024
           },
           cwd: processWorkspace,
