@@ -3,6 +3,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import {
   isPlatformManagedTool,
   isPlanManagedTool,
+  REMOVED_LEGACY_PUBLIC_TOOL_CODES,
   TOOL_CATALOG,
   STARTER_TRIAL_TOOL_POLICY
 } from "../../../../prisma/tool-catalog-data";
@@ -43,7 +44,19 @@ export class SeedToolCatalogService implements OnModuleInit {
       await upsertToolCatalogEntry(this.prisma, t, providerHintsById.get(t.id) ?? null);
       upserted++;
     }
+    const removedLegacyCount = await this.prisma.toolCatalogTool.updateMany({
+      where: {
+        code: { in: [...REMOVED_LEGACY_PUBLIC_TOOL_CODES] },
+        status: "active"
+      },
+      data: { status: "inactive" }
+    });
     this.logger.log(`Tool catalog synced: ${upserted} entries`);
+    if (removedLegacyCount.count > 0) {
+      this.logger.log(
+        `Deactivated ${removedLegacyCount.count} removed legacy public file tool row(s)`
+      );
+    }
   }
 
   private async ensureDefaultPlan(): Promise<void> {

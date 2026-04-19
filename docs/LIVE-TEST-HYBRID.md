@@ -97,7 +97,7 @@ The active path truth is:
 - API owns canonical chat/message persistence
 - runtime owns request-time execution
 - provider-gateway owns provider client interaction
-- sandbox owns isolated file/process execution plus canonical persisted `SandboxFileRef` output
+- sandbox owns isolated file/process execution plus canonical persisted `AssistantFile` output
 
 ## Step 20 Sandbox Smoke
 
@@ -109,7 +109,7 @@ With a signed-in browser session on `/app`:
 2. Confirm the reply completes successfully and the user-visible assistant message shows the delivered attachment instead of dropping the artifact after tool execution.
 3. Confirm `Admin > Ops` for the same assistant now shows:
    - an increased `jobs started today` or `recent sandbox jobs` entry
-   - the actual tool code (`write_file`, `exec`, or `shell`)
+   - the actual tool code (`files`, `exec`, or `shell`)
    - a completed or blocked status with persisted `resourceUsage` truth
 4. If the file is blocked by policy, confirm the blocked reason is explicit rather than a generic runtime failure.
 5. If the run succeeds, open/download the delivered file from the web surface to prove the final user path, not only the sandbox job path.

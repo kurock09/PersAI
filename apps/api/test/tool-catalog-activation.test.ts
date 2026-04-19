@@ -35,6 +35,16 @@ async function run(): Promise<void> {
           planActivationStatus: "active"
         },
         {
+          toolCode: "files",
+          displayName: "Files",
+          description: "Unified assistant file tool.",
+          toolClass: "utility",
+          capabilityGroup: "workspace_ops",
+          policyClass: "plan_managed",
+          catalogStatus: "active",
+          planActivationStatus: "active"
+        },
+        {
           toolCode: "cron",
           displayName: "Cron",
           description: "Manage gateway cron jobs and send wake events.",
@@ -103,6 +113,7 @@ async function run(): Promise<void> {
     "inactive"
   );
   assert.equal(resolved.tools.find((tool) => tool.code === "cron")?.visibleInPlanEditor, false);
+  assert.equal(resolved.tools.find((tool) => tool.code === "files")?.visibleInPlanEditor, true);
   assert.equal(
     resolved.tools.find((tool) => tool.code === "web_search")?.effectiveActivation,
     "inactive"

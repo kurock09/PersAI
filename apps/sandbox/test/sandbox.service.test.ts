@@ -27,11 +27,25 @@ type ProcessError = {
 };
 
 type SandboxServiceTestAccess = {
+  executeQueuedJob(
+    jobId: string,
+    request: {
+      assistantId: string;
+      workspaceId: string;
+      runtimeRequestId: string | null;
+      runtimeSessionId: string | null;
+      toolCode: string;
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY;
+      args: Record<string, unknown>;
+      mountedFileRefs?: string[];
+    }
+  ): Promise<void>;
+  resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string;
   materializeMountedFiles(
     workspaceRoot: string,
     args: { fileRef: string }
   ): Promise<MountedWorkspaceState>;
-  executeReadFile(
+  executeFilesReadAction(
     workspaceRoot: string,
     args: { fileRef: string },
     mountedFiles: MountedWorkspaceState
@@ -47,16 +61,326 @@ type SandboxServiceTestAccess = {
     cwd: string;
     command: string;
     args: string[];
+    leaseGuard: {
+      active: boolean;
+      renewalError: Error | null;
+    };
   }): Promise<unknown>;
   readProcessTreeUsage(pid: number): Promise<ProcessUsage | null>;
   terminateProcessTree(pid: number): Promise<void>;
 };
 
+type DurableSandboxJob = {
+  id: string;
+  assistantId: string;
+  workspaceId: string;
+  toolCode: string;
+  status: string;
+  resultPayload: Record<string, unknown> | null;
+  violationCode: string | null;
+  violationMessage: string | null;
+  resourceUsage: Record<string, unknown> | null;
+  startedAt?: Date;
+  completedAt?: Date;
+};
+
+type DurableAssistantFile = {
+  id: string;
+  assistantId: string;
+  workspaceId: string;
+  sandboxJobId: string | null;
+  origin: "sandbox_output";
+  sourceToolCode: string | null;
+  objectKey: string;
+  relativePath: string;
+  displayName: string | null;
+  mimeType: string;
+  sizeBytes: bigint;
+  logicalSizeBytes: bigint | null;
+  sha256: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type DurableWorkspaceLease = {
+  id: string;
+  assistantId: string;
+  workspaceId: string;
+  sandboxJobId: string | null;
+  leaseToken: string;
+  holderId: string;
+  expiresAt: Date;
+};
+
+function createDeferred(): {
+  promise: Promise<void>;
+  resolve(): void;
+} {
+  let resolvePromise: (() => void) | null = null;
+  return {
+    promise: new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    }),
+    resolve() {
+      resolvePromise?.();
+    }
+  };
+}
+
+function createDurableHarness() {
+  const jobs = new Map<string, DurableSandboxJob>();
+  const assistantFiles: DurableAssistantFile[] = [];
+  const storedObjects = new Map<string, Buffer>();
+  const workspaceLeases = new Map<string, DurableWorkspaceLease>();
+  let durableFileCounter = 0;
+  let durableLeaseCounter = 0;
+  const workspaceLeaseKey = (assistantId: string, workspaceId: string) =>
+    `${assistantId}:${workspaceId}`;
+  const prismaStub = {
+    sandboxJob: {
+      async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+        const existing = jobs.get(input.where.id);
+        if (!existing) {
+          throw new Error(`Sandbox job "${input.where.id}" not found in test store`);
+        }
+        const next = {
+          ...existing,
+          ...input.data
+        } as DurableSandboxJob;
+        jobs.set(input.where.id, next);
+        return next;
+      },
+      async findUnique(input: { where: { id: string }; include?: { assistantFiles?: boolean } }) {
+        const job = jobs.get(input.where.id);
+        if (!job) {
+          return null;
+        }
+        return {
+          ...job,
+          assistantFiles:
+            input.include?.assistantFiles === true
+              ? assistantFiles.filter((file) => file.sandboxJobId === job.id)
+              : []
+        };
+      }
+    },
+    assistantFile: {
+      async findMany(input: {
+        where: { id: { in: string[] } } | { assistantId: string; workspaceId: string };
+        orderBy?: Array<Record<string, "asc" | "desc">>;
+      }) {
+        const where = input.where;
+        if ("id" in where) {
+          return assistantFiles.filter((file) => where.id.in.includes(file.id));
+        }
+        return assistantFiles
+          .filter(
+            (file) =>
+              file.assistantId === where.assistantId && file.workspaceId === where.workspaceId
+          )
+          .sort((left, right) => {
+            if (left.relativePath !== right.relativePath) {
+              return left.relativePath.localeCompare(right.relativePath);
+            }
+            return right.updatedAt.getTime() - left.updatedAt.getTime();
+          });
+      },
+      async create(input: { data: Record<string, unknown> }) {
+        const now = new Date();
+        const created: DurableAssistantFile = {
+          id: `assistant-file-${String(++durableFileCounter)}`,
+          assistantId: String(input.data.assistantId),
+          workspaceId: String(input.data.workspaceId),
+          sandboxJobId:
+            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
+          origin: "sandbox_output",
+          sourceToolCode:
+            typeof input.data.sourceToolCode === "string" ? input.data.sourceToolCode : null,
+          objectKey: String(input.data.objectKey),
+          relativePath: String(input.data.relativePath),
+          displayName: typeof input.data.displayName === "string" ? input.data.displayName : null,
+          mimeType: String(input.data.mimeType),
+          sizeBytes: input.data.sizeBytes as bigint,
+          logicalSizeBytes: (input.data.logicalSizeBytes as bigint | null) ?? null,
+          sha256: typeof input.data.sha256 === "string" ? input.data.sha256 : null,
+          metadata:
+            input.data.metadata !== null && typeof input.data.metadata === "object"
+              ? (input.data.metadata as Record<string, unknown>)
+              : null,
+          createdAt: now,
+          updatedAt: now
+        };
+        assistantFiles.push(created);
+        return created;
+      },
+      async update(input: { where: { id: string }; data: Record<string, unknown> }) {
+        const existingIndex = assistantFiles.findIndex((file) => file.id === input.where.id);
+        if (existingIndex === -1) {
+          throw new Error(`Assistant file "${input.where.id}" not found in test store`);
+        }
+        const existing = assistantFiles[existingIndex]!;
+        const updated: DurableAssistantFile = {
+          ...existing,
+          sandboxJobId:
+            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
+          sourceToolCode:
+            typeof input.data.sourceToolCode === "string" ? input.data.sourceToolCode : null,
+          objectKey: String(input.data.objectKey),
+          relativePath: String(input.data.relativePath),
+          displayName: typeof input.data.displayName === "string" ? input.data.displayName : null,
+          mimeType: String(input.data.mimeType),
+          sizeBytes: input.data.sizeBytes as bigint,
+          logicalSizeBytes: (input.data.logicalSizeBytes as bigint | null) ?? null,
+          sha256: typeof input.data.sha256 === "string" ? input.data.sha256 : null,
+          metadata:
+            input.data.metadata !== null && typeof input.data.metadata === "object"
+              ? (input.data.metadata as Record<string, unknown>)
+              : null,
+          updatedAt: new Date()
+        };
+        assistantFiles[existingIndex] = updated;
+        return updated;
+      },
+      async deleteMany(input: {
+        where: {
+          assistantId: string;
+          workspaceId: string;
+          relativePath: string | { in: string[] };
+          id?: { not: string };
+        };
+      }) {
+        const relativePaths =
+          typeof input.where.relativePath === "string"
+            ? [input.where.relativePath]
+            : input.where.relativePath.in;
+        let removed = 0;
+        for (let index = assistantFiles.length - 1; index >= 0; index -= 1) {
+          const file = assistantFiles[index]!;
+          if (
+            file.assistantId !== input.where.assistantId ||
+            file.workspaceId !== input.where.workspaceId ||
+            !relativePaths.includes(file.relativePath) ||
+            (input.where.id?.not !== undefined && file.id === input.where.id.not)
+          ) {
+            continue;
+          }
+          assistantFiles.splice(index, 1);
+          removed++;
+        }
+        return { count: removed };
+      }
+    },
+    assistantWorkspaceLease: {
+      async create(input: { data: Record<string, unknown> }) {
+        const assistantId = String(input.data.assistantId);
+        const workspaceId = String(input.data.workspaceId);
+        const key = workspaceLeaseKey(assistantId, workspaceId);
+        if (workspaceLeases.has(key)) {
+          throw Object.assign(new Error(`Workspace lease "${key}" already exists`), {
+            code: "P2002"
+          });
+        }
+        const created: DurableWorkspaceLease = {
+          id: `workspace-lease-${String(++durableLeaseCounter)}`,
+          assistantId,
+          workspaceId,
+          sandboxJobId:
+            typeof input.data.sandboxJobId === "string" ? input.data.sandboxJobId : null,
+          leaseToken: String(input.data.leaseToken),
+          holderId: String(input.data.holderId),
+          expiresAt: input.data.expiresAt as Date
+        };
+        workspaceLeases.set(key, created);
+        return created;
+      },
+      async updateMany(input: {
+        where: {
+          assistantId: string;
+          workspaceId: string;
+          leaseToken?: string;
+          holderId?: string;
+          expiresAt?: { lt?: Date; gt?: Date };
+        };
+        data: Record<string, unknown>;
+      }) {
+        const key = workspaceLeaseKey(input.where.assistantId, input.where.workspaceId);
+        const existing = workspaceLeases.get(key);
+        if (!existing) {
+          return { count: 0 };
+        }
+        if (
+          input.where.leaseToken !== undefined &&
+          existing.leaseToken !== input.where.leaseToken
+        ) {
+          return { count: 0 };
+        }
+        if (input.where.holderId !== undefined && existing.holderId !== input.where.holderId) {
+          return { count: 0 };
+        }
+        if (
+          input.where.expiresAt?.lt !== undefined &&
+          !(existing.expiresAt.getTime() < input.where.expiresAt.lt.getTime())
+        ) {
+          return { count: 0 };
+        }
+        if (
+          input.where.expiresAt?.gt !== undefined &&
+          !(existing.expiresAt.getTime() > input.where.expiresAt.gt.getTime())
+        ) {
+          return { count: 0 };
+        }
+        const updated: DurableWorkspaceLease = {
+          ...existing,
+          sandboxJobId:
+            typeof input.data.sandboxJobId === "string"
+              ? input.data.sandboxJobId
+              : input.data.sandboxJobId === null
+                ? null
+                : existing.sandboxJobId,
+          leaseToken:
+            typeof input.data.leaseToken === "string" ? input.data.leaseToken : existing.leaseToken,
+          holderId:
+            typeof input.data.holderId === "string" ? input.data.holderId : existing.holderId,
+          expiresAt: (input.data.expiresAt as Date | undefined) ?? existing.expiresAt
+        };
+        workspaceLeases.set(key, updated);
+        return { count: 1 };
+      }
+    }
+  };
+  const objectStorageStub = {
+    buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
+      return `assistant-media/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${input.relativePath.replace(/\//g, "__")}`;
+    },
+    async saveObject(input: { objectKey: string; buffer: Buffer }) {
+      storedObjects.set(input.objectKey, Buffer.from(input.buffer));
+      return input.buffer.length;
+    },
+    async downloadObject(objectKey: string) {
+      const stored = storedObjects.get(objectKey);
+      if (!stored) {
+        throw new Error(`Missing stored object "${objectKey}" in test store`);
+      }
+      return Buffer.from(stored);
+    }
+  };
+  return {
+    jobs,
+    assistantFiles,
+    storedObjects,
+    workspaceLeases,
+    createService() {
+      return new SandboxService(prismaStub as never, objectStorageStub as never);
+    }
+  };
+}
+
 async function run(): Promise<void> {
   const sourceBuffer = Buffer.from("hello from file ref", "utf8");
   const service = new SandboxService(
     {
-      sandboxFileRef: {
+      assistantFile: {
         async findMany(input: { where: { id: { in: string[] } } }) {
           assert.deepEqual(input.where.id.in, ["file-ref-1"]);
           return [
@@ -85,7 +409,7 @@ async function run(): Promise<void> {
     });
     assert.equal(mountedFiles.byRef.get("file-ref-1")?.relativePath, "inputs/example.txt");
 
-    const readResult = await serviceTestAccess.executeReadFile(
+    const readResult = await serviceTestAccess.executeFilesReadAction(
       workspaceRoot,
       { fileRef: "file-ref-1" },
       mountedFiles
@@ -114,6 +438,417 @@ async function run(): Promise<void> {
     );
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
+  }
+
+  const completedService = new SandboxService(
+    {
+      sandboxJob: {
+        async findUnique(input: { where: { id: string }; include: Record<string, boolean> }) {
+          assert.equal(input.where.id, "job-completed-1");
+          assert.equal(input.include.assistantFiles, true);
+          return {
+            id: "job-completed-1",
+            status: "completed",
+            toolCode: "files",
+            violationCode: null,
+            violationMessage: null,
+            resultPayload: {
+              reason: null,
+              warning: null,
+              exitCode: null,
+              stdout: null,
+              stderr: null,
+              content: null
+            },
+            assistantFiles: [
+              {
+                id: "assistant-file-1",
+                origin: "sandbox_output",
+                sourceToolCode: "files",
+                objectKey: "assistant-media/assistant-files/assistant-file-1/report.txt",
+                relativePath: "reports/report.txt",
+                displayName: "report.txt",
+                mimeType: "text/plain",
+                sizeBytes: BigInt(64),
+                logicalSizeBytes: BigInt(64)
+              }
+            ],
+            fileRefs: []
+          };
+        }
+      }
+    } as never,
+    {} as never
+  );
+  const completedJob = await completedService.pollJob("job-completed-1");
+  assert.equal(completedJob.status, "completed");
+  assert.equal(completedJob.files[0]?.fileRef.fileRef, "assistant-file-1");
+  assert.equal(
+    completedJob.files[0]?.fileRef.objectKey,
+    "assistant-media/assistant-files/assistant-file-1/report.txt"
+  );
+
+  const durablePolicy = {
+    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+    enabled: true,
+    maxStdoutBytes: 1024 * 1024,
+    maxStderrBytes: 1024 * 1024
+  };
+  const durableHarness = createDurableHarness();
+  const durableService = durableHarness.createService();
+  const durableServiceTestAccess = durableService as unknown as SandboxServiceTestAccess;
+  const durableWorkspaceRoot = durableServiceTestAccess.resolveWorkspaceSessionRoot(
+    "assistant-1",
+    "workspace-1"
+  );
+  const queueDurableJob = (
+    id: string,
+    toolCode: string,
+    assistantId = "assistant-1",
+    workspaceId = "workspace-1"
+  ) => {
+    durableHarness.jobs.set(id, {
+      id,
+      assistantId,
+      workspaceId,
+      toolCode,
+      status: "queued",
+      resultPayload: null,
+      violationCode: null,
+      violationMessage: null,
+      resourceUsage: null
+    });
+  };
+  try {
+    queueDurableJob("job-write-1", "files");
+    await durableServiceTestAccess.executeQueuedJob("job-write-1", {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeRequestId: "request-write-1",
+      runtimeSessionId: "session-1",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "write",
+        path: "docs/report.txt",
+        content: "first version"
+      }
+    });
+    const writeJob = await durableService.pollJob("job-write-1");
+    assert.equal(writeJob.status, "completed");
+    assert.equal(writeJob.files[0]?.fileRef.relativePath, "docs/report.txt");
+    const stableFileRef = writeJob.files[0]?.fileRef.fileRef;
+    assert.ok(stableFileRef);
+
+    queueDurableJob("job-read-1", "files");
+    await durableServiceTestAccess.executeQueuedJob("job-read-1", {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeRequestId: "request-read-1",
+      runtimeSessionId: "session-2",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "read",
+        path: "docs/report.txt"
+      }
+    });
+    const readJob = await durableService.pollJob("job-read-1");
+    assert.equal(readJob.status, "completed");
+    assert.equal(readJob.content, "first version");
+
+    queueDurableJob("job-edit-1", "files");
+    await durableServiceTestAccess.executeQueuedJob("job-edit-1", {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeRequestId: "request-edit-1",
+      runtimeSessionId: "session-3",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "edit",
+        path: "docs/report.txt",
+        oldText: "first version",
+        newText: "second version"
+      }
+    });
+    const editJob = await durableService.pollJob("job-edit-1");
+    assert.equal(editJob.status, "completed");
+    assert.equal(editJob.files[0]?.fileRef.fileRef, stableFileRef);
+    assert.equal(durableHarness.assistantFiles.length, 1);
+
+    await fs.rm(join(durableWorkspaceRoot, ".."), { recursive: true, force: true });
+
+    queueDurableJob("job-read-cold", "files");
+    await durableServiceTestAccess.executeQueuedJob("job-read-cold", {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeRequestId: "request-read-cold",
+      runtimeSessionId: "session-4",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "read",
+        path: "docs/report.txt"
+      }
+    });
+    const coldReadJob = await durableService.pollJob("job-read-cold");
+    assert.equal(coldReadJob.status, "completed");
+    assert.equal(coldReadJob.content, "second version");
+
+    const leaseHarness = createDurableHarness();
+    const leaseServiceA = leaseHarness.createService();
+    const leaseServiceB = leaseHarness.createService();
+    const leaseServiceATestAccess = leaseServiceA as unknown as SandboxServiceTestAccess;
+    const leaseServiceBTestAccess = leaseServiceB as unknown as SandboxServiceTestAccess;
+    const queueLeaseJob = (
+      id: string,
+      toolCode: string,
+      assistantId = "assistant-lease",
+      workspaceId = "workspace-lease"
+    ) => {
+      leaseHarness.jobs.set(id, {
+        id,
+        assistantId,
+        workspaceId,
+        toolCode,
+        status: "queued",
+        resultPayload: null,
+        violationCode: null,
+        violationMessage: null,
+        resourceUsage: null
+      });
+    };
+    queueLeaseJob("job-lease-a", "files");
+    queueLeaseJob("job-lease-b", "files");
+    queueLeaseJob("job-lease-other", "files", "assistant-other", "workspace-other");
+    const firstJobEntered = createDeferred();
+    const releaseFirstJob = createDeferred();
+    const originalExecuteTool = (
+      leaseServiceA as unknown as {
+        executeTool: (input: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).executeTool.bind(leaseServiceA);
+    (
+      leaseServiceA as unknown as {
+        executeTool: (input: unknown) => Promise<Record<string, unknown>>;
+      }
+    ).executeTool = async (input: unknown) => {
+      firstJobEntered.resolve();
+      await releaseFirstJob.promise;
+      return originalExecuteTool(input);
+    };
+    const firstJobPromise = leaseServiceATestAccess.executeQueuedJob("job-lease-a", {
+      assistantId: "assistant-lease",
+      workspaceId: "workspace-lease",
+      runtimeRequestId: "request-lease-a",
+      runtimeSessionId: "session-lease-a",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "write",
+        path: "shared/report.txt",
+        content: "first holder"
+      }
+    });
+    await firstJobEntered.promise;
+    const secondJobPromise = leaseServiceBTestAccess.executeQueuedJob("job-lease-b", {
+      assistantId: "assistant-lease",
+      workspaceId: "workspace-lease",
+      runtimeRequestId: "request-lease-b",
+      runtimeSessionId: "session-lease-b",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "write",
+        path: "shared/report.txt",
+        content: "second holder"
+      }
+    });
+    const parallelOtherWorkspacePromise = leaseServiceBTestAccess.executeQueuedJob(
+      "job-lease-other",
+      {
+        assistantId: "assistant-other",
+        workspaceId: "workspace-other",
+        runtimeRequestId: "request-lease-other",
+        runtimeSessionId: "session-lease-other",
+        toolCode: "files",
+        policy: durablePolicy,
+        args: {
+          action: "write",
+          path: "shared/other.txt",
+          content: "parallel workspace"
+        }
+      }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(leaseHarness.jobs.get("job-lease-b")?.status, "queued");
+    assert.equal(leaseHarness.jobs.get("job-lease-other")?.status, "completed");
+    assert.equal(
+      leaseHarness.workspaceLeases.get("assistant-lease:workspace-lease")?.sandboxJobId,
+      "job-lease-a"
+    );
+    releaseFirstJob.resolve();
+    await Promise.all([firstJobPromise, secondJobPromise, parallelOtherWorkspacePromise]);
+    assert.equal(leaseHarness.jobs.get("job-lease-a")?.status, "completed");
+    assert.equal(leaseHarness.jobs.get("job-lease-b")?.status, "completed");
+
+    const reclaimHarness = createDurableHarness();
+    reclaimHarness.workspaceLeases.set("assistant-reclaim:workspace-reclaim", {
+      id: "workspace-lease-stale",
+      assistantId: "assistant-reclaim",
+      workspaceId: "workspace-reclaim",
+      sandboxJobId: "old-job",
+      leaseToken: "stale-token",
+      holderId: "stale-holder",
+      expiresAt: new Date(Date.now() - 1_000)
+    });
+    reclaimHarness.jobs.set("job-reclaim", {
+      id: "job-reclaim",
+      assistantId: "assistant-reclaim",
+      workspaceId: "workspace-reclaim",
+      toolCode: "files",
+      status: "queued",
+      resultPayload: null,
+      violationCode: null,
+      violationMessage: null,
+      resourceUsage: null
+    });
+    await (reclaimHarness.createService() as unknown as SandboxServiceTestAccess).executeQueuedJob(
+      "job-reclaim",
+      {
+        assistantId: "assistant-reclaim",
+        workspaceId: "workspace-reclaim",
+        runtimeRequestId: "request-reclaim",
+        runtimeSessionId: "session-reclaim",
+        toolCode: "files",
+        policy: durablePolicy,
+        args: {
+          action: "write",
+          path: "docs/reclaimed.txt",
+          content: "reclaimed"
+        }
+      }
+    );
+    assert.equal(reclaimHarness.jobs.get("job-reclaim")?.status, "completed");
+    assert.equal(
+      reclaimHarness.workspaceLeases.get("assistant-reclaim:workspace-reclaim")?.sandboxJobId,
+      null
+    );
+    assert.notEqual(
+      reclaimHarness.workspaceLeases.get("assistant-reclaim:workspace-reclaim")?.leaseToken,
+      "stale-token"
+    );
+
+    const resetHarness = createDurableHarness();
+    resetHarness.storedObjects.set(
+      "assistant-media/persisted/original.txt",
+      Buffer.from("persisted", "utf8")
+    );
+    resetHarness.assistantFiles.push({
+      id: "assistant-file-reset",
+      assistantId: "assistant-reset",
+      workspaceId: "workspace-reset",
+      sandboxJobId: "job-baseline",
+      origin: "sandbox_output",
+      sourceToolCode: "files",
+      objectKey: "assistant-media/persisted/original.txt",
+      relativePath: "docs/reset.txt",
+      displayName: "reset.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(9),
+      logicalSizeBytes: BigInt(9),
+      sha256: null,
+      metadata: {},
+      createdAt: new Date(Date.now() - 1_000),
+      updatedAt: new Date(Date.now() - 1_000)
+    });
+    resetHarness.jobs.set("job-reset", {
+      id: "job-reset",
+      assistantId: "assistant-reset",
+      workspaceId: "workspace-reset",
+      toolCode: "files",
+      status: "queued",
+      resultPayload: null,
+      violationCode: null,
+      violationMessage: null,
+      resourceUsage: null
+    });
+    const resetService = resetHarness.createService();
+    const resetServiceTestAccess = resetService as unknown as SandboxServiceTestAccess;
+    const resetWorkspaceRoot = resetServiceTestAccess.resolveWorkspaceSessionRoot(
+      "assistant-reset",
+      "workspace-reset"
+    );
+    const originalHeartbeat = (
+      resetService as unknown as {
+        startWorkspaceLeaseHeartbeat: (handle: unknown) => {
+          active: boolean;
+          renewalError: Error | null;
+          heartbeatTimer: NodeJS.Timeout | null;
+          renewing: boolean;
+          handle: unknown;
+        };
+      }
+    ).startWorkspaceLeaseHeartbeat.bind(resetService);
+    (
+      resetService as unknown as {
+        startWorkspaceLeaseHeartbeat: (handle: unknown) => {
+          active: boolean;
+          renewalError: Error | null;
+          heartbeatTimer: NodeJS.Timeout | null;
+          renewing: boolean;
+          handle: unknown;
+        };
+      }
+    ).startWorkspaceLeaseHeartbeat = (handle: unknown) => {
+      const guard = originalHeartbeat(handle);
+      setTimeout(() => {
+        guard.active = false;
+        guard.renewalError = Object.assign(new Error("lost"), {
+          code: "workspace_lease_lost",
+          blocked: false
+        });
+      }, 0);
+      return guard;
+    };
+    (
+      resetService as unknown as {
+        executeTool: (input: { workspaceRoot: string }) => Promise<Record<string, unknown>>;
+      }
+    ).executeTool = async (input: { workspaceRoot: string }) => {
+      await fs.mkdir(join(input.workspaceRoot, "docs"), { recursive: true });
+      await fs.writeFile(join(input.workspaceRoot, "docs", "reset.txt"), "mutated", "utf8");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        reason: null,
+        warning: null,
+        exitCode: null,
+        stdout: null,
+        stderr: null,
+        content: null
+      };
+    };
+    await resetServiceTestAccess.executeQueuedJob("job-reset", {
+      assistantId: "assistant-reset",
+      workspaceId: "workspace-reset",
+      runtimeRequestId: "request-reset",
+      runtimeSessionId: "session-reset",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "write",
+        path: "docs/reset.txt",
+        content: "mutated"
+      }
+    });
+    assert.equal(resetHarness.jobs.get("job-reset")?.status, "failed");
+    assert.equal(
+      await fs.readFile(join(resetWorkspaceRoot, "docs", "reset.txt"), "utf8"),
+      "persisted"
+    );
+  } finally {
+    await fs.rm(join(durableWorkspaceRoot, ".."), { recursive: true, force: true });
   }
 
   let storedJob: {
@@ -167,13 +902,14 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1",
     runtimeRequestId: "request-1",
     runtimeSessionId: "session-1",
-    toolCode: "write_file",
+    toolCode: "files",
     policy: {
       ...DEFAULT_RUNTIME_SANDBOX_POLICY,
       enabled: true,
       sandboxJobsPerDay: 1
     },
     args: {
+      action: "write",
       path: "outputs/report.txt",
       content: "daily quota should block this job"
     }
@@ -210,7 +946,11 @@ async function run(): Promise<void> {
           },
           cwd: processWorkspace,
           command: process.execPath,
-          args: ["-e", processFanoutScript]
+          args: ["-e", processFanoutScript],
+          leaseGuard: {
+            active: true,
+            renewalError: null
+          }
         }),
       (error: unknown) => {
         assert.equal((error as ProcessError).code, "process_count_limit_exceeded");
@@ -237,7 +977,11 @@ async function run(): Promise<void> {
           },
           cwd: processWorkspace,
           command: process.execPath,
-          args: ["-e", memoryGrowthScript]
+          args: ["-e", memoryGrowthScript],
+          leaseGuard: {
+            active: true,
+            renewalError: null
+          }
         }),
       (error: unknown) => {
         assert.equal((error as ProcessError).code, "process_memory_limit_exceeded");
@@ -258,7 +1002,11 @@ async function run(): Promise<void> {
           },
           cwd: processWorkspace,
           command: process.execPath,
-          args: ["-e", cpuBurnScript]
+          args: ["-e", cpuBurnScript],
+          leaseGuard: {
+            active: true,
+            renewalError: null
+          }
         }),
       (error: unknown) => {
         assert.equal((error as ProcessError).code, "process_cpu_limit_exceeded");
@@ -276,7 +1024,11 @@ async function run(): Promise<void> {
           },
           cwd: processWorkspace,
           command: "__persai_missing_executable__",
-          args: []
+          args: [],
+          leaseGuard: {
+            active: true,
+            renewalError: null
+          }
         }),
       (error: unknown) => {
         assert.equal((error as ProcessError).code, "process_spawn_failed");

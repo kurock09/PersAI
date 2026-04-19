@@ -15,6 +15,7 @@ import {
 const POLICY_CLASS_BY_TOOL_CODE = new Map(
   TOOL_CATALOG.map((tool) => [tool.code, tool.policyClass ?? "plan_managed"])
 );
+const CURRENT_TOOL_CODES = TOOL_CATALOG.map((tool) => tool.code);
 
 @Injectable()
 export class PrismaToolCatalogRepository implements ToolCatalogRepository {
@@ -48,7 +49,8 @@ export class PrismaToolCatalogRepository implements ToolCatalogRepository {
   ): Promise<ToolCatalogActivationView[]> {
     const tools = await this.prisma.toolCatalogTool.findMany({
       where: {
-        status: "active"
+        status: "active",
+        code: { in: CURRENT_TOOL_CODES }
       },
       orderBy: [{ toolClass: "asc" }, { displayName: "asc" }],
       include: {
@@ -81,7 +83,10 @@ export class PrismaToolCatalogRepository implements ToolCatalogRepository {
 
   async listToolsForPromptMetadata(): Promise<ToolCatalogPromptMetadataView[]> {
     const tools = await this.prisma.toolCatalogTool.findMany({
-      where: { status: "active" },
+      where: {
+        status: "active",
+        code: { in: CURRENT_TOOL_CODES }
+      },
       orderBy: [{ toolClass: "asc" }, { displayName: "asc" }]
     });
     return tools.map((tool) => this.mapPromptMetadata(tool));

@@ -7,7 +7,11 @@ import {
   WorkspaceStatus,
   WorkspaceSubscriptionStatus
 } from "@prisma/client";
-import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
+import {
+  REMOVED_LEGACY_PUBLIC_TOOL_CODES,
+  TOOL_CATALOG,
+  STARTER_TRIAL_TOOL_POLICY
+} from "./tool-catalog-data.js";
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { upsertToolCatalogEntry } from "./tool-catalog-sync.js";
 
@@ -25,6 +29,13 @@ async function upsertToolCatalog(): Promise<void> {
   for (const t of TOOL_CATALOG) {
     await upsertToolCatalogEntry(prisma, t, null);
   }
+  await prisma.toolCatalogTool.updateMany({
+    where: {
+      code: { in: [...REMOVED_LEGACY_PUBLIC_TOOL_CODES] },
+      status: ToolCatalogStatus.active
+    },
+    data: { status: ToolCatalogStatus.inactive }
+  });
 }
 
 async function upsertPromptTemplates(): Promise<void> {

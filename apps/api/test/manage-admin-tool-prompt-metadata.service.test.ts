@@ -226,6 +226,59 @@ async function run(): Promise<void> {
       /Tool "missing_tool" does not exist/
     );
   }
+
+  {
+    let touchedCatalog = false;
+    const service = new ManageAdminToolPromptMetadataService(
+      {
+        async findAll() {
+          return [];
+        },
+        async findById() {
+          return null;
+        },
+        async update() {
+          throw new Error("not used");
+        },
+        async upsert(id: string, template: string) {
+          return {
+            id,
+            template,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      },
+      {
+        async listToolsForPlanActivationView() {
+          return [];
+        },
+        async listToolsForPromptMetadata() {
+          return [];
+        },
+        async updateToolPromptMetadata() {
+          touchedCatalog = true;
+          throw new Error("not used");
+        }
+      },
+      {
+        async assertCanReadAdminSurface() {
+          return undefined;
+        }
+      } as never,
+      {
+        async execute() {
+          return undefined;
+        }
+      } as never
+    );
+
+    await assert.rejects(
+      () => service.update("admin-user", "read_file", { modelDescription: "legacy" }),
+      /Tool "read_file" does not exist/
+    );
+    assert.equal(touchedCatalog, false);
+  }
 }
 
 void run();

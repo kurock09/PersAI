@@ -173,6 +173,9 @@ function hasQuotaGovernedFlag(items: unknown, key: string): boolean {
 }
 
 function normalizePlanToolDisplayName(toolCode: string, displayName: string): string {
+  if (toolCode === "files") {
+    return "Files";
+  }
   if (toolCode === "memory_search") {
     return "Knowledge Search";
   }

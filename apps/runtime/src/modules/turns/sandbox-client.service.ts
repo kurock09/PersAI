@@ -43,7 +43,7 @@ export class SandboxClientService {
 
   async waitForCompletion(request: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
     const submitted = await this.submitJob(request);
-    const deadline = Date.now() + this.config.RUNTIME_SANDBOX_TIMEOUT_MS;
+    const deadline = Date.now() + this.resolveCompletionTimeoutMs(request);
     let current = submitted;
     while (current.status === "queued" || current.status === "running") {
       if (Date.now() >= deadline) {
@@ -55,6 +55,15 @@ export class SandboxClientService {
       current = await this.pollJob(current.jobId);
     }
     return current;
+  }
+
+  private resolveCompletionTimeoutMs(request: RuntimeSandboxJobRequest): number {
+    const leaseWaitMs = Math.max(
+      15_000,
+      Math.min(60_000, request.policy.maxProcessRuntimeMs + 5_000)
+    );
+    const expectedCompletionMs = leaseWaitMs + request.policy.maxProcessRuntimeMs + 5_000;
+    return Math.max(this.config.RUNTIME_SANDBOX_TIMEOUT_MS, expectedCompletionMs);
   }
 
   private parseJobResponse(response: JsonResponse): RuntimeSandboxJobResult {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
+import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import { RuntimeSendMediaToUserService } from "../src/modules/turns/runtime-send-media-to-user.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
@@ -90,33 +91,43 @@ function createArtifact(overrides?: Partial<RuntimeOutputArtifact>): RuntimeOutp
 }
 
 async function run(): Promise<void> {
-  const service = new RuntimeSendMediaToUserService(
-    {
-      sandboxFileRef: {
-        async findMany(input: {
-          where: {
-            id: { in: string[] };
-            assistantId: string;
-            workspaceId: string;
-          };
-        }) {
-          assert.equal(input.where.assistantId, "assistant-1");
-          assert.equal(input.where.workspaceId, "workspace-1");
-          return input.where.id.in.includes("file-ref-1")
-            ? [
-                {
-                  id: "file-ref-1",
-                  objectKey: "assistant-media/sandbox/jobs/job-1/report.txt",
-                  displayName: "report.txt",
-                  relativePath: "reports/report.txt",
-                  mimeType: "text/plain",
-                  sizeBytes: BigInt(64)
-                }
-              ]
-            : [];
-        }
+  const prisma = {
+    assistantFile: {
+      async findMany(input: {
+        where: {
+          id: { in: string[] };
+          assistantId: string;
+          workspaceId: string;
+        };
+      }) {
+        assert.equal(input.where.assistantId, "assistant-1");
+        assert.equal(input.where.workspaceId, "workspace-1");
+        return input.where.id.in.includes("file-ref-1")
+          ? [
+              {
+                id: "file-ref-1",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                sandboxJobId: null,
+                origin: "sandbox_output" as const,
+                sourceToolCode: "files",
+                objectKey: "assistant-media/sandbox/jobs/job-1/report.txt",
+                displayName: "report.txt",
+                relativePath: "reports/report.txt",
+                mimeType: "text/plain",
+                sizeBytes: BigInt(64),
+                logicalSizeBytes: BigInt(64),
+                sha256: null,
+                metadata: null,
+                createdAt: new Date("2026-04-19T12:00:00.000Z")
+              }
+            ]
+          : [];
       }
-    } as never,
+    }
+  };
+  const service = new RuntimeSendMediaToUserService(
+    new RuntimeAssistantFileRegistryService(prisma as never),
     {
       async consumeToolDailyLimit() {
         return {

@@ -372,7 +372,7 @@ export class ResolveAdminOpsCockpitService {
             resourceUsage: true,
             _count: {
               select: {
-                fileRefs: true
+                assistantFiles: true
               }
             }
           }
@@ -407,7 +407,7 @@ export class ResolveAdminOpsCockpitService {
           violationMessage: job.violationMessage,
           resultReason: this.readNullableString(payload?.reason),
           resultWarning: this.readNullableString(payload?.warning),
-          persistedFileCount: job._count.fileRefs,
+          persistedFileCount: job._count.assistantFiles,
           resourceUsage: this.readSandboxJobResourceUsage(job.resourceUsage)
         };
       })

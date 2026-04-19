@@ -45,8 +45,8 @@ The following residuals are governed here, with current status called out explic
 - **Step 15a - native web TTS streaming/output**
   - channel voice output remains deferred and separate from the explicit `tts` tool
 - **Step 20 - isolated sandbox service**
-  - local code now already includes `apps/sandbox/*`, the sandbox file/process tool family, canonical `SandboxFileRef` authority, shared `send_media_to_user`, guardrail enforcement, and admin/operator truth
-  - the remaining honest closure for this item is live dev proof on a real surface plus any later attach-by-ref successor cleanup
+  - local code now already includes `apps/sandbox/*`, the sandbox file/process tool family, canonical `AssistantFile` authority, durable multi-pod workspace coordination, clean internal `files` execution, shared `send_media_to_user`, guardrail enforcement, and admin/operator truth
+  - the remaining honest closure for this item is live dev proof on a real surface plus any later assistant-level Files API/UI and attach-by-ref successor cleanup
 - **post-Step-20 attach-by-ref follow-through**
   - any successor to `persai_workspace_attach` must be attach-by-ref over a real file authority boundary
 - **`max_ru` follow-through**

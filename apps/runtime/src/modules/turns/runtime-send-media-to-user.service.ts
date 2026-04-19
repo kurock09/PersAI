@@ -8,7 +8,7 @@ import type {
   RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
+import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 export interface RuntimeSendMediaToUserExecutionResult {
   payload: RuntimeSendMediaToUserToolResult;
@@ -16,10 +16,18 @@ export interface RuntimeSendMediaToUserExecutionResult {
   isError: boolean;
 }
 
+export interface RuntimeResolvedQueuedArtifacts {
+  artifacts: RuntimeOutputArtifact[];
+  queuedArtifacts: number;
+  reason: string | null;
+  warning: string | null;
+  isError: boolean;
+}
+
 @Injectable()
 export class RuntimeSendMediaToUserService {
   constructor(
-    private readonly prisma: RuntimeStatePrismaService,
+    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
@@ -88,84 +96,26 @@ export class RuntimeSendMediaToUserService {
         }
       }
 
-      const queuedArtifacts = await this.resolveArtifacts({
+      const queuedArtifacts = await this.queueResolvedSelection({
         bundle: params.bundle,
         currentArtifacts: params.currentArtifacts,
-        fileRefs: request.fileRefs,
-        artifactIds: request.artifactIds,
-        caption: request.caption,
-        filename: request.filename
+        channel: params.channel,
+        selection: request
       });
-
-      const maxCount = params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ?? 0;
-      const existingArtifactIds = new Set(
-        params.currentArtifacts.map((artifact) => artifact.artifactId)
-      );
-      const additionalArtifacts = queuedArtifacts.filter(
-        (artifact) => !existingArtifactIds.has(artifact.artifactId)
-      );
-      const finalArtifacts = [...params.currentArtifacts, ...additionalArtifacts];
-      if (params.currentArtifacts.length + additionalArtifacts.length > maxCount) {
-        return {
-          payload: {
-            toolCode: "send_media_to_user",
-            executionMode: "inline",
-            action: "skipped",
-            reason: "artifact_send_limit_exceeded",
-            warning: `Turn would deliver ${String(
-              params.currentArtifacts.length + additionalArtifacts.length
-            )} artifacts, above the per-turn cap of ${String(maxCount)}.`,
-            fileRefs: request.fileRefs,
-            artifactIds: request.artifactIds,
-            queuedArtifacts: 0
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
-
-      const channelCap =
-        params.channel === "telegram"
-          ? params.bundle.runtime.sandbox?.telegramMaxOutboundBytes
-          : params.bundle.runtime.sandbox?.webMaxOutboundBytes;
-      const totalOutboundBytes = finalArtifacts.reduce((sum, artifact) => {
-        return (
-          sum +
-          (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes)
-            ? artifact.sizeBytes
-            : 0)
-        );
-      }, 0);
-      if (channelCap !== undefined && totalOutboundBytes > channelCap) {
-        return {
-          payload: {
-            toolCode: "send_media_to_user",
-            executionMode: "inline",
-            action: "skipped",
-            reason: "channel_size_limit_exceeded",
-            warning: `Turn would deliver ${String(totalOutboundBytes)} bytes on ${params.channel}, above the channel cap of ${String(channelCap)} bytes.`,
-            fileRefs: request.fileRefs,
-            artifactIds: request.artifactIds,
-            queuedArtifacts: 0
-          },
-          artifacts: [],
-          isError: true
-        };
-      }
 
       return {
         payload: {
           toolCode: "send_media_to_user",
           executionMode: "inline",
-          action: "queued",
-          reason: null,
-          warning: null,
+          action: queuedArtifacts.isError ? "skipped" : "queued",
+          reason: queuedArtifacts.reason,
+          warning: queuedArtifacts.warning,
           fileRefs: request.fileRefs,
           artifactIds: request.artifactIds,
-          queuedArtifacts: queuedArtifacts.length
+          queuedArtifacts: queuedArtifacts.queuedArtifacts
         },
-        artifacts: queuedArtifacts,
-        isError: false
+        artifacts: queuedArtifacts.artifacts,
+        isError: queuedArtifacts.isError
       };
     } catch (error) {
       return {
@@ -183,6 +133,77 @@ export class RuntimeSendMediaToUserService {
         isError: true
       };
     }
+  }
+
+  async queueResolvedSelection(params: {
+    bundle: AssistantRuntimeBundle;
+    currentArtifacts: RuntimeOutputArtifact[];
+    channel: "web" | "telegram" | "max_ru";
+    selection: {
+      fileRefs: string[];
+      artifactIds: string[];
+      caption: string | null;
+      filename: string | null;
+    };
+  }): Promise<RuntimeResolvedQueuedArtifacts> {
+    const queuedArtifacts = await this.resolveArtifacts({
+      bundle: params.bundle,
+      currentArtifacts: params.currentArtifacts,
+      fileRefs: params.selection.fileRefs,
+      artifactIds: params.selection.artifactIds,
+      caption: params.selection.caption,
+      filename: params.selection.filename
+    });
+
+    const maxCount = params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ?? 0;
+    const existingArtifactIds = new Set(
+      params.currentArtifacts.map((artifact) => artifact.artifactId)
+    );
+    const additionalArtifacts = queuedArtifacts.filter(
+      (artifact) => !existingArtifactIds.has(artifact.artifactId)
+    );
+    const finalArtifacts = [...params.currentArtifacts, ...additionalArtifacts];
+    if (params.currentArtifacts.length + additionalArtifacts.length > maxCount) {
+      return {
+        artifacts: [],
+        queuedArtifacts: 0,
+        reason: "artifact_send_limit_exceeded",
+        warning: `Turn would deliver ${String(
+          params.currentArtifacts.length + additionalArtifacts.length
+        )} artifacts, above the per-turn cap of ${String(maxCount)}.`,
+        isError: true
+      };
+    }
+
+    const channelCap =
+      params.channel === "telegram"
+        ? params.bundle.runtime.sandbox?.telegramMaxOutboundBytes
+        : params.bundle.runtime.sandbox?.webMaxOutboundBytes;
+    const totalOutboundBytes = finalArtifacts.reduce((sum, artifact) => {
+      return (
+        sum +
+        (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes)
+          ? artifact.sizeBytes
+          : 0)
+      );
+    }, 0);
+    if (channelCap !== undefined && totalOutboundBytes > channelCap) {
+      return {
+        artifacts: [],
+        queuedArtifacts: 0,
+        reason: "channel_size_limit_exceeded",
+        warning: `Turn would deliver ${String(totalOutboundBytes)} bytes on ${params.channel}, above the channel cap of ${String(channelCap)} bytes.`,
+        isError: true
+      };
+    }
+
+    return {
+      artifacts: queuedArtifacts,
+      queuedArtifacts: queuedArtifacts.length,
+      reason: null,
+      warning: null,
+      isError: false
+    };
   }
 
   private resolveAllowedToolPolicy(bundle: AssistantRuntimeBundle): RuntimeToolPolicy | null {
@@ -260,12 +281,10 @@ export class RuntimeSendMediaToUserService {
       this.assertMimeAllowed(artifact!.mimeType, allowlist);
     }
 
-    const refs = await this.prisma.sandboxFileRef.findMany({
-      where: {
-        id: { in: input.fileRefs },
-        assistantId: input.bundle.metadata.assistantId,
-        workspaceId: input.bundle.metadata.workspaceId
-      }
+    const refs = await this.runtimeAssistantFileRegistryService.listByFileRefs({
+      assistantId: input.bundle.metadata.assistantId,
+      workspaceId: input.bundle.metadata.workspaceId,
+      fileRefs: input.fileRefs
     });
     if (refs.length !== input.fileRefs.length) {
       throw new Error("One or more fileRefs are unavailable for this assistant.");
@@ -282,7 +301,7 @@ export class RuntimeSendMediaToUserService {
           input.filename !== null && input.fileRefs.length + input.artifactIds.length === 1
             ? input.filename
             : (ref.displayName ?? ref.relativePath.split("/").pop() ?? "file"),
-        sizeBytes: Number(ref.sizeBytes),
+        sizeBytes: ref.sizeBytes,
         voiceNote: false,
         caption: input.caption
       } satisfies RuntimeOutputArtifact;

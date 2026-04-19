@@ -7,6 +7,7 @@ import {
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  PERSAI_RUNTIME_FILES_TOOL_ACTIONS,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
@@ -31,6 +32,7 @@ export interface RuntimeNativeToolProjection {
 
 const WEB_FETCH_MAX_CHARS_CAP = 50_000;
 const WEB_SEARCH_MAX_COUNT = 20;
+const FILES_SEARCH_MAX_LIMIT = 20;
 const KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
 const MEMORY_WRITE_MAX_CHARS = 500;
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
@@ -176,17 +178,9 @@ export function projectRuntimeNativeTools(
   if (scheduledActionPolicy !== null) {
     projectedTools.push(createScheduledActionToolDefinition(scheduledActionPolicy));
   }
-  const readFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "read_file", "sandbox");
-  if (readFilePolicy !== null) {
-    projectedTools.push(createReadFileToolDefinition(readFilePolicy));
-  }
-  const writeFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "write_file", "sandbox");
-  if (writeFilePolicy !== null) {
-    projectedTools.push(createWriteFileToolDefinition(writeFilePolicy));
-  }
-  const editFilePolicy = resolveAllowedModelVisibleToolPolicy(bundle, "edit_file", "sandbox");
-  if (editFilePolicy !== null) {
-    projectedTools.push(createEditFileToolDefinition(editFilePolicy));
+  const filesPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "files", "inline");
+  if (filesPolicy !== null) {
+    projectedTools.push(createFilesToolDefinition(filesPolicy));
   }
   const execPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "exec", "sandbox");
   if (execPolicy !== null) {
@@ -195,14 +189,6 @@ export function projectRuntimeNativeTools(
   const shellPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "shell", "sandbox");
   if (shellPolicy !== null) {
     projectedTools.push(createShellToolDefinition(shellPolicy));
-  }
-  const sendMediaToUserPolicy = resolveAllowedModelVisibleToolPolicy(
-    bundle,
-    "send_media_to_user",
-    "inline"
-  );
-  if (sendMediaToUserPolicy !== null) {
-    projectedTools.push(createSendMediaToUserToolDefinition(sendMediaToUserPolicy));
   }
 
   return {
@@ -754,78 +740,76 @@ function createScheduledActionToolDefinition(
   };
 }
 
-function createReadFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
+function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
-    name: "read_file",
+    name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read a sandbox-managed file by relative path or canonical file reference. Files created earlier in the same turn remain available at their original relative paths."
+      "Search, inspect, read, write, edit, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
+      required: ["action"],
       properties: {
+        action: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
+          description: 'One files action: "search", "get", "read", "write", "edit", or "send".'
+        },
+        query: {
+          type: "string",
+          description:
+            'Search text for action="search", or a selector for action="get", "read", "edit", or "send" when fileRef/path is unavailable.'
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: FILES_SEARCH_MAX_LIMIT,
+          description: 'Optional result cap for action="search". Ignored for other actions.'
+        },
         path: {
           type: "string",
-          description: "Sandbox-relative file path to read."
+          description:
+            'Assistant file path for action="get", "read", "write", or "edit". Prefer the returned relativePath from earlier files results.'
         },
         fileRef: {
           type: "string",
-          description: "Optional canonical file reference to read."
-        }
-      }
-    }
-  };
-}
-
-function createWriteFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
-    name: "write_file",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Create or overwrite one sandbox-managed file. Later sandbox tools in the same turn can read or execute against the created file by its relative path."
-    ),
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["path", "content"],
-      properties: {
-        path: {
-          type: "string",
-          description: "Sandbox-relative file path to create or overwrite."
+          description:
+            'Canonical assistant file reference for action="get", "read", "edit", or "send". Prefer this when a prior tool result already returned a stable fileRef.'
         },
         content: {
           type: "string",
-          description: "UTF-8 text content to write."
-        }
-      }
-    }
-  };
-}
-
-function createEditFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
-    name: "edit_file",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Apply a focused text replacement in one sandbox-managed file. Edited files remain mounted for later sandbox tools in the same turn."
-    ),
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["path", "oldText", "newText"],
-      properties: {
-        path: {
-          type: "string",
-          description: "Sandbox-relative file path to edit."
+          description: 'Full UTF-8 text content for action="write".'
         },
         oldText: {
           type: "string",
-          description: "Existing exact text to replace."
+          description: 'Exact existing text to replace for action="edit".'
         },
         newText: {
           type: "string",
-          description: "Replacement text."
+          description: 'Replacement text for action="edit".'
+        },
+        fileRefs: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Canonical assistant file references to deliver for action="send". You may also combine these with one resolved selector.'
+        },
+        artifactIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Current-turn artifact ids to deliver for action="send" when a prior tool already returned outbound artifacts.'
+        },
+        caption: {
+          type: "string",
+          description: 'Optional caption for action="send".'
+        },
+        filename: {
+          type: "string",
+          description:
+            'Optional filename override for action="send" when exactly one file or artifact is selected.'
         }
       }
     }
@@ -881,43 +865,6 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         cwd: {
           type: "string",
           description: "Optional sandbox-relative working directory."
-        }
-      }
-    }
-  };
-}
-
-function createSendMediaToUserToolDefinition(
-  policy: RuntimeToolPolicy
-): ProviderGatewayToolDefinition {
-  return {
-    name: "send_media_to_user",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Queue existing file references or current-turn artifacts for delivery to the user. Prefer canonical fileRefs from earlier tool results or attachment summaries when resending an existing file."
-    ),
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        fileRefs: {
-          type: "array",
-          items: { type: "string" },
-          description: "Canonical file references to deliver."
-        },
-        artifactIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "Current-turn artifact ids to include."
-        },
-        caption: {
-          type: "string",
-          description: "Optional caption to attach to delivered files."
-        },
-        filename: {
-          type: "string",
-          description:
-            "Optional filename override when exactly one file reference or artifact is selected."
         }
       }
     }

@@ -42,13 +42,11 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "video_generate",
   "tts",
   "scheduled_action",
-  "read_file",
-  "write_file",
-  "edit_file",
+  "files",
   "exec",
-  "shell",
-  "send_media_to_user"
+  "shell"
 ] as const;
+const PROMPT_CONSTRUCTOR_MODEL_TOOL_SET = new Set<string>(PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER);
 
 const PRESET_META: Record<
   string,
@@ -627,7 +625,9 @@ export default function AdminPresetsPage() {
       const templateData = (await templateRes.json()) as { presets: PromptTemplateState[] };
       const toolData = (await toolRes.json()) as { tools: ToolPromptState[] };
       setTemplates(templateData.presets);
-      setTools(toolData.tools);
+      setTools(
+        toolData.tools.filter((tool) => PROMPT_CONSTRUCTOR_MODEL_TOOL_SET.has(tool.toolCode))
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load prompt constructor.");
     }

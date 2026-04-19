@@ -114,15 +114,6 @@ export type PlanDraft = {
   toolActivations: ToolActivationDraft[];
 };
 
-const RUNTIME_TIER_OPTIONS: Array<{
-  value: PlanDraft["runtimeTierDefault"];
-  label: string;
-}> = [
-  { value: "free_shared_restricted", label: "Free shared restricted" },
-  { value: "paid_shared_restricted", label: "Paid shared restricted" },
-  { value: "paid_isolated", label: "Paid isolated" }
-];
-
 export const VIDEO_GENERATE_MODEL_OPTIONS: Array<{
   value: VideoGenerateModelDraft;
   label: string;
@@ -573,7 +564,7 @@ function getPolicyClassLabel(
 }
 
 function splitToolActivationsByPolicy<
-  T extends { policyClass: AdminPlanToolActivation["policyClass"] }
+  T extends { policyClass: AdminPlanToolActivation["policyClass"]; toolCode: string }
 >(
   activations: T[]
 ): {
@@ -631,6 +622,36 @@ function Sec({ label, children }: { label: string; children: ReactNode }) {
         {label}
       </span>
       <div className="mt-0.5">{children}</div>
+    </div>
+  );
+}
+
+function HelpText({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <p className={cn("text-[10px] leading-snug text-text-subtle/80", className)}>{children}</p>
+  );
+}
+
+function Panel({
+  title,
+  hint,
+  children,
+  className
+}: {
+  title: string;
+  hint?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded-md border border-accent/20 bg-surface-raised p-2.5", className)}>
+      <div className="mb-2">
+        <div className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+          {title}
+        </div>
+        {hint ? <HelpText className="mt-1">{hint}</HelpText> : null}
+      </div>
+      {children}
     </div>
   );
 }
@@ -747,24 +768,33 @@ export function ToolActivationsEdit({
   }
 
   return (
-    <div className="grid gap-px rounded border border-border bg-border overflow-hidden">
-      <div className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border text-[9px] font-bold uppercase tracking-wider text-text-subtle">
-        <span className="bg-surface px-2 py-1">Tool</span>
-        <span className="bg-surface px-2 py-1">Class</span>
-        <span className="bg-surface px-2 py-1 text-center">On</span>
-        <span className="bg-surface px-2 py-1 text-right">Limit/d</span>
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-2 rounded border border-border bg-surface px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-subtle">
+        <span>Tool</span>
+        <span className="grid grid-cols-[56px_44px_72px] gap-2">
+          <span>Class</span>
+          <span className="text-center">On</span>
+          <span className="text-right">Limit/d</span>
+        </span>
       </div>
       {activations.map((ta, idx) => (
-        <div key={ta.toolCode} className="grid grid-cols-[1fr_70px_40px_88px] gap-px bg-border">
-          <span className="bg-surface-raised px-2 py-1 text-[11px] text-text">
-            <span className="block truncate">
-              {ta.displayName}
-              <span className="ml-1 text-[10px] text-text-subtle">
-                ({getPolicyClassLabel(ta.policyClass)})
-              </span>
-            </span>
+        <div
+          key={ta.toolCode}
+          className="grid grid-cols-[minmax(0,1fr)_180px] gap-2 rounded border border-border/80 bg-surface-raised px-2 py-1.5"
+        >
+          <div className="min-w-0 text-[11px] text-text">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-medium">{ta.displayName}</span>
+              <span className="font-mono text-[10px] text-text-subtle">{ta.toolCode}</span>
+              <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+            </div>
+            <HelpText className="mt-1">
+              {ta.dailyCallLimit === null
+                ? "Blank limit means this tool inherits the default runtime behavior for the plan."
+                : "Daily cap for this tool on this plan."}
+            </HelpText>
             {ta.toolCode === "video_generate" ? (
-              <label className="mt-1 flex items-center gap-2 text-[10px] text-text-subtle">
+              <label className="mt-2 flex items-center gap-2 text-[10px] text-text-subtle">
                 <span className="shrink-0 uppercase tracking-wider">Model</span>
                 <select
                   value={videoGenerateModelKey}
@@ -781,30 +811,33 @@ export function ToolActivationsEdit({
                 </select>
               </label>
             ) : null}
-          </span>
-          <span className="bg-surface-raised px-2 py-1">
-            <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
-              {ta.toolClass === "cost_driving" ? "cost" : "util"}
-            </Pill>
-          </span>
-          <span className="bg-surface-raised px-2 py-1 flex items-center justify-center">
-            <input
-              type="checkbox"
-              checked={ta.active}
-              onChange={() => toggle(idx)}
-              className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
-            />
-          </span>
-          <span className="bg-surface-raised px-2 py-1 flex items-center justify-end">
-            <input
-              type="number"
-              min={0}
-              value={ta.dailyCallLimit ?? ""}
-              onChange={(e) => setLimit(idx, e.target.value)}
-              placeholder="∞"
-              className="w-16 appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-            />
-          </span>
+          </div>
+          <div className="grid grid-cols-[56px_44px_72px] items-center gap-2">
+            <div className="flex justify-start">
+              <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
+                {ta.toolClass === "cost_driving" ? "cost" : "util"}
+              </Pill>
+            </div>
+            <div className="flex justify-center">
+              <input
+                type="checkbox"
+                checked={ta.active}
+                onChange={() => toggle(idx)}
+                aria-label={`${ta.displayName} enabled`}
+                className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
+              />
+            </div>
+            <div className="flex justify-end">
+              <input
+                type="number"
+                min={0}
+                value={ta.dailyCallLimit ?? ""}
+                onChange={(e) => setLimit(idx, e.target.value)}
+                placeholder="∞"
+                className="w-[72px] appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+              />
+            </div>
+          </div>
         </div>
       ))}
     </div>
@@ -962,88 +995,82 @@ function PlanForm({
         </div>
       </div>
 
-      {/* row 4: entitlements grid */}
-      <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 rounded border border-border bg-surface px-3 py-2">
-        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
-          <Sec label="Tool classes">
-            <div className="space-y-0.5">
-              <Check
-                label="Cost-driving"
-                checked={draft.toolCostDriving}
-                onChange={(v) => onPatch({ toolCostDriving: v })}
-              />
-              <Check
-                label="Utility"
-                checked={draft.toolUtility}
-                onChange={(v) => onPatch({ toolUtility: v })}
-              />
-              <Check
-                label="Cost quota"
-                checked={draft.toolCostDrivingQuotaGoverned}
-                onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
-              />
-              <Check
-                label="Util quota"
-                checked={draft.toolUtilityQuotaGoverned}
-                onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
-              />
+      {/* row 4: access + plan defaults */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(280px,0.92fr)_minmax(0,1.45fr)]">
+        <Panel
+          title="Access surface"
+          hint="The broad plan-level switches. These are intentionally separate from the per-tool toggles below."
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Sec label="Tool classes">
+                <div className="space-y-0.5">
+                  <Check
+                    label="Cost-driving"
+                    checked={draft.toolCostDriving}
+                    onChange={(v) => onPatch({ toolCostDriving: v })}
+                  />
+                  <Check
+                    label="Utility"
+                    checked={draft.toolUtility}
+                    onChange={(v) => onPatch({ toolUtility: v })}
+                  />
+                  <Check
+                    label="Cost quota"
+                    checked={draft.toolCostDrivingQuotaGoverned}
+                    onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
+                  />
+                  <Check
+                    label="Util quota"
+                    checked={draft.toolUtilityQuotaGoverned}
+                    onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
+                  />
+                </div>
+              </Sec>
+              <HelpText className="mt-1.5">
+                Cost tools spend quota units. Utility tools are usually free helpers. Quota flags
+                decide whether the class is capped by plan budget.
+              </HelpText>
             </div>
-          </Sec>
-          <p className="text-[10px] leading-snug text-text-subtle/80">
-            &quot;Cost&quot; tools consume quota units; &quot;Utility&quot; are free. Quota flags
-            enforce spending limits.
-          </p>
-        </div>
-        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
-          <Sec label="Channels">
-            <div className="space-y-0.5">
-              <Check
-                label="Web Chat"
-                checked={draft.channelWebChat}
-                onChange={(v) => onPatch({ channelWebChat: v })}
-              />
-              <Check
-                label="Telegram"
-                checked={draft.channelTelegram}
-                onChange={(v) => onPatch({ channelTelegram: v })}
-              />
-              <Check
-                label="WhatsApp"
-                checked={draft.channelWhatsapp}
-                onChange={(v) => onPatch({ channelWhatsapp: v })}
-              />
-              <Check
-                label="Max"
-                checked={draft.channelMax}
-                onChange={(v) => onPatch({ channelMax: v })}
-              />
+            <div>
+              <Sec label="Channels">
+                <div className="space-y-0.5">
+                  <Check
+                    label="Web Chat"
+                    checked={draft.channelWebChat}
+                    onChange={(v) => onPatch({ channelWebChat: v })}
+                  />
+                  <Check
+                    label="Telegram"
+                    checked={draft.channelTelegram}
+                    onChange={(v) => onPatch({ channelTelegram: v })}
+                  />
+                  <Check
+                    label="WhatsApp"
+                    checked={draft.channelWhatsapp}
+                    onChange={(v) => onPatch({ channelWhatsapp: v })}
+                  />
+                  <Check
+                    label="Max"
+                    checked={draft.channelMax}
+                    onChange={(v) => onPatch({ channelMax: v })}
+                  />
+                </div>
+              </Sec>
+              <HelpText className="mt-1.5">
+                Messaging surfaces available to workspaces on this plan.
+              </HelpText>
             </div>
-          </Sec>
-          <p className="text-[10px] leading-snug text-text-subtle/80">
-            Messaging channels available to workspaces on this plan.
-          </p>
-        </div>
-        <div className="space-y-2 rounded-md border border-accent/30 bg-surface-raised p-2.5">
-          <Sec label="Runtime tier default">
-            <select
-              value={draft.runtimeTierDefault}
-              onChange={(e) =>
-                onPatch({
-                  runtimeTierDefault: e.target.value as PlanDraft["runtimeTierDefault"]
-                })
-              }
-              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-            >
-              {RUNTIME_TIER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[10px] leading-snug text-text-subtle/80">
-              Product policy default only. Pool/service routing stays behind the control plane.
-            </p>
-          </Sec>
+          </div>
+          <HelpText className="mt-3">
+            `Runtime tier default` is hidden on purpose. It is no longer useful for everyday admin
+            editing on the active product path.
+          </HelpText>
+        </Panel>
+        <Panel
+          title="Plan limits and model defaults"
+          hint="The knobs admins usually change during plan tuning: storage budgets, retrieval behavior, and model slots."
+        >
           <Sec label="Quota limits">
             <div className="space-y-1.5">
               <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
@@ -1236,7 +1263,7 @@ function PlanForm({
               ))}
             </div>
           </Sec>
-        </div>
+        </Panel>
       </div>
 
       <Sec label="Sandbox policy">
@@ -1347,8 +1374,7 @@ function PlanForm({
               placeholder="text/plain, application/json, image/png"
             />
             <span className="block text-[10px] font-normal leading-snug text-text-subtle/80">
-              Comma-separated allowlist for files that may be delivered through
-              `send_media_to_user`.
+              Comma-separated allowlist for files that may be delivered through `files.send`.
             </span>
           </label>
         </div>
@@ -1524,9 +1550,11 @@ function PlanForm({
             onPatch({ videoGenerateModelKey })
           }
         />
-        <p className="mt-1 text-[10px] text-text-subtle">
-          System tools are managed by the platform and are shown in plan summaries as read-only.
-        </p>
+        <HelpText className="mt-2">
+          Only plan-managed tools are editable here. Platform-managed and internal tools stay
+          read-only in summaries. `Limit/d` is a per-plan daily cap; leave it blank to inherit the
+          default runtime behavior.
+        </HelpText>
       </Sec>
     </div>
   );
@@ -1665,14 +1693,6 @@ function PlanCardReadOnly({
               </div>
             </Sec>
             <div className="space-y-1">
-              <Sec label="Runtime tier">
-                <span className="text-[10px] text-text-subtle">
-                  {RUNTIME_TIER_OPTIONS.find(
-                    (option) =>
-                      option.value === (plan.runtimeTierDefault ?? "free_shared_restricted")
-                  )?.label ?? "Free shared restricted"}
-                </span>
-              </Sec>
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>

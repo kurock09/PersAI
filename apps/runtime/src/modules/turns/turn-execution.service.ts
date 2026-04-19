@@ -31,13 +31,13 @@ import {
   type RuntimeMemoryWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
+  type RuntimeFilesToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeFileRef,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
-  type RuntimeSendMediaToUserToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
   type RuntimeVideoGenerateToolResult,
@@ -66,6 +66,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
 import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
@@ -73,7 +74,6 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
-import { RuntimeSendMediaToUserService } from "./runtime-send-media-to-user.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import {
@@ -137,11 +137,11 @@ type ToolExecutionOutcome = {
     | RuntimeMemoryWriteToolResult
     | RuntimeQuotaStatusToolResult
     | RuntimeBrowserToolResult
+    | RuntimeFilesToolResult
     | RuntimeImageEditToolResult
     | RuntimeImageGenerateToolResult
     | RuntimeSandboxToolResult
     | RuntimeScheduledActionToolResult
-    | RuntimeSendMediaToUserToolResult
     | RuntimeTtsToolResult
     | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
@@ -180,12 +180,9 @@ const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
 const TTS_TOOL_CODE = "tts";
-const READ_FILE_TOOL_CODE = "read_file";
-const WRITE_FILE_TOOL_CODE = "write_file";
-const EDIT_FILE_TOOL_CODE = "edit_file";
+const FILES_TOOL_CODE = "files";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
-const SEND_MEDIA_TO_USER_TOOL_CODE = "send_media_to_user";
 
 @Injectable()
 export class TurnExecutionService {
@@ -202,6 +199,7 @@ export class TurnExecutionService {
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
+    private readonly runtimeFilesToolService: RuntimeFilesToolService,
     private readonly runtimeImageEditToolService: RuntimeImageEditToolService,
     private readonly runtimeImageGenerateToolService: RuntimeImageGenerateToolService,
     private readonly runtimeKnowledgeToolService: RuntimeKnowledgeToolService,
@@ -209,7 +207,6 @@ export class TurnExecutionService {
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
-    private readonly runtimeSendMediaToUserService: RuntimeSendMediaToUserService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
   ) {}
@@ -1250,9 +1247,24 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
-      case READ_FILE_TOOL_CODE:
-      case WRITE_FILE_TOOL_CODE:
-      case EDIT_FILE_TOOL_CODE:
+      case FILES_TOOL_CODE: {
+        const result = await this.runtimeFilesToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          requestId: acceptedTurn.receipt.requestId,
+          currentArtifacts,
+          currentFileRefs,
+          channel: acceptedTurn.session.conversation.channel
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
+      }
       case EXEC_TOOL_CODE:
       case SHELL_TOOL_CODE: {
         const result = await this.runtimeSandboxToolService.executeToolCall({
@@ -1344,21 +1356,6 @@ export class TurnExecutionService {
           conversation: acceptedTurn.session.conversation
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
-      }
-      case SEND_MEDIA_TO_USER_TOOL_CODE: {
-        const result = await this.runtimeSendMediaToUserService.executeToolCall({
-          bundle: execution.bundle,
-          toolCall,
-          currentArtifacts,
-          channel: acceptedTurn.session.conversation.channel
-        });
-        return this.createToolExecutionOutcome(
-          toolCall,
-          result.payload,
-          result.isError,
-          undefined,
-          result.artifacts
-        );
       }
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
@@ -1661,11 +1658,11 @@ export class TurnExecutionService {
       | RuntimeMemoryWriteToolResult
       | RuntimeQuotaStatusToolResult
       | RuntimeBrowserToolResult
+      | RuntimeFilesToolResult
       | RuntimeImageEditToolResult
       | RuntimeImageGenerateToolResult
       | RuntimeSandboxToolResult
       | RuntimeScheduledActionToolResult
-      | RuntimeSendMediaToUserToolResult
       | RuntimeTtsToolResult
       | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult
@@ -1913,14 +1910,11 @@ export class TurnExecutionService {
   }
 
   private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {
-    if (
-      !this.isSandboxToolPayload(payload) ||
-      payload.job === null ||
-      payload.job.files.length === 0
-    ) {
+    const job = this.resolveProducedFileJob(payload);
+    if (job === null || job.files.length === 0) {
       return [];
     }
-    return payload.job.files.map((file) => file.fileRef);
+    return job.files.map((file) => file.fileRef);
   }
 
   private isSandboxToolPayload(
@@ -1932,6 +1926,29 @@ export class TurnExecutionService {
       "executionMode" in payload &&
       payload.executionMode === "sandbox"
     );
+  }
+
+  private isFilesToolPayload(
+    payload: ToolExecutionOutcome["payload"]
+  ): payload is RuntimeFilesToolResult {
+    return (
+      payload !== null &&
+      typeof payload === "object" &&
+      "toolCode" in payload &&
+      payload.toolCode === FILES_TOOL_CODE
+    );
+  }
+
+  private resolveProducedFileJob(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeSandboxToolResult["job"] | RuntimeFilesToolResult["job"] {
+    if (this.isSandboxToolPayload(payload)) {
+      return payload.job;
+    }
+    if (this.isFilesToolPayload(payload)) {
+      return payload.job;
+    }
+    return null;
   }
 
   private async refreshProviderRequestMessages(

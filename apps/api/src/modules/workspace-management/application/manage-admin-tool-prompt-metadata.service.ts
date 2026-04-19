@@ -11,6 +11,7 @@ import {
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
 import {
+  isPromptConstructorModelToolCode,
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   getSyntheticPromptConstructorToolStorageIds,
   isSyntheticPromptConstructorToolCode,
@@ -83,6 +84,9 @@ export class ManageAdminToolPromptMetadataService {
       await this.bumpConfigGenerationService.execute();
       const rows = await this.promptTemplateRepository.findAll();
       return resolveSyntheticPromptConstructorTool(toolCode, rows);
+    }
+    if (!isPromptConstructorModelToolCode(toolCode)) {
+      throw new NotFoundException(`Tool "${toolCode}" does not exist.`);
     }
     try {
       const updated = await this.toolCatalogRepository.updateToolPromptMetadata(toolCode, patch);

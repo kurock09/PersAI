@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { Injectable, Logger } from "@nestjs/common";
@@ -44,6 +44,37 @@ type WorkspaceStats = {
   totalBytes: number;
 };
 
+type AssistantWorkspaceFileRecord = {
+  id: string;
+  objectKey: string;
+  relativePath: string;
+  displayName: string | null;
+  mimeType: string;
+  sizeBytes: bigint;
+  logicalSizeBytes: bigint | null;
+  sha256: string | null;
+  updatedAt: Date;
+};
+
+type WorkspaceLeaseHandle = {
+  assistantId: string;
+  workspaceId: string;
+  sandboxJobId: string;
+  leaseToken: string;
+  holderId: string;
+  expiresAt: Date;
+};
+
+type WorkspaceLeaseGuard = {
+  handle: WorkspaceLeaseHandle;
+  active: boolean;
+  renewalError: Error | null;
+  heartbeatTimer: NodeJS.Timeout | null;
+  renewing: boolean;
+};
+
+type SandboxFilesAction = "read" | "write" | "edit";
+
 type ProcessResult = {
   exitCode: number | null;
   stdout: string;
@@ -74,9 +105,16 @@ type SandboxPolicyError = Error & {
   resourceUsage?: Record<string, unknown>;
 };
 
+const WORKSPACE_LEASE_TTL_MS = 30_000;
+const WORKSPACE_LEASE_RENEW_INTERVAL_MS = 5_000;
+const WORKSPACE_LEASE_ACQUIRE_RETRY_MS = 200;
+const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 15_000;
+
 @Injectable()
 export class SandboxService {
   private readonly logger = new Logger(SandboxService.name);
+  private readonly workspaceExecutionQueues = new Map<string, Promise<void>>();
+  private readonly sandboxInstanceHolderId = `${hostname()}:${process.pid}:${randomUUID()}`;
 
   constructor(
     private readonly prisma: SandboxPrismaService,
@@ -114,7 +152,10 @@ export class SandboxService {
       }
     });
     if (preflightViolation === null) {
-      void this.executeQueuedJob(created.id, request).catch((error) => {
+      void this.enqueueWorkspaceJob(
+        this.buildWorkspaceSessionKey(request.assistantId, request.workspaceId),
+        () => this.executeQueuedJob(created.id, request)
+      ).catch((error) => {
         this.logger.error(`Sandbox job ${created.id} crashed: ${String(error)}`);
       });
     }
@@ -124,7 +165,7 @@ export class SandboxService {
   async pollJob(jobId: string): Promise<RuntimeSandboxJobResult> {
     const job = await this.prisma.sandboxJob.findUnique({
       where: { id: jobId },
-      include: { fileRefs: true }
+      include: { assistantFiles: true }
     });
     if (job === null) {
       return {
@@ -148,6 +189,8 @@ export class SandboxService {
       !Array.isArray(job.resultPayload)
         ? (job.resultPayload as Record<string, unknown>)
         : {};
+    const assistantFiles = job.assistantFiles ?? [];
+    const producedFiles = assistantFiles.map((file) => this.toProducedFile(file));
     return {
       jobId: job.id,
       status: job.status,
@@ -160,26 +203,7 @@ export class SandboxService {
       stdout: this.readNullableString(payload.stdout),
       stderr: this.readNullableString(payload.stderr),
       content: this.readNullableString(payload.content),
-      files: job.fileRefs.map((fileRef) => ({
-        relativePath: fileRef.relativePath,
-        displayName: fileRef.displayName,
-        mimeType: fileRef.mimeType,
-        sizeBytes: Number(fileRef.sizeBytes),
-        logicalSizeBytes:
-          fileRef.logicalSizeBytes === null ? null : Number(fileRef.logicalSizeBytes),
-        fileRef: {
-          fileRef: fileRef.id,
-          origin: fileRef.origin,
-          sourceToolCode: fileRef.sourceToolCode,
-          objectKey: fileRef.objectKey,
-          relativePath: fileRef.relativePath,
-          displayName: fileRef.displayName,
-          mimeType: fileRef.mimeType,
-          sizeBytes: Number(fileRef.sizeBytes),
-          logicalSizeBytes:
-            fileRef.logicalSizeBytes === null ? null : Number(fileRef.logicalSizeBytes)
-        }
-      }))
+      files: producedFiles
     };
   }
 
@@ -215,51 +239,93 @@ export class SandboxService {
   }
 
   private async executeQueuedJob(jobId: string, request: RuntimeSandboxJobRequest): Promise<void> {
-    const startedAt = new Date();
-    await this.prisma.sandboxJob.update({
-      where: { id: jobId },
-      data: {
-        status: "running",
-        startedAt
-      }
-    });
-    const workspaceRoot = join(tmpdir(), "persai-sandbox", jobId, "workspace");
+    const workspaceRoot = this.resolveWorkspaceSessionRoot(
+      request.assistantId,
+      request.workspaceId
+    );
+    let leaseGuard: WorkspaceLeaseGuard | null = null;
     try {
-      await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
-      await fs.mkdir(workspaceRoot, { recursive: true });
+      const leaseHandle = await this.waitForWorkspaceLease({
+        assistantId: request.assistantId,
+        workspaceId: request.workspaceId,
+        sandboxJobId: jobId,
+        waitTimeoutMs: this.resolveWorkspaceLeaseWaitTimeoutMs(request.policy)
+      });
+      leaseGuard = this.startWorkspaceLeaseHeartbeat(leaseHandle);
+      await this.prisma.sandboxJob.update({
+        where: { id: jobId },
+        data: {
+          status: "running",
+          startedAt: new Date()
+        }
+      });
+      const existingWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
+        request.assistantId,
+        request.workspaceId
+      );
+      this.assertWorkspaceLeaseActive(leaseGuard);
+      await this.ensureWorkspaceSessionHydrated(
+        workspaceRoot,
+        request.assistantId,
+        request.workspaceId,
+        existingWorkspaceFiles
+      );
+      this.assertWorkspaceLeaseActive(leaseGuard);
       const mountedFiles = await this.materializeMountedFiles(
         workspaceRoot,
         request.args,
         request.mountedFileRefs ?? []
       );
+      this.assertWorkspaceLeaseActive(leaseGuard);
 
       const result = await this.executeTool({
         workspaceRoot,
         request,
         jobId,
-        mountedFiles
+        mountedFiles,
+        leaseGuard
       });
+      this.assertWorkspaceLeaseActive(leaseGuard);
 
       const stats = await this.computeWorkspaceStats(workspaceRoot);
+      this.assertWorkspaceLeaseActive(leaseGuard);
       this.assertWorkspaceStats(stats, request.policy);
 
       const files = await this.collectWorkspaceFiles(workspaceRoot);
-      const producedFiles = this.selectProducedWorkspaceFiles(files, mountedFiles);
-      if (producedFiles.length > request.policy.maxPersistedArtifactsPerJob) {
+      const workspaceDelta = this.resolveWorkspaceDelta(
+        files,
+        existingWorkspaceFiles,
+        mountedFiles
+      );
+      if (workspaceDelta.changedFiles.length > request.policy.maxPersistedArtifactsPerJob) {
         this.throwPolicy(
           "artifact_count_limit_exceeded",
-          `Sandbox job created ${String(producedFiles.length)} file(s), above the per-job artifact limit of ${String(
+          `Sandbox job created ${String(workspaceDelta.changedFiles.length)} file(s), above the per-job artifact limit of ${String(
             request.policy.maxPersistedArtifactsPerJob
           )}.`
         );
       }
+      this.assertWorkspaceLeaseActive(leaseGuard);
       const persistedFiles = await this.persistWorkspaceFiles({
         assistantId: request.assistantId,
         workspaceId: request.workspaceId,
         toolCode: request.toolCode,
         jobId,
-        files: producedFiles
+        files: workspaceDelta.changedFiles,
+        existingWorkspaceFiles,
+        leaseGuard
       });
+      this.assertWorkspaceLeaseActive(leaseGuard);
+      await this.deleteRemovedWorkspaceFiles({
+        assistantId: request.assistantId,
+        workspaceId: request.workspaceId,
+        deletedPaths: workspaceDelta.deletedPaths,
+        leaseGuard
+      });
+      await this.writeWorkspaceSessionStateMarker(
+        workspaceRoot,
+        await this.loadCurrentAssistantWorkspaceFiles(request.assistantId, request.workspaceId)
+      );
       await this.prisma.sandboxJob.update({
         where: { id: jobId },
         data: {
@@ -286,9 +352,9 @@ export class SandboxService {
           }
         }
       });
-      if (persistedFiles.length !== files.length) {
+      if (persistedFiles.length !== workspaceDelta.changedFiles.length) {
         this.logger.warn(
-          `Sandbox job ${jobId} persisted ${String(persistedFiles.length)} of ${String(files.length)} files.`
+          `Sandbox job ${jobId} persisted ${String(persistedFiles.length)} of ${String(workspaceDelta.changedFiles.length)} changed file(s).`
         );
       }
     } catch (error) {
@@ -311,8 +377,13 @@ export class SandboxService {
           ...(resourceUsage === null ? {} : { resourceUsage: this.toJsonValue(resourceUsage) })
         }
       });
+      await this.resetWorkspaceSessionToCurrentState(
+        request.assistantId,
+        request.workspaceId,
+        workspaceRoot
+      );
     } finally {
-      await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
+      await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
     }
   }
 
@@ -321,6 +392,7 @@ export class SandboxService {
     request: RuntimeSandboxJobRequest;
     jobId: string;
     mountedFiles: MountedWorkspaceState;
+    leaseGuard: WorkspaceLeaseGuard;
   }): Promise<{
     reason: string | null;
     warning: string | null;
@@ -333,26 +405,47 @@ export class SandboxService {
     peakCpuMs?: number;
     peakMemoryBytes?: number;
   }> {
+    this.assertWorkspaceLeaseActive(input.leaseGuard);
     switch (input.request.toolCode) {
-      case "read_file":
-        return this.executeReadFile(input.workspaceRoot, input.request.args, input.mountedFiles);
-      case "write_file":
-        return this.executeWriteFile(input.workspaceRoot, input.request.args, input.request.policy);
-      case "edit_file":
-        return this.executeEditFile(input.workspaceRoot, input.request.args, input.request.policy);
+      case "files": {
+        const action = this.readSandboxFilesAction(input.request.args);
+        switch (action) {
+          case "read":
+            return this.executeFilesReadAction(
+              input.workspaceRoot,
+              input.request.args,
+              input.mountedFiles
+            );
+          case "write":
+            return this.executeFilesWriteAction(
+              input.workspaceRoot,
+              input.request.args,
+              input.request.policy
+            );
+          case "edit":
+            return this.executeFilesEditAction(
+              input.workspaceRoot,
+              input.request.args,
+              input.request.policy
+            );
+        }
+        throw new Error(`Unsupported files action: ${String(action)}`);
+      }
       case "exec":
         return this.executeExecLike(
           input.workspaceRoot,
           input.request.args,
           input.request.policy,
-          false
+          false,
+          input.leaseGuard
         );
       case "shell":
         return this.executeExecLike(
           input.workspaceRoot,
           input.request.args,
           input.request.policy,
-          true
+          true,
+          input.leaseGuard
         );
       default:
         this.throwPolicy(
@@ -362,7 +455,7 @@ export class SandboxService {
     }
   }
 
-  private async executeReadFile(
+  private async executeFilesReadAction(
     workspaceRoot: string,
     args: Record<string, unknown>,
     mountedFiles: MountedWorkspaceState
@@ -374,7 +467,7 @@ export class SandboxService {
     stderr: string | null;
     content: string | null;
   }> {
-    const relativePath = this.resolveReadablePath(args, mountedFiles);
+    const relativePath = this.resolveFilesReadablePath(args, mountedFiles);
     const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
     const buffer = await fs.readFile(absolutePath);
     return {
@@ -387,7 +480,7 @@ export class SandboxService {
     };
   }
 
-  private async executeWriteFile(
+  private async executeFilesWriteAction(
     workspaceRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy
@@ -416,7 +509,7 @@ export class SandboxService {
     };
   }
 
-  private async executeEditFile(
+  private async executeFilesEditAction(
     workspaceRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy
@@ -454,7 +547,8 @@ export class SandboxService {
     workspaceRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
-    shellMode: boolean
+    shellMode: boolean,
+    leaseGuard: WorkspaceLeaseGuard
   ) {
     const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
     const absoluteCwd = this.resolveWorkspacePath(workspaceRoot, cwd);
@@ -468,7 +562,8 @@ export class SandboxService {
         policy,
         cwd: absoluteCwd,
         command: process.platform === "win32" ? "powershell.exe" : "/bin/sh",
-        args: process.platform === "win32" ? ["-NoProfile", "-Command", command] : ["-lc", command]
+        args: process.platform === "win32" ? ["-NoProfile", "-Command", command] : ["-lc", command],
+        leaseGuard
       });
       return {
         reason: result.exitCode === 0 ? null : "process_failed",
@@ -490,7 +585,8 @@ export class SandboxService {
       policy,
       cwd: absoluteCwd,
       command,
-      args: childArgs
+      args: childArgs,
+      leaseGuard
     });
     return {
       reason: result.exitCode === 0 ? null : "process_failed",
@@ -508,8 +604,10 @@ export class SandboxService {
     cwd: string;
     command: string;
     args: string[];
+    leaseGuard: WorkspaceLeaseGuard;
   }): Promise<ProcessResult> {
     const startedAt = Date.now();
+    this.assertWorkspaceLeaseActive(input.leaseGuard);
     return await new Promise<ProcessResult>((resolvePromise, rejectPromise) => {
       let stdout = "";
       let stderr = "";
@@ -644,6 +742,7 @@ export class SandboxService {
         monitoring = true;
         void (async () => {
           try {
+            this.assertWorkspaceLeaseActive(input.leaseGuard);
             const stats = await this.computeWorkspaceStats(input.workspaceRoot);
             this.assertWorkspaceStats(stats, input.policy);
             const usage = await this.readProcessTreeUsage(rootPid);
@@ -908,6 +1007,352 @@ export class SandboxService {
     });
   }
 
+  private buildWorkspaceSessionKey(assistantId: string, workspaceId: string): string {
+    return `${assistantId}:${workspaceId}`;
+  }
+
+  private resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string {
+    return join(tmpdir(), "persai-sandbox", "assistants", assistantId, workspaceId, "workspace");
+  }
+
+  private enqueueWorkspaceJob(key: string, job: () => Promise<void>): Promise<void> {
+    const previous = this.workspaceExecutionQueues.get(key) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(job);
+    this.workspaceExecutionQueues.set(
+      key,
+      next.finally(() => {
+        if (this.workspaceExecutionQueues.get(key) === next) {
+          this.workspaceExecutionQueues.delete(key);
+        }
+      })
+    );
+    return next;
+  }
+
+  private async waitForWorkspaceLease(input: {
+    assistantId: string;
+    workspaceId: string;
+    sandboxJobId: string;
+    waitTimeoutMs: number;
+  }): Promise<WorkspaceLeaseHandle> {
+    const deadline = Date.now() + input.waitTimeoutMs;
+    for (;;) {
+      const acquired = await this.tryAcquireWorkspaceLease(input);
+      if (acquired !== null) {
+        return acquired;
+      }
+      if (Date.now() >= deadline) {
+        throw this.createWorkspaceLeaseError(
+          "workspace_lease_timeout",
+          `Timed out waiting for assistant workspace lease after ${String(input.waitTimeoutMs)}ms.`,
+          true
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, WORKSPACE_LEASE_ACQUIRE_RETRY_MS));
+    }
+  }
+
+  private async tryAcquireWorkspaceLease(input: {
+    assistantId: string;
+    workspaceId: string;
+    sandboxJobId: string;
+  }): Promise<WorkspaceLeaseHandle | null> {
+    const handle = this.buildWorkspaceLeaseHandle(input);
+    try {
+      await this.prisma.assistantWorkspaceLease.create({
+        data: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          sandboxJobId: input.sandboxJobId,
+          leaseToken: handle.leaseToken,
+          holderId: handle.holderId,
+          expiresAt: handle.expiresAt
+        }
+      });
+      return handle;
+    } catch (error) {
+      if (!this.isPrismaUniqueConstraintError(error)) {
+        throw error;
+      }
+    }
+    const claimed = await this.prisma.assistantWorkspaceLease.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        expiresAt: {
+          lt: new Date()
+        }
+      },
+      data: {
+        sandboxJobId: input.sandboxJobId,
+        leaseToken: handle.leaseToken,
+        holderId: handle.holderId,
+        expiresAt: handle.expiresAt
+      }
+    });
+    return claimed.count === 1 ? handle : null;
+  }
+
+  private startWorkspaceLeaseHeartbeat(handle: WorkspaceLeaseHandle): WorkspaceLeaseGuard {
+    const guard: WorkspaceLeaseGuard = {
+      handle,
+      active: true,
+      renewalError: null,
+      heartbeatTimer: null,
+      renewing: false
+    };
+    guard.heartbeatTimer = setInterval(() => {
+      if (!guard.active || guard.renewing) {
+        return;
+      }
+      guard.renewing = true;
+      void this.renewWorkspaceLease(guard.handle)
+        .then((renewed) => {
+          if (renewed === null) {
+            guard.active = false;
+            guard.renewalError = this.createWorkspaceLeaseError(
+              "workspace_lease_lost",
+              "Assistant workspace lease was lost during sandbox execution."
+            );
+            return;
+          }
+          guard.handle = renewed;
+        })
+        .catch((error) => {
+          guard.active = false;
+          guard.renewalError =
+            error instanceof Error
+              ? error
+              : this.createWorkspaceLeaseError(
+                  "workspace_lease_renew_failed",
+                  "Assistant workspace lease renewal failed."
+                );
+        })
+        .finally(() => {
+          guard.renewing = false;
+        });
+    }, WORKSPACE_LEASE_RENEW_INTERVAL_MS);
+    return guard;
+  }
+
+  private async stopWorkspaceLeaseHeartbeat(guard: WorkspaceLeaseGuard | null): Promise<void> {
+    const heartbeatTimer = guard?.heartbeatTimer ?? null;
+    if (heartbeatTimer !== null) {
+      clearInterval(heartbeatTimer);
+    }
+    if (guard === null) {
+      return;
+    }
+    guard.active = false;
+    await this.releaseWorkspaceLease(guard.handle);
+  }
+
+  private assertWorkspaceLeaseActive(guard: WorkspaceLeaseGuard): void {
+    if (guard.active) {
+      return;
+    }
+    throw (
+      guard.renewalError ??
+      this.createWorkspaceLeaseError(
+        "workspace_lease_lost",
+        "Assistant workspace lease is no longer active."
+      )
+    );
+  }
+
+  private async renewWorkspaceLease(
+    handle: WorkspaceLeaseHandle
+  ): Promise<WorkspaceLeaseHandle | null> {
+    const renewed = this.buildWorkspaceLeaseHandle(handle);
+    const updated = await this.prisma.assistantWorkspaceLease.updateMany({
+      where: {
+        assistantId: handle.assistantId,
+        workspaceId: handle.workspaceId,
+        leaseToken: handle.leaseToken,
+        holderId: handle.holderId,
+        expiresAt: {
+          gt: new Date()
+        }
+      },
+      data: {
+        sandboxJobId: handle.sandboxJobId,
+        expiresAt: renewed.expiresAt
+      }
+    });
+    return updated.count === 1 ? renewed : null;
+  }
+
+  private resolveWorkspaceLeaseWaitTimeoutMs(policy: RuntimeSandboxPolicy): number {
+    return Math.max(
+      WORKSPACE_LEASE_WAIT_TIMEOUT_MS,
+      Math.min(60_000, policy.maxProcessRuntimeMs + 5_000)
+    );
+  }
+
+  private async releaseWorkspaceLease(handle: WorkspaceLeaseHandle): Promise<void> {
+    await this.prisma.assistantWorkspaceLease.updateMany({
+      where: {
+        assistantId: handle.assistantId,
+        workspaceId: handle.workspaceId,
+        leaseToken: handle.leaseToken,
+        holderId: handle.holderId
+      },
+      data: {
+        sandboxJobId: null,
+        leaseToken: `released:${randomUUID()}`,
+        expiresAt: new Date()
+      }
+    });
+  }
+
+  private buildWorkspaceLeaseHandle(input: {
+    assistantId: string;
+    workspaceId: string;
+    sandboxJobId: string;
+    holderId?: string;
+    leaseToken?: string;
+  }): WorkspaceLeaseHandle {
+    return {
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      sandboxJobId: input.sandboxJobId,
+      leaseToken: input.leaseToken ?? randomUUID(),
+      holderId: input.holderId ?? this.sandboxInstanceHolderId,
+      expiresAt: new Date(Date.now() + WORKSPACE_LEASE_TTL_MS)
+    };
+  }
+
+  private async ensureWorkspaceSessionHydrated(
+    workspaceRoot: string,
+    assistantId: string,
+    workspaceId: string,
+    existingWorkspaceFiles?: Map<string, AssistantWorkspaceFileRecord>
+  ): Promise<void> {
+    const filesByPath =
+      existingWorkspaceFiles ??
+      (await this.loadCurrentAssistantWorkspaceFiles(assistantId, workspaceId));
+    const stateToken = this.buildWorkspaceStateToken(filesByPath);
+    const readyMarkerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
+    try {
+      const existingMarker = await fs.readFile(readyMarkerPath, "utf8");
+      if (existingMarker.trim() === stateToken) {
+        await fs.access(workspaceRoot);
+        return;
+      }
+    } catch {
+      // Fall through to rebuild the local assistant workspace session.
+    }
+    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
+    await fs.mkdir(workspaceRoot, { recursive: true });
+    for (const file of filesByPath.values()) {
+      const absolutePath = this.resolveWorkspacePath(workspaceRoot, file.relativePath);
+      await fs.mkdir(dirname(absolutePath), { recursive: true });
+      const buffer = await this.objectStorage.downloadObject(file.objectKey);
+      await fs.writeFile(absolutePath, buffer);
+    }
+    await this.writeWorkspaceSessionStateMarker(workspaceRoot, filesByPath);
+  }
+
+  private async resetWorkspaceSessionToCurrentState(
+    assistantId: string,
+    workspaceId: string,
+    workspaceRoot: string
+  ): Promise<void> {
+    const currentWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
+      assistantId,
+      workspaceId
+    );
+    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
+    await this.ensureWorkspaceSessionHydrated(
+      workspaceRoot,
+      assistantId,
+      workspaceId,
+      currentWorkspaceFiles
+    );
+  }
+
+  private async loadCurrentAssistantWorkspaceFiles(
+    assistantId: string,
+    workspaceId: string
+  ): Promise<Map<string, AssistantWorkspaceFileRecord>> {
+    const rows = await this.prisma.assistantFile.findMany({
+      where: {
+        assistantId,
+        workspaceId
+      },
+      orderBy: [{ relativePath: "asc" }, { updatedAt: "desc" }, { id: "desc" }]
+    });
+    const filesByPath = new Map<string, AssistantWorkspaceFileRecord>();
+    for (const row of rows) {
+      if (filesByPath.has(row.relativePath)) {
+        continue;
+      }
+      filesByPath.set(row.relativePath, row);
+    }
+    return filesByPath;
+  }
+
+  private resolveWorkspaceStateMarkerPath(workspaceRoot: string): string {
+    return join(dirname(workspaceRoot), ".persai-workspace-state");
+  }
+
+  private buildWorkspaceStateToken(filesByPath: Map<string, AssistantWorkspaceFileRecord>): string {
+    const hash = createHash("sha256");
+    for (const [relativePath, file] of [...filesByPath.entries()].sort(([left], [right]) =>
+      left.localeCompare(right)
+    )) {
+      hash.update(relativePath);
+      hash.update("\0");
+      hash.update(file.id);
+      hash.update("\0");
+      hash.update(file.objectKey);
+      hash.update("\0");
+      hash.update(file.updatedAt.toISOString());
+      hash.update("\0");
+    }
+    return hash.digest("hex");
+  }
+
+  private async writeWorkspaceSessionStateMarker(
+    workspaceRoot: string,
+    filesByPath: Map<string, AssistantWorkspaceFileRecord>
+  ): Promise<void> {
+    const markerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
+    await fs.mkdir(dirname(markerPath), { recursive: true });
+    await fs.writeFile(markerPath, this.buildWorkspaceStateToken(filesByPath), "utf8");
+  }
+
+  private resolveWorkspaceDelta(
+    files: WorkspaceFileSnapshot[],
+    existingWorkspaceFiles: Map<string, AssistantWorkspaceFileRecord>,
+    mountedFiles: MountedWorkspaceState
+  ): {
+    changedFiles: WorkspaceFileSnapshot[];
+    deletedPaths: string[];
+  } {
+    const currentFilesByPath = new Map(files.map((file) => [file.relativePath, file] as const));
+    const changedFiles = files.filter((file) => {
+      const existing = existingWorkspaceFiles.get(file.relativePath);
+      if (!existing) {
+        return true;
+      }
+      const unchanged =
+        (existing.sha256 ?? null) === file.sha256 && Number(existing.sizeBytes) === file.sizeBytes;
+      if (!unchanged) {
+        return true;
+      }
+      const mounted = mountedFiles.byPath.get(file.relativePath);
+      if (!mounted) {
+        return false;
+      }
+      return mounted.sha256 !== file.sha256 || mounted.sizeBytes !== file.sizeBytes;
+    });
+    const deletedPaths = [...existingWorkspaceFiles.keys()].filter(
+      (relativePath) => !currentFilesByPath.has(relativePath)
+    );
+    return { changedFiles, deletedPaths };
+  }
+
   private async materializeMountedFiles(
     workspaceRoot: string,
     args: Record<string, unknown>,
@@ -937,17 +1382,18 @@ export class SandboxService {
     if (mountRefs.size === 0) {
       return mountedFiles;
     }
-    const refs = await this.prisma.sandboxFileRef.findMany({
+    const requestedRefs = [...mountRefs];
+    const canonicalRefs = await this.prisma.assistantFile.findMany({
       where: {
         id: {
-          in: [...mountRefs]
+          in: requestedRefs
         }
       }
     });
-    if (refs.length !== mountRefs.size) {
+    if (canonicalRefs.length !== mountRefs.size) {
       this.throwPolicy("file_ref_not_found", "One or more sandbox file references were not found.");
     }
-    for (const ref of refs) {
+    for (const ref of canonicalRefs) {
       const relativePath = this.requireRelativePath(ref.relativePath, "relativePath");
       if (mountedFiles.byPath.has(relativePath)) {
         this.throwPolicy(
@@ -978,9 +1424,12 @@ export class SandboxService {
     toolCode: string;
     jobId: string;
     files: WorkspaceFileSnapshot[];
+    existingWorkspaceFiles: Map<string, AssistantWorkspaceFileRecord>;
+    leaseGuard: WorkspaceLeaseGuard;
   }): Promise<RuntimeSandboxProducedFile[]> {
     const produced: RuntimeSandboxProducedFile[] = [];
     for (const file of input.files) {
+      this.assertWorkspaceLeaseActive(input.leaseGuard);
       const objectKey = this.objectStorage.buildSandboxObjectKey({
         assistantId: input.assistantId,
         jobId: input.jobId,
@@ -991,46 +1440,131 @@ export class SandboxService {
         buffer: file.buffer,
         mimeType: file.mimeType
       });
-      const created = await this.prisma.sandboxFileRef.create({
-        data: {
-          assistantId: input.assistantId,
-          workspaceId: input.workspaceId,
-          sandboxJobId: input.jobId,
-          origin: "sandbox_output",
-          sourceToolCode: input.toolCode,
-          objectKey,
-          relativePath: file.relativePath,
-          displayName: basename(file.relativePath),
-          mimeType: file.mimeType,
-          sizeBytes: BigInt(file.sizeBytes),
-          logicalSizeBytes: file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
-          sha256: file.sha256,
-          metadata: {}
-        }
-      });
+      const existing = input.existingWorkspaceFiles.get(file.relativePath) ?? null;
+      const assistantFile =
+        existing === null
+          ? await this.prisma.assistantFile.create({
+              data: {
+                assistantId: input.assistantId,
+                workspaceId: input.workspaceId,
+                sandboxJobId: input.jobId,
+                origin: "sandbox_output",
+                sourceToolCode: input.toolCode,
+                objectKey,
+                relativePath: file.relativePath,
+                displayName: basename(file.relativePath),
+                mimeType: file.mimeType,
+                sizeBytes: BigInt(file.sizeBytes),
+                logicalSizeBytes:
+                  file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
+                sha256: file.sha256,
+                metadata: {}
+              }
+            })
+          : await this.prisma.assistantFile.update({
+              where: { id: existing.id },
+              data: {
+                sandboxJobId: input.jobId,
+                origin: "sandbox_output",
+                sourceToolCode: input.toolCode,
+                objectKey,
+                relativePath: file.relativePath,
+                displayName: basename(file.relativePath),
+                mimeType: file.mimeType,
+                sizeBytes: BigInt(file.sizeBytes),
+                logicalSizeBytes:
+                  file.logicalSizeBytes === null ? null : BigInt(file.logicalSizeBytes),
+                sha256: file.sha256,
+                metadata: {}
+              }
+            });
+      if (existing !== null) {
+        await this.prisma.assistantFile.deleteMany({
+          where: {
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            relativePath: file.relativePath,
+            id: {
+              not: assistantFile.id
+            }
+          }
+        });
+      }
       const runtimeFileRef: RuntimeFileRef = {
-        fileRef: created.id,
-        origin: created.origin,
-        sourceToolCode: created.sourceToolCode,
-        objectKey: created.objectKey,
-        relativePath: created.relativePath,
-        displayName: created.displayName,
-        mimeType: created.mimeType,
-        sizeBytes: Number(created.sizeBytes),
+        fileRef: assistantFile.id,
+        origin: assistantFile.origin,
+        sourceToolCode: assistantFile.sourceToolCode,
+        objectKey: assistantFile.objectKey,
+        relativePath: assistantFile.relativePath,
+        displayName: assistantFile.displayName,
+        mimeType: assistantFile.mimeType,
+        sizeBytes: Number(assistantFile.sizeBytes),
         logicalSizeBytes:
-          created.logicalSizeBytes === null ? null : Number(created.logicalSizeBytes)
+          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes)
       };
       produced.push({
-        relativePath: created.relativePath,
-        displayName: created.displayName,
-        mimeType: created.mimeType,
-        sizeBytes: Number(created.sizeBytes),
+        relativePath: assistantFile.relativePath,
+        displayName: assistantFile.displayName,
+        mimeType: assistantFile.mimeType,
+        sizeBytes: Number(assistantFile.sizeBytes),
         logicalSizeBytes:
-          created.logicalSizeBytes === null ? null : Number(created.logicalSizeBytes),
+          assistantFile.logicalSizeBytes === null ? null : Number(assistantFile.logicalSizeBytes),
         fileRef: runtimeFileRef
       });
     }
     return produced;
+  }
+
+  private async deleteRemovedWorkspaceFiles(input: {
+    assistantId: string;
+    workspaceId: string;
+    deletedPaths: string[];
+    leaseGuard: WorkspaceLeaseGuard;
+  }): Promise<void> {
+    if (input.deletedPaths.length === 0) {
+      return;
+    }
+    this.assertWorkspaceLeaseActive(input.leaseGuard);
+    await this.prisma.assistantFile.deleteMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        relativePath: {
+          in: input.deletedPaths
+        }
+      }
+    });
+  }
+
+  private toProducedFile(row: {
+    id: string;
+    origin: string;
+    sourceToolCode: string | null;
+    objectKey: string;
+    relativePath: string;
+    displayName: string | null;
+    mimeType: string;
+    sizeBytes: bigint;
+    logicalSizeBytes: bigint | null;
+  }): RuntimeSandboxProducedFile {
+    return {
+      relativePath: row.relativePath,
+      displayName: row.displayName,
+      mimeType: row.mimeType,
+      sizeBytes: Number(row.sizeBytes),
+      logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
+      fileRef: {
+        fileRef: row.id,
+        origin: row.origin as RuntimeFileRef["origin"],
+        sourceToolCode: row.sourceToolCode,
+        objectKey: row.objectKey,
+        relativePath: row.relativePath,
+        displayName: row.displayName,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+        logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes)
+      }
+    };
   }
 
   private async collectWorkspaceFiles(workspaceRoot: string): Promise<WorkspaceFileSnapshot[]> {
@@ -1125,7 +1659,17 @@ export class SandboxService {
     }
   }
 
-  private resolveReadablePath(
+  private readSandboxFilesAction(args: Record<string, unknown>): SandboxFilesAction {
+    if (args.action === "read" || args.action === "write" || args.action === "edit") {
+      return args.action;
+    }
+    throw this.createPolicyError(
+      "invalid_arguments",
+      "files action must be one of read, write, or edit."
+    );
+  }
+
+  private resolveFilesReadablePath(
     args: Record<string, unknown>,
     mountedFiles: MountedWorkspaceState
   ): string {
@@ -1277,6 +1821,17 @@ export class SandboxService {
     };
   }
 
+  private createWorkspaceLeaseError(
+    code: string,
+    message: string,
+    blocked = false
+  ): SandboxPolicyError {
+    const error = new Error(message) as SandboxPolicyError;
+    error.code = code;
+    error.blocked = blocked;
+    return error;
+  }
+
   private createPolicyError(
     code: string,
     message: string,
@@ -1289,6 +1844,15 @@ export class SandboxService {
       error.resourceUsage = options.resourceUsage;
     }
     return error;
+  }
+
+  private isPrismaUniqueConstraintError(error: unknown): boolean {
+    return (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "P2002"
+    );
   }
 
   private throwPolicy(

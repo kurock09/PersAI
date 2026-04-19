@@ -255,7 +255,7 @@ async function run(): Promise<void> {
                 directoryCount: 1
               },
               _count: {
-                fileRefs: 1
+                assistantFiles: 1
               }
             },
             {
@@ -282,7 +282,7 @@ async function run(): Promise<void> {
                 directoryCount: 1
               },
               _count: {
-                fileRefs: 2
+                assistantFiles: 2
               }
             }
           ];

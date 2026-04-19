@@ -20,15 +20,18 @@ export const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "video_generate",
   "tts",
   "scheduled_action",
-  "read_file",
-  "write_file",
-  "edit_file",
+  "files",
   "exec",
-  "shell",
-  "send_media_to_user"
+  "shell"
 ] as const;
 
 export type PromptConstructorModelToolCode = (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number];
+
+export function isPromptConstructorModelToolCode(
+  toolCode: string
+): toolCode is PromptConstructorModelToolCode {
+  return PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.includes(toolCode as PromptConstructorModelToolCode);
+}
 
 type SyntheticNativeToolCode =
   | "summarize_context"

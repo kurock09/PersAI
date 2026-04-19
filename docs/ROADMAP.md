@@ -23,7 +23,7 @@ Primary execution order:
 3. memory, knowledge, cache, and model-routing cost architecture (`Slice A`, `Slice B`, and `Slice C` completed on the active path, including the configurable early `turn_routing` layer and smart/deep-mode routing truth)
 4. Step 19 core deploy and operator hardening (`completed`; deploy/restart/pod-replacement recovery is observed on the live dev rollout path, bounded self-healing recovery is landed, and `/admin` `System Overview` now carries honest pod-truth for the active path)
 5. deferred Step 15a native web voice output
-6. Step 20 sandbox and attach-by-ref follow-through (`in progress`; local sandbox/fileRef/send-media baseline, enforcement, operator truth, and dev deploy wiring are landing, while the final live surface proof is still pending)
+6. Step 20 sandbox and attach-by-ref follow-through (`ready for live test`; local repo truth now has canonical `AssistantFile`, durable multi-pod workspace coordination, clean internal `files` execution, and operator truth aligned with that model, while the final live surface proof is still pending)
 7. final bounded load-readiness proof and rollout-speed follow-through (`planned`; keep one saved pressure proof and any residual convergence cleanup as the very last program step)
 
 ## Near-term focus

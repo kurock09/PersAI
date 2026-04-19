@@ -1,5 +1,527 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Sandbox residue cleanup and clean internal files execution
+
+### What changed
+
+1. `apps/api/prisma/schema.prisma` no longer models `SandboxFileRef`, and `apps/api/prisma/migrations/20260419203000_drop_sandbox_file_refs_residue/migration.sql` now drops `sandbox_file_refs` from current database truth. Historical backfill migrations stay as history, but the active schema no longer carries the dead file-registry layer.
+2. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` no longer submits internal sandbox jobs as `read_file` / `write_file` / `edit_file`. The active runtime path now submits one sandbox `toolCode: "files"` request with an explicit `action` payload, so the internal execution model matches the public model instead of keeping a split old/new file vocabulary.
+3. `apps/sandbox/src/sandbox.service.ts` now executes file work only through the unified internal `files` action router. The sandbox service no longer accepts legacy split file job codes on the active path, and persisted `AssistantFile.sourceToolCode` / `SandboxJob.toolCode` truth now stays on `files` rather than sandbox-era internal names.
+4. `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts` now counts persisted sandbox outputs from `assistantFiles` instead of the removed `fileRefs` relation, so operator truth stays aligned with the canonical assistant-file model.
+5. Focused runtime/sandbox/API tests were updated to lock the new shape directly, and `docs/LIVE-TEST-HYBRID.md` / roadmap truth now describe the current active live-test contract instead of the old `SandboxFileRef` / `write_file` vocabulary.
+
+### Code-based truth summary
+
+- **Landed in this slice:** current repo truth no longer models `SandboxFileRef`, internal sandbox file execution is now `files`-native end to end, and admin operator surfaces count canonical `AssistantFile` outputs rather than dead sandbox-era rows.
+- **Partial / still compatibility-shaped:** `files.send` still reuses the older internal media-delivery seam, and assistant-level Files API/UI plus compact workspace digest hydration are still not landed.
+- **Ready-for-live-test truth:** the active files/sandbox path is now code-ready for live testing after migration apply and deploy. Remaining work before an honest "live-tested" label is operational, not architectural: apply the new migrations, roll the services, and run the real surface smoke.
+
+### Current active slice
+
+- `Assistant workspace redesign / sandbox residue cleanup`
+
+### Current active step
+
+- `The repo is now ready for Step 20 live testing on the active files path; next is deploy/apply and a real web smoke, not another internal compatibility cleanup slice`
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260419203000_drop_sandbox_file_refs_residue/migration.sql`
+- `apps/api/src/modules/workspace-management/application/resolve-admin-ops-cockpit.service.ts`
+- `apps/api/test/resolve-admin-ops-cockpit.service.test.ts`
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/ROADMAP.md`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / notes
+
+1. This intentionally removes the dead schema/internal layer instead of preserving historical `SandboxFileRef` ids. Old historical ids are not part of the active path and are no longer protected by compatibility fallback.
+2. "Ready for live test" here means code + migrations are ready. It does not mean the new migrations were already applied or that the live smoke already passed.
+3. The remaining product gap is no longer sandbox correctness. It is finishing the product surface around files: assistant-level Files API/UI and less prompt-heavy workspace hydration.
+
+### Next recommended step
+
+1. Apply the new migrations in dev, deploy `api` / `runtime` / `sandbox`, and run one real `/app` smoke that completes `files.write -> files.send` while checking `Admin > Ops` shows `files` / `exec` / `shell` tool truth and canonical persisted output counts.
+
+## 2026-04-19 - Multi-pod assistant workspace lease
+
+### What changed
+
+1. `apps/api/prisma/schema.prisma` and `apps/api/prisma/migrations/20260419190000_assistant_workspace_lease_foundation/migration.sql` now add `AssistantWorkspaceLease` / `assistant_workspace_leases` as a dedicated Postgres lease row per `assistantId + workspaceId`, instead of leaving durable assistant workspace coordination process-local only.
+2. `apps/sandbox/src/sandbox.service.ts` now acquires a DB lease before hydration/execution, renews it during job execution, releases it in `finally`, and keeps the job `queued` while the lease is busy instead of inventing another compatibility API. The same slice now gates workspace hydrate/persist/delete behind live lease ownership and fails closed on lease loss.
+3. Pod-local assistant workspace reuse is now cluster-safe rather than stale-cache-prone. The sandbox service writes a workspace-state marker derived from current canonical `assistant_files` truth and rebuilds the local workspace session when that marker does not match, so a pod cannot silently reuse an out-of-date local cache after another pod changed the same assistant workspace.
+4. `apps/runtime/src/modules/turns/sandbox-client.service.ts` now derives the completion wait budget from sandbox runtime + lease wait expectations, so the runtime does not time out early merely because the same assistant workspace was honestly serialized behind another active job.
+5. `apps/sandbox/test/sandbox.service.test.ts` now proves the distributed-coordination behavior directly: same-workspace contention waits, different workspaces still proceed in parallel, expired leases are reclaimed, and lease loss resets local workspace state back to persisted `AssistantFile` truth.
+
+### Code-based truth summary
+
+- **Landed in this slice:** durable assistant workspace is now protected by a real Postgres-backed lease row on the active sandbox path, with heartbeat renewal, release, wait/retry semantics, and stale local-cache invalidation tied to canonical `AssistantFile` state.
+- **Partial / still compatibility-shaped:** internal sandbox file actions still use `read_file` / `write_file` / `edit_file` naming under the public `files` tool, `files.send` still delegates to the internal media-delivery seam, and `SandboxFileRef` still remains in schema/history.
+- **Not landed yet:** assistant-level Files API/UI, compact workspace digest hydration instead of attachment-heavy prompt state, and final schema/internal residue cleanup for `SandboxFileRef` plus sandbox-era internal naming.
+
+### Current active slice
+
+- `Assistant workspace redesign / multi-pod assistant workspace lease`
+
+### Current active step
+
+- `The active assistant workspace path is now durable and multi-pod-safe, so the next honest closure slice is deleting the remaining schema/internal sandbox-era residue instead of adding more coordination scaffolding`
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260419190000_assistant_workspace_lease_foundation/migration.sql`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `apps/runtime/src/modules/turns/sandbox-client.service.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / notes
+
+1. One assistant workspace is now intentionally single-writer cluster-wide. Concurrent same-workspace jobs are serialized by lease ownership, not by sticky-session luck.
+2. The remaining file-model dirt is no longer infra correctness. What is left is product/control-plane/internal cleanup: `SandboxFileRef` residue, sandbox-era internal file action names, and missing assistant-level Files API/UI.
+3. Runtime waiting is now honest for queued-after-contention jobs, but this does not change the product rule that one assistant workspace has one active executor at a time.
+
+### Next recommended step
+
+1. Remove the remaining schema/internal sandbox-era residue: delete `SandboxFileRef`, collapse internal `read_file` / `write_file` / `edit_file` naming behind the public `files` model, and build the assistant-level Files API/UI on top of canonical `AssistantFile` + leased durable workspace truth.
+
+## 2026-04-19 - Durable assistant workspace landing
+
+### What changed
+
+1. `apps/sandbox/src/sandbox.service.ts` no longer executes sandbox jobs inside a fresh per-job tmp workspace. It now uses one assistant/workspace-scoped local session root, serializes jobs per assistant/workspace, and keeps that workspace on disk across jobs instead of deleting it after every execution.
+2. Cold-start restore is now real. When the local assistant workspace session is missing, sandbox rebuilds it from canonical `AssistantFile` rows and their object-storage payloads before running the next job, so the active file/process path survives chat changes and local workspace eviction without another compatibility layer.
+3. Workspace persistence now tracks the current assistant workspace state instead of append-only per-job outputs. Changed files are persisted back into `assistant_files`, existing paths are updated in place so file ids stay stable across edits, deleted paths are removed from `assistant_files`, and failed jobs reset the local session back to current persisted assistant-file truth.
+4. Focused sandbox coverage now proves the new behavior directly. `apps/sandbox/test/sandbox.service.test.ts` now verifies `write -> separate read job -> edit with stable fileRef -> cold restore -> read` on the same assistant workspace.
+
+### Code-based truth summary
+
+- **Landed in this slice:** sandbox file/process execution is now assistant-scoped durable workspace behavior on the active path rather than fresh per-job restore/remount; canonical `AssistantFile` rows are both the durable restore source and the persistence target.
+- **Partial / still compatibility-shaped:** durability currently uses a pod-local assistant workspace cache plus restore-from-`AssistantFile`, not a distributed lease/lock/session registry; `files.*` still compiles into internal sandbox actions with sandbox-era names; `files.send` still uses the internal media-delivery seam.
+- **Not landed yet:** assistant-level Files API/UI, compact workspace digest hydration, and final deletion of schema/internal sandbox-era residue such as `SandboxFileRef` plus leftover internal legacy naming.
+
+### Current active slice
+
+- `Assistant workspace redesign / durable assistant workspace`
+
+### Current active step
+
+- `Assistant-scoped workspace continuity is now real on the active sandbox path, so the next honest closeout is deleting the remaining schema/internal sandbox-era residue rather than adding more migration scaffolding`
+
+### Files touched
+
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / notes
+
+1. This lands durable assistant workspace semantics on the active sandbox path without adding compatibility fallback for historical `SandboxFileRef` resend/history ids; stale old ids are intentionally not preserved.
+2. Workspace serialization is currently process-local to the sandbox service instance. It removes same-instance race conditions, but there is still no distributed lock across multiple sandbox pods.
+3. The persistence model now treats assistant workspace state as current truth, not append-only artifact history. Re-polling an older sandbox job after later edits is no longer a reliable immutable history API for updated paths.
+
+### Next recommended step
+
+1. Delete the remaining schema/internal sandbox-era residue: remove `SandboxFileRef`, collapse leftover internal `read_file` / `write_file` / `edit_file` naming, and then build the assistant-level Files API/UI on top of the durable workspace truth.
+
+## 2026-04-19 - Split public file tool alias collapse
+
+### What changed
+
+1. The control-plane catalog now speaks only the clean public file model. `apps/api/prisma/tool-catalog-data.ts` no longer defines `read_file`, `write_file`, `edit_file`, or `send_media_to_user` as active plan-managed catalog entries or starter-plan tool rows.
+2. Startup/manual seeding now actively decommissions old rows instead of silently carrying them forever. `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts` and `apps/api/prisma/seed.ts` now mark removed legacy public file-tool rows inactive, while `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts` only serves tools from the current catalog truth.
+3. Admin Plans and runtime policy materialization no longer preserve a legacy split-file alias layer. `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`, `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`, `apps/web/app/admin/plans/page.tsx`, and `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` now operate on the canonical tool set directly instead of filtering hidden legacy file rows after the fact.
+4. Runtime execution no longer accepts the old split public file tool names as first-class dispatch targets. `apps/runtime/src/modules/turns/turn-execution.service.ts` now dispatches public file work through `files` and keeps only `exec` / `shell` on the direct sandbox branch.
+
+### Code-based truth summary
+
+- **Landed in this slice:** split public file tools are no longer part of active tool-catalog truth, startup seed deactivates stale DB rows for those codes, admin plan/policy surfaces no longer carry special hidden-file filters, and runtime direct dispatch now treats `files` as the only public file tool.
+- **Partial / still compatibility-shaped:** `files.write/read/edit` still compile down to internal sandbox actions named `write_file` / `read_file` / `edit_file`, `files.send` still delegates to the internal media-delivery seam, and schema/history residue around `SandboxFileRef` still exists.
+- **Not landed yet:** durable assistant workspace/session semantics, assistant-level Files API/UI, compact workspace digest hydration, and final schema cleanup for `sandbox_file_refs` plus any remaining internal legacy naming.
+
+### Current active slice
+
+- `Assistant workspace redesign / split public file-tool alias collapse`
+
+### Current active step
+
+- `The public/control-plane file model is now genuinely files + exec + shell, so the next honest product gap is durable assistant workspace behavior rather than more alias cleanup`
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/prisma/seed.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-tool-catalog.repository.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/tool-catalog-activation.test.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. This intentionally cuts legacy public tool aliases rather than preserving rollout fallback for old model-visible bundles. Any stale bundle/tool-history path that still emits `read_file` or `send_media_to_user` as direct tool names now fails closed and must be rematerialized instead of getting another compat shim.
+2. The active file model is cleaner now, but the execution substrate is still job-scoped remount rather than one long-lived assistant workspace.
+3. Old DB rows for removed public file tool codes are now deactivated by seed truth, not migrated into another alias. They may still exist historically, but they should no longer surface on active admin/runtime paths.
+
+### Next recommended step
+
+1. Land assistant-scoped durable workspace/session behavior in `apps/sandbox` and the runtime-sandbox boundary, then delete the remaining schema/internal legacy around sandbox-era file primitives.
+
+## 2026-04-19 - AssistantFile live cutover and prompt-tool cleanup
+
+### What changed
+
+1. `AssistantFile` is now the only live file-ref truth on the runtime path. `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts` no longer falls back to `sandbox_file_refs` for `findByFileRef`, `findLatestByPath`, `listByFileRefs`, or `search`.
+2. The sandbox active path no longer dual-writes or reads `SandboxFileRef`. `apps/sandbox/src/sandbox.service.ts` now persists produced outputs only into `assistant_files`, returns completed-job `files[]` only from `SandboxJob.assistantFiles`, and mounts incoming `mountedFileRefs` only through canonical `AssistantFile` rows.
+3. Admin Prompt Constructor file-tool vocabulary now matches the clean public model. `apps/web/app/admin/presets/page.tsx` now keeps only `files`, `exec`, and `shell` in the model-tool ordering/filter, and `apps/api/src/modules/workspace-management/application/manage-admin-tool-prompt-metadata.service.ts` now rejects direct metadata updates for legacy split public file tools such as `read_file` or `send_media_to_user`.
+
+### Code-based truth summary
+
+- **Landed in this slice:** live runtime/sandbox file lookup, mount resolution, output persistence, and completed-job result serialization now all use canonical `AssistantFile` rows only; admin prompt-tool editing now exposes only the current file-tool vocabulary.
+- **Partial / still compatibility-shaped:** `SandboxFileRef` still exists in schema/history and legacy inventory codes still exist as control-plane/runtime aliases in some paths; `files.send` still delegates to the internal media-delivery seam; sandbox execution is still per-job remount rather than a durable assistant workspace session.
+- **Not landed yet:** durable assistant workspace/session semantics, assistant-level Files API/UI, compact workspace digest hydration, and deletion of the remaining schema/control-plane legacy around `SandboxFileRef` plus split file inventory aliases.
+
+### Current active slice
+
+- `Assistant workspace redesign / AssistantFile live cutover`
+
+### Current active step
+
+- `Canonical assistant-file truth is now real on the active runtime and sandbox path, so the next honest product step is durable assistant workspace/session behavior rather than more registry compatibility work`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/api/src/modules/workspace-management/application/prompt-constructor-tool-metadata.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-tool-prompt-metadata.service.ts`
+- `apps/api/test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `apps/web/app/admin/presets/page.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. This is a clean active-path cutover, not a durable-workspace landing. File/process execution still restores a fresh per-job sandbox workspace from persisted assistant files.
+2. Historical persisted `SandboxFileRef.id` values are no longer resolved on the live runtime/sandbox path. If any old transcript/tool-history resend path still depends on those raw ids, it now needs one-time data repair instead of another runtime fallback.
+3. The remaining meaningful legacy is now mostly control-plane/schema residue: legacy inventory codes still exist as aliases, and the database still carries `sandbox_file_refs` even though the live runtime/sandbox path no longer uses it.
+
+### Next recommended step
+
+1. Land assistant-scoped durable workspace/session behavior in `apps/sandbox` and the runtime-sandbox boundary, then delete the remaining schema/control-plane `SandboxFileRef` residue plus split public file inventory aliases.
+
+## 2026-04-19 - AssistantFile sandbox result-path hardening
+
+### What changed
+
+1. The canonical `AssistantFile` migration is now actually enforced on the completed sandbox-job result path, not only during persistence. `apps/sandbox/src/sandbox.service.ts` `pollJob()` now prefers `SandboxJob.assistantFiles` when building returned `RuntimeSandboxProducedFile[]`, and only falls back to legacy `fileRefs` for older jobs or compatibility mocks.
+2. This closes a real gap in the previous assistant-file foundation slice. The sandbox service was already creating `AssistantFile` rows for new outputs, but completed job polling still serialized `SandboxFileRef.id` because it only read `job.fileRefs`; runtime callers therefore could still receive legacy ids on the real HTTP path even though the persistence layer had already created canonical assistant files.
+3. Focused sandbox coverage now locks the intended behavior. `apps/sandbox/test/sandbox.service.test.ts` now verifies both canonical-first result serialization and legacy fallback behavior so future refactors cannot silently regress the file-id contract again.
+
+### Code-based truth summary
+
+- **Landed in this slice:** completed sandbox jobs now return canonical `AssistantFile.id` on the real API/result path whenever those rows exist, and legacy `SandboxFileRef` ids are now a true fallback rather than the accidental default.
+- **Partial / still compatibility-shaped:** `SandboxFileRef` still exists for internal dual-write and old-job compatibility, and the sandbox execution root is still per-job rather than a long-lived assistant workspace/session.
+- **Not landed yet:** durable assistant workspace/session semantics, assistant-level Files API/UI, compact workspace digest hydration, and final removal of the internal sandbox-file-ref compatibility layer.
+
+### Current active slice
+
+- `Assistant workspace redesign / assistant file contract hardening`
+
+### Current active step
+
+- `Canonical assistant-file ids are now honest on the real sandbox result path, so the next product step can move back to durable workspace/session instead of cleaning up another hidden registry mismatch`
+
+### Files touched
+
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/sandbox run test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+
+### Risks / notes
+
+1. This is a truth/enforcement hardening slice, not durable-workspace delivery. The filesystem execution model is still per-job tmp workspace plus remount.
+2. Older completed sandbox jobs can still legitimately surface legacy `SandboxFileRef` ids because they predate `AssistantFile` rows; the fallback is intentional until the compatibility layer is removed.
+
+### Next recommended step
+
+1. Land assistant-scoped durable workspace/session behavior in `apps/sandbox` and the runtime-sandbox boundary, so file/process tools operate on one restored assistant workspace instead of a fresh per-job root.
+
+## 2026-04-19 - Assistant file registry foundation and canonical file ids
+
+### What changed
+
+1. The repo now has a real assistant-level file table instead of only a runtime seam over sandbox-era rows. `apps/api/prisma/schema.prisma` adds `AssistantFile`, and `apps/api/prisma/migrations/20260419153000_assistant_file_registry_foundation/migration.sql` creates `assistant_files`, adds indexes/foreign keys, and backfills existing `sandbox_file_refs` into the new table.
+2. Runtime file resolution now prefers canonical assistant-file truth. `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts` now reads `assistant_files` first for `findByFileRef`, `findLatestByPath`, `listByFileRefs`, and `search`, with `sandbox_file_refs` kept only as a compatibility fallback during rollout/backfill safety.
+3. New attachment-backed file registration now writes canonical assistant-file rows, not new public sandbox-era ids. `TurnContextHydrationService` continues to register attachment-backed files through the registry seam, but that seam now upserts `AssistantFile` rows and returns assistant-file ids as the public `fileRef`.
+4. New sandbox-produced files now also get canonical assistant-file ids. `apps/sandbox/src/sandbox.service.ts` now writes `assistant_files` for produced outputs, returns `AssistantFile.id` in runtime-visible `fileRef`s, and still dual-writes `sandbox_file_refs` as an internal compatibility layer. Sandbox mount resolution now accepts assistant-file ids first and falls back to legacy sandbox-file-ref ids only when needed.
+
+### Code-based truth summary
+
+- **Landed in this slice:** `AssistantFile` schema + migration exist, old sandbox file refs are backfilled into it, runtime registry reads canonical assistant-file rows first, new attachment/output file ids now come from `AssistantFile`, and sandbox mounting can resolve those new ids directly.
+- **Partial / still compatibility-shaped:** sandbox outputs still dual-write `sandbox_file_refs`, runtime registry still keeps fallback reads for older ids, and there is still no assistant-level Files API/UI surface beyond the runtime/tool path.
+- **Not landed yet:** durable assistant workspace/session semantics, assistant-level Files UI/picker, compact workspace digest in prompt hydration, and removal of the remaining internal `SandboxFileRef` compatibility layer.
+
+### Current active slice
+
+- `Assistant workspace redesign / assistant file model foundation`
+
+### Current active step
+
+- `Canonical assistant file metadata is now real, so the next honest product step is durable assistant workspace/session behavior instead of another registry-only seam`
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma`
+- `apps/api/prisma/migrations/20260419153000_assistant_file_registry_foundation/migration.sql`
+- `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/sandbox run test`
+
+### Risks / notes
+
+1. This lands canonical metadata/file-id truth, not durable workspace execution. File mutations are still job-scoped sandbox workspaces with remount, not one long-lived assistant root across turns/chats.
+2. `SandboxFileRef` is no longer the preferred public/runtime truth for new flows, but it still exists as an internal compatibility layer for rollout safety and sandbox-output dual-write.
+3. The repo now has a real migration path away from sandbox-era ids, but retention/lifecycle policy for assistant files is still not fully modeled beyond current sandbox/media behavior.
+
+### Next recommended step
+
+1. Land assistant-scoped durable workspace/session behavior in `apps/sandbox` and the runtime-sandbox boundary, so `files.write/edit` and `shell/exec` stop depending on a fresh per-job root and start operating on one assistant workspace restored across turns/chats.
+
+## 2026-04-19 - Assistant file registry seam consolidation
+
+### What changed
+
+1. Runtime file truth now has one explicit assistant-level registry seam instead of three separate direct `sandboxFileRef` call sites. `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts` now centralizes assistant/workspace-scoped file lookup, search, attachment-backed file registration, and runtime item mapping on top of the current `SandboxFileRef` compatibility store.
+2. The public `files` tool now resolves through that registry seam instead of querying Prisma directly. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now uses the registry service for `search`, `get`, and target resolution, so the public tool no longer owns its own raw `sandbox_file_refs` query logic.
+3. Attachment hydration and file delivery now reuse the same registry truth. `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` now registers attachment-backed files through the registry seam, and `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts` now resolves `fileRef` delivery through the same registry instead of issuing its own direct `sandboxFileRef.findMany(...)`.
+4. Focused runtime coverage now includes the new seam directly. `apps/runtime/test/runtime-files-tool.service.test.ts` locks the registry-backed `files.search` and `files.read` path, while the existing send-media, turn-execution, and hydration tests were updated to use the new seam without changing user-facing behavior.
+
+### Code-based truth summary
+
+- **Landed in this slice:** one runtime assistant file registry seam now exists and is used by public `files`, attachment hydration, and media resend/delivery resolution.
+- **Partial / still compatibility-shaped:** this registry seam still sits on top of `SandboxFileRef`; it is not yet a new assistant file table/model. The runtime now has one clean place to swap later, but the underlying storage truth is still sandbox-era.
+- **Not landed yet:** dedicated assistant file registry schema/API, durable assistant workspace, and final user-facing Files UX.
+
+### Current active slice
+
+- `Assistant workspace redesign / assistant-level file registry seam`
+
+### Current active step
+
+- `Registry access is now centralized in runtime, so the next honest product step is replacing SandboxFileRef-backed truth with a real assistant file model rather than adding more compatibility wrappers`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / notes
+
+1. This is an internal seam cleanup and migration-prep slice, not the final registry migration. Storage truth is still `sandbox_file_refs`.
+2. The public model is cleaner now, but file retention/lifecycle semantics are still inherited from the sandbox-era file-ref layer.
+3. The real next “prod” step is a dedicated assistant file model or repository/API truth, not another runtime-only alias layer.
+
+### Next recommended step
+
+1. Introduce a real assistant file registry model/API seam and migrate the runtime registry service from `SandboxFileRef` storage to that new canonical assistant file truth.
+
+## 2026-04-19 - Unified `files` public surface slice
+
+### What changed
+
+1. The native runtime now has a real public `files` tool surface instead of only the legacy split file tool family. `packages/runtime-contract/src/index.ts` defines the canonical `files` actions/result contract, `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now orchestrates `search/get/read/write/edit/send`, and `apps/runtime/src/modules/turns/turn-execution.service.ts` routes public `files` calls through that service while keeping `shell` / `exec` as separate sandbox tools.
+2. Public model exposure now starts matching the new product model. `apps/runtime/src/modules/turns/native-tool-projection.ts` projects `files` instead of `read_file` / `write_file` / `edit_file` / `send_media_to_user`, and `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` now canonicalizes legacy inventory entries onto runtime `files` so prompt/runtime policy truth can move to the new name without forcing all old plan rows to be recreated immediately.
+3. Control-plane vocabulary is now less dual-model. `apps/api/prisma/tool-catalog-data.ts` adds canonical `files`, `apps/api/src/modules/workspace-management/application/prompt-constructor-tool-metadata.ts` now orders model-visible tools as `... scheduled_action, files, exec, shell`, and admin plan surfaces now hide legacy public file tool rows from the editable plan vocabulary while keeping them as internal compatibility seams.
+4. `files.send` now reuses the already-landed media delivery path instead of inventing a second outbound flow. `RuntimeSendMediaToUserService.queueResolvedSelection(...)` remains the internal artifact-resolution/delivery seam, while public tool history and runtime execution now treat file delivery as `files` with `requestedAction: "send"`.
+
+### Code-based truth summary
+
+- **Landed in this slice:** one public `files` runtime surface, model projection on `files`, runtime execution on `files`, prompt/admin ordering on `files`, and compatibility aliasing so old inventory rows can still contribute to runtime enablement.
+- **Partial / still compatibility-shaped:** the backing registry is still `SandboxFileRef` truth, not a clean assistant-level `AssistantFile` registry; legacy catalog/tool rows still exist internally; `files.write` / `files.edit` still execute through sandbox seams under the hood; and attachment hydration still exposes sandbox-era `fileRef` vocabulary.
+- **Not landed yet:** durable assistant workspace, assistant-level file registry/data model, cross-chat Files UX, prompt-side compact workspace digest, and removal of the remaining internal legacy storage names.
+
+### Current active slice
+
+- `Assistant workspace redesign / unified files public surface`
+
+### Current active step
+
+- `Public model-facing file UX is now moving to files + shell/exec, but the next honest product/infra gap is still the assistant-level registry and durable assistant workspace rather than more public-surface renaming alone`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts`
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/prompt-constructor-tool-metadata.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/resolve-effective-tool-availability.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/tool-catalog-activation.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / notes
+
+1. The public surface is cleaner, but the storage/model truth is still sandbox-era. `files.search/get/read/...` currently resolve against `sandbox_file_refs`, not a dedicated assistant file registry.
+2. The runtime still uses compatibility seams internally: legacy inventory codes map to runtime `files`, and `files.send` still delegates to the old media-delivery service under the hood.
+3. There is still no durable assistant workspace. Each sandbox file mutation remains job-scoped persistence plus remount, not one long-lived assistant root across turns/chats.
+
+### Next recommended step
+
+1. Land the assistant-level file registry slice next: introduce a clean assistant file model/API truth, migrate `files` resolution off raw `SandboxFileRef` semantics, and only then move to the durable assistant workspace/session layer.
+
 ## 2026-04-19 - Step 20 file continuity and attachment fileRef hardening
 
 ### What changed

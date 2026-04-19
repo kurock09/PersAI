@@ -67,6 +67,18 @@ const tools = [
     visibleInPlanEditor: true
   },
   {
+    code: "files",
+    displayName: "Files",
+    description: "Unified assistant file tool.",
+    capabilityGroup: "workspace_ops",
+    toolClass: "utility",
+    policyClass: "plan_managed",
+    catalogStatus: "active",
+    planActivationStatus: "active",
+    effectiveActivation: "active",
+    visibleInPlanEditor: true
+  },
+  {
     code: "persai_tool_quota_status",
     displayName: "Quota Status",
     description: "Check remaining quota.",
@@ -121,7 +133,8 @@ async function run(): Promise<void> {
         providerId: "firecrawl"
       }
     },
-    knowledgeAccessEnabled: true
+    knowledgeAccessEnabled: true,
+    sandboxEnabled: true
   });
 
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "summarize_context" && tool.enabled));
@@ -136,13 +149,15 @@ async function run(): Promise<void> {
     )
   );
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "scheduled_action" && tool.enabled));
+  assert.ok(toolPolicies.some((tool) => tool.toolCode === "files" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
   assert.equal(
     toolPolicies.filter((tool) => tool.toolCode === "quota_status").length,
     1,
-    "quota_status should be emitted only once even when legacy inventory aliases exist"
+    "quota_status should be emitted only once even when synthetic and catalog policies overlap"
   );
+  assert.equal(toolPolicies.filter((tool) => tool.toolCode === "files").length, 1);
 
   const markdown = buildRuntimeToolPoliciesMarkdown(toolPolicies);
   assert.match(markdown, /\*\*`summarize_context`\*\*\nCreate a concise shared-context summary/);
@@ -156,8 +171,13 @@ async function run(): Promise<void> {
     markdown,
     /\*\*`scheduled_action`\*\*\nCreate and manage user reminders or hidden assistant actions\./
   );
+  assert.match(
+    markdown,
+    /\*\*`files`\*\*\nSearch, inspect, read, write, edit, or send assistant-managed files/
+  );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);
+  assert.doesNotMatch(markdown, /read_file/);
 }
 
 void run();

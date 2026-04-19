@@ -350,7 +350,8 @@ model Workspace {
   runtimeSessionCompactions   RuntimeSessionCompaction[]
   runtimeTurnReceipts         RuntimeTurnReceipt[]
   sandboxJobs                 SandboxJob[]
-  sandboxFileRefs             SandboxFileRef[]
+  assistantWorkspaceLeases    AssistantWorkspaceLease[]
+  assistantFiles              AssistantFile[]
 
   @@map("workspaces")
 }
@@ -426,7 +427,8 @@ model Assistant {
   runtimeSessionCompactions    RuntimeSessionCompaction[]
   runtimeTurnReceipts          RuntimeTurnReceipt[]
   sandboxJobs                  SandboxJob[]
-  sandboxFileRefs              SandboxFileRef[]
+  assistantWorkspaceLeases     AssistantWorkspaceLease[]
+  assistantFiles               AssistantFile[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -1029,7 +1031,8 @@ model SandboxJob {
   updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant         Assistant        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  fileRefs          SandboxFileRef[]
+  workspaceLeases   AssistantWorkspaceLease[]
+  assistantFiles    AssistantFile[]
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([workspaceId, createdAt(sort: Desc)])
@@ -1037,7 +1040,27 @@ model SandboxJob {
   @@map("sandbox_jobs")
 }
 
-model SandboxFileRef {
+model AssistantWorkspaceLease {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId  String      @map("assistant_id") @db.Uuid
+  workspaceId  String      @map("workspace_id") @db.Uuid
+  sandboxJobId String?     @map("sandbox_job_id") @db.Uuid
+  leaseToken   String      @map("lease_token") @db.VarChar(128)
+  holderId     String      @map("holder_id") @db.VarChar(255)
+  expiresAt    DateTime    @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant    Assistant   @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  sandboxJob   SandboxJob? @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([assistantId, workspaceId])
+  @@index([expiresAt])
+  @@index([sandboxJobId])
+  @@map("assistant_workspace_leases")
+}
+
+model AssistantFile {
   id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   assistantId      String            @map("assistant_id") @db.Uuid
   workspaceId      String            @map("workspace_id") @db.Uuid
@@ -1045,22 +1068,25 @@ model SandboxFileRef {
   origin           SandboxFileOrigin @default(sandbox_output)
   sourceToolCode   String?           @map("source_tool_code") @db.VarChar(64)
   objectKey        String            @map("object_key") @db.VarChar(512)
-  relativePath     String            @map("relative_path") @db.VarChar(512)
+  relativePath     String            @map("relative_path") @db.VarChar(1024)
   displayName      String?           @map("display_name") @db.VarChar(255)
-  mimeType         String            @map("mime_type") @db.VarChar(128)
+  mimeType         String            @map("mime_type") @db.VarChar(255)
   sizeBytes        BigInt            @map("size_bytes")
   logicalSizeBytes BigInt?           @map("logical_size_bytes")
-  sha256           String?           @db.VarChar(64)
+  sha256           String?           @db.VarChar(128)
   metadata         Json?             @db.JsonB
   createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant        Assistant         @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sandboxJob       SandboxJob?       @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
+  @@unique([assistantId, workspaceId, origin, objectKey])
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([assistantId, relativePath, createdAt(sort: Desc)])
   @@index([sandboxJobId])
-  @@map("sandbox_file_refs")
+  @@map("assistant_files")
 }
 
 model AssistantChat {

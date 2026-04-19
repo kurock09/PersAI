@@ -22,6 +22,7 @@ import {
   formatDurableMemoryStableBlock,
   formatSharedCompactionStableBlock
 } from "./prompt-cache-stable-blocks";
+import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -102,7 +103,8 @@ export class TurnContextHydrationService {
     private readonly prisma: RuntimeStatePrismaService,
     private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
     private readonly runtimeStateKeyspaceService: RuntimeStateKeyspaceService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
   ) {}
 
   async buildMessages(
@@ -1011,80 +1013,8 @@ export class TurnContextHydrationService {
     mimeType: string;
     sizeBytes: number;
   }): Promise<string> {
-    const existing = await this.prisma.sandboxFileRef.findFirst({
-      where: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        origin: input.origin,
-        objectKey: input.objectKey
-      }
-    });
-    if (existing !== null) {
-      return existing.id;
-    }
-    const created = await this.prisma.sandboxFileRef.create({
-      data: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        sandboxJobId: null,
-        origin: input.origin,
-        sourceToolCode: null,
-        objectKey: input.objectKey,
-        relativePath: this.buildAttachmentRelativePath(
-          input.origin,
-          input.referenceId,
-          input.filename,
-          input.mimeType
-        ),
-        displayName: input.filename,
-        mimeType: input.mimeType,
-        sizeBytes: BigInt(input.sizeBytes),
-        logicalSizeBytes: BigInt(input.sizeBytes),
-        sha256: null,
-        metadata: {
-          attachmentId: input.referenceId
-        }
-      }
-    });
-    return created.id;
-  }
-
-  private buildAttachmentRelativePath(
-    origin: "uploaded_attachment" | "runtime_output",
-    referenceId: string,
-    filename: string | null,
-    mimeType: string
-  ): string {
-    const basename = this.sanitizeAttachmentFilename(
-      filename ?? this.deriveFilenameFromMime(referenceId, mimeType)
-    );
-    const prefix = origin === "uploaded_attachment" ? "uploads" : "artifacts";
-    return `${prefix}/${referenceId}/${basename}`;
-  }
-
-  private sanitizeAttachmentFilename(filename: string): string {
-    const trimmed = filename.trim();
-    const collapsed = trimmed.replace(/[\\/]+/g, "-");
-    return collapsed.length > 0 ? collapsed : "file";
-  }
-
-  private deriveFilenameFromMime(referenceId: string, mimeType: string): string {
-    if (mimeType === "application/pdf") {
-      return `${referenceId}.pdf`;
-    }
-    if (mimeType.startsWith("image/")) {
-      const subtype = mimeType.slice("image/".length).replace(/[^a-z0-9]+/gi, "");
-      return `${referenceId}.${subtype || "img"}`;
-    }
-    if (mimeType.startsWith("audio/")) {
-      const subtype = mimeType.slice("audio/".length).replace(/[^a-z0-9]+/gi, "");
-      return `${referenceId}.${subtype || "audio"}`;
-    }
-    if (mimeType.startsWith("video/")) {
-      const subtype = mimeType.slice("video/".length).replace(/[^a-z0-9]+/gi, "");
-      return `${referenceId}.${subtype || "video"}`;
-    }
-    return `${referenceId}.bin`;
+    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile(input);
+    return file.fileRef;
   }
 
   private readStoredAttachmentContentPreview(

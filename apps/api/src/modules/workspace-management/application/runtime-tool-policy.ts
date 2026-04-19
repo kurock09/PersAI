@@ -43,12 +43,9 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   memory_search: "inline",
   memory_get: "inline",
   scheduled_action: "worker",
-  read_file: "sandbox",
-  write_file: "sandbox",
-  edit_file: "sandbox",
+  files: "inline",
   exec: "sandbox",
   shell: "sandbox",
-  send_media_to_user: "inline",
   persai_workspace_attach: "inline",
   persai_tool_quota_status: "inline",
   cron: "worker"
@@ -89,6 +86,9 @@ function resolveRuntimeToolDisplayName(
   tool: EffectiveToolAvailabilityState["tools"][number],
   runtimeToolCode: string
 ): string {
+  if (runtimeToolCode === "files") {
+    return "Files";
+  }
   if (runtimeToolCode === "quota_status") {
     return "Quota Status";
   }
@@ -96,19 +96,27 @@ function resolveRuntimeToolDisplayName(
 }
 
 function resolveRuntimeToolDescription(
-  tool: EffectiveToolAvailabilityState["tools"][number]
+  tool: EffectiveToolAvailabilityState["tools"][number],
+  runtimeToolCode: string
 ): string | null {
   if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
+  }
+  if (runtimeToolCode === "files") {
+    return "Search, inspect, read, write, edit, or send assistant-managed files through one canonical file surface.";
   }
   return tool.modelDescription ?? tool.description;
 }
 
 function resolveRuntimeToolUsageGuidance(
-  tool: EffectiveToolAvailabilityState["tools"][number]
+  tool: EffectiveToolAvailabilityState["tools"][number],
+  runtimeToolCode: string
 ): string | null {
   if (MIGRATION_ONLY_MODEL_HIDDEN_TOOLS.has(tool.code)) {
     return "Keep this helper off the normal model-visible path.";
+  }
+  if (runtimeToolCode === "files") {
+    return "Use files.search or files.get to locate a stable fileRef first, then use files.read, files.write, files.edit, or files.send as needed. Keep exec and shell for actual process execution only.";
   }
   return tool.modelUsageGuidance;
 }
@@ -231,14 +239,7 @@ function hasNativeModelExecution(
       hasConfiguredCredential(params.toolCredentialRefs, "tts")
     );
   }
-  if (
-    runtimeToolCode === "read_file" ||
-    runtimeToolCode === "write_file" ||
-    runtimeToolCode === "edit_file" ||
-    runtimeToolCode === "exec" ||
-    runtimeToolCode === "shell" ||
-    runtimeToolCode === "send_media_to_user"
-  ) {
+  if (runtimeToolCode === "files" || runtimeToolCode === "exec" || runtimeToolCode === "shell") {
     return params.sandboxEnabled;
   }
   return false;
@@ -330,8 +331,8 @@ export function resolveRuntimeToolPolicies(params: {
     return {
       toolCode: runtimeToolCode,
       displayName: resolveRuntimeToolDisplayName(tool, runtimeToolCode),
-      description: resolveRuntimeToolDescription(tool),
-      usageGuidance: resolveRuntimeToolUsageGuidance(tool),
+      description: resolveRuntimeToolDescription(tool, runtimeToolCode),
+      usageGuidance: resolveRuntimeToolUsageGuidance(tool, runtimeToolCode),
       kind,
       executionMode: resolveToolExecutionMode(runtimeToolCode),
       usageRule: enabled && kind !== "internal" ? "allowed" : "forbidden",

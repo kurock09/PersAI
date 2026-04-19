@@ -225,6 +225,44 @@ export interface RuntimeSandboxToolResult {
   fileRefs: string[];
 }
 
+export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
+  "search",
+  "get",
+  "read",
+  "write",
+  "edit",
+  "send"
+] as const;
+
+export type RuntimeFilesToolAction = (typeof PERSAI_RUNTIME_FILES_TOOL_ACTIONS)[number];
+
+export interface RuntimeFilesToolItem {
+  fileRef: string;
+  origin: PersaiSandboxFileOrigin;
+  sourceToolCode: string | null;
+  relativePath: string;
+  displayName: string | null;
+  mimeType: string;
+  sizeBytes: number;
+  logicalSizeBytes: number | null;
+}
+
+export interface RuntimeFilesToolResult {
+  toolCode: "files";
+  executionMode: "inline";
+  requestedAction: RuntimeFilesToolAction | null;
+  action: "results" | "fetched" | "read" | "written" | "edited" | "queued" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  item: RuntimeFilesToolItem | null;
+  items: RuntimeFilesToolItem[];
+  content: string | null;
+  job: RuntimeSandboxJobResult | null;
+  fileRefs: string[];
+  artifactIds: string[];
+  queuedArtifacts: number;
+}
+
 export interface RuntimeSendMediaToUserToolResult {
   toolCode: "send_media_to_user";
   executionMode: "inline";

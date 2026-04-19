@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeTurnRequest } from "@persai/runtime-contract";
 import type { RuntimeStatePrismaService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service";
+import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
 
 const HYDRATED_MEMORY_CONTEXT =
@@ -117,14 +118,24 @@ class FakeRuntimeStatePrismaService {
       createdAt: new Date("2026-04-14T10:30:00.000Z")
     }
   ];
-  sandboxFileRefs = new Map<
+  assistantFiles = new Map<
     string,
     {
       id: string;
       assistantId: string;
       workspaceId: string;
+      sandboxJobId: null;
       origin: "uploaded_attachment" | "runtime_output";
+      sourceToolCode: null;
       objectKey: string;
+      relativePath: string;
+      displayName: string | null;
+      mimeType: string;
+      sizeBytes: bigint;
+      logicalSizeBytes: bigint;
+      sha256: null;
+      metadata: { attachmentId?: string };
+      createdAt: Date;
     }
   >();
 
@@ -143,47 +154,78 @@ class FakeRuntimeStatePrismaService {
     findMany: async () => this.memoryRows
   };
 
-  sandboxFileRef = {
-    findFirst: async (args: {
+  assistantFile = {
+    upsert: async (args: {
       where: {
-        assistantId: string;
-        workspaceId: string;
-        origin: "uploaded_attachment" | "runtime_output";
-        objectKey: string;
+        assistantId_workspaceId_origin_objectKey: {
+          assistantId: string;
+          workspaceId: string;
+          origin: "uploaded_attachment" | "runtime_output";
+          objectKey: string;
+        };
       };
-    }) => {
-      return (
-        [...this.sandboxFileRefs.values()].find(
-          (entry) =>
-            entry.assistantId === args.where.assistantId &&
-            entry.workspaceId === args.where.workspaceId &&
-            entry.origin === args.where.origin &&
-            entry.objectKey === args.where.objectKey
-        ) ?? null
-      );
-    },
-    create: async (args: {
-      data: {
+      update: {
+        relativePath: string;
+        displayName: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+        logicalSizeBytes: bigint;
+        metadata: { attachmentId?: string };
+      };
+      create: {
         assistantId: string;
         workspaceId: string;
+        sandboxJobId: null;
         origin: "uploaded_attachment" | "runtime_output";
+        sourceToolCode: null;
         objectKey: string;
+        relativePath: string;
+        displayName: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+        logicalSizeBytes: bigint;
+        sha256: null;
         metadata: { attachmentId?: string };
       };
     }) => {
+      const existing = [...this.assistantFiles.values()].find(
+        (entry) =>
+          entry.assistantId === args.where.assistantId_workspaceId_origin_objectKey.assistantId &&
+          entry.workspaceId === args.where.assistantId_workspaceId_origin_objectKey.workspaceId &&
+          entry.origin === args.where.assistantId_workspaceId_origin_objectKey.origin &&
+          entry.objectKey === args.where.assistantId_workspaceId_origin_objectKey.objectKey
+      );
+      if (existing !== undefined) {
+        const updated = {
+          ...existing,
+          ...args.update
+        };
+        this.assistantFiles.set(updated.id, updated);
+        return updated;
+      }
       const attachmentId =
-        typeof args.data.metadata?.attachmentId === "string" &&
-        args.data.metadata.attachmentId.length > 0
-          ? args.data.metadata.attachmentId
-          : String(this.sandboxFileRefs.size + 1);
+        typeof args.create.metadata?.attachmentId === "string" &&
+        args.create.metadata.attachmentId.length > 0
+          ? args.create.metadata.attachmentId
+          : String(this.assistantFiles.size + 1);
       const created = {
         id: `file-ref-${attachmentId}`,
-        assistantId: args.data.assistantId,
-        workspaceId: args.data.workspaceId,
-        origin: args.data.origin,
-        objectKey: args.data.objectKey
+        assistantId: args.create.assistantId,
+        workspaceId: args.create.workspaceId,
+        sandboxJobId: args.create.sandboxJobId,
+        origin: args.create.origin,
+        sourceToolCode: args.create.sourceToolCode,
+        objectKey: args.create.objectKey,
+        relativePath: args.create.relativePath,
+        displayName: args.create.displayName,
+        mimeType: args.create.mimeType,
+        sizeBytes: args.create.sizeBytes,
+        logicalSizeBytes: args.create.logicalSizeBytes,
+        sha256: args.create.sha256,
+        metadata: args.create.metadata,
+        createdAt: new Date("2026-04-19T12:00:00.000Z")
       };
-      this.sandboxFileRefs.set(created.id, created);
+      this.assistantFiles.set(created.id, created);
       return created;
     }
   };
@@ -237,7 +279,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
         }
         return null;
       }
-    } as never
+    } as never,
+    new RuntimeAssistantFileRegistryService(prisma as unknown as RuntimeStatePrismaService)
   );
   const request = createRuntimeTurnRequest();
   const runtimeBundle = createRuntimeBundle();

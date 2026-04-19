@@ -1388,47 +1388,133 @@ class FakeRuntimeSandboxToolService {
   }
 }
 
-class FakeRuntimeSendMediaToUserService {
+class FakeRuntimeFilesToolService {
   calls: Array<{
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
     currentArtifacts: RuntimeOutputArtifact[];
+    currentFileRefs: Array<{ fileRef: string }>;
     channel: "web" | "telegram" | "max_ru";
   }> = [];
 
   async executeToolCall(input: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    sessionId: string;
+    requestId: string;
     currentArtifacts: RuntimeOutputArtifact[];
+    currentFileRefs: Array<{ fileRef: string }>;
     channel: "web" | "telegram" | "max_ru";
   }) {
     this.calls.push({
       ...input,
-      currentArtifacts: [...input.currentArtifacts]
+      currentArtifacts: [...input.currentArtifacts],
+      currentFileRefs: [...input.currentFileRefs]
     });
+    const action = input.toolCall.arguments.action;
+    if (action === "send") {
+      return {
+        payload: {
+          toolCode: "files" as const,
+          executionMode: "inline" as const,
+          requestedAction: "send" as const,
+          action: "queued" as const,
+          reason: null,
+          warning: null,
+          item: null,
+          items: [],
+          content: null,
+          job: null,
+          fileRefs: ["file-ref-1"],
+          artifactIds: [],
+          queuedArtifacts: 1
+        },
+        artifacts: [
+          {
+            artifactId: "artifact-sent-1",
+            kind: "file" as const,
+            objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+            mimeType: "text/plain",
+            filename: "report.txt",
+            sizeBytes: 64,
+            voiceNote: false,
+            caption: "Here is your file"
+          }
+        ],
+        isError: false
+      };
+    }
     return {
       payload: {
-        toolCode: "send_media_to_user" as const,
+        toolCode: "files" as const,
         executionMode: "inline" as const,
-        action: "queued" as const,
+        requestedAction: "write" as const,
+        action: "written" as const,
         reason: null,
         warning: null,
+        content: null,
+        item: {
+          fileRef: "file-ref-1",
+          origin: "sandbox_output" as const,
+          sourceToolCode: "files",
+          relativePath: "outputs/report.txt",
+          displayName: "report.txt",
+          mimeType: "text/plain",
+          sizeBytes: 64,
+          logicalSizeBytes: 64
+        },
+        items: [
+          {
+            fileRef: "file-ref-1",
+            origin: "sandbox_output" as const,
+            sourceToolCode: "files",
+            relativePath: "outputs/report.txt",
+            displayName: "report.txt",
+            mimeType: "text/plain",
+            sizeBytes: 64,
+            logicalSizeBytes: 64
+          }
+        ],
         fileRefs: ["file-ref-1"],
         artifactIds: [],
-        queuedArtifacts: 1
-      },
-      artifacts: [
-        {
-          artifactId: "artifact-sent-1",
-          kind: "file" as const,
-          objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
-          mimeType: "text/plain",
-          filename: "report.txt",
-          sizeBytes: 64,
-          voiceNote: false,
-          caption: "Here is your file"
+        queuedArtifacts: 0,
+        job: {
+          jobId: "sandbox-job-1",
+          status: "completed" as const,
+          toolCode: "files",
+          reason: null,
+          warning: null,
+          violationCode: null,
+          violationMessage: null,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null,
+          files: [
+            {
+              relativePath: "outputs/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64,
+              fileRef: {
+                fileRef: "file-ref-1",
+                origin: "sandbox_output" as const,
+                sourceToolCode: "files",
+                objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+                relativePath: "outputs/report.txt",
+                displayName: "report.txt",
+                mimeType: "text/plain",
+                sizeBytes: 64,
+                logicalSizeBytes: 64
+              }
+            }
+          ]
         }
-      ],
+      },
+      artifacts: [],
       isError: false
     };
   }
@@ -1536,22 +1622,16 @@ function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): 
   };
   for (const tool of [
     {
-      toolCode: "write_file",
-      displayName: "Write File",
-      description: "Create or overwrite one sandbox-managed file.",
-      executionMode: "sandbox" as const
+      toolCode: "files",
+      displayName: "Files",
+      description: "Search, inspect, read, write, edit, or send assistant-managed files.",
+      executionMode: "inline" as const
     },
     {
       toolCode: "shell",
       displayName: "Shell",
       description: "Run a bounded shell command inside the sandbox workspace.",
       executionMode: "sandbox" as const
-    },
-    {
-      toolCode: "send_media_to_user",
-      displayName: "Send Media To User",
-      description: "Queue file references or current-turn artifacts for delivery.",
-      executionMode: "inline" as const
     }
   ]) {
     if (
@@ -1618,8 +1698,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
     mediaObjectStorage as never
   );
+  const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
-  const runtimeSendMediaToUserService = new FakeRuntimeSendMediaToUserService();
   const turnRoutingService = new TurnRoutingService(
     providerGatewayClient as unknown as ProviderGatewayClientService
   );
@@ -1641,6 +1721,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
@@ -1648,7 +1729,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
-    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -1746,6 +1826,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
@@ -1753,7 +1834,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
-    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -1814,6 +1894,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
     runtimeBrowserToolService,
+    runtimeFilesToolService as never,
     runtimeImageEditToolService,
     runtimeImageGenerateToolService,
     runtimeKnowledgeToolService,
@@ -1821,7 +1902,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
     runtimeScheduledActionToolService,
-    runtimeSendMediaToUserService as never,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
   );
@@ -2498,8 +2578,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-write-file-1",
-          name: "write_file",
+          name: "files",
           arguments: {
+            action: "write",
             path: "outputs/report.txt",
             content: "sandbox output"
           }
@@ -2516,8 +2597,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-send-media-1",
-          name: "send_media_to_user",
+          name: "files",
           arguments: {
+            action: "send",
             fileRefs: ["file-ref-1"],
             caption: "Here is your file"
           }
@@ -2536,11 +2618,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ];
   const sandboxDeliveryCompleted = await service.createTurn(sandboxDeliveryRequest);
   assert.equal(sandboxDeliveryCompleted.assistantText, "reply after sandbox delivery");
-  assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "write_file");
-  assert.deepEqual(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs, []);
-  assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.toolCall.name, "send_media_to_user");
-  assert.deepEqual(runtimeSendMediaToUserService.calls.at(-1)?.currentArtifacts, []);
-  assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.channel, "web");
+  assert.equal(runtimeFilesToolService.calls.at(-2)?.toolCall.name, "files");
+  assert.equal(runtimeFilesToolService.calls.at(-2)?.toolCall.arguments.action, "write");
+  assert.deepEqual(runtimeFilesToolService.calls.at(-2)?.currentFileRefs, []);
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.name, "files");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "send");
+  assert.deepEqual(runtimeFilesToolService.calls.at(-1)?.currentArtifacts, []);
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.channel, "web");
   assert.equal(sandboxDeliveryCompleted.artifacts.length, 1);
   assert.equal(sandboxDeliveryCompleted.artifacts[0]?.artifactId, "artifact-sent-1");
   const sandboxToolHistory = JSON.parse(
@@ -2548,8 +2632,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ) as {
     action?: string;
     job?: { files?: Array<{ fileRef?: { fileRef?: string } }> };
+    requestedAction?: string;
   };
-  assert.equal(sandboxToolHistory.action, "completed");
+  assert.equal(sandboxToolHistory.action, "written");
+  assert.equal(sandboxToolHistory.requestedAction, "write");
   assert.equal(sandboxToolHistory.job?.files?.[0]?.fileRef?.fileRef, "file-ref-1");
   const sendMediaToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[1]?.toolResult.content ?? "{}"
@@ -2557,8 +2643,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     action?: string;
     fileRefs?: string[];
     queuedArtifacts?: number;
+    requestedAction?: string;
   };
   assert.equal(sendMediaToolHistory.action, "queued");
+  assert.equal(sendMediaToolHistory.requestedAction, "send");
   assert.equal(sendMediaToolHistory.fileRefs?.[0], "file-ref-1");
   assert.equal(sendMediaToolHistory.queuedArtifacts, 1);
   await flushTaskQueue();
@@ -2580,8 +2668,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       toolCalls: [
         {
           id: "tool-call-write-file-2",
-          name: "write_file",
+          name: "files",
           arguments: {
+            action: "write",
             path: "outputs/report.txt",
             content: "sandbox output"
           }
@@ -2619,7 +2708,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sandboxWorkspaceContinuityRequest
   );
   assert.equal(sandboxWorkspaceContinuityCompleted.assistantText, "workspace continuity reply");
-  assert.equal(runtimeSandboxToolService.calls.at(-2)?.toolCall.name, "write_file");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write");
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "shell");
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs[0]?.fileRef, "file-ref-1");
 
@@ -3000,9 +3089,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "quota_status",
       "knowledge_search",
       "knowledge_fetch",
-      "write_file",
-      "shell",
-      "send_media_to_user"
+      "files",
+      "shell"
     ]
   );
   assert.match(
@@ -3100,9 +3188,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "quota_status",
       "knowledge_search",
       "knowledge_fetch",
-      "write_file",
-      "shell",
-      "send_media_to_user"
+      "files",
+      "shell"
     ]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
@@ -3380,9 +3467,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch",
       "web_fetch",
-      "write_file",
-      "shell",
-      "send_media_to_user"
+      "files",
+      "shell"
     ]
   );
   assert.deepEqual(providerGatewayClient.webFetchCalls.at(-1), {
