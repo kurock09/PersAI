@@ -694,10 +694,10 @@ export class TurnContextHydrationService {
     let imageOrdinal = 0;
     return await Promise.all(
       attachments.map((attachment) => {
-      const imageIndex =
-        showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
-          ? (imageOrdinal += 1)
-          : null;
+        const imageIndex =
+          showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
+            ? (imageOrdinal += 1)
+            : null;
         return this.formatCanonicalAttachmentLine({
           assistantId,
           workspaceId,
@@ -726,16 +726,11 @@ export class TurnContextHydrationService {
     let imageOrdinal = 0;
     return await Promise.all(
       attachments.map((attachment) => {
-      const imageIndex =
-        showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
-          ? (imageOrdinal += 1)
-          : null;
-        return this.formatRuntimeAttachmentLine(
-          assistantId,
-          workspaceId,
-          attachment,
-          imageIndex
-        );
+        const imageIndex =
+          showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
+            ? (imageOrdinal += 1)
+            : null;
+        return this.formatRuntimeAttachmentLine(assistantId, workspaceId, attachment, imageIndex);
       })
     );
   }

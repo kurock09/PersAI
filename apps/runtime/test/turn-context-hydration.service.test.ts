@@ -172,7 +172,8 @@ class FakeRuntimeStatePrismaService {
       };
     }) => {
       const attachmentId =
-        typeof args.data.metadata?.attachmentId === "string" && args.data.metadata.attachmentId.length > 0
+        typeof args.data.metadata?.attachmentId === "string" &&
+        args.data.metadata.attachmentId.length > 0
           ? args.data.metadata.attachmentId
           : String(this.sandboxFileRefs.size + 1);
       const created = {

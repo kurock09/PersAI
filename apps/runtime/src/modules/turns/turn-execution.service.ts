@@ -1912,16 +1912,20 @@ export class TurnExecutionService {
       outcome.sharedCompaction.durableStatePersisted;
   }
 
-  private extractProducedFileRefs(
-    payload: ToolExecutionOutcome["payload"]
-  ): RuntimeFileRef[] {
-    if (!this.isSandboxToolPayload(payload) || payload.job === null || payload.job.files.length === 0) {
+  private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {
+    if (
+      !this.isSandboxToolPayload(payload) ||
+      payload.job === null ||
+      payload.job.files.length === 0
+    ) {
       return [];
     }
     return payload.job.files.map((file) => file.fileRef);
   }
 
-  private isSandboxToolPayload(payload: ToolExecutionOutcome["payload"]): payload is RuntimeSandboxToolResult {
+  private isSandboxToolPayload(
+    payload: ToolExecutionOutcome["payload"]
+  ): payload is RuntimeSandboxToolResult {
     return (
       payload !== null &&
       typeof payload === "object" &&
