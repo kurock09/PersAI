@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Step 20 live sandbox 500 root-cause fix
+
+### What changed
+
+1. Live `sandbox` `write_file` failures in `persai-dev` were traced to missing database persistence, not to tool arguments or runtime routing. The running `sandbox` pod returned Prisma `P2021` because `public.sandbox_jobs` did not exist in the dev database.
+2. Prisma repo truth is now aligned with the already-landed `schema.prisma` models. `apps/api/prisma/migrations/20260419010000_step20_sandbox_persistence_foundation/migration.sql` adds the missing `sandbox_job_status` / `sandbox_file_origin` enums plus the `sandbox_jobs` and `sandbox_file_refs` tables, foreign keys, and indexes expected by the live `apps/sandbox` service.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Restore the missing sandbox persistence migration, let api-migrate apply it on persai-dev, and then rerun the real sandbox -> fileRef -> send_media_to_user smoke instead of probing more failing tools against an incomplete database`
+
+### Files touched
+
+- `apps/api/prisma/migrations/20260419010000_step20_sandbox_persistence_foundation/migration.sql`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api run prisma:generate`
+- live `kubectl -n persai-dev logs deploy/sandbox -c sandbox --tail=200` root-cause check confirmed `P2021` / missing `public.sandbox_jobs`
+
+### Risks / notes
+
+1. Until this migration is applied by the live `api-migrate` job, all sandbox-backed tools can keep failing with `sandbox_failed` / HTTP `500` even if the sandbox pod itself is healthy.
+2. The remaining honest Step 20 proof is still the real live artifact roundtrip after the schema fix lands; this migration only restores the missing persistence layer.
+
+### Next recommended step
+
+1. Commit and push the migration, wait for `CI`, `Dev Image Publish`, and the dev `api-migrate` hook to succeed, then rerun one minimal `write_file` live smoke before retesting `send_media_to_user`.
+
 ## 2026-04-19 - Step 20 live-test prep wiring
 
 ### What changed
