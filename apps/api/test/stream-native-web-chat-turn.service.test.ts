@@ -227,6 +227,88 @@ describe("StreamNativeWebChatTurnService", () => {
     }
   });
 
+  test("ignores blank keepalive lines in the runtime NDJSON stream", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1"
+          }),
+          "",
+          JSON.stringify({
+            type: "tool_finished",
+            requestId: "runtime-request-1",
+            sessionId: "runtime-session-1",
+            toolCallId: "tool-1",
+            toolName: "files",
+            isError: false
+          }),
+          "",
+          JSON.stringify({
+            type: "completed",
+            result: {
+              requestId: "runtime-request-1",
+              sessionId: "runtime-session-1",
+              assistantText: "",
+              artifacts: [],
+              respondedAt: "2026-04-11T13:00:00.000Z",
+              usage: null
+            }
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const chunks = await collectChunks(
+        service.execute({
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          surfaceThreadKey: "thread-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          userMessageId: "user-msg-1",
+          userMessage: "hello native",
+          attachments: [],
+          userTimezone: "UTC",
+          currentTimeIso: "2026-04-11T13:00:00.000Z"
+        })
+      );
+
+      assert.deepEqual(chunks, [
+        {
+          type: "tool",
+          toolPhase: "end",
+          toolName: "files",
+          toolCallId: "tool-1",
+          isError: false
+        },
+        {
+          type: "done",
+          respondedAt: "2026-04-11T13:00:00.000Z"
+        }
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("surfaces native runtime stream conflicts as inbound conflicts", async () => {
     setApiEnv();
     const originalFetch = globalThis.fetch;

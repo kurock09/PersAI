@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
+  getAttachmentDownloadUrl,
   getChatCompactionState,
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
@@ -284,6 +285,18 @@ describe("admin rollout client", () => {
   });
 });
 
+describe("attachment download urls", () => {
+  it("returns the inline attachment url by default", () => {
+    expect(getAttachmentDownloadUrl("attachment-1")).toBe("/api/attachment/attachment-1");
+  });
+
+  it("adds explicit download mode when requested", () => {
+    expect(getAttachmentDownloadUrl("attachment-1", { download: true })).toBe(
+      "/api/attachment/attachment-1?download=1"
+    );
+  });
+});
+
 describe("chat compaction client", () => {
   it("loads compaction state through the generated contract", async () => {
     contractMocks.getAssistantWebChatCompaction.mockResolvedValue({
@@ -438,6 +451,29 @@ describe("streamAssistantWebChatTurn", () => {
         createSseResponse([
           `event: started\ndata: ${JSON.stringify({ chat: { id: "chat-1" }, userMessage: { id: "msg-1" } })}\n\n`,
           `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}`
+        ])
+      ) as typeof fetch;
+
+    await expect(
+      streamAssistantWebChatTurn(
+        "token-1",
+        { surfaceThreadKey: "thread-1", message: "Hello" },
+        { onCompleted }
+      )
+    ).resolves.toBeUndefined();
+
+    expect(onCompleted).toHaveBeenCalledWith({ transport: { mode: "sse" } });
+  });
+
+  it("ignores keepalive comment blocks while waiting for the terminal event", async () => {
+    const onCompleted = vi.fn();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: started\ndata: ${JSON.stringify({ chat: { id: "chat-1" }, userMessage: { id: "msg-1" } })}\n\n`,
+          `: keepalive\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
         ])
       ) as typeof fetch;
 

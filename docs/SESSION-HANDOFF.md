@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Atomic files.write_and_send plus delivery-honesty guard
+
+### What changed
+
+1. `packages/runtime-contract/src/index.ts` now defines `write_and_send` as a first-class `files` action and adds the corresponding `written_and_queued` result state, so the dominant create-and-deliver flow no longer depends on a second model-visible tool call.
+2. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now executes `files.write_and_send` atomically by reusing the existing write path to persist the file, then immediately reusing canonical send selection with the freshly produced `fileRef`.
+3. `apps/runtime/src/modules/turns/native-tool-projection.ts`, `apps/api/prisma/tool-catalog-data.ts`, and `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` now teach the model to prefer `files.write_and_send` for “create/save and immediately deliver” requests, keep `files.write` for save-only work, and avoid claiming delivery unless the send path actually succeeded.
+4. `apps/runtime/src/modules/turns/turn-execution.service.ts` now adds a fail-closed delivery-honesty correction: if the final assistant text claims a file was sent but the completed turn has no delivered artifacts, the stored/finalized assistant text is amended with an explicit correction instead of leaving a confident false-success reply.
+5. Focused runtime/API tests now lock atomic create-and-deliver behavior, guidance exposure, and the new honesty guard directly.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the active `files` contract now has one explicit one-turn create-and-deliver path through `files.write_and_send`, and completed turns no longer preserve uncorrected “file sent” claims when no artifact actually reached the result.
+- **No longer live prod residue:** the most common “create file and send it now” request no longer has to rely on the model remembering a second `files.send` call after `files.write`.
+- **Still not landed:** live surface validation on deployed web/GKE plus assistant-level Files API/UI and compact workspace digest hydration instead of attachment-heavy prompt state.
+
+### Current active slice
+
+- `Assistant workspace redesign / atomic files.write_and_send`
+
+### Current active step
+
+- `The local runtime contract now has a clean atomic create-and-deliver path; the next honest step is deploy plus a real web smoke, not more prompt-only coaching for the old two-step flow`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\atomic_file_send_551689c9.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime run test -- test/runtime-files-tool.service.test.ts test/native-tool-projection.test.ts test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run test -- test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/sandbox run test`
+- `corepack pnpm run test`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm run format:check`
+
+### Risks / notes
+
+1. The delivery-honesty guard uses textual claim detection as a fail-closed safety net; it is intentionally secondary to the new explicit `files.write_and_send` contract and may need later tuning if real prompts produce false positives/negatives.
+2. This slice improves the dominant same-turn delivery path locally, but it is not an honest replacement for live web/GKE proof that the final attachment actually reaches the user-visible chat surface.
+
+### Next recommended step
+
+1. Deploy `api`, `runtime`, and `web`, then run one real `/app` smoke where the assistant creates a tiny file and returns it in the same turn so live behavior proves `files.write_and_send`, delivery honesty, and final attachment download together.
+
 ## 2026-04-19 - Remove redundant files mount seam and harden explicit mount cleanup
 
 ### What changed

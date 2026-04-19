@@ -123,9 +123,10 @@ async function run(): Promise<void> {
         {
           toolCode: "files",
           displayName: "Files",
-          description: "Search, inspect, read, write, edit, or send assistant-managed files.",
+          description:
+            "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files.",
           usageGuidance:
-            "Use files.search with a non-empty query when you need to discover a file.",
+            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -215,7 +216,22 @@ async function run(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts. Use this when the answer depends on recent external information or links."
   );
+  assert.match(files?.description ?? "", /write-and-send/);
+  assert.match(files?.description ?? "", /files\.write_and_send when the user asks/);
   assert.match(files?.description ?? "", /files\.search with a non-empty query/);
+  assert.match(files?.description ?? "", /Do not claim a file was sent unless/);
+  assert.ok(
+    Array.isArray(
+      (files?.inputSchema as { properties?: { action?: { enum?: unknown[] } } })?.properties?.action
+        ?.enum
+    )
+  );
+  assert.ok(
+    (
+      (files?.inputSchema as { properties?: { action?: { enum?: unknown[] } } })?.properties?.action
+        ?.enum ?? []
+    ).includes("write_and_send")
+  );
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);

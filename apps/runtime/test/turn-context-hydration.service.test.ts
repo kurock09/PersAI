@@ -133,7 +133,7 @@ class FakeRuntimeStatePrismaService {
       mimeType: string;
       sizeBytes: bigint;
       logicalSizeBytes: bigint;
-      sha256: null;
+      sha256: string | null;
       metadata: { attachmentId?: string };
       createdAt: Date;
     }
@@ -170,6 +170,7 @@ class FakeRuntimeStatePrismaService {
         mimeType: string;
         sizeBytes: bigint;
         logicalSizeBytes: bigint;
+        sha256?: string;
         metadata: { attachmentId?: string };
       };
       create: {
@@ -184,7 +185,7 @@ class FakeRuntimeStatePrismaService {
         mimeType: string;
         sizeBytes: bigint;
         logicalSizeBytes: bigint;
-        sha256: null;
+        sha256: string | null;
         metadata: { attachmentId?: string };
       };
     }) => {
@@ -255,32 +256,48 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
   const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
   const downloadedObjectKeys: string[] = [];
+  const mediaObjectStorage = {
+    async downloadObject(objectKey: string) {
+      downloadedObjectKeys.push(objectKey);
+      if (objectKey.includes("notes.txt")) {
+        return Buffer.from("notes-text-bytes");
+      }
+      if (objectKey.includes("reply.png")) {
+        return Buffer.from("reply-png-bytes");
+      }
+      if (objectKey.includes("voice-note-yandex.ogg")) {
+        return Buffer.from("voice-note-bytes");
+      }
+      if (objectKey.includes("voice.mp3")) {
+        return Buffer.from("voice-mp3-bytes");
+      }
+      if (objectKey.includes("diagram.png")) {
+        return Buffer.from("png-bytes");
+      }
+      if (objectKey.includes("yard.png")) {
+        return Buffer.from("yard-png-bytes");
+      }
+      if (objectKey.includes("car.png")) {
+        return Buffer.from("car-png-bytes");
+      }
+      if (objectKey.includes("manual.pdf") || objectKey.includes("file-small.pdf")) {
+        return Buffer.from("pdf-bytes");
+      }
+      if (objectKey.includes("file-large.pdf")) {
+        return Buffer.from("large-pdf-bytes");
+      }
+      return null;
+    }
+  };
   const service = new TurnContextHydrationService(
     prisma as unknown as RuntimeStatePrismaService,
     runtimeStatePostgres as never,
     runtimeStateKeyspace as never,
-    {
-      async downloadObject(objectKey: string) {
-        downloadedObjectKeys.push(objectKey);
-        if (objectKey.includes("diagram.png")) {
-          return Buffer.from("png-bytes");
-        }
-        if (objectKey.includes("yard.png")) {
-          return Buffer.from("yard-png-bytes");
-        }
-        if (objectKey.includes("car.png")) {
-          return Buffer.from("car-png-bytes");
-        }
-        if (objectKey.includes("manual.pdf") || objectKey.includes("file-small.pdf")) {
-          return Buffer.from("pdf-bytes");
-        }
-        if (objectKey.includes("file-large.pdf")) {
-          return Buffer.from("large-pdf-bytes");
-        }
-        return null;
-      }
-    } as never,
-    new RuntimeAssistantFileRegistryService(prisma as unknown as RuntimeStatePrismaService)
+    mediaObjectStorage as never,
+    new RuntimeAssistantFileRegistryService(
+      prisma as unknown as RuntimeStatePrismaService,
+      mediaObjectStorage as never
+    )
   );
   const request = createRuntimeTurnRequest();
   const runtimeBundle = createRuntimeBundle();
@@ -431,10 +448,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     }
   ]);
-  assert.deepEqual(downloadedObjectKeys, [
-    "assistant-media/chat-1/diagram.png",
-    "assistant-media/chat-1/manual.pdf"
-  ]);
+  assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/diagram.png"));
+  assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/manual.pdf"));
+  assert.ok(
+    [...prisma.assistantFiles.values()].every((file) => typeof file.sha256 === "string"),
+    "attachment-backed assistant files should store a sha256 for durable workspace diffing"
+  );
 
   prisma.chat = null;
   downloadedObjectKeys.length = 0;
@@ -460,9 +479,16 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     }
   ]);
-  assert.deepEqual(downloadedObjectKeys, [
-    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
-  ]);
+  assert.ok(
+    downloadedObjectKeys.includes(
+      "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
+    )
+  );
+  assert.ok(
+    downloadedObjectKeys.includes(
+      "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-large.pdf"
+    )
+  );
 
   prisma.chat = null;
   downloadedObjectKeys.length = 0;
@@ -521,10 +547,16 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     }
   ]);
-  assert.deepEqual(downloadedObjectKeys, [
-    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png",
-    "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/car.png"
-  ]);
+  assert.ok(
+    downloadedObjectKeys.includes(
+      "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png"
+    )
+  );
+  assert.ok(
+    downloadedObjectKeys.includes(
+      "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/car.png"
+    )
+  );
 
   const telegramRequest: RuntimeTurnRequest = {
     ...request,

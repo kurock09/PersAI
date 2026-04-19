@@ -13,6 +13,8 @@ import { SessionStoreService } from "../../../sessions/session-store.service";
 import { SessionCompactionService } from "../../session-compaction.service";
 import { TurnExecutionService } from "../../turn-execution.service";
 
+const STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
+
 @Controller("api/v1/turns")
 export class TurnsController {
   constructor(
@@ -45,6 +47,15 @@ export class TurnsController {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    const heartbeat = setInterval(() => {
+      if (res.writableEnded) {
+        return;
+      }
+      // Empty NDJSON lines are ignored by readers but keep the socket active through proxies.
+      res.write("\n");
+      res.flush?.();
+    }, STREAM_HEARTBEAT_INTERVAL_MS);
+
     try {
       for await (const event of stream) {
         if (res.writableEnded) {
@@ -53,6 +64,7 @@ export class TurnsController {
         this.writeEvent(res, event);
       }
     } finally {
+      clearInterval(heartbeat);
       if (!res.writableEnded) {
         res.end();
       }

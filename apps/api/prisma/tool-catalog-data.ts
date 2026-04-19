@@ -197,9 +197,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Unified assistant file tool for search, metadata lookup, reads, writes, edits, and channel delivery.",
     modelDescription:
-      "Search, inspect, read, write, edit, or send assistant-managed files through one canonical file surface.",
+      "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files through one canonical file surface.",
     modelUsageGuidance:
-      "Use files.search with a non-empty query when you need to discover a file. When you already know the target, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Keep shell and exec for actual process execution only.",
+      "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type {
   PersaiSandboxFileOrigin,
@@ -5,6 +6,7 @@ import type {
   RuntimeFilesToolItem
 } from "@persai/runtime-contract";
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,6 +26,13 @@ export type RuntimeAssistantFileRecord = {
   sha256: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date;
+};
+
+export type RuntimeAssistantDirectoryListing = {
+  files: RuntimeAssistantFileRecord[];
+  directories: string[];
+  totalFiles: number;
+  truncated: boolean;
 };
 
 type AttachmentBackedOrigin = Extract<
@@ -50,20 +59,31 @@ type RegistryRow = {
 
 @Injectable()
 export class RuntimeAssistantFileRegistryService {
-  constructor(private readonly prisma: RuntimeStatePrismaService) {}
+  constructor(
+    private readonly prisma: RuntimeStatePrismaService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+  ) {}
 
   async findByFileRef(input: {
     assistantId: string;
     workspaceId: string;
     fileRef: string;
   }): Promise<RuntimeAssistantFileRecord | null> {
-    const canonical = await this.prisma.assistantFile.findFirst({
-      where: {
-        id: input.fileRef,
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId
+    let canonical: RegistryRow | null;
+    try {
+      canonical = await this.prisma.assistantFile.findFirst({
+        where: {
+          id: input.fileRef,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        }
+      });
+    } catch (error) {
+      if (this.isInvalidAssistantFileIdError(error)) {
+        return null;
       }
-    });
+      throw error;
+    }
     return canonical === null ? null : this.mapRow(canonical);
   }
 
@@ -92,18 +112,78 @@ export class RuntimeAssistantFileRegistryService {
       return [];
     }
     const requestedRefs = [...new Set(input.fileRefs)];
-    const canonicalRows = await this.prisma.assistantFile.findMany({
-      where: {
-        id: { in: requestedRefs },
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId
+    let canonicalRows: RegistryRow[];
+    try {
+      canonicalRows = await this.prisma.assistantFile.findMany({
+        where: {
+          id: { in: requestedRefs },
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId
+        }
+      });
+    } catch (error) {
+      if (this.isInvalidAssistantFileIdError(error)) {
+        throw new Error(
+          "One or more fileRefs are invalid. Use the canonical fileRef returned by files results, not a path or relativePath."
+        );
       }
-    });
+      throw error;
+    }
     const canonicalById = new Map(canonicalRows.map((row) => [row.id, this.mapRow(row)] as const));
     return requestedRefs.flatMap((fileRef) => {
       const record = canonicalById.get(fileRef);
       return record === undefined ? [] : [record];
     });
+  }
+
+  async listDirectory(input: {
+    assistantId: string;
+    workspaceId: string;
+    directoryPath: string | null;
+    recursive: boolean;
+    limit: number;
+  }): Promise<RuntimeAssistantDirectoryListing> {
+    const normalizedDirectoryPath = this.normalizeDirectoryPath(input.directoryPath);
+    const canonicalRows = await this.prisma.assistantFile.findMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      orderBy: [{ relativePath: "asc" }, { createdAt: "desc" }, { id: "desc" }]
+    });
+
+    const files: RuntimeAssistantFileRecord[] = [];
+    const directories = new Set<string>();
+    const seenRelativePaths = new Set<string>();
+    let totalFiles = 0;
+
+    for (const row of canonicalRows) {
+      if (seenRelativePaths.has(row.relativePath)) {
+        continue;
+      }
+      seenRelativePaths.add(row.relativePath);
+      const placement = this.resolveDirectoryPlacement(row.relativePath, normalizedDirectoryPath);
+      if (placement === null) {
+        continue;
+      }
+      if (placement.immediateChildDirectory !== null) {
+        directories.add(placement.immediateChildDirectory);
+      }
+      if (!input.recursive && !placement.isDirectFile) {
+        continue;
+      }
+      totalFiles += 1;
+      if (files.length < input.limit) {
+        files.push(this.mapRow(row));
+      }
+    }
+
+    return {
+      files,
+      directories: [...directories].sort((left, right) => left.localeCompare(right)),
+      totalFiles,
+      truncated: totalFiles > files.length
+    };
   }
 
   async search(input: {
@@ -138,6 +218,7 @@ export class RuntimeAssistantFileRegistryService {
       input.filename,
       input.mimeType
     );
+    const sha256 = await this.computeObjectSha256(input.objectKey);
     const metadata = {
       attachmentId: input.referenceId
     };
@@ -156,6 +237,7 @@ export class RuntimeAssistantFileRegistryService {
         mimeType: input.mimeType,
         sizeBytes: BigInt(input.sizeBytes),
         logicalSizeBytes: BigInt(input.sizeBytes),
+        ...(sha256 === null ? {} : { sha256 }),
         metadata
       },
       create: {
@@ -170,11 +252,16 @@ export class RuntimeAssistantFileRegistryService {
         mimeType: input.mimeType,
         sizeBytes: BigInt(input.sizeBytes),
         logicalSizeBytes: BigInt(input.sizeBytes),
-        sha256: null,
+        sha256,
         metadata
       }
     });
     return this.mapRow(row);
+  }
+
+  private async computeObjectSha256(objectKey: string): Promise<string | null> {
+    const buffer = await this.mediaObjectStorage.downloadObject(objectKey);
+    return buffer === null ? null : createHash("sha256").update(buffer).digest("hex");
   }
 
   toRuntimeFileRef(record: RuntimeAssistantFileRecord): RuntimeFileRef {
@@ -230,6 +317,59 @@ export class RuntimeAssistantFileRegistryService {
         }
       ]
     };
+  }
+
+  private normalizeDirectoryPath(value: string | null): string {
+    if (value === null) {
+      return "";
+    }
+    const normalized = value
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\/+|\/+$/g, "");
+    return normalized === "." ? "" : normalized;
+  }
+
+  private resolveDirectoryPlacement(
+    relativePath: string,
+    directoryPath: string
+  ): { isDirectFile: boolean; immediateChildDirectory: string | null } | null {
+    if (directoryPath.length === 0) {
+      const segments = relativePath.split("/").filter((segment) => segment.length > 0);
+      if (segments.length === 0) {
+        return null;
+      }
+      return {
+        isDirectFile: segments.length === 1,
+        immediateChildDirectory: segments.length > 1 ? segments[0]! : null
+      };
+    }
+
+    const prefix = `${directoryPath}/`;
+    if (!relativePath.startsWith(prefix)) {
+      return null;
+    }
+    const remainder = relativePath.slice(prefix.length);
+    if (remainder.length === 0) {
+      return null;
+    }
+    const segments = remainder.split("/").filter((segment) => segment.length > 0);
+    if (segments.length === 0) {
+      return null;
+    }
+    return {
+      isDirectFile: segments.length === 1,
+      immediateChildDirectory: segments.length > 1 ? segments[0]! : null
+    };
+  }
+
+  private isInvalidAssistantFileIdError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes("Error creating UUID") ||
+      message.includes("invalid character") ||
+      message.includes("Inconsistent column data")
+    );
   }
 
   private buildAttachmentRelativePath(

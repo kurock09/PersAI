@@ -106,13 +106,15 @@ Use this only after the selected assistant's effective plan enables the active `
 With a signed-in browser session on `/app`:
 
 1. Send a bounded prompt that requires sandbox execution plus delivery, for example: create a tiny text file such as `hello.txt`, then send that file back to the user in the same turn.
-2. Confirm the reply completes successfully and the user-visible assistant message shows the delivered attachment instead of dropping the artifact after tool execution.
-3. Confirm `Admin > Ops` for the same assistant now shows:
+2. Confirm the runtime chooses the atomic create-and-deliver happy path when appropriate (the active contract now prefers `files.write_and_send` for this prompt shape rather than depending on a separate later `files.send` decision).
+3. Confirm the reply completes successfully and the user-visible assistant message shows the delivered attachment instead of dropping the artifact after tool execution.
+4. Confirm the assistant does not confidently claim the file was sent if no attachment actually appears on the completed message.
+5. Confirm `Admin > Ops` for the same assistant now shows:
    - an increased `jobs started today` or `recent sandbox jobs` entry
    - the actual tool code (`files`, `exec`, or `shell`)
    - a completed or blocked status with persisted `resourceUsage` truth
-4. If the file is blocked by policy, confirm the blocked reason is explicit rather than a generic runtime failure.
-5. If the run succeeds, open/download the delivered file from the web surface to prove the final user path, not only the sandbox job path.
+6. If the file is blocked by policy, confirm the blocked reason is explicit rather than a generic runtime failure.
+7. If the run succeeds, open/download the delivered file from the web surface to prove the final user path, not only the sandbox job path.
 
 ## Common failure signatures
 

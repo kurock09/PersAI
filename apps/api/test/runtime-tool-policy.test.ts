@@ -152,6 +152,10 @@ async function run(): Promise<void> {
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "files" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
+  const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
+  assert.match(filesPolicy?.description ?? "", /write-and-send/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /Do not claim a file was sent unless/);
   assert.equal(
     toolPolicies.filter((tool) => tool.toolCode === "quota_status").length,
     1,
@@ -173,7 +177,7 @@ async function run(): Promise<void> {
   );
   assert.match(
     markdown,
-    /\*\*`files`\*\*\nSearch, inspect, read, write, edit, or send assistant-managed files/
+    /\*\*`files`\*\*\nList, search, inspect, read, write, write-and-send, edit, or send assistant-managed files/
   );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);

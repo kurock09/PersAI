@@ -32,7 +32,7 @@ export interface RuntimeNativeToolProjection {
 
 const WEB_FETCH_MAX_CHARS_CAP = 50_000;
 const WEB_SEARCH_MAX_COUNT = 20;
-const FILES_SEARCH_MAX_LIMIT = 20;
+const FILES_LIST_MAX_LIMIT = 200;
 const KNOWLEDGE_SEARCH_MAX_RESULTS = 8;
 const MEMORY_WRITE_MAX_CHARS = 500;
 const REMINDER_CONTEXT_MESSAGES_MAX = 10;
@@ -745,7 +745,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Search, inspect, read, write, edit, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
+      "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
     ),
     inputSchema: {
       type: "object",
@@ -755,7 +755,8 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         action: {
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
-          description: 'One files action: "search", "get", "read", "write", "edit", or "send".'
+          description:
+            'One files action: "list", "search", "get", "read", "write", "write_and_send", "edit", or "send".'
         },
         query: {
           type: "string",
@@ -765,13 +766,14 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         limit: {
           type: "integer",
           minimum: 1,
-          maximum: FILES_SEARCH_MAX_LIMIT,
-          description: 'Optional result cap for action="search". Ignored for other actions.'
+          maximum: FILES_LIST_MAX_LIMIT,
+          description:
+            'Optional result cap for action="search" or action="list". Search is capped tighter than list at execution time.'
         },
         path: {
           type: "string",
           description:
-            'Assistant file path for action="get", "read", "write", or "edit". Prefer the returned relativePath from earlier files results.'
+            'Assistant file path for action="list", "get", "read", "write", "write_and_send", or "edit". For action="list", leave unset or use "." for the root.'
         },
         fileRef: {
           type: "string",
@@ -780,7 +782,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         },
         content: {
           type: "string",
-          description: 'Full UTF-8 text content for action="write".'
+          description: 'Full UTF-8 text content for action="write" or action="write_and_send".'
         },
         oldText: {
           type: "string",
@@ -789,6 +791,11 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         newText: {
           type: "string",
           description: 'Replacement text for action="edit".'
+        },
+        recursive: {
+          type: "boolean",
+          description:
+            'Optional recursion flag for action="list". When true, return files from the whole subtree under path.'
         },
         fileRefs: {
           type: "array",
@@ -804,12 +811,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         },
         caption: {
           type: "string",
-          description: 'Optional caption for action="send".'
+          description: 'Optional caption for action="send" or action="write_and_send".'
         },
         filename: {
           type: "string",
           description:
-            'Optional filename override for action="send" when exactly one file or artifact is selected.'
+            'Optional filename override for action="send" or action="write_and_send" when exactly one file or artifact is selected.'
         }
       }
     }

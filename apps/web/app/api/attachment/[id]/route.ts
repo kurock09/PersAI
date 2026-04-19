@@ -4,7 +4,7 @@ const rawProxyTarget = process.env.PERSAI_WEB_API_PROXY_TARGET ?? "http://localh
 const apiBase = rawProxyTarget.replace(/\/$/, "").replace(/\/api\/v1$/, "") + "/api/v1";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Response> {
   const { getToken } = await auth();
@@ -14,9 +14,14 @@ export async function GET(
   }
 
   const { id } = await params;
-  const upstream = `${apiBase}/assistant/attachment/${encodeURIComponent(id)}`;
+  const requestUrl = new URL(request.url);
+  const upstream = new URL(`${apiBase}/assistant/attachment/${encodeURIComponent(id)}`);
+  const download = requestUrl.searchParams.get("download");
+  if (download === "1") {
+    upstream.searchParams.set("download", "1");
+  }
 
-  const res = await fetch(upstream, {
+  const res = await fetch(upstream.toString(), {
     headers: { Authorization: `Bearer ${token}` }
   });
 

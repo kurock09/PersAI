@@ -144,7 +144,7 @@ export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
   enabled: false,
   maxSingleFileWriteBytes: 10 * 1024 * 1024,
   maxWorkspaceBytesPerJob: 25 * 1024 * 1024,
-  maxPersistedArtifactsPerJob: 8,
+  maxPersistedArtifactsPerJob: 64,
   maxFileCountPerJob: 256,
   maxDirectoryCountPerJob: 128,
   maxProcessRuntimeMs: 15_000,
@@ -226,10 +226,12 @@ export interface RuntimeSandboxToolResult {
 }
 
 export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
+  "list",
   "search",
   "get",
   "read",
   "write",
+  "write_and_send",
   "edit",
   "send"
 ] as const;
@@ -251,7 +253,16 @@ export interface RuntimeFilesToolResult {
   toolCode: "files";
   executionMode: "inline";
   requestedAction: RuntimeFilesToolAction | null;
-  action: "results" | "fetched" | "read" | "written" | "edited" | "queued" | "skipped";
+  action:
+    | "listed"
+    | "results"
+    | "fetched"
+    | "read"
+    | "written"
+    | "written_and_queued"
+    | "edited"
+    | "queued"
+    | "skipped";
   reason: string | null;
   warning: string | null;
   item: RuntimeFilesToolItem | null;

@@ -11,7 +11,7 @@ import type {
   RuntimeSandboxPolicy,
   RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 
@@ -52,6 +52,8 @@ const EMPTY_WORKSPACE_STATS: WorkspaceStats = {
 
 type AssistantWorkspaceFileRecord = {
   id: string;
+  sandboxJobId: string | null;
+  sourceToolCode: string | null;
   objectKey: string;
   relativePath: string;
   displayName: string | null;
@@ -59,6 +61,7 @@ type AssistantWorkspaceFileRecord = {
   sizeBytes: bigint;
   logicalSizeBytes: bigint | null;
   sha256: string | null;
+  metadata: Prisma.JsonValue | null;
   updatedAt: Date;
 };
 
@@ -306,14 +309,7 @@ export class SandboxService {
         existingWorkspaceFiles,
         mountedFiles
       );
-      if (workspaceDelta.changedFiles.length > request.policy.maxPersistedArtifactsPerJob) {
-        this.throwPolicy(
-          "artifact_count_limit_exceeded",
-          `Sandbox job created ${String(workspaceDelta.changedFiles.length)} file(s), above the per-job artifact limit of ${String(
-            request.policy.maxPersistedArtifactsPerJob
-          )}.`
-        );
-      }
+      this.assertProducedFileLimits(workspaceDelta.changedFiles, request.policy);
       this.assertWorkspaceLeaseActive(leaseGuard);
       const persistedFiles = await this.persistWorkspaceFiles({
         assistantId: request.assistantId,
@@ -1336,6 +1332,10 @@ export class SandboxService {
         await fs.mkdir(dirname(absolutePath), { recursive: true });
         try {
           const buffer = await this.objectStorage.downloadObject(file.objectKey);
+          const canonicalFile = await this.backfillWorkspaceFileIntegrity(file, buffer);
+          if (canonicalFile !== file) {
+            filesByPath.set(canonicalFile.relativePath, canonicalFile);
+          }
           await fs.writeFile(absolutePath, buffer);
         } catch (error) {
           if (!this.isMissingObjectStorageError(error)) {
@@ -1483,6 +1483,36 @@ export class SandboxService {
       (relativePath) => !currentFilesByPath.has(relativePath)
     );
     return { changedFiles, deletedPaths };
+  }
+
+  private async backfillWorkspaceFileIntegrity(
+    file: AssistantWorkspaceFileRecord,
+    buffer: Buffer
+  ): Promise<AssistantWorkspaceFileRecord> {
+    const computedSha256 = createHash("sha256").update(buffer).digest("hex");
+    const computedSize = BigInt(buffer.length);
+    if (
+      file.sha256 === computedSha256 &&
+      file.sizeBytes === computedSize &&
+      file.logicalSizeBytes === computedSize
+    ) {
+      return file;
+    }
+    return await this.prisma.assistantFile.update({
+      where: { id: file.id },
+      data: {
+        objectKey: file.objectKey,
+        relativePath: file.relativePath,
+        displayName: file.displayName,
+        mimeType: file.mimeType,
+        sandboxJobId: file.sandboxJobId,
+        sourceToolCode: file.sourceToolCode,
+        sizeBytes: computedSize,
+        logicalSizeBytes: computedSize,
+        sha256: computedSha256,
+        metadata: file.metadata ?? Prisma.JsonNull
+      }
+    });
   }
 
   private async materializeMountedFiles(
@@ -1870,6 +1900,36 @@ export class SandboxService {
         `Sandbox job increased workspace bytes by ${String(addedBytes)}, above the per-job limit of ${String(policy.maxWorkspaceBytesPerJob)} bytes.`
       );
     }
+  }
+
+  private assertProducedFileLimits(
+    files: WorkspaceFileSnapshot[],
+    policy: RuntimeSandboxPolicy
+  ): void {
+    for (const file of files) {
+      if (file.sizeBytes > policy.maxSingleFileWriteBytes) {
+        this.throwPolicy(
+          "single_file_write_limit_exceeded",
+          `Sandbox job would persist "${file.relativePath}" at ${String(file.sizeBytes)} bytes, above the single-file limit of ${String(policy.maxSingleFileWriteBytes)} bytes.`
+        );
+      }
+    }
+    if (files.length > policy.maxPersistedArtifactsPerJob) {
+      this.throwPolicy(
+        "artifact_count_limit_exceeded",
+        `Sandbox job would persist ${String(files.length)} changed file(s), above the per-job limit of ${String(policy.maxPersistedArtifactsPerJob)}. Changed paths: ${this.describeWorkspacePaths(files.map((file) => file.relativePath))}.`
+      );
+    }
+  }
+
+  private describeWorkspacePaths(paths: string[], maxEntries = 8): string {
+    if (paths.length === 0) {
+      return "(none)";
+    }
+    const visible = [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+    const shown = visible.slice(0, maxEntries);
+    const remainder = visible.length - shown.length;
+    return remainder > 0 ? `${shown.join(", ")} (+${String(remainder)} more)` : shown.join(", ");
   }
 
   private readSandboxFilesAction(args: Record<string, unknown>): SandboxFilesAction {

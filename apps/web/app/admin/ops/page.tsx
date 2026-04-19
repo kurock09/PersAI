@@ -1353,19 +1353,19 @@ export default function AdminOpsPage() {
                     Files And Delivery
                   </p>
                   <DetailRow
-                    label="Single file / workspace"
+                    label="Single changed file / workspace growth"
                     value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxSingleFileWriteBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxWorkspaceBytesPerJob)}`}
                   />
                   <DetailRow
-                    label="Files / dirs / artifacts"
+                    label="New files / new dirs / persisted changes"
                     value={`${cockpit.sandbox.effectivePolicy.maxFileCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxDirectoryCountPerJob} / ${cockpit.sandbox.effectivePolicy.maxPersistedArtifactsPerJob}`}
                   />
                   <DetailRow
-                    label="Send count per turn"
+                    label="Delivered files per turn"
                     value={cockpit.sandbox.effectivePolicy.maxArtifactSendCountPerTurn}
                   />
                   <DetailRow
-                    label="Web / Telegram outbound"
+                    label="Web / Telegram delivery bytes"
                     value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.webMaxOutboundBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.telegramMaxOutboundBytes)}`}
                   />
                   <DetailRow

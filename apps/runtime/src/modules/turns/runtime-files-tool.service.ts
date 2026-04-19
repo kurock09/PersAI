@@ -19,6 +19,15 @@ import { SandboxClientService } from "./sandbox-client.service";
 
 const DEFAULT_FILES_SEARCH_LIMIT = 8;
 const MAX_FILES_SEARCH_LIMIT = 20;
+const DEFAULT_FILES_LIST_LIMIT = 100;
+const MAX_FILES_LIST_LIMIT = 200;
+
+type FilesListRequest = {
+  action: "list";
+  path: string | null;
+  recursive: boolean;
+  limit: number;
+};
 
 type FilesSearchRequest = {
   action: "search";
@@ -46,6 +55,14 @@ type FilesWriteRequest = {
   content: string;
 };
 
+type FilesWriteAndSendRequest = {
+  action: "write_and_send";
+  path: string;
+  content: string;
+  caption: string | null;
+  filename: string | null;
+};
+
 type FilesEditRequest = {
   action: "edit";
   fileRef: string | null;
@@ -67,10 +84,12 @@ type FilesSendRequest = {
 };
 
 type ParsedFilesToolRequest =
+  | FilesListRequest
   | FilesSearchRequest
   | FilesGetRequest
   | FilesReadRequest
   | FilesWriteRequest
+  | FilesWriteAndSendRequest
   | FilesEditRequest
   | FilesSendRequest;
 
@@ -169,6 +188,8 @@ export class RuntimeFilesToolService {
       }
 
       switch (request.action) {
+        case "list":
+          return await this.executeListAction(params.bundle, request);
         case "search":
           return await this.executeSearchAction(params.bundle, request);
         case "get":
@@ -177,6 +198,8 @@ export class RuntimeFilesToolService {
           return await this.executeReadAction(params, request);
         case "write":
           return await this.executeWriteAction(params, request);
+        case "write_and_send":
+          return await this.executeWriteAndSendAction(params, request);
         case "edit":
           return await this.executeEditAction(params, request);
         case "send":
@@ -218,6 +241,48 @@ export class RuntimeFilesToolService {
         item: items[0] ?? null,
         items,
         content: null,
+        job: null,
+        fileRefs: items.map((item) => item.fileRef),
+        artifactIds: [],
+        queuedArtifacts: 0
+      },
+      artifacts: [],
+      isError: false
+    };
+  }
+
+  private async executeListAction(
+    bundle: AssistantRuntimeBundle,
+    request: FilesListRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    const listing = await this.runtimeAssistantFileRegistryService.listDirectory({
+      assistantId: bundle.metadata.assistantId,
+      workspaceId: bundle.metadata.workspaceId,
+      directoryPath: request.path,
+      recursive: request.recursive,
+      limit: request.limit
+    });
+    const items = listing.files.map((file) =>
+      this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(file)
+    );
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "list",
+        action: "listed",
+        reason: null,
+        warning: null,
+        item: items[0] ?? null,
+        items,
+        content: this.renderDirectoryListing({
+          path: request.path,
+          recursive: request.recursive,
+          directories: listing.directories,
+          items,
+          totalFiles: listing.totalFiles,
+          truncated: listing.truncated
+        }),
         job: null,
         fileRefs: items.map((item) => item.fileRef),
         artifactIds: [],
@@ -385,6 +450,66 @@ export class RuntimeFilesToolService {
       },
       artifacts: [],
       isError: job.status !== "completed"
+    };
+  }
+
+  private async executeWriteAndSendAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+      currentArtifacts: RuntimeOutputArtifact[];
+      currentFileRefs: RuntimeFileRef[];
+      channel: "web" | "telegram" | "max_ru";
+    },
+    request: FilesWriteAndSendRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    const written = await this.executeWriteAction(params, {
+      action: "write",
+      path: request.path,
+      content: request.content
+    });
+    if (written.isError) {
+      return {
+        ...written,
+        payload: {
+          ...written.payload,
+          requestedAction: "write_and_send"
+        }
+      };
+    }
+
+    const dedupedFileRefs = [...new Set(written.payload.fileRefs)];
+    const queued = await this.queueResolvedSelection({
+      bundle: params.bundle,
+      currentArtifacts: params.currentArtifacts,
+      channel: params.channel,
+      selection: {
+        fileRefs: dedupedFileRefs,
+        artifactIds: [],
+        caption: request.caption,
+        filename: request.filename
+      }
+    });
+
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "write_and_send",
+        action: queued.isError ? "skipped" : "written_and_queued",
+        reason: queued.reason,
+        warning: queued.warning ?? written.payload.warning,
+        item: written.payload.item,
+        items: written.payload.items,
+        content: null,
+        job: written.payload.job,
+        fileRefs: dedupedFileRefs,
+        artifactIds: [],
+        queuedArtifacts: queued.queuedArtifacts
+      },
+      artifacts: queued.artifacts,
+      isError: queued.isError
     };
   }
 
@@ -625,9 +750,26 @@ export class RuntimeFilesToolService {
     const row = value as Record<string, unknown>;
     const action = this.readRequestedAction(row);
     if (action === null) {
-      return new Error("files.action must be one of search, get, read, write, edit, or send.");
+      return new Error(
+        "files.action must be one of list, search, get, read, write, write_and_send, edit, or send."
+      );
     }
     switch (action) {
+      case "list": {
+        const limit =
+          typeof row.limit === "number" &&
+          Number.isInteger(row.limit) &&
+          row.limit > 0 &&
+          row.limit <= MAX_FILES_LIST_LIMIT
+            ? row.limit
+            : DEFAULT_FILES_LIST_LIMIT;
+        return {
+          action,
+          path: this.readNonEmptyString(row.path),
+          recursive: row.recursive === true,
+          limit
+        };
+      }
       case "search": {
         const query = this.readNonEmptyString(row.query);
         if (query === null) {
@@ -663,6 +805,20 @@ export class RuntimeFilesToolService {
           return new Error("files.write requires a non-empty path and string content.");
         }
         return { action, path, content };
+      }
+      case "write_and_send": {
+        const path = this.readNonEmptyString(row.path);
+        const content = this.readString(row.content);
+        if (path === null || content === null) {
+          return new Error("files.write_and_send requires a non-empty path and string content.");
+        }
+        return {
+          action,
+          path,
+          content,
+          caption: this.readNonEmptyString(row.caption),
+          filename: this.readNonEmptyString(row.filename)
+        };
       }
       case "edit": {
         const oldText = this.readString(row.oldText);
@@ -794,6 +950,58 @@ export class RuntimeFilesToolService {
       reason: "file_selector_required",
       warning: "Provide fileRef, path, or query for this files action."
     };
+  }
+
+  private renderDirectoryListing(input: {
+    path: string | null;
+    recursive: boolean;
+    directories: string[];
+    items: RuntimeFilesToolItem[];
+    totalFiles: number;
+    truncated: boolean;
+  }): string {
+    const label = input.path === null ? "." : input.path;
+    const lines: string[] = [];
+    if (input.recursive) {
+      lines.push(`Recursive file list for "${label}"`);
+      if (input.totalFiles === 0) {
+        lines.push("(no files)");
+        return lines.join("\n");
+      }
+      if (input.truncated) {
+        lines.push(
+          `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
+        );
+      }
+      for (const item of input.items) {
+        lines.push(`- ${item.relativePath}`);
+      }
+      return lines.join("\n");
+    }
+
+    lines.push(`Directory listing for "${label}"`);
+    if (input.directories.length === 0 && input.items.length === 0) {
+      lines.push("(empty)");
+      return lines.join("\n");
+    }
+    if (input.directories.length > 0) {
+      lines.push("Directories:");
+      for (const directory of input.directories) {
+        lines.push(`- ${directory}/`);
+      }
+    }
+    if (input.items.length > 0) {
+      lines.push("Files:");
+      for (const item of input.items) {
+        lines.push(`- ${item.relativePath}`);
+      }
+      if (input.truncated) {
+        lines.push(
+          `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
+        );
+      }
+    }
+    return lines.join("\n");
   }
 
   private async executeSandboxJob(input: {
@@ -955,10 +1163,12 @@ export class RuntimeFilesToolService {
       return null;
     }
     const action = (value as Record<string, unknown>).action;
-    return action === "search" ||
+    return action === "list" ||
+      action === "search" ||
       action === "get" ||
       action === "read" ||
       action === "write" ||
+      action === "write_and_send" ||
       action === "edit" ||
       action === "send"
       ? action

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -127,7 +128,8 @@ export class MediaAttachmentController {
   async downloadAttachment(
     @Req() req: RequestWithPlatformContext,
     @Res() res: ResponseWithPlatformContext,
-    @Param("attachmentId") attachmentId: string
+    @Param("attachmentId") attachmentId: string,
+    @Query("download") download?: string
   ): Promise<void> {
     const userId = this.resolveRequestUserId(req);
 
@@ -142,10 +144,16 @@ export class MediaAttachmentController {
     if (result.filename) {
       res.setHeader(
         "Content-Disposition",
-        `inline; filename="${encodeURIComponent(result.filename)}"`
+        this.buildContentDisposition(result.filename, download === "1" ? "attachment" : "inline")
       );
     }
     res.end(result.buffer);
+  }
+
+  private buildContentDisposition(filename: string, mode: "attachment" | "inline"): string {
+    const sanitizedFilename = filename.replace(/["\r\n]/g, "_");
+    const encodedFilename = encodeURIComponent(filename);
+    return `${mode}; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

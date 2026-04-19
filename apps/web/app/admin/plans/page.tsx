@@ -309,11 +309,11 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "retrievalFetchMaxChars", label: "Fetch max chars", min: 1 },
   { field: "retrievalHelperCandidateLimit", label: "Helper candidates", min: 1 },
   { field: "retrievalHelperMaxOutputTokens", label: "Helper max output tokens", min: 1 },
-  { field: "sandboxMaxSingleFileMb", label: "Max single file (MB)", min: 1 },
-  { field: "sandboxMaxWorkspaceMb", label: "Workspace budget (MB)", min: 1 },
-  { field: "sandboxMaxArtifactsPerJob", label: "Artifacts per job", min: 1 },
-  { field: "sandboxMaxFilesPerJob", label: "Files per job", min: 1 },
-  { field: "sandboxMaxDirsPerJob", label: "Directories per job", min: 1 },
+  { field: "sandboxMaxSingleFileMb", label: "Single changed file cap (MB)", min: 1 },
+  { field: "sandboxMaxWorkspaceMb", label: "Workspace growth per job (MB)", min: 1 },
+  { field: "sandboxMaxArtifactsPerJob", label: "Persisted changed files per job", min: 1 },
+  { field: "sandboxMaxFilesPerJob", label: "New files per job", min: 1 },
+  { field: "sandboxMaxDirsPerJob", label: "New directories per job", min: 1 },
   { field: "sandboxMaxProcessRuntimeMs", label: "Process timeout (ms)", min: 1 },
   { field: "sandboxMaxCpuMs", label: "CPU budget (ms)", min: 1 },
   { field: "sandboxMaxMemoryMb", label: "Memory cap (MB)", min: 1 },
@@ -321,9 +321,9 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "sandboxMaxStdoutKb", label: "Stdout cap (KB)", min: 1 },
   { field: "sandboxMaxStderrKb", label: "Stderr cap (KB)", min: 1 },
   { field: "sandboxJobsPerDay", label: "Jobs per day", min: 1, allowBlank: true },
-  { field: "sandboxWebOutboundMb", label: "Web outbound (MB)", min: 1 },
-  { field: "sandboxTelegramOutboundMb", label: "Telegram outbound (MB)", min: 1 },
-  { field: "sandboxMaxArtifactSendCountPerTurn", label: "Max sends per turn", min: 1 },
+  { field: "sandboxWebOutboundMb", label: "Web delivery bytes per turn (MB)", min: 1 },
+  { field: "sandboxTelegramOutboundMb", label: "Telegram delivery bytes per turn (MB)", min: 1 },
+  { field: "sandboxMaxArtifactSendCountPerTurn", label: "Delivered files per turn", min: 1 },
   { field: "targetContextBudget", label: "Target context budget", min: 1 },
   { field: "compactionTriggerThreshold", label: "Compaction trigger", min: 1 },
   { field: "keepRecentMinimum", label: "Keep recent turns", min: 1 },
@@ -422,7 +422,7 @@ function emptyDraft(): PlanDraft {
     sandboxEnabled: false,
     sandboxMaxSingleFileMb: "10",
     sandboxMaxWorkspaceMb: "25",
-    sandboxMaxArtifactsPerJob: "8",
+    sandboxMaxArtifactsPerJob: "64",
     sandboxMaxFilesPerJob: "256",
     sandboxMaxDirsPerJob: "128",
     sandboxMaxProcessRuntimeMs: "15000",
@@ -645,24 +645,24 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       enabled: draft.sandboxEnabled,
       maxSingleFileWriteBytes:
         parseStrictIntegerDraft(draft.sandboxMaxSingleFileMb, {
-          label: "Max single file (MB)",
+          label: "Single changed file cap (MB)",
           min: 1
         })! * 1048576,
       maxWorkspaceBytesPerJob:
         parseStrictIntegerDraft(draft.sandboxMaxWorkspaceMb, {
-          label: "Workspace budget (MB)",
+          label: "Workspace growth per job (MB)",
           min: 1
         })! * 1048576,
       maxPersistedArtifactsPerJob: parseStrictIntegerDraft(draft.sandboxMaxArtifactsPerJob, {
-        label: "Artifacts per job",
+        label: "Persisted changed files per job",
         min: 1
       })!,
       maxFileCountPerJob: parseStrictIntegerDraft(draft.sandboxMaxFilesPerJob, {
-        label: "Files per job",
+        label: "New files per job",
         min: 1
       })!,
       maxDirectoryCountPerJob: parseStrictIntegerDraft(draft.sandboxMaxDirsPerJob, {
-        label: "Directories per job",
+        label: "New directories per job",
         min: 1
       })!,
       maxProcessRuntimeMs: parseStrictIntegerDraft(draft.sandboxMaxProcessRuntimeMs, {
@@ -696,12 +696,12 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       artifactMimeAllowlist: parseMimeAllowlistDraft(draft.sandboxArtifactMimeAllowlist),
       webMaxOutboundBytes:
         parseStrictIntegerDraft(draft.sandboxWebOutboundMb, {
-          label: "Web outbound (MB)",
+          label: "Web delivery bytes per turn (MB)",
           min: 1
         })! * 1048576,
       telegramMaxOutboundBytes:
         parseStrictIntegerDraft(draft.sandboxTelegramOutboundMb, {
-          label: "Telegram outbound (MB)",
+          label: "Telegram delivery bytes per turn (MB)",
           min: 1
         })! * 1048576,
       sandboxJobsPerDay:
@@ -713,7 +713,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       maxArtifactSendCountPerTurn: parseStrictIntegerDraft(
         draft.sandboxMaxArtifactSendCountPerTurn,
         {
-          label: "Max sends per turn",
+          label: "Delivered files per turn",
           min: 1
         }
       )!
@@ -1570,31 +1570,36 @@ function PlanForm({
                   {[
                     {
                       key: "sandboxMaxSingleFileMb" as const,
-                      label: "Max single file (MB)",
+                      label: "Single changed file cap (MB)",
+                      hint: "Applies to every file the job writes or updates before it is persisted.",
                       value: draft.sandboxMaxSingleFileMb,
                       patch: (value: string) => onPatch({ sandboxMaxSingleFileMb: value })
                     },
                     {
                       key: "sandboxMaxWorkspaceMb" as const,
-                      label: "Workspace budget (MB)",
+                      label: "Workspace growth per job (MB)",
+                      hint: "Limits net added bytes for this job, not the total durable workspace size.",
                       value: draft.sandboxMaxWorkspaceMb,
                       patch: (value: string) => onPatch({ sandboxMaxWorkspaceMb: value })
                     },
                     {
                       key: "sandboxMaxArtifactsPerJob" as const,
-                      label: "Artifacts per job",
+                      label: "Persisted changed files per job",
+                      hint: "Counts files that end the job as new or modified and need to be persisted.",
                       value: draft.sandboxMaxArtifactsPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxArtifactsPerJob: value })
                     },
                     {
                       key: "sandboxMaxFilesPerJob" as const,
-                      label: "Files per job",
+                      label: "New files per job",
+                      hint: "Caps how many new filesystem entries the job may add.",
                       value: draft.sandboxMaxFilesPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxFilesPerJob: value })
                     },
                     {
                       key: "sandboxMaxDirsPerJob" as const,
-                      label: "Directories per job",
+                      label: "New directories per job",
+                      hint: "Caps newly created directories; existing durable folders do not count again.",
                       value: draft.sandboxMaxDirsPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxDirsPerJob: value })
                     }
@@ -1611,6 +1616,7 @@ function PlanForm({
                         onValue={field.patch}
                         invalid={Boolean(validationErrors[field.key])}
                       />
+                      <HelpText>{field.hint}</HelpText>
                       <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}
@@ -1623,42 +1629,49 @@ function PlanForm({
                     {
                       key: "sandboxMaxProcessRuntimeMs" as const,
                       label: "Process timeout (ms)",
+                      hint: "Hard wall-clock timeout for a single sandbox job.",
                       value: draft.sandboxMaxProcessRuntimeMs,
                       patch: (value: string) => onPatch({ sandboxMaxProcessRuntimeMs: value })
                     },
                     {
                       key: "sandboxMaxCpuMs" as const,
                       label: "CPU budget (ms)",
+                      hint: "Approximate total CPU time across spawned processes in one job.",
                       value: draft.sandboxMaxCpuMs,
                       patch: (value: string) => onPatch({ sandboxMaxCpuMs: value })
                     },
                     {
                       key: "sandboxMaxMemoryMb" as const,
                       label: "Memory cap (MB)",
+                      hint: "Peak combined memory across the process tree.",
                       value: draft.sandboxMaxMemoryMb,
                       patch: (value: string) => onPatch({ sandboxMaxMemoryMb: value })
                     },
                     {
                       key: "sandboxMaxConcurrentProcesses" as const,
                       label: "Concurrent processes",
+                      hint: "Stops shell or exec jobs from spawning too many processes at once.",
                       value: draft.sandboxMaxConcurrentProcesses,
                       patch: (value: string) => onPatch({ sandboxMaxConcurrentProcesses: value })
                     },
                     {
                       key: "sandboxMaxStdoutKb" as const,
                       label: "Stdout cap (KB)",
+                      hint: "Prevents huge stdout dumps from clogging the runtime.",
                       value: draft.sandboxMaxStdoutKb,
                       patch: (value: string) => onPatch({ sandboxMaxStdoutKb: value })
                     },
                     {
                       key: "sandboxMaxStderrKb" as const,
                       label: "Stderr cap (KB)",
+                      hint: "Prevents runaway stderr spam from the process tree.",
                       value: draft.sandboxMaxStderrKb,
                       patch: (value: string) => onPatch({ sandboxMaxStderrKb: value })
                     },
                     {
                       key: "sandboxJobsPerDay" as const,
                       label: "Jobs per day",
+                      hint: "Plan quota. Leave blank to remove the daily sandbox-job cap.",
                       value: draft.sandboxJobsPerDay,
                       patch: (value: string) => onPatch({ sandboxJobsPerDay: value })
                     }
@@ -1675,6 +1688,7 @@ function PlanForm({
                         onValue={field.patch}
                         invalid={Boolean(validationErrors[field.key])}
                       />
+                      <HelpText>{field.hint}</HelpText>
                       <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}
@@ -1689,19 +1703,22 @@ function PlanForm({
                   {[
                     {
                       key: "sandboxWebOutboundMb" as const,
-                      label: "Web outbound (MB)",
+                      label: "Web delivery bytes per turn (MB)",
+                      hint: "Total bytes the turn may deliver through `files.send` on web-like channels.",
                       value: draft.sandboxWebOutboundMb,
                       patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
                     },
                     {
                       key: "sandboxTelegramOutboundMb" as const,
-                      label: "Telegram outbound (MB)",
+                      label: "Telegram delivery bytes per turn (MB)",
+                      hint: "Telegram has its own outbound delivery ceiling for `files.send`.",
                       value: draft.sandboxTelegramOutboundMb,
                       patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
                     },
                     {
                       key: "sandboxMaxArtifactSendCountPerTurn" as const,
-                      label: "Max sends per turn",
+                      label: "Delivered files per turn",
+                      hint: "Caps how many files a single turn may deliver to the user.",
                       value: draft.sandboxMaxArtifactSendCountPerTurn,
                       patch: (value: string) =>
                         onPatch({ sandboxMaxArtifactSendCountPerTurn: value })
@@ -1719,6 +1736,7 @@ function PlanForm({
                         onValue={field.patch}
                         invalid={Boolean(validationErrors[field.key])}
                       />
+                      <HelpText>{field.hint}</HelpText>
                       <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}

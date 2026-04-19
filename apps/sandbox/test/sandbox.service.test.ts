@@ -800,6 +800,7 @@ async function run(): Promise<void> {
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(leaseHarness.jobs.get("job-lease-b")?.status, "queued");
+    await parallelOtherWorkspacePromise;
     assert.equal(leaseHarness.jobs.get("job-lease-other")?.status, "completed");
     assert.equal(
       leaseHarness.workspaceLeases.get("assistant-lease:workspace-lease")?.sandboxJobId,
@@ -1062,6 +1063,10 @@ async function run(): Promise<void> {
     assert.equal(
       await fs.readFile(join(resetWorkspaceRoot, "docs", "reset.txt"), "utf8"),
       "persisted"
+    );
+    assert.match(
+      resetHarness.assistantFiles.find((file) => file.id === "assistant-file-reset")?.sha256 ?? "",
+      /^[0-9a-f]{64}$/i
     );
   } finally {
     await fs.rm(join(durableWorkspaceRoot, ".."), { recursive: true, force: true });

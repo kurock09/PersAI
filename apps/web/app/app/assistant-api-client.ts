@@ -2305,8 +2305,18 @@ export type ForceReapplyAllSummary = {
   skipped: number;
 };
 
-export function getAttachmentDownloadUrl(attachmentId: string): string {
-  return `/api/attachment/${encodeURIComponent(attachmentId)}`;
+export function getAttachmentDownloadUrl(
+  attachmentId: string,
+  options?: { download?: boolean }
+): string {
+  const url = new URL(
+    `/api/attachment/${encodeURIComponent(attachmentId)}`,
+    "https://persai.local"
+  );
+  if (options?.download === true) {
+    url.searchParams.set("download", "1");
+  }
+  return `${url.pathname}${url.search}`;
 }
 
 export type UploadedAttachment = {

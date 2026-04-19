@@ -125,23 +125,59 @@ function createArtifact(overrides?: Partial<RuntimeOutputArtifact>): RuntimeOutp
 }
 
 async function run(): Promise<void> {
-  const canonicalRow = {
-    id: "file-ref-1",
-    assistantId: "assistant-1",
-    workspaceId: "workspace-1",
-    sandboxJobId: null,
-    origin: "uploaded_attachment" as const,
-    sourceToolCode: "files",
-    objectKey: "assistant-media/uploads/file-ref-1/report.txt",
-    relativePath: "reports/report.txt",
-    displayName: "report.txt",
-    mimeType: "text/plain",
-    sizeBytes: BigInt(64),
-    logicalSizeBytes: BigInt(64),
-    sha256: null,
-    metadata: null,
-    createdAt: new Date("2026-04-19T12:00:00.000Z")
-  };
+  const canonicalRows = [
+    {
+      id: "file-ref-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "uploaded_attachment" as const,
+      sourceToolCode: "files",
+      objectKey: "assistant-media/uploads/file-ref-1/report.txt",
+      relativePath: "reports/report.txt",
+      displayName: "report.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(64),
+      logicalSizeBytes: BigInt(64),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:00:00.000Z")
+    },
+    {
+      id: "file-ref-root",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "sandbox_output" as const,
+      sourceToolCode: "files",
+      objectKey: "assistant-media/runtime-output/hello_test.txt",
+      relativePath: "hello_test.txt",
+      displayName: "hello_test.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(17),
+      logicalSizeBytes: BigInt(17),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:01:00.000Z")
+    },
+    {
+      id: "file-ref-kb",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "uploaded_attachment" as const,
+      sourceToolCode: null,
+      objectKey: "assistant-media/uploads/kb/KB.txt",
+      relativePath: "uploads/94ec8468-10ce-4761-9065-2498de7130ee/KB.txt",
+      displayName: "KB.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(42),
+      logicalSizeBytes: BigInt(42),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:02:00.000Z")
+    }
+  ];
   const prisma = {
     assistantFile: {
       async findMany(input?: {
@@ -153,9 +189,14 @@ async function run(): Promise<void> {
       }) {
         const ids = input?.where?.id?.in;
         if (ids === undefined) {
-          return [canonicalRow];
+          return canonicalRows;
         }
-        return ids.includes("file-ref-1") ? [canonicalRow] : [];
+        if (ids.some((id) => id.includes("/"))) {
+          throw new Error(
+            "Inconsistent column data: Error creating UUID, invalid character: expected an optional prefix of urn:uuid: followed by [0-9a-fA-F-], found u at 1"
+          );
+        }
+        return canonicalRows.filter((row) => ids.includes(row.id));
       },
       async findFirst(input?: {
         where?: {
@@ -166,27 +207,34 @@ async function run(): Promise<void> {
         };
       }) {
         const where = input?.where;
-        if (
-          where?.id !== undefined &&
-          (where.id !== canonicalRow.id ||
-            where.assistantId !== canonicalRow.assistantId ||
-            where.workspaceId !== canonicalRow.workspaceId)
-        ) {
-          return null;
-        }
-        if (
-          where?.relativePath !== undefined &&
-          (where.relativePath !== canonicalRow.relativePath ||
-            where.assistantId !== canonicalRow.assistantId ||
-            where.workspaceId !== canonicalRow.workspaceId)
-        ) {
-          return null;
-        }
-        return canonicalRow;
+        return (
+          canonicalRows.find((row) => {
+            if (where?.assistantId !== undefined && where.assistantId !== row.assistantId) {
+              return false;
+            }
+            if (where?.workspaceId !== undefined && where.workspaceId !== row.workspaceId) {
+              return false;
+            }
+            if (where?.id !== undefined) {
+              return where.id === row.id;
+            }
+            if (where?.relativePath !== undefined) {
+              return where.relativePath === row.relativePath;
+            }
+            return true;
+          }) ?? null
+        );
       }
     }
   };
-  const registry = new RuntimeAssistantFileRegistryService(prisma as never);
+  const registry = new RuntimeAssistantFileRegistryService(
+    prisma as never,
+    {
+      async downloadObject() {
+        return null;
+      }
+    } as never
+  );
   const sandboxClientService = new FakeSandboxClientService();
   const service = new RuntimeFilesToolService(
     registry,
@@ -217,6 +265,55 @@ async function run(): Promise<void> {
   assert.equal(searchResult.isError, false);
   assert.equal(searchResult.payload.action, "results");
   assert.equal(searchResult.payload.items[0]?.fileRef, "file-ref-1");
+
+  const listRoot = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-list-root",
+      name: "files",
+      arguments: {
+        action: "list"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1a",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(listRoot.isError, false);
+  assert.equal(listRoot.payload.action, "listed");
+  assert.match(listRoot.payload.content ?? "", /Directory listing for "\."/);
+  assert.match(listRoot.payload.content ?? "", /reports\//);
+  assert.match(listRoot.payload.content ?? "", /uploads\//);
+  assert.match(listRoot.payload.content ?? "", /hello_test\.txt/);
+  assert.deepEqual(listRoot.payload.fileRefs, ["file-ref-root"]);
+
+  const listUploadsRecursive = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-list-uploads",
+      name: "files",
+      arguments: {
+        action: "list",
+        path: "uploads",
+        recursive: true
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1b",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(listUploadsRecursive.isError, false);
+  assert.equal(listUploadsRecursive.payload.action, "listed");
+  assert.match(listUploadsRecursive.payload.content ?? "", /Recursive file list for "uploads"/);
+  assert.deepEqual(listUploadsRecursive.payload.fileRefs, ["file-ref-kb"]);
+  assert.equal(
+    listUploadsRecursive.payload.items[0]?.relativePath,
+    "uploads/94ec8468-10ce-4761-9065-2498de7130ee/KB.txt"
+  );
 
   const readResult = await service.executeToolCall({
     bundle: createBundle(),
@@ -296,6 +393,60 @@ async function run(): Promise<void> {
   );
   assert.equal(sendFileRef.artifacts[0]?.filename, "custom-report.txt");
   assert.equal(sendFileRef.artifacts[0]?.caption, "Sandbox output");
+
+  const writeAndSendResult = await service.executeToolCall({
+    bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
+    toolCall: {
+      id: "tool-call-write-and-send",
+      name: "files",
+      arguments: {
+        action: "write_and_send",
+        path: "reports/report.txt",
+        content: "fresh sandbox output",
+        caption: "Delivered in one step",
+        filename: "report-one-step.txt"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4aa",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(writeAndSendResult.isError, false);
+  assert.equal(writeAndSendResult.payload.requestedAction, "write_and_send");
+  assert.equal(writeAndSendResult.payload.action, "written_and_queued");
+  assert.equal(writeAndSendResult.payload.fileRefs[0], "file-ref-1");
+  assert.equal(writeAndSendResult.artifacts.length, 1);
+  assert.equal(writeAndSendResult.artifacts[0]?.filename, "report-one-step.txt");
+  assert.equal(writeAndSendResult.artifacts[0]?.caption, "Delivered in one step");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.action, "write");
+
+  const blockedWriteAndSend = await service.executeToolCall({
+    bundle: createBundle({
+      webMaxOutboundBytes: 10,
+      maxArtifactSendCountPerTurn: 1
+    }),
+    toolCall: {
+      id: "tool-call-write-and-send-blocked",
+      name: "files",
+      arguments: {
+        action: "write_and_send",
+        path: "reports/report.txt",
+        content: "fresh sandbox output"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4ab",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(blockedWriteAndSend.isError, true);
+  assert.equal(blockedWriteAndSend.payload.requestedAction, "write_and_send");
+  assert.equal(blockedWriteAndSend.payload.action, "skipped");
+  assert.equal(blockedWriteAndSend.payload.reason, "channel_size_limit_exceeded");
+  assert.equal(blockedWriteAndSend.artifacts.length, 0);
 
   const sendFileRefWithDefaultCap = await service.executeToolCall({
     bundle: createBundle(),
@@ -383,6 +534,27 @@ async function run(): Promise<void> {
   assert.equal(blockedChannelBytes.payload.action, "skipped");
   assert.equal(blockedChannelBytes.payload.reason, "channel_size_limit_exceeded");
   assert.match(blockedChannelBytes.payload.warning ?? "", /above the channel cap of 100 bytes/);
+
+  const invalidFileRefSend = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-invalid-file-ref-send",
+      name: "files",
+      arguments: {
+        action: "send",
+        fileRefs: ["uploads/94ec8468-10ce-4761-9065-2498de7130ee/KB.txt"]
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-7",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(invalidFileRefSend.isError, true);
+  assert.equal(invalidFileRefSend.payload.action, "skipped");
+  assert.equal(invalidFileRefSend.payload.reason, "files_failed");
+  assert.match(invalidFileRefSend.payload.warning ?? "", /fileRefs are invalid/i);
 }
 
 void run();

@@ -1414,6 +1414,90 @@ class FakeRuntimeFilesToolService {
       currentFileRefs: [...input.currentFileRefs]
     });
     const action = input.toolCall.arguments.action;
+    if (action === "write_and_send") {
+      return {
+        payload: {
+          toolCode: "files" as const,
+          executionMode: "inline" as const,
+          requestedAction: "write_and_send" as const,
+          action: "written_and_queued" as const,
+          reason: null,
+          warning: null,
+          content: null,
+          item: {
+            fileRef: "file-ref-1",
+            origin: "sandbox_output" as const,
+            sourceToolCode: "files",
+            relativePath: "outputs/report.txt",
+            displayName: "report.txt",
+            mimeType: "text/plain",
+            sizeBytes: 64,
+            logicalSizeBytes: 64
+          },
+          items: [
+            {
+              fileRef: "file-ref-1",
+              origin: "sandbox_output" as const,
+              sourceToolCode: "files",
+              relativePath: "outputs/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64
+            }
+          ],
+          job: {
+            jobId: "sandbox-job-1",
+            status: "completed" as const,
+            toolCode: "files",
+            reason: null,
+            warning: null,
+            violationCode: null,
+            violationMessage: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null,
+            files: [
+              {
+                relativePath: "outputs/report.txt",
+                displayName: "report.txt",
+                mimeType: "text/plain",
+                sizeBytes: 64,
+                logicalSizeBytes: 64,
+                fileRef: {
+                  fileRef: "file-ref-1",
+                  origin: "sandbox_output" as const,
+                  sourceToolCode: "files",
+                  objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+                  relativePath: "outputs/report.txt",
+                  displayName: "report.txt",
+                  mimeType: "text/plain",
+                  sizeBytes: 64,
+                  logicalSizeBytes: 64
+                }
+              }
+            ]
+          },
+          fileRefs: ["file-ref-1"],
+          artifactIds: [],
+          queuedArtifacts: 1
+        },
+        artifacts: [
+          {
+            artifactId: "artifact-sent-1",
+            kind: "file" as const,
+            objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+            mimeType: "text/plain",
+            filename: "report.txt",
+            sizeBytes: 64,
+            voiceNote: false,
+            caption: "Here is your file"
+          }
+        ],
+        isError: false
+      };
+    }
     if (action === "send") {
       return {
         payload: {
@@ -2651,6 +2735,87 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(sendMediaToolHistory.queuedArtifacts, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
+
+  const atomicSandboxDeliveryRequest = createRuntimeTurnRequest();
+  atomicSandboxDeliveryRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.950Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-write-and-send-1",
+          name: "files",
+          arguments: {
+            action: "write_and_send",
+            path: "outputs/report.txt",
+            content: "sandbox output",
+            caption: "Here is your file"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after atomic sandbox delivery",
+      respondedAt: "2026-04-11T12:00:04.000Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const atomicSandboxDeliveryCompleted = await service.createTurn(atomicSandboxDeliveryRequest);
+  assert.equal(atomicSandboxDeliveryCompleted.assistantText, "reply after atomic sandbox delivery");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.name, "files");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write_and_send");
+  assert.deepEqual(runtimeFilesToolService.calls.at(-1)?.currentArtifacts, []);
+  assert.equal(atomicSandboxDeliveryCompleted.artifacts.length, 1);
+  assert.equal(atomicSandboxDeliveryCompleted.artifacts[0]?.artifactId, "artifact-sent-1");
+  const atomicWriteAndSendToolHistory = JSON.parse(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
+  ) as {
+    action?: string;
+    fileRefs?: string[];
+    queuedArtifacts?: number;
+    requestedAction?: string;
+  };
+  assert.equal(atomicWriteAndSendToolHistory.action, "written_and_queued");
+  assert.equal(atomicWriteAndSendToolHistory.requestedAction, "write_and_send");
+  assert.equal(atomicWriteAndSendToolHistory.fileRefs?.[0], "file-ref-1");
+  assert.equal(atomicWriteAndSendToolHistory.queuedArtifacts, 1);
+
+  const undeliveredClaimRequest = createRuntimeTurnRequest();
+  undeliveredClaimRequest.bundle.bundleHash = request.bundle.bundleHash;
+  undeliveredClaimRequest.message.locale = "ru";
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "Файл отправлен.",
+      respondedAt: "2026-04-11T12:00:04.050Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const undeliveredClaimCompleted = await service.createTurn(undeliveredClaimRequest);
+  assert.match(undeliveredClaimCompleted.assistantText, /Файл отправлен\./);
+  assert.match(
+    undeliveredClaimCompleted.assistantText,
+    /Поправка: файл не был реально доставлен в этот чат в рамках этого ответа\./
+  );
+  assert.equal(undeliveredClaimCompleted.artifacts.length, 0);
 
   const sandboxWorkspaceContinuityRequest = createRuntimeTurnRequest();
   sandboxWorkspaceContinuityRequest.bundle.bundleHash = request.bundle.bundleHash;

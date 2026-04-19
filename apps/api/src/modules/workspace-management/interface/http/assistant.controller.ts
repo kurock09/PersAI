@@ -69,6 +69,8 @@ import {
 } from "../../application/manage-assistant-workspace-memory.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
+const WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
+
 @Controller("api/v1")
 export class AssistantController {
   constructor(
@@ -922,55 +924,71 @@ export class AssistantController {
         flushable.flush();
       }
     };
-
-    if (preparation.mode === "replayed") {
-      sendSse("completed", { transport: preparation.transport });
-      res.end();
-      return;
-    }
-
-    const prepared = preparation.prepared;
-    sendSse("started", {
-      requestId: req.requestId ?? null,
-      chat: prepared.chat,
-      userMessage: prepared.userMessage
-    });
-
-    const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
-      isClientAborted: () => clientClosed,
-      clientAbortSignal: clientAbortController.signal,
-      onDelta: (delta) => {
-        sendSse("delta", { delta });
-      },
-      onThinking: (delta, accumulated) => {
-        sendSse("thinking", { delta, accumulated });
-      },
-      onTool: ({ phase, toolName, toolCallId, isError }) => {
-        sendSse("tool", { phase, toolName, toolCallId, isError });
-      },
-      onDone: (respondedAt) => {
-        sendSse("runtime_done", { respondedAt });
+    const sendHeartbeat = (): void => {
+      if (clientClosed) {
+        return;
       }
-    });
+      // SSE comments are ignored by the browser client but keep the stream warm through proxies.
+      res.write(": keepalive\n\n");
+      const flushable = res as unknown as { flush?: () => void };
+      if (typeof flushable.flush === "function") {
+        flushable.flush();
+      }
+    };
+    const heartbeat = setInterval(sendHeartbeat, WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS);
 
-    if (outcome.status === "completed") {
-      sendSse("completed", { transport: outcome.transport });
+    try {
+      if (preparation.mode === "replayed") {
+        sendSse("completed", { transport: preparation.transport });
+        res.end();
+        return;
+      }
+
+      const prepared = preparation.prepared;
+      sendSse("started", {
+        requestId: req.requestId ?? null,
+        chat: prepared.chat,
+        userMessage: prepared.userMessage
+      });
+
+      const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
+        isClientAborted: () => clientClosed,
+        clientAbortSignal: clientAbortController.signal,
+        onDelta: (delta) => {
+          sendSse("delta", { delta });
+        },
+        onThinking: (delta, accumulated) => {
+          sendSse("thinking", { delta, accumulated });
+        },
+        onTool: ({ phase, toolName, toolCallId, isError }) => {
+          sendSse("tool", { phase, toolName, toolCallId, isError });
+        },
+        onDone: (respondedAt) => {
+          sendSse("runtime_done", { respondedAt });
+        }
+      });
+
+      if (outcome.status === "completed") {
+        sendSse("completed", { transport: outcome.transport });
+        res.end();
+        return;
+      }
+
+      if (outcome.status === "interrupted") {
+        sendSse("interrupted", { transport: outcome.transport });
+        res.end();
+        return;
+      }
+
+      sendSse("failed", {
+        code: outcome.code,
+        message: outcome.message,
+        transport: outcome.transport
+      });
       res.end();
-      return;
+    } finally {
+      clearInterval(heartbeat);
     }
-
-    if (outcome.status === "interrupted") {
-      sendSse("interrupted", { transport: outcome.transport });
-      res.end();
-      return;
-    }
-
-    sendSse("failed", {
-      code: outcome.code,
-      message: outcome.message,
-      transport: outcome.transport
-    });
-    res.end();
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

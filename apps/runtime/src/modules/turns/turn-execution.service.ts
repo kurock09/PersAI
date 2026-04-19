@@ -183,6 +183,14 @@ const TTS_TOOL_CODE = "tts";
 const FILES_TOOL_CODE = "files";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
+const DELIVERY_CLAIM_PATTERNS = [
+  /\b(i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:already\s+|just\s+)?(?:sent|attached|uploaded)\b/i,
+  /\b(?:file|document|attachment)\s+(?:is|was|has been)\s+(?:sent|attached|uploaded)\b/i,
+  /\bhere(?:'s| is)\s+(?:your\s+|the\s+)?(?:file|document|attachment)\b/i,
+  /\b(?:отправил|отправила|прикрепил|прикрепила|скинул|скинула|вложил|вложила)\b/i,
+  /(?:файл|документ|вложение)\s+(?:отправлен|прикреплен|прикреплён|скинут|вложен)/i,
+  /(?:вот|держи)\s+(?:файл|документ|вложение)/i
+] as const;
 
 @Injectable()
 export class TurnExecutionService {
@@ -545,14 +553,35 @@ export class TurnExecutionService {
                 event.result.text
               )
             );
+            const correctedAssistantText = this.applyUndeliveredAttachmentCorrection(
+              completedProviderResult.text ?? "",
+              turnState.artifacts,
+              input.message.locale
+            );
+            if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
+              const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
+                acceptedTurn,
+                previousDeliveredText: deliveredText,
+                nextVisibleText: correctedAssistantText,
+                source: "provider_tool_calls_result_text"
+              });
+              if (correctionDeltaEvent !== null) {
+                deliveredText = correctionDeltaEvent.accumulatedText;
+                yield correctionDeltaEvent;
+              }
+            }
+            const correctedProviderResult = this.withAssistantText(
+              completedProviderResult,
+              correctedAssistantText
+            );
             this.recordUsageEntry(turnState, {
               stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
               modelRole: execution.selectedModelRole,
-              usage: completedProviderResult.usage
+              usage: correctedProviderResult.usage
             });
             const result = this.buildTurnResult(
               acceptedTurn,
-              completedProviderResult,
+              correctedProviderResult,
               turnState,
               execution.routeDecision
             );
@@ -1105,7 +1134,14 @@ export class TurnExecutionService {
       });
       accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
       if (providerResult.stopReason === "completed") {
-        return this.withAssistantText(providerResult, accumulatedText);
+        return this.withAssistantText(
+          providerResult,
+          this.applyUndeliveredAttachmentCorrection(
+            accumulatedText,
+            turnState.artifacts,
+            input.message.locale
+          )
+        );
       }
       if (providerResult.toolCalls.length === 0) {
         throw new TurnExecutionError(
@@ -1741,6 +1777,35 @@ export class TurnExecutionService {
       ...providerResult,
       text: this.normalizeOptionalText(assistantText)
     };
+  }
+
+  private applyUndeliveredAttachmentCorrection(
+    assistantText: string,
+    artifacts: RuntimeOutputArtifact[],
+    locale: string | null
+  ): string {
+    const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
+    if (normalizedText.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    if (!this.claimsAttachmentDelivery(normalizedText)) {
+      return normalizedText;
+    }
+    const correction = this.buildUndeliveredAttachmentCorrection(locale);
+    return normalizedText.includes(correction)
+      ? normalizedText
+      : `${normalizedText}\n\n${correction}`;
+  }
+
+  private claimsAttachmentDelivery(assistantText: string): boolean {
+    return DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(assistantText));
+  }
+
+  private buildUndeliveredAttachmentCorrection(locale: string | null): string {
+    if (locale?.toLowerCase().startsWith("ru")) {
+      return "Поправка: файл не был реально доставлен в этот чат в рамках этого ответа.";
+    }
+    return "Correction: no file was actually delivered in this reply.";
   }
 
   private resolveCompletedStreamAssistantText(

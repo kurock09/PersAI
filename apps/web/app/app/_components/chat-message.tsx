@@ -398,16 +398,19 @@ function AttachmentStrip({
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
-        const downloadUrl = att.id.startsWith("local-")
+        const inlineUrl = att.id.startsWith("local-")
           ? undefined
           : getAttachmentDownloadUrl(att.id);
-        const previewUrl = att.localPreviewUrl ?? downloadUrl;
+        const downloadUrl = att.id.startsWith("local-")
+          ? undefined
+          : getAttachmentDownloadUrl(att.id, { download: true });
+        const previewUrl = att.localPreviewUrl ?? inlineUrl;
 
         if (att.attachmentType === "image") {
           return (
             <div key={att.id} className="relative">
               {previewUrl ? (
-                <a href={downloadUrl ?? "#"} target="_blank" rel="noopener noreferrer">
+                <a href={inlineUrl ?? "#"} target="_blank" rel="noopener noreferrer">
                   <img
                     src={previewUrl}
                     alt={att.originalFilename ?? "image"}
@@ -439,7 +442,7 @@ function AttachmentStrip({
         }
 
         if (att.attachmentType === "audio" || att.attachmentType === "voice") {
-          const audioSrc = previewUrl ?? downloadUrl;
+          const audioSrc = previewUrl ?? inlineUrl;
           return (
             <div
               key={att.id}
@@ -463,12 +466,12 @@ function AttachmentStrip({
         if (att.attachmentType === "video") {
           return (
             <div key={att.id} className="w-full max-w-sm">
-              {downloadUrl && !isPending ? (
+              {inlineUrl && !isPending ? (
                 <video
                   controls
                   preload="metadata"
                   className="max-h-56 w-full rounded-lg border border-border"
-                  src={downloadUrl}
+                  src={inlineUrl}
                 >
                   <track kind="captions" />
                 </video>
@@ -486,8 +489,7 @@ function AttachmentStrip({
           <a
             key={att.id}
             href={downloadUrl ?? "#"}
-            target="_blank"
-            rel="noopener noreferrer"
+            download={att.originalFilename ?? undefined}
             className={cn(
               "flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs transition-colors",
               downloadUrl ? "hover:border-border-strong hover:bg-surface-hover" : "opacity-50"
