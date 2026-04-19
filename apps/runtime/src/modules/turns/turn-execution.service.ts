@@ -33,6 +33,7 @@ import {
   type RuntimeBrowserToolResult,
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
+  type RuntimeFileRef,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
@@ -118,6 +119,7 @@ type TurnExecutionState = {
     durableStatePersisted: boolean;
   };
   artifacts: RuntimeOutputArtifact[];
+  fileRefs: RuntimeFileRef[];
   usageEntries: RuntimeUsageAccountingEntry[];
 };
 
@@ -503,7 +505,8 @@ export class TurnExecutionService {
                   input,
                   toolCall,
                   input.idempotencyKey,
-                  turnState.artifacts
+                  turnState.artifacts,
+                  turnState.fileRefs
                 );
               } catch (error) {
                 yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -1125,7 +1128,8 @@ export class TurnExecutionService {
           input,
           toolCall,
           input.idempotencyKey,
-          turnState.artifacts
+          turnState.artifacts,
+          turnState.fileRefs
         );
         exchanges.push(outcome.exchange);
         this.applyToolExecutionOutcome(turnState, outcome);
@@ -1152,7 +1156,8 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     toolCall: ProviderGatewayToolCall,
     currentUserMessageId: string | null,
-    currentArtifacts: RuntimeOutputArtifact[]
+    currentArtifacts: RuntimeOutputArtifact[],
+    currentFileRefs: RuntimeFileRef[]
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -1254,7 +1259,8 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          currentFileRefs
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -1845,6 +1851,7 @@ export class TurnExecutionService {
         durableStatePersisted: false
       },
       artifacts: [],
+      fileRefs: [],
       usageEntries: []
     };
   }
@@ -1874,6 +1881,19 @@ export class TurnExecutionService {
         }
       }
     }
+    const producedFileRefs = this.extractProducedFileRefs(outcome.payload);
+    if (producedFileRefs.length > 0) {
+      for (const fileRef of producedFileRefs) {
+        const existingIndex = turnState.fileRefs.findIndex(
+          (existingFileRef) => existingFileRef.fileRef === fileRef.fileRef
+        );
+        if (existingIndex >= 0) {
+          turnState.fileRefs[existingIndex] = fileRef;
+        } else {
+          turnState.fileRefs.push(fileRef);
+        }
+      }
+    }
     const toolUsage = this.extractToolUsageSnapshot(outcome.payload);
     if (toolUsage !== null) {
       this.recordUsageEntry(turnState, {
@@ -1890,6 +1910,24 @@ export class TurnExecutionService {
     turnState.sharedCompaction.durableStatePersisted =
       turnState.sharedCompaction.durableStatePersisted ||
       outcome.sharedCompaction.durableStatePersisted;
+  }
+
+  private extractProducedFileRefs(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeFileRef[] {
+    if (!this.isSandboxToolPayload(payload) || payload.job === null || payload.job.files.length === 0) {
+      return [];
+    }
+    return payload.job.files.map((file) => file.fileRef);
+  }
+
+  private isSandboxToolPayload(payload: ToolExecutionOutcome["payload"]): payload is RuntimeSandboxToolResult {
+    return (
+      payload !== null &&
+      typeof payload === "object" &&
+      "executionMode" in payload &&
+      payload.executionMode === "sandbox"
+    );
   }
 
   private async refreshProviderRequestMessages(

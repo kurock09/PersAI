@@ -759,7 +759,7 @@ function createReadFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     name: "read_file",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read a sandbox-managed file by relative path or canonical file reference."
+      "Read a sandbox-managed file by relative path or canonical file reference. Files created earlier in the same turn remain available at their original relative paths."
     ),
     inputSchema: {
       type: "object",
@@ -783,7 +783,7 @@ function createWriteFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     name: "write_file",
     description: resolveToolDefinitionDescription(
       policy,
-      "Create or overwrite one sandbox-managed file."
+      "Create or overwrite one sandbox-managed file. Later sandbox tools in the same turn can read or execute against the created file by its relative path."
     ),
     inputSchema: {
       type: "object",
@@ -808,7 +808,7 @@ function createEditFileToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     name: "edit_file",
     description: resolveToolDefinitionDescription(
       policy,
-      "Apply a focused text replacement in one sandbox-managed file."
+      "Apply a focused text replacement in one sandbox-managed file. Edited files remain mounted for later sandbox tools in the same turn."
     ),
     inputSchema: {
       type: "object",
@@ -837,7 +837,7 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
     name: "exec",
     description: resolveToolDefinitionDescription(
       policy,
-      "Run one executable with explicit arguments inside the sandbox workspace."
+      "Run one executable with explicit arguments inside the sandbox workspace. Files created earlier in the same turn stay mounted at their relative paths."
     ),
     inputSchema: {
       type: "object",
@@ -867,7 +867,7 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "shell",
     description: resolveToolDefinitionDescription(
       policy,
-      "Run a bounded shell command inside the sandbox workspace."
+      "Run a bounded shell command inside the sandbox workspace. Files created earlier in the same turn stay mounted at their relative paths."
     ),
     inputSchema: {
       type: "object",
@@ -894,7 +894,7 @@ function createSendMediaToUserToolDefinition(
     name: "send_media_to_user",
     description: resolveToolDefinitionDescription(
       policy,
-      "Queue existing file references or current-turn artifacts for delivery to the user."
+      "Queue existing file references or current-turn artifacts for delivery to the user. Prefer canonical fileRefs from earlier tool results or attachment summaries when resending an existing file."
     ),
     inputSchema: {
       type: "object",

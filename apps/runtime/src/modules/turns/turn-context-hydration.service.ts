@@ -169,6 +169,8 @@ export class TurnContextHydrationService {
 
     for (const message of summarizedSourceMessages) {
       const content = await this.buildHydratedMessageContent({
+        assistantId: input.conversation.assistantId,
+        workspaceId: input.conversation.workspaceId,
         author: message.author,
         baseContent: message.content,
         attachments: message.attachments,
@@ -278,6 +280,8 @@ export class TurnContextHydrationService {
         currentMessageFound = true;
       }
       const content = await this.buildHydratedMessageContent({
+        assistantId: input.conversation.assistantId,
+        workspaceId: input.conversation.workspaceId,
         author: message.author,
         baseContent: isCurrentInboundMessage ? input.message.text : message.content,
         attachments: message.attachments,
@@ -556,6 +560,8 @@ export class TurnContextHydrationService {
     return {
       role: "user",
       content: await this.buildHydratedMessageContent({
+        assistantId: input.conversation.assistantId,
+        workspaceId: input.conversation.workspaceId,
         author: "user",
         baseContent: input.message.text,
         attachments: [],
@@ -566,6 +572,8 @@ export class TurnContextHydrationService {
   }
 
   private async buildHydratedMessageContent(input: {
+    assistantId: string;
+    workspaceId: string;
     author: CanonicalChatMessageRow["author"];
     baseContent: string;
     attachments: CanonicalChatAttachmentRow[];
@@ -575,7 +583,7 @@ export class TurnContextHydrationService {
     const directInputSelection = input.allowDirectAttachmentInput
       ? await this.buildDirectInputSelection(input.attachments, input.fallbackAttachments)
       : this.createEmptyDirectInputSelection();
-    const textContent = this.buildHydratedMessageTextContent({
+    const textContent = await this.buildHydratedMessageTextContent({
       ...input,
       directCanonicalAttachmentIds: directInputSelection.directCanonicalAttachmentIds,
       directImageCount: directInputSelection.directImageCount,
@@ -596,7 +604,9 @@ export class TurnContextHydrationService {
     ];
   }
 
-  private buildHydratedMessageTextContent(input: {
+  private async buildHydratedMessageTextContent(input: {
+    assistantId: string;
+    workspaceId: string;
     author: CanonicalChatMessageRow["author"];
     baseContent: string;
     attachments: CanonicalChatAttachmentRow[];
@@ -605,7 +615,7 @@ export class TurnContextHydrationService {
     directImageCount: number;
     directPdfCount: number;
     showCurrentTurnImageOrdinals: boolean;
-  }): string {
+  }): Promise<string> {
     const totalImageCount =
       input.attachments.length > 0
         ? input.attachments.filter((attachment) => attachment.mimeType.startsWith("image/")).length
@@ -619,12 +629,17 @@ export class TurnContextHydrationService {
           ).length;
     const attachmentLines =
       input.attachments.length > 0
-        ? this.formatCanonicalAttachmentLines(
+        ? await this.formatCanonicalAttachmentLines(
+            input.assistantId,
+            input.workspaceId,
+            input.author,
             input.attachments,
             input.directCanonicalAttachmentIds,
             input.showCurrentTurnImageOrdinals
           )
-        : this.formatRuntimeAttachmentLines(
+        : await this.formatRuntimeAttachmentLines(
+            input.assistantId,
+            input.workspaceId,
             input.fallbackAttachments,
             input.showCurrentTurnImageOrdinals
           );
@@ -668,37 +683,61 @@ export class TurnContextHydrationService {
     return attachmentSummary;
   }
 
-  private formatCanonicalAttachmentLines(
+  private async formatCanonicalAttachmentLines(
+    assistantId: string,
+    workspaceId: string,
+    author: CanonicalChatMessageRow["author"],
     attachments: CanonicalChatAttachmentRow[],
     directCanonicalAttachmentIds: Set<string>,
     showCurrentTurnImageOrdinals: boolean
-  ): string[] {
+  ): Promise<string[]> {
     let imageOrdinal = 0;
-    return attachments.map((attachment) => {
+    return await Promise.all(
+      attachments.map((attachment) => {
       const imageIndex =
         showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
           ? (imageOrdinal += 1)
           : null;
-      return this.formatCanonicalAttachmentLine(
-        attachment,
-        directCanonicalAttachmentIds.has(attachment.id),
-        imageIndex
-      );
-    });
+        return this.formatCanonicalAttachmentLine({
+          assistantId,
+          workspaceId,
+          origin: author === "user" ? "uploaded_attachment" : "runtime_output",
+          referenceId: attachment.id,
+          objectKey: attachment.storagePath,
+          filename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          attachmentType: attachment.attachmentType,
+          transcription: attachment.transcription,
+          metadata: attachment.metadata,
+          suppressContentPreview: directCanonicalAttachmentIds.has(attachment.id),
+          imageIndex
+        });
+      })
+    );
   }
 
-  private formatRuntimeAttachmentLines(
+  private async formatRuntimeAttachmentLines(
+    assistantId: string,
+    workspaceId: string,
     attachments: RuntimeAttachmentRef[],
     showCurrentTurnImageOrdinals: boolean
-  ): string[] {
+  ): Promise<string[]> {
     let imageOrdinal = 0;
-    return attachments.map((attachment) => {
+    return await Promise.all(
+      attachments.map((attachment) => {
       const imageIndex =
         showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
           ? (imageOrdinal += 1)
           : null;
-      return this.formatRuntimeAttachmentLine(attachment, imageIndex);
-    });
+        return this.formatRuntimeAttachmentLine(
+          assistantId,
+          workspaceId,
+          attachment,
+          imageIndex
+        );
+      })
+    );
   }
 
   private async buildDirectInputSelection(
@@ -837,40 +876,75 @@ export class TurnContextHydrationService {
     };
   }
 
-  private formatCanonicalAttachmentLine(
-    attachment: CanonicalChatAttachmentRow,
-    suppressContentPreview = false,
-    imageIndex: number | null = null
-  ): string {
-    const name = attachment.originalFilename ? ` "${attachment.originalFilename}"` : "";
+  private async formatCanonicalAttachmentLine(input: {
+    assistantId: string;
+    workspaceId: string;
+    origin: "uploaded_attachment" | "runtime_output";
+    referenceId: string;
+    objectKey: string;
+    filename: string | null;
+    mimeType: string;
+    sizeBytes: number;
+    attachmentType: CanonicalChatAttachmentRow["attachmentType"];
+    transcription: string | null;
+    metadata: Record<string, unknown> | null;
+    suppressContentPreview?: boolean;
+    imageIndex?: number | null;
+  }): Promise<string> {
+    const name = input.filename ? ` "${input.filename}"` : "";
     const extras: string[] = [];
-    if (attachment.transcription) {
-      extras.push(`transcription: "${attachment.transcription.slice(0, 500)}"`);
+    if (input.transcription) {
+      extras.push(`transcription: "${input.transcription.slice(0, 500)}"`);
     }
-    if (!suppressContentPreview) {
-      const contentPreview = this.readStoredAttachmentContentPreview(attachment.metadata);
+    const fileRef = await this.ensureAttachmentFileRef({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      origin: input.origin,
+      referenceId: input.referenceId,
+      objectKey: input.objectKey,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes
+    });
+    extras.push(`fileRef: "${fileRef}"`);
+    if (!input.suppressContentPreview) {
+      const contentPreview = this.readStoredAttachmentContentPreview(input.metadata);
       if (contentPreview !== null) {
         extras.push(`content preview: "${contentPreview}"`);
       }
     }
     const extrasStr = extras.length > 0 ? `, ${extras.join(", ")}` : "";
     const kind =
-      attachment.attachmentType === "image" && imageIndex !== null
-        ? `image #${String(imageIndex)}`
-        : attachment.attachmentType;
+      input.attachmentType === "image" && input.imageIndex !== null
+        ? `image #${String(input.imageIndex)}`
+        : input.attachmentType;
     return `- attachment (${kind}${name}${extrasStr})`;
   }
 
-  private formatRuntimeAttachmentLine(
+  private async formatRuntimeAttachmentLine(
+    assistantId: string,
+    workspaceId: string,
     attachment: RuntimeAttachmentRef,
     imageIndex: number | null = null
-  ): string {
+  ): Promise<string> {
     const name = attachment.filename ? ` "${attachment.filename}"` : "";
+    const fileRef =
+      attachment.fileRef ??
+      (await this.ensureAttachmentFileRef({
+        assistantId,
+        workspaceId,
+        origin: "uploaded_attachment",
+        referenceId: attachment.attachmentId,
+        objectKey: attachment.objectKey,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes
+      }));
     const kind =
       attachment.kind === "image" && imageIndex !== null
         ? `image #${String(imageIndex)}`
         : attachment.kind;
-    return `- attachment (${kind}${name})`;
+    return `- attachment (${kind}${name}, fileRef: "${fileRef}")`;
   }
 
   private toAttachmentSummaryDescriptor(line: string): string {
@@ -925,8 +999,97 @@ export class TurnContextHydrationService {
         );
       }
     }
+    block.push(
+      "When you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone."
+    );
     block.push("Use the attachment metadata, transcription, and content preview when available.]");
     return block.join("\n");
+  }
+
+  private async ensureAttachmentFileRef(input: {
+    assistantId: string;
+    workspaceId: string;
+    origin: "uploaded_attachment" | "runtime_output";
+    referenceId: string;
+    objectKey: string;
+    filename: string | null;
+    mimeType: string;
+    sizeBytes: number;
+  }): Promise<string> {
+    const existing = await this.prisma.sandboxFileRef.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        origin: input.origin,
+        objectKey: input.objectKey
+      }
+    });
+    if (existing !== null) {
+      return existing.id;
+    }
+    const created = await this.prisma.sandboxFileRef.create({
+      data: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        sandboxJobId: null,
+        origin: input.origin,
+        sourceToolCode: null,
+        objectKey: input.objectKey,
+        relativePath: this.buildAttachmentRelativePath(
+          input.origin,
+          input.referenceId,
+          input.filename,
+          input.mimeType
+        ),
+        displayName: input.filename,
+        mimeType: input.mimeType,
+        sizeBytes: BigInt(input.sizeBytes),
+        logicalSizeBytes: BigInt(input.sizeBytes),
+        sha256: null,
+        metadata: {
+          attachmentId: input.referenceId
+        }
+      }
+    });
+    return created.id;
+  }
+
+  private buildAttachmentRelativePath(
+    origin: "uploaded_attachment" | "runtime_output",
+    referenceId: string,
+    filename: string | null,
+    mimeType: string
+  ): string {
+    const basename = this.sanitizeAttachmentFilename(
+      filename ?? this.deriveFilenameFromMime(referenceId, mimeType)
+    );
+    const prefix = origin === "uploaded_attachment" ? "uploads" : "artifacts";
+    return `${prefix}/${referenceId}/${basename}`;
+  }
+
+  private sanitizeAttachmentFilename(filename: string): string {
+    const trimmed = filename.trim();
+    const collapsed = trimmed.replace(/[\\/]+/g, "-");
+    return collapsed.length > 0 ? collapsed : "file";
+  }
+
+  private deriveFilenameFromMime(referenceId: string, mimeType: string): string {
+    if (mimeType === "application/pdf") {
+      return `${referenceId}.pdf`;
+    }
+    if (mimeType.startsWith("image/")) {
+      const subtype = mimeType.slice("image/".length).replace(/[^a-z0-9]+/gi, "");
+      return `${referenceId}.${subtype || "img"}`;
+    }
+    if (mimeType.startsWith("audio/")) {
+      const subtype = mimeType.slice("audio/".length).replace(/[^a-z0-9]+/gi, "");
+      return `${referenceId}.${subtype || "audio"}`;
+    }
+    if (mimeType.startsWith("video/")) {
+      const subtype = mimeType.slice("video/".length).replace(/[^a-z0-9]+/gi, "");
+      return `${referenceId}.${subtype || "video"}`;
+    }
+    return `${referenceId}.bin`;
   }
 
   private readStoredAttachmentContentPreview(

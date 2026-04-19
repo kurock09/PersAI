@@ -1,5 +1,58 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Step 20 file continuity and attachment fileRef hardening
+
+### What changed
+
+1. The isolated sandbox path is now less brittle on real model behavior. `apps/sandbox/src/sandbox.service.ts` no longer lets a missing executable (`spawn ... ENOENT`) crash the whole sandbox pod before the child `error` handler attaches; the job now fails cleanly as `process_spawn_failed`, and `apps/sandbox/test/sandbox.service.test.ts` locks that regression down.
+2. Sandbox workspace continuity is now real inside one native tool loop instead of being an illusion. `apps/runtime/src/modules/turns/turn-execution.service.ts` now keeps produced `RuntimeFileRef`s in per-turn execution state, `RuntimeSandboxToolService` forwards those refs into later sandbox jobs, and `apps/sandbox` mounts them back into the next ephemeral workspace, so `write_file -> shell/exec/read_file` can operate on the same created files during the same turn.
+3. Sandbox tool results are now easier for the model to use honestly. `RuntimeSandboxToolResult` now carries top-level `fileRefs`, and the model-facing native tool definitions explicitly say that later sandbox tools in the same turn keep earlier files mounted by path while `send_media_to_user` should prefer canonical `fileRef`s.
+4. Existing chat attachments are now more usable as canonical files instead of dead object-storage blobs. `TurnContextHydrationService` now lazily materializes canonical `sandbox_file_refs` for user uploads and earlier assistant/runtime outputs, includes those `fileRef`s in attachment summaries shown to the model, and teaches the prompt that resending or operating on an existing attachment should use the visible `fileRef`.
+
+### Current active slice
+
+- `ADR-073 - Step 20 sandbox + shared media delivery`
+
+### Current active step
+
+- `Repo truth is now stronger for same-turn sandbox continuity and attachment fileRef visibility; the remaining honest closeout is still live validation on persai-dev that write_file/shell/send_media_to_user behave the same way under the real deployed runtime and sandbox pods`
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/runtime-sandbox-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-context-hydration.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run lint`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / notes
+
+1. This hardening makes the local/runtime contract much more honest, but it does not yet prove that the currently deployed `persai-dev` pods are running these fixes.
+2. User-visible web/UI surfaces still do not expose first-class manual file-ref controls; this slice fixes model/runtime continuity and resendability first.
+
+### Next recommended step
+
+1. Push this hardening slice, wait for dev rollout, then rerun live `write_file -> shell ls -> send_media_to_user` plus one “resend an older user attachment by fileRef” smoke on `persai-dev`.
+
 ## 2026-04-19 - Step 20 live sandbox 500 root-cause fix
 
 ### What changed

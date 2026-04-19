@@ -227,7 +227,11 @@ export class SandboxService {
     try {
       await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
       await fs.mkdir(workspaceRoot, { recursive: true });
-      const mountedFiles = await this.materializeMountedFiles(workspaceRoot, request.args);
+      const mountedFiles = await this.materializeMountedFiles(
+        workspaceRoot,
+        request.args,
+        request.mountedFileRefs ?? []
+      );
 
       const result = await this.executeTool({
         workspaceRoot,
@@ -507,20 +511,6 @@ export class SandboxService {
   }): Promise<ProcessResult> {
     const startedAt = Date.now();
     return await new Promise<ProcessResult>((resolvePromise, rejectPromise) => {
-      const child = spawn(input.command, input.args, {
-        cwd: input.cwd,
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      const rootPid = child.pid;
-      if (typeof rootPid !== "number" || !Number.isInteger(rootPid) || rootPid <= 0) {
-        rejectPromise(
-          this.createPolicyError(
-            "process_spawn_failed",
-            "Sandbox process failed to expose a valid pid."
-          )
-        );
-        return;
-      }
       let stdout = "";
       let stderr = "";
       let settled = false;
@@ -528,14 +518,25 @@ export class SandboxService {
       let peakProcessCount = 1;
       let peakCpuMs = 0;
       let peakMemoryBytes = 0;
+      let rootPid: number | null = null;
+      let timer: NodeJS.Timeout | null = null;
+      let interval: NodeJS.Timeout | null = null;
+      let spawnGuardTimer: NodeJS.Timeout | null = null;
       const buildProcessUsageSnapshot = (): Record<string, unknown> => ({
         peakProcessCount,
         peakCpuMs,
         peakMemoryBytes
       });
       const cleanup = (): void => {
-        clearTimeout(timer);
-        clearInterval(interval);
+        if (timer !== null) {
+          clearTimeout(timer);
+        }
+        if (interval !== null) {
+          clearInterval(interval);
+        }
+        if (spawnGuardTimer !== null) {
+          clearTimeout(spawnGuardTimer);
+        }
       };
       const rejectWithPolicy = (error: unknown): void => {
         cleanup();
@@ -543,7 +544,9 @@ export class SandboxService {
           return;
         }
         settled = true;
-        void this.terminateProcessTree(rootPid);
+        if (rootPid !== null) {
+          void this.terminateProcessTree(rootPid);
+        }
         rejectPromise(error);
       };
       const resolveWithResult = (exitCode: number | null): void => {
@@ -562,40 +565,24 @@ export class SandboxService {
           peakMemoryBytes
         });
       };
-      const timer = setTimeout(() => {
+      const child = spawn(input.command, input.args, {
+        cwd: input.cwd,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      child.on("error", (error) => {
         rejectWithPolicy(
           this.createPolicyError(
-            "process_timeout",
-            `Sandbox process exceeded ${String(input.policy.maxProcessRuntimeMs)}ms.`,
+            "process_spawn_failed",
+            `Sandbox process failed: ${error.message}`,
             {
               resourceUsage: buildProcessUsageSnapshot()
             }
           )
         );
-      }, input.policy.maxProcessRuntimeMs);
-      const interval = setInterval(() => {
-        if (settled || monitoring) {
-          return;
-        }
-        monitoring = true;
-        void (async () => {
-          try {
-            const stats = await this.computeWorkspaceStats(input.workspaceRoot);
-            this.assertWorkspaceStats(stats, input.policy);
-            const usage = await this.readProcessTreeUsage(rootPid);
-            if (usage !== null) {
-              peakProcessCount = Math.max(peakProcessCount, usage.processCount);
-              peakCpuMs = Math.max(peakCpuMs, usage.totalCpuMs);
-              peakMemoryBytes = Math.max(peakMemoryBytes, usage.totalMemoryBytes);
-              this.assertProcessUsage(usage, input.policy);
-            }
-          } catch (error) {
-            rejectWithPolicy(error);
-          } finally {
-            monitoring = false;
-          }
-        })();
-      }, 250);
+      });
+      child.on("close", (exitCode) => {
+        resolveWithResult(exitCode);
+      });
       child.stdout?.on("data", (chunk: Buffer | string) => {
         stdout += chunk.toString();
         if (Buffer.byteLength(stdout, "utf8") > input.policy.maxStdoutBytes && !settled) {
@@ -624,20 +611,55 @@ export class SandboxService {
           );
         }
       });
-      child.on("error", (error) => {
+      const spawnedPid = child.pid;
+      if (typeof spawnedPid !== "number" || !Number.isInteger(spawnedPid) || spawnedPid <= 0) {
+        // Some spawn failures (for example ENOENT) surface via the child "error" event on the next tick.
+        // Keep that listener attached so one bad command rejects the job instead of crashing the sandbox pod.
+        spawnGuardTimer = setTimeout(() => {
+          rejectWithPolicy(
+            this.createPolicyError(
+              "process_spawn_failed",
+              "Sandbox process failed to expose a valid pid."
+            )
+          );
+        }, 50);
+        return;
+      }
+      rootPid = spawnedPid;
+      timer = setTimeout(() => {
         rejectWithPolicy(
           this.createPolicyError(
-            "process_spawn_failed",
-            `Sandbox process failed: ${error.message}`,
+            "process_timeout",
+            `Sandbox process exceeded ${String(input.policy.maxProcessRuntimeMs)}ms.`,
             {
               resourceUsage: buildProcessUsageSnapshot()
             }
           )
         );
-      });
-      child.on("close", (exitCode) => {
-        resolveWithResult(exitCode);
-      });
+      }, input.policy.maxProcessRuntimeMs);
+      interval = setInterval(() => {
+        if (settled || monitoring) {
+          return;
+        }
+        monitoring = true;
+        void (async () => {
+          try {
+            const stats = await this.computeWorkspaceStats(input.workspaceRoot);
+            this.assertWorkspaceStats(stats, input.policy);
+            const usage = await this.readProcessTreeUsage(rootPid);
+            if (usage !== null) {
+              peakProcessCount = Math.max(peakProcessCount, usage.processCount);
+              peakCpuMs = Math.max(peakCpuMs, usage.totalCpuMs);
+              peakMemoryBytes = Math.max(peakMemoryBytes, usage.totalMemoryBytes);
+              this.assertProcessUsage(usage, input.policy);
+            }
+          } catch (error) {
+            rejectWithPolicy(error);
+          } finally {
+            monitoring = false;
+          }
+        })();
+      }, 250);
     });
   }
 
@@ -888,7 +910,8 @@ export class SandboxService {
 
   private async materializeMountedFiles(
     workspaceRoot: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    mountedFileRefs: string[] = []
   ): Promise<MountedWorkspaceState> {
     const mountedFiles: MountedWorkspaceState = {
       byRef: new Map(),
@@ -904,6 +927,11 @@ export class SandboxService {
         if (typeof item === "string" && item.trim().length > 0) {
           mountRefs.add(item.trim());
         }
+      }
+    }
+    for (const item of mountedFileRefs) {
+      if (typeof item === "string" && item.trim().length > 0) {
+        mountRefs.add(item.trim());
       }
     }
     if (mountRefs.size === 0) {

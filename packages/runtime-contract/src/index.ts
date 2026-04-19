@@ -85,6 +85,7 @@ export interface RuntimeAttachmentRef {
   mimeType: string;
   filename: string | null;
   sizeBytes: number;
+  fileRef?: string | null;
 }
 
 export interface RuntimeOutputArtifact {
@@ -211,6 +212,7 @@ export interface RuntimeSandboxJobRequest {
   toolCode: string;
   policy: RuntimeSandboxPolicy;
   args: Record<string, unknown>;
+  mountedFileRefs?: string[];
 }
 
 export interface RuntimeSandboxToolResult {
@@ -220,6 +222,7 @@ export interface RuntimeSandboxToolResult {
   reason: string | null;
   warning: string | null;
   job: RuntimeSandboxJobResult | null;
+  fileRefs: string[];
 }
 
 export interface RuntimeSendMediaToUserToolResult {

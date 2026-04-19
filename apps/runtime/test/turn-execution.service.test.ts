@@ -1327,6 +1327,7 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
   }> = [];
 
   async executeToolCall(input: {
@@ -1334,8 +1335,12 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    currentFileRefs: Array<{ fileRef: string }>;
   }) {
-    this.calls.push(input);
+    this.calls.push({
+      ...input,
+      currentFileRefs: [...input.currentFileRefs]
+    });
     return {
       payload: {
         toolCode: input.toolCall.name,
@@ -1343,6 +1348,7 @@ class FakeRuntimeSandboxToolService {
         action: "completed" as const,
         reason: null,
         warning: null,
+        fileRefs: ["file-ref-1"],
         job: {
           jobId: "sandbox-job-1",
           status: "completed" as const,
@@ -1533,6 +1539,12 @@ function enableSandboxAndSendMediaTools(entry: RuntimeBundleCacheEntry | null): 
       toolCode: "write_file",
       displayName: "Write File",
       description: "Create or overwrite one sandbox-managed file.",
+      executionMode: "sandbox" as const
+    },
+    {
+      toolCode: "shell",
+      displayName: "Shell",
+      description: "Run a bounded shell command inside the sandbox workspace.",
       executionMode: "sandbox" as const
     },
     {
@@ -2525,6 +2537,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const sandboxDeliveryCompleted = await service.createTurn(sandboxDeliveryRequest);
   assert.equal(sandboxDeliveryCompleted.assistantText, "reply after sandbox delivery");
   assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "write_file");
+  assert.deepEqual(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs, []);
   assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.toolCall.name, "send_media_to_user");
   assert.deepEqual(runtimeSendMediaToUserService.calls.at(-1)?.currentArtifacts, []);
   assert.equal(runtimeSendMediaToUserService.calls.at(-1)?.channel, "web");
@@ -2550,6 +2563,65 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(sendMediaToolHistory.queuedArtifacts, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
+
+  const sandboxWorkspaceContinuityRequest = createRuntimeTurnRequest();
+  sandboxWorkspaceContinuityRequest.bundle.bundleHash = request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:04.000Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-write-file-2",
+          name: "write_file",
+          arguments: {
+            path: "outputs/report.txt",
+            content: "sandbox output"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:04.200Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-shell-1",
+          name: "shell",
+          arguments: {
+            command: "ls outputs"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "workspace continuity reply",
+      respondedAt: "2026-04-11T12:00:04.400Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const sandboxWorkspaceContinuityCompleted = await service.createTurn(
+    sandboxWorkspaceContinuityRequest
+  );
+  assert.equal(sandboxWorkspaceContinuityCompleted.assistantText, "workspace continuity reply");
+  assert.equal(runtimeSandboxToolService.calls.at(-2)?.toolCall.name, "write_file");
+  assert.equal(runtimeSandboxToolService.calls.at(-1)?.toolCall.name, "shell");
+  assert.equal(runtimeSandboxToolService.calls.at(-1)?.currentFileRefs[0]?.fileRef, "file-ref-1");
 
   const overrideRequest = createRuntimeTurnRequest();
   overrideRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -2929,6 +3001,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch",
       "write_file",
+      "shell",
       "send_media_to_user"
     ]
   );
@@ -3028,6 +3101,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_search",
       "knowledge_fetch",
       "write_file",
+      "shell",
       "send_media_to_user"
     ]
   );
@@ -3307,6 +3381,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "knowledge_fetch",
       "web_fetch",
       "write_file",
+      "shell",
       "send_media_to_user"
     ]
   );

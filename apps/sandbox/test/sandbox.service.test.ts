@@ -266,6 +266,24 @@ async function run(): Promise<void> {
       }
     );
 
+    await assert.rejects(
+      () =>
+        processGuardTestAccess.runProcess({
+          workspaceRoot: processWorkspace,
+          policy: {
+            ...processGuardPolicy,
+            maxConcurrentProcesses: 4
+          },
+          cwd: processWorkspace,
+          command: "__persai_missing_executable__",
+          args: []
+        }),
+      (error: unknown) => {
+        assert.equal((error as ProcessError).code, "process_spawn_failed");
+        return true;
+      }
+    );
+
     const sampledTreeRoot = spawn(
       process.execPath,
       [
