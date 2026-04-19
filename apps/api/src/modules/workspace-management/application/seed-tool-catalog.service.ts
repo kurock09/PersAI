@@ -157,7 +157,7 @@ export class SeedToolCatalogService implements OnModuleInit {
 
       await this.prisma.planCatalogToolActivation.upsert({
         where: { planId_toolId: { planId, toolId: tool.id } },
-        update: {},
+        update: { activationStatus, dailyCallLimit },
         create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
       });
     }
@@ -186,7 +186,10 @@ export class SeedToolCatalogService implements OnModuleInit {
 
         await this.prisma.planCatalogToolActivation.upsert({
           where: { planId_toolId: { planId: plan.id, toolId: tool.id } },
-          update: {},
+          update: {
+            activationStatus: isPlatformManagedTool(tool.code) ? "active" : "inactive",
+            dailyCallLimit: null
+          },
           create: {
             planId: plan.id,
             toolId: tool.id,

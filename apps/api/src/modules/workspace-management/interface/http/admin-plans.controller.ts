@@ -14,7 +14,6 @@ import { ManageAdminPlansService } from "../../application/manage-admin-plans.se
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
 import type {
   AdminCreatePlanInput,
-  AdminPlanInput,
   AdminPlanState
 } from "../../application/admin-plan-management.types";
 import type { AdminPlanVisibilityState } from "../../application/plan-visibility.types";
@@ -83,11 +82,11 @@ export class AdminPlansController {
     plan: AdminPlanState;
   }> {
     const userId = this.resolveRequestUserId(req);
-    const input: AdminPlanInput = this.manageAdminPlansService.parseUpdateInput(body);
+    const patch = this.manageAdminPlansService.parseUpdatePatch(body);
     const plan = await this.manageAdminPlansService.updatePlan(
       userId,
       code,
-      input,
+      patch,
       this.resolveStepUpToken(req)
     );
     return {

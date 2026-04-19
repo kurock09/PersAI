@@ -177,6 +177,57 @@ async function run(): Promise<void> {
       "startup seed must not recreate starter_trial inside an already populated catalog"
     );
   }
+
+  {
+    const activationWrites: Array<{
+      toolId: string;
+      activationStatus: string;
+      dailyCallLimit: number | null;
+    }> = [];
+    const service = new SeedToolCatalogService({
+      toolCatalogTool: {
+        async findMany() {
+          return [
+            { id: "tool-files", code: "files", toolClass: "utility" },
+            { id: "tool-shell", code: "shell", toolClass: "cost_driving" }
+          ];
+        }
+      },
+      planCatalogToolActivation: {
+        async upsert(args: {
+          where: { planId_toolId: { toolId: string } };
+          update: { activationStatus: string; dailyCallLimit: number | null };
+          create: { activationStatus: string; dailyCallLimit: number | null };
+        }) {
+          activationWrites.push({
+            toolId: args.where.planId_toolId.toolId,
+            activationStatus: args.update.activationStatus,
+            dailyCallLimit: args.update.dailyCallLimit
+          });
+          assert.equal(args.create.activationStatus, args.update.activationStatus);
+          assert.equal(args.create.dailyCallLimit, args.update.dailyCallLimit);
+          return undefined;
+        }
+      }
+    } as never) as SeedToolCatalogService & {
+      syncToolActivations(planId: string): Promise<void>;
+    };
+
+    await service["syncToolActivations"]("starter-plan");
+
+    assert.deepEqual(activationWrites, [
+      {
+        toolId: "tool-files",
+        activationStatus: "active",
+        dailyCallLimit: 20
+      },
+      {
+        toolId: "tool-shell",
+        activationStatus: "inactive",
+        dailyCallLimit: 5
+      }
+    ]);
+  }
 }
 
 void run();

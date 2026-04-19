@@ -114,6 +114,48 @@ export type PlanDraft = {
   toolActivations: ToolActivationDraft[];
 };
 
+type NumericDraftField =
+  | "tokenBudgetLimit"
+  | "mediaStorageMb"
+  | "workspaceStorageMb"
+  | "retrievalDefaultMaxResults"
+  | "retrievalHardMaxResults"
+  | "retrievalLexicalCandidateLimit"
+  | "retrievalVectorCandidateLimit"
+  | "retrievalKnowledgeFetchWindowRadius"
+  | "retrievalChatFetchWindowRadius"
+  | "retrievalFetchMaxChars"
+  | "retrievalHelperCandidateLimit"
+  | "retrievalHelperMaxOutputTokens"
+  | "sandboxMaxSingleFileMb"
+  | "sandboxMaxWorkspaceMb"
+  | "sandboxMaxArtifactsPerJob"
+  | "sandboxMaxFilesPerJob"
+  | "sandboxMaxDirsPerJob"
+  | "sandboxMaxProcessRuntimeMs"
+  | "sandboxMaxCpuMs"
+  | "sandboxMaxMemoryMb"
+  | "sandboxMaxConcurrentProcesses"
+  | "sandboxMaxStdoutKb"
+  | "sandboxMaxStderrKb"
+  | "sandboxJobsPerDay"
+  | "sandboxWebOutboundMb"
+  | "sandboxTelegramOutboundMb"
+  | "sandboxMaxArtifactSendCountPerTurn"
+  | "targetContextBudget"
+  | "compactionTriggerThreshold"
+  | "keepRecentMinimum"
+  | "knowledgeHydrationBudget"
+  | "sharedCompactionSummaryBudgetTokens";
+
+type DraftValidationErrors = Partial<Record<NumericDraftField, string>>;
+type NumericDraftRule = {
+  field: NumericDraftField;
+  label: string;
+  min: number;
+  allowBlank?: boolean;
+};
+
 export const VIDEO_GENERATE_MODEL_OPTIONS: Array<{
   value: VideoGenerateModelDraft;
   label: string;
@@ -223,25 +265,100 @@ function parsePositiveIntDraft(value: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function parseNonNegativeIntDraft(value: string, fallback: number): number {
-  const parsed = Number.parseInt(value.trim(), 10);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
-function parseOptionalPositiveIntDraft(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
 function parseMimeAllowlistDraft(value: string): string[] {
   return value
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function parseStrictIntegerDraft(
+  value: string,
+  options: { label: string; min: number; allowBlank?: boolean }
+): number | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    if (options.allowBlank) {
+      return null;
+    }
+    throw new Error(`${options.label} is required.`);
+  }
+  if (!/^[0-9]+$/.test(trimmed)) {
+    throw new Error(`${options.label} must be a whole number.`);
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (parsed < options.min) {
+    if (options.allowBlank) {
+      throw new Error(`${options.label} must be blank or at least ${String(options.min)}.`);
+    }
+    throw new Error(`${options.label} must be at least ${String(options.min)}.`);
+  }
+  return parsed;
+}
+
+const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
+  { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
+  { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
+  { field: "workspaceStorageMb", label: "Workspace disk (MB)", min: 1, allowBlank: true },
+  { field: "retrievalDefaultMaxResults", label: "Default results", min: 1 },
+  { field: "retrievalHardMaxResults", label: "Hard max results", min: 1 },
+  { field: "retrievalLexicalCandidateLimit", label: "Lexical candidate pool", min: 1 },
+  { field: "retrievalVectorCandidateLimit", label: "Vector candidate pool", min: 1 },
+  { field: "retrievalKnowledgeFetchWindowRadius", label: "Doc fetch radius", min: 1 },
+  { field: "retrievalChatFetchWindowRadius", label: "Chat fetch radius", min: 1 },
+  { field: "retrievalFetchMaxChars", label: "Fetch max chars", min: 1 },
+  { field: "retrievalHelperCandidateLimit", label: "Helper candidates", min: 1 },
+  { field: "retrievalHelperMaxOutputTokens", label: "Helper max output tokens", min: 1 },
+  { field: "sandboxMaxSingleFileMb", label: "Max single file (MB)", min: 1 },
+  { field: "sandboxMaxWorkspaceMb", label: "Workspace budget (MB)", min: 1 },
+  { field: "sandboxMaxArtifactsPerJob", label: "Artifacts per job", min: 1 },
+  { field: "sandboxMaxFilesPerJob", label: "Files per job", min: 1 },
+  { field: "sandboxMaxDirsPerJob", label: "Directories per job", min: 1 },
+  { field: "sandboxMaxProcessRuntimeMs", label: "Process timeout (ms)", min: 1 },
+  { field: "sandboxMaxCpuMs", label: "CPU budget (ms)", min: 1 },
+  { field: "sandboxMaxMemoryMb", label: "Memory cap (MB)", min: 1 },
+  { field: "sandboxMaxConcurrentProcesses", label: "Concurrent processes", min: 1 },
+  { field: "sandboxMaxStdoutKb", label: "Stdout cap (KB)", min: 1 },
+  { field: "sandboxMaxStderrKb", label: "Stderr cap (KB)", min: 1 },
+  { field: "sandboxJobsPerDay", label: "Jobs per day", min: 1, allowBlank: true },
+  { field: "sandboxWebOutboundMb", label: "Web outbound (MB)", min: 1 },
+  { field: "sandboxTelegramOutboundMb", label: "Telegram outbound (MB)", min: 1 },
+  { field: "sandboxMaxArtifactSendCountPerTurn", label: "Max sends per turn", min: 1 },
+  { field: "targetContextBudget", label: "Target context budget", min: 1 },
+  { field: "compactionTriggerThreshold", label: "Compaction trigger", min: 1 },
+  { field: "keepRecentMinimum", label: "Keep recent turns", min: 1 },
+  { field: "knowledgeHydrationBudget", label: "Knowledge budget", min: 0 },
+  {
+    field: "sharedCompactionSummaryBudgetTokens",
+    label: "Shared summary budget",
+    min: 1,
+    allowBlank: true
+  }
+];
+
+export function validatePlanDraft(draft: PlanDraft): DraftValidationErrors {
+  const errors: DraftValidationErrors = {};
+  for (const rule of NUMERIC_DRAFT_RULES) {
+    try {
+      parseStrictIntegerDraft(draft[rule.field], rule);
+    } catch (error) {
+      errors[rule.field] = error instanceof Error ? error.message : `${rule.label} is invalid.`;
+    }
+  }
+  return errors;
+}
+
+function clearValidationErrors(
+  errors: DraftValidationErrors,
+  patch: Partial<PlanDraft>
+): DraftValidationErrors {
+  const next = { ...errors };
+  for (const key of Object.keys(patch)) {
+    if (key in next) {
+      delete next[key as NumericDraftField];
+    }
+  }
+  return next;
 }
 
 function deriveSharedCompactionSummaryBudgetTokens(targetContextBudget: number): number {
@@ -306,8 +423,8 @@ function emptyDraft(): PlanDraft {
     sandboxMaxSingleFileMb: "10",
     sandboxMaxWorkspaceMb: "25",
     sandboxMaxArtifactsPerJob: "8",
-    sandboxMaxFilesPerJob: "32",
-    sandboxMaxDirsPerJob: "16",
+    sandboxMaxFilesPerJob: "256",
+    sandboxMaxDirsPerJob: "128",
     sandboxMaxProcessRuntimeMs: "15000",
     sandboxMaxCpuMs: "15000",
     sandboxMaxMemoryMb: "256",
@@ -423,11 +540,33 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
 }
 
 export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
-  const tokenBudget = draft.tokenBudgetLimit.trim();
-  const contextPolicyDefaults =
-    CONTEXT_POLICY_PRESET_DEFAULTS[fallbackContextPolicyPreset(draft.contextPolicyPreset)];
-  const sharedCompactionSummaryBudgetTokens = parseOptionalPositiveIntDraft(
-    draft.sharedCompactionSummaryBudgetTokens
+  const validationErrors = validatePlanDraft(draft);
+  const firstValidationError = Object.values(validationErrors)[0];
+  if (firstValidationError) {
+    throw new Error(firstValidationError);
+  }
+  const tokenBudgetLimit = parseStrictIntegerDraft(draft.tokenBudgetLimit, {
+    label: "Token budget",
+    min: 1,
+    allowBlank: true
+  });
+  const mediaStorageMb = parseStrictIntegerDraft(draft.mediaStorageMb, {
+    label: "Media upload budget (MB)",
+    min: 1,
+    allowBlank: true
+  });
+  const workspaceStorageMb = parseStrictIntegerDraft(draft.workspaceStorageMb, {
+    label: "Workspace disk (MB)",
+    min: 1,
+    allowBlank: true
+  });
+  const sharedCompactionSummaryBudgetTokens = parseStrictIntegerDraft(
+    draft.sharedCompactionSummaryBudgetTokens,
+    {
+      label: "Shared summary budget",
+      min: 1,
+      allowBlank: true
+    }
   );
   return {
     displayName: draft.displayName.trim(),
@@ -455,79 +594,149 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       }
     },
     quotaLimits: {
-      tokenBudgetLimit: tokenBudget.length > 0 ? parseInt(tokenBudget, 10) || null : null,
-      mediaStorageBytesLimit: (() => {
-        const mb = draft.mediaStorageMb.trim();
-        if (mb.length === 0) return null;
-        const parsed = parseInt(mb, 10);
-        return parsed > 0 ? parsed * 1048576 : null;
-      })(),
-      workspaceStorageBytesLimit: (() => {
-        const mb = draft.workspaceStorageMb.trim();
-        if (mb.length === 0) return null;
-        const parsed = parseInt(mb, 10);
-        return parsed > 0 ? parsed * 1048576 : null;
-      })()
+      tokenBudgetLimit,
+      mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
+      workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
     },
     retrievalPolicy: {
-      defaultMaxResults: parsePositiveIntDraft(draft.retrievalDefaultMaxResults, 5),
-      maxMaxResults: parsePositiveIntDraft(draft.retrievalHardMaxResults, 8),
-      lexicalCandidateLimit: parsePositiveIntDraft(draft.retrievalLexicalCandidateLimit, 60),
-      vectorCandidateLimit: parsePositiveIntDraft(draft.retrievalVectorCandidateLimit, 240),
-      knowledgeFetchWindowRadius: parsePositiveIntDraft(
+      defaultMaxResults: parseStrictIntegerDraft(draft.retrievalDefaultMaxResults, {
+        label: "Default results",
+        min: 1
+      })!,
+      maxMaxResults: parseStrictIntegerDraft(draft.retrievalHardMaxResults, {
+        label: "Hard max results",
+        min: 1
+      })!,
+      lexicalCandidateLimit: parseStrictIntegerDraft(draft.retrievalLexicalCandidateLimit, {
+        label: "Lexical candidate pool",
+        min: 1
+      })!,
+      vectorCandidateLimit: parseStrictIntegerDraft(draft.retrievalVectorCandidateLimit, {
+        label: "Vector candidate pool",
+        min: 1
+      })!,
+      knowledgeFetchWindowRadius: parseStrictIntegerDraft(
         draft.retrievalKnowledgeFetchWindowRadius,
-        1
-      ),
-      chatFetchWindowRadius: parsePositiveIntDraft(draft.retrievalChatFetchWindowRadius, 2),
-      fetchMaxChars: parsePositiveIntDraft(draft.retrievalFetchMaxChars, 6000),
+        {
+          label: "Doc fetch radius",
+          min: 1
+        }
+      )!,
+      chatFetchWindowRadius: parseStrictIntegerDraft(draft.retrievalChatFetchWindowRadius, {
+        label: "Chat fetch radius",
+        min: 1
+      })!,
+      fetchMaxChars: parseStrictIntegerDraft(draft.retrievalFetchMaxChars, {
+        label: "Fetch max chars",
+        min: 1
+      })!,
       helperEnabled: draft.retrievalHelperEnabled,
-      helperCandidateLimit: parsePositiveIntDraft(draft.retrievalHelperCandidateLimit, 6),
-      helperMaxOutputTokens: parsePositiveIntDraft(draft.retrievalHelperMaxOutputTokens, 220),
+      helperCandidateLimit: parseStrictIntegerDraft(draft.retrievalHelperCandidateLimit, {
+        label: "Helper candidates",
+        min: 1
+      })!,
+      helperMaxOutputTokens: parseStrictIntegerDraft(draft.retrievalHelperMaxOutputTokens, {
+        label: "Helper max output tokens",
+        min: 1
+      })!,
       embeddingSearchEnabled: draft.retrievalEmbeddingSearchEnabled
     },
     sandboxPolicy: {
       enabled: draft.sandboxEnabled,
-      maxSingleFileWriteBytes: parsePositiveIntDraft(draft.sandboxMaxSingleFileMb, 10) * 1048576,
-      maxWorkspaceBytesPerJob: parsePositiveIntDraft(draft.sandboxMaxWorkspaceMb, 25) * 1048576,
-      maxPersistedArtifactsPerJob: parsePositiveIntDraft(draft.sandboxMaxArtifactsPerJob, 8),
-      maxFileCountPerJob: parsePositiveIntDraft(draft.sandboxMaxFilesPerJob, 32),
-      maxDirectoryCountPerJob: parsePositiveIntDraft(draft.sandboxMaxDirsPerJob, 16),
-      maxProcessRuntimeMs: parsePositiveIntDraft(draft.sandboxMaxProcessRuntimeMs, 15000),
-      maxCpuMsPerJob: parsePositiveIntDraft(draft.sandboxMaxCpuMs, 15000),
-      maxMemoryBytesPerJob: parsePositiveIntDraft(draft.sandboxMaxMemoryMb, 256) * 1048576,
-      maxConcurrentProcesses: parsePositiveIntDraft(draft.sandboxMaxConcurrentProcesses, 4),
-      maxStdoutBytes: parsePositiveIntDraft(draft.sandboxMaxStdoutKb, 128) * 1024,
-      maxStderrBytes: parsePositiveIntDraft(draft.sandboxMaxStderrKb, 128) * 1024,
+      maxSingleFileWriteBytes:
+        parseStrictIntegerDraft(draft.sandboxMaxSingleFileMb, {
+          label: "Max single file (MB)",
+          min: 1
+        })! * 1048576,
+      maxWorkspaceBytesPerJob:
+        parseStrictIntegerDraft(draft.sandboxMaxWorkspaceMb, {
+          label: "Workspace budget (MB)",
+          min: 1
+        })! * 1048576,
+      maxPersistedArtifactsPerJob: parseStrictIntegerDraft(draft.sandboxMaxArtifactsPerJob, {
+        label: "Artifacts per job",
+        min: 1
+      })!,
+      maxFileCountPerJob: parseStrictIntegerDraft(draft.sandboxMaxFilesPerJob, {
+        label: "Files per job",
+        min: 1
+      })!,
+      maxDirectoryCountPerJob: parseStrictIntegerDraft(draft.sandboxMaxDirsPerJob, {
+        label: "Directories per job",
+        min: 1
+      })!,
+      maxProcessRuntimeMs: parseStrictIntegerDraft(draft.sandboxMaxProcessRuntimeMs, {
+        label: "Process timeout (ms)",
+        min: 1
+      })!,
+      maxCpuMsPerJob: parseStrictIntegerDraft(draft.sandboxMaxCpuMs, {
+        label: "CPU budget (ms)",
+        min: 1
+      })!,
+      maxMemoryBytesPerJob:
+        parseStrictIntegerDraft(draft.sandboxMaxMemoryMb, {
+          label: "Memory cap (MB)",
+          min: 1
+        })! * 1048576,
+      maxConcurrentProcesses: parseStrictIntegerDraft(draft.sandboxMaxConcurrentProcesses, {
+        label: "Concurrent processes",
+        min: 1
+      })!,
+      maxStdoutBytes:
+        parseStrictIntegerDraft(draft.sandboxMaxStdoutKb, {
+          label: "Stdout cap (KB)",
+          min: 1
+        })! * 1024,
+      maxStderrBytes:
+        parseStrictIntegerDraft(draft.sandboxMaxStderrKb, {
+          label: "Stderr cap (KB)",
+          min: 1
+        })! * 1024,
       networkAccessEnabled: draft.sandboxNetworkAccessEnabled,
       artifactMimeAllowlist: parseMimeAllowlistDraft(draft.sandboxArtifactMimeAllowlist),
-      webMaxOutboundBytes: parsePositiveIntDraft(draft.sandboxWebOutboundMb, 25) * 1048576,
+      webMaxOutboundBytes:
+        parseStrictIntegerDraft(draft.sandboxWebOutboundMb, {
+          label: "Web outbound (MB)",
+          min: 1
+        })! * 1048576,
       telegramMaxOutboundBytes:
-        parsePositiveIntDraft(draft.sandboxTelegramOutboundMb, 50) * 1048576,
-      sandboxJobsPerDay: parseOptionalPositiveIntDraft(draft.sandboxJobsPerDay) ?? null,
-      maxArtifactSendCountPerTurn: parsePositiveIntDraft(
+        parseStrictIntegerDraft(draft.sandboxTelegramOutboundMb, {
+          label: "Telegram outbound (MB)",
+          min: 1
+        })! * 1048576,
+      sandboxJobsPerDay:
+        parseStrictIntegerDraft(draft.sandboxJobsPerDay, {
+          label: "Jobs per day",
+          min: 1,
+          allowBlank: true
+        }) ?? null,
+      maxArtifactSendCountPerTurn: parseStrictIntegerDraft(
         draft.sandboxMaxArtifactSendCountPerTurn,
-        4
-      )
+        {
+          label: "Max sends per turn",
+          min: 1
+        }
+      )!
     },
     contextPolicy: {
       preset: draft.contextPolicyPreset,
-      targetContextBudget: parsePositiveIntDraft(
-        draft.targetContextBudget,
-        Number.parseInt(contextPolicyDefaults.targetContextBudget, 10)
-      ),
-      compactionTriggerThreshold: parsePositiveIntDraft(
-        draft.compactionTriggerThreshold,
-        Number.parseInt(contextPolicyDefaults.compactionTriggerThreshold, 10)
-      ),
-      keepRecentMinimum: parsePositiveIntDraft(
-        draft.keepRecentMinimum,
-        Number.parseInt(contextPolicyDefaults.keepRecentMinimum, 10)
-      ),
-      knowledgeHydrationBudget: parseNonNegativeIntDraft(
-        draft.knowledgeHydrationBudget,
-        Number.parseInt(contextPolicyDefaults.knowledgeHydrationBudget, 10)
-      ),
-      ...(sharedCompactionSummaryBudgetTokens === undefined
+      targetContextBudget: parseStrictIntegerDraft(draft.targetContextBudget, {
+        label: "Target context budget",
+        min: 1
+      })!,
+      compactionTriggerThreshold: parseStrictIntegerDraft(draft.compactionTriggerThreshold, {
+        label: "Compaction trigger",
+        min: 1
+      })!,
+      keepRecentMinimum: parseStrictIntegerDraft(draft.keepRecentMinimum, {
+        label: "Keep recent turns",
+        min: 1
+      })!,
+      knowledgeHydrationBudget: parseStrictIntegerDraft(draft.knowledgeHydrationBudget, {
+        label: "Knowledge budget",
+        min: 0
+      })!,
+      ...(sharedCompactionSummaryBudgetTokens === null
         ? {}
         : {
             sharedCompactionSummaryBudgetTokens
@@ -541,7 +750,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     retrievalModelKey: toNullable(draft.retrievalModelKey),
     embeddingModelKey: toNullable(draft.embeddingModelKey),
     videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
-    runtimeTierDefault: draft.runtimeTierDefault,
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -632,6 +840,13 @@ function HelpText({ children, className }: { children: ReactNode; className?: st
   );
 }
 
+function FieldError({ message }: { message: string | undefined }) {
+  if (!message) {
+    return null;
+  }
+  return <HelpText className="mt-1 text-red-300">{message}</HelpText>;
+}
+
 function Panel({
   title,
   hint,
@@ -709,11 +924,13 @@ function Input({
   value,
   onValue,
   placeholder,
+  invalid = false,
   className: extra,
   ...rest
 }: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
   value: string;
   onValue: (v: string) => void;
+  invalid?: boolean;
 }) {
   return (
     <input
@@ -721,7 +938,8 @@ function Input({
       onChange={(e) => onValue(e.target.value)}
       placeholder={placeholder}
       className={cn(
-        "w-full rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50",
+        "w-full rounded border bg-surface-raised px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1",
+        invalid ? "border-red-400/70 focus:ring-red-400/50" : "border-border focus:ring-accent/50",
         extra
       )}
       {...rest}
@@ -909,6 +1127,7 @@ function ToolActivationReadOnlyGroup({
 function PlanForm({
   draft,
   onPatch,
+  validationErrors,
   showCode,
   code,
   onCodeChange,
@@ -916,6 +1135,7 @@ function PlanForm({
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
+  validationErrors: DraftValidationErrors;
   showCode: boolean;
   code: string;
   onCodeChange: (v: string) => void;
@@ -1080,8 +1300,8 @@ function PlanForm({
             </SubPanel>
           </div>
           <HelpText className="mt-2">
-            `Runtime tier default` stays hidden here on purpose. It is no longer useful for normal
-            admin editing on the active product path.
+            Runtime routing default is server-managed on the active product path and is no longer
+            edited here.
           </HelpText>
         </Panel>
         <Panel
@@ -1099,9 +1319,15 @@ function PlanForm({
                     value={draft.tokenBudgetLimit}
                     onChange={(e) => onPatch({ tokenBudgetLimit: e.target.value })}
                     placeholder="default"
-                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.tokenBudgetLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
                   />
                 </label>
+                <FieldError message={validationErrors.tokenBudgetLimit} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
                     Media upload budget (MB)
@@ -1112,9 +1338,15 @@ function PlanForm({
                     value={draft.mediaStorageMb}
                     onChange={(e) => onPatch({ mediaStorageMb: e.target.value })}
                     placeholder="default"
-                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.mediaStorageMb
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
                   />
                 </label>
+                <FieldError message={validationErrors.mediaStorageMb} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Applied on the PersAI-native runtime path.">
                     Workspace disk (MB)
@@ -1124,10 +1356,16 @@ function PlanForm({
                     min={0}
                     value={draft.workspaceStorageMb}
                     onChange={(e) => onPatch({ workspaceStorageMb: e.target.value })}
-                    placeholder="500"
-                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    placeholder="default"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.workspaceStorageMb
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
                   />
                 </label>
+                <FieldError message={validationErrors.workspaceStorageMb} />
               </div>
             </SubPanel>
 
@@ -1135,47 +1373,56 @@ function PlanForm({
               <div className="grid gap-2 sm:grid-cols-2">
                 {[
                   {
+                    key: "retrievalDefaultMaxResults" as const,
                     label: "Default results",
                     value: draft.retrievalDefaultMaxResults,
                     patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
                   },
                   {
+                    key: "retrievalHardMaxResults" as const,
                     label: "Hard max results",
                     value: draft.retrievalHardMaxResults,
                     patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
                   },
                   {
+                    key: "retrievalLexicalCandidateLimit" as const,
                     label: "Lexical candidate pool",
                     value: draft.retrievalLexicalCandidateLimit,
                     patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
                   },
                   {
+                    key: "retrievalVectorCandidateLimit" as const,
                     label: "Vector candidate pool",
                     value: draft.retrievalVectorCandidateLimit,
                     patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
                   },
                   {
+                    key: "retrievalKnowledgeFetchWindowRadius" as const,
                     label: "Doc fetch radius",
                     value: draft.retrievalKnowledgeFetchWindowRadius,
                     patch: (value: string) =>
                       onPatch({ retrievalKnowledgeFetchWindowRadius: value })
                   },
                   {
+                    key: "retrievalChatFetchWindowRadius" as const,
                     label: "Chat fetch radius",
                     value: draft.retrievalChatFetchWindowRadius,
                     patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
                   },
                   {
+                    key: "retrievalFetchMaxChars" as const,
                     label: "Fetch max chars",
                     value: draft.retrievalFetchMaxChars,
                     patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
                   },
                   {
+                    key: "retrievalHelperCandidateLimit" as const,
                     label: "Helper candidates",
                     value: draft.retrievalHelperCandidateLimit,
                     patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
                   },
                   {
+                    key: "retrievalHelperMaxOutputTokens" as const,
                     label: "Helper max output tokens",
                     value: draft.retrievalHelperMaxOutputTokens,
                     patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
@@ -1186,13 +1433,15 @@ function PlanForm({
                     className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
                   >
                     {field.label}
-                    <input
+                    <Input
                       type="number"
                       min={1}
                       value={field.value}
-                      onChange={(e) => field.patch(e.target.value)}
-                      className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                      onValue={field.patch}
+                      invalid={Boolean(validationErrors[field.key])}
+                      className="w-28 appearance-none bg-bg text-right text-xs [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                     />
+                    <FieldError message={validationErrors[field.key]} />
                   </label>
                 ))}
               </div>
@@ -1295,40 +1544,56 @@ function PlanForm({
               <Check
                 label="Enable sandbox tools"
                 checked={draft.sandboxEnabled}
-                onChange={(value) => onPatch({ sandboxEnabled: value })}
+                onChange={(value) =>
+                  onPatch(
+                    value
+                      ? { sandboxEnabled: true }
+                      : { sandboxEnabled: false, sandboxNetworkAccessEnabled: false }
+                  )
+                }
               />
               <Check
                 label="Allow sandbox network"
                 checked={draft.sandboxNetworkAccessEnabled}
                 onChange={(value) => onPatch({ sandboxNetworkAccessEnabled: value })}
+                disabled={!draft.sandboxEnabled}
               />
             </div>
+            <HelpText className="mt-2">
+              Keep network off unless the plan truly needs outbound sandbox access. Disabling
+              sandbox also turns network off.
+            </HelpText>
 
             <div className="mt-2 grid gap-2 lg:grid-cols-3">
               <SubPanel title="Workspace and files">
                 <div className="grid gap-2">
                   {[
                     {
+                      key: "sandboxMaxSingleFileMb" as const,
                       label: "Max single file (MB)",
                       value: draft.sandboxMaxSingleFileMb,
                       patch: (value: string) => onPatch({ sandboxMaxSingleFileMb: value })
                     },
                     {
+                      key: "sandboxMaxWorkspaceMb" as const,
                       label: "Workspace budget (MB)",
                       value: draft.sandboxMaxWorkspaceMb,
                       patch: (value: string) => onPatch({ sandboxMaxWorkspaceMb: value })
                     },
                     {
+                      key: "sandboxMaxArtifactsPerJob" as const,
                       label: "Artifacts per job",
                       value: draft.sandboxMaxArtifactsPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxArtifactsPerJob: value })
                     },
                     {
+                      key: "sandboxMaxFilesPerJob" as const,
                       label: "Files per job",
                       value: draft.sandboxMaxFilesPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxFilesPerJob: value })
                     },
                     {
+                      key: "sandboxMaxDirsPerJob" as const,
                       label: "Directories per job",
                       value: draft.sandboxMaxDirsPerJob,
                       patch: (value: string) => onPatch({ sandboxMaxDirsPerJob: value })
@@ -1339,7 +1604,14 @@ function PlanForm({
                       className="space-y-1 text-[11px] font-medium text-text"
                     >
                       <span className="block">{field.label}</span>
-                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                      <Input
+                        type="number"
+                        min={0}
+                        value={field.value}
+                        onValue={field.patch}
+                        invalid={Boolean(validationErrors[field.key])}
+                      />
+                      <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}
                 </div>
@@ -1349,36 +1621,43 @@ function PlanForm({
                 <div className="grid gap-2">
                   {[
                     {
+                      key: "sandboxMaxProcessRuntimeMs" as const,
                       label: "Process timeout (ms)",
                       value: draft.sandboxMaxProcessRuntimeMs,
                       patch: (value: string) => onPatch({ sandboxMaxProcessRuntimeMs: value })
                     },
                     {
+                      key: "sandboxMaxCpuMs" as const,
                       label: "CPU budget (ms)",
                       value: draft.sandboxMaxCpuMs,
                       patch: (value: string) => onPatch({ sandboxMaxCpuMs: value })
                     },
                     {
+                      key: "sandboxMaxMemoryMb" as const,
                       label: "Memory cap (MB)",
                       value: draft.sandboxMaxMemoryMb,
                       patch: (value: string) => onPatch({ sandboxMaxMemoryMb: value })
                     },
                     {
+                      key: "sandboxMaxConcurrentProcesses" as const,
                       label: "Concurrent processes",
                       value: draft.sandboxMaxConcurrentProcesses,
                       patch: (value: string) => onPatch({ sandboxMaxConcurrentProcesses: value })
                     },
                     {
+                      key: "sandboxMaxStdoutKb" as const,
                       label: "Stdout cap (KB)",
                       value: draft.sandboxMaxStdoutKb,
                       patch: (value: string) => onPatch({ sandboxMaxStdoutKb: value })
                     },
                     {
+                      key: "sandboxMaxStderrKb" as const,
                       label: "Stderr cap (KB)",
                       value: draft.sandboxMaxStderrKb,
                       patch: (value: string) => onPatch({ sandboxMaxStderrKb: value })
                     },
                     {
+                      key: "sandboxJobsPerDay" as const,
                       label: "Jobs per day",
                       value: draft.sandboxJobsPerDay,
                       patch: (value: string) => onPatch({ sandboxJobsPerDay: value })
@@ -1389,7 +1668,14 @@ function PlanForm({
                       className="space-y-1 text-[11px] font-medium text-text"
                     >
                       <span className="block">{field.label}</span>
-                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                      <Input
+                        type="number"
+                        min={0}
+                        value={field.value}
+                        onValue={field.patch}
+                        invalid={Boolean(validationErrors[field.key])}
+                      />
+                      <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}
                 </div>
@@ -1402,16 +1688,19 @@ function PlanForm({
                 <div className="grid gap-2">
                   {[
                     {
+                      key: "sandboxWebOutboundMb" as const,
                       label: "Web outbound (MB)",
                       value: draft.sandboxWebOutboundMb,
                       patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
                     },
                     {
+                      key: "sandboxTelegramOutboundMb" as const,
                       label: "Telegram outbound (MB)",
                       value: draft.sandboxTelegramOutboundMb,
                       patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
                     },
                     {
+                      key: "sandboxMaxArtifactSendCountPerTurn" as const,
                       label: "Max sends per turn",
                       value: draft.sandboxMaxArtifactSendCountPerTurn,
                       patch: (value: string) =>
@@ -1423,7 +1712,14 @@ function PlanForm({
                       className="space-y-1 text-[11px] font-medium text-text"
                     >
                       <span className="block">{field.label}</span>
-                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                      <Input
+                        type="number"
+                        min={0}
+                        value={field.value}
+                        onValue={field.patch}
+                        invalid={Boolean(validationErrors[field.key])}
+                      />
+                      <FieldError message={validationErrors[field.key]} />
                     </label>
                   ))}
                   <label className="space-y-1 text-[11px] font-medium text-text">
@@ -1511,7 +1807,9 @@ function PlanForm({
                         })
                       }
                       placeholder="24000"
+                      invalid={Boolean(validationErrors.targetContextBudget)}
                     />
+                    <FieldError message={validationErrors.targetContextBudget} />
                   </label>
                   <label className="space-y-1 text-[11px] font-medium text-text">
                     <span className="block">Compaction trigger</span>
@@ -1526,7 +1824,9 @@ function PlanForm({
                         })
                       }
                       placeholder="8000"
+                      invalid={Boolean(validationErrors.compactionTriggerThreshold)}
                     />
+                    <FieldError message={validationErrors.compactionTriggerThreshold} />
                   </label>
                   <label className="space-y-1 text-[11px] font-medium text-text">
                     <span className="block">Keep recent turns</span>
@@ -1541,7 +1841,9 @@ function PlanForm({
                         })
                       }
                       placeholder="4"
+                      invalid={Boolean(validationErrors.keepRecentMinimum)}
                     />
+                    <FieldError message={validationErrors.keepRecentMinimum} />
                   </label>
                   <label className="space-y-1 text-[11px] font-medium text-text">
                     <span className="block">Knowledge budget</span>
@@ -1556,7 +1858,9 @@ function PlanForm({
                         })
                       }
                       placeholder="2400"
+                      invalid={Boolean(validationErrors.knowledgeHydrationBudget)}
                     />
+                    <FieldError message={validationErrors.knowledgeHydrationBudget} />
                   </label>
                   <label className="space-y-1 text-[11px] font-medium text-text sm:col-span-2">
                     <span className="block">Shared summary budget</span>
@@ -1575,7 +1879,9 @@ function PlanForm({
                           resolveDraftTargetContextBudget(draft)
                         )
                       )}
+                      invalid={Boolean(validationErrors.sharedCompactionSummaryBudgetTokens)}
                     />
+                    <FieldError message={validationErrors.sharedCompactionSummaryBudgetTokens} />
                     <HelpText>
                       Leave blank for auto (
                       {String(
@@ -1770,7 +2076,7 @@ function PlanCardReadOnly({
                     Workspace disk:{" "}
                     {plan.quotaLimits?.workspaceStorageBytesLimit != null
                       ? `${String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))} MB`
-                      : "500 MB"}
+                      : "platform default"}
                   </div>
                 </div>
               </Sec>
@@ -1869,9 +2175,11 @@ export default function AdminPlansPage() {
   );
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<PlanDraft>(() => emptyDraft());
+  const [createValidationErrors, setCreateValidationErrors] = useState<DraftValidationErrors>({});
   const [createCode, setCreateCode] = useState("");
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<PlanDraft | null>(null);
+  const [editValidationErrors, setEditValidationErrors] = useState<DraftValidationErrors>({});
   const [availableModelKeys, setAvailableModelKeys] = useState<
     { provider: string; model: string }[]
   >([]);
@@ -1925,9 +2233,11 @@ export default function AdminPlansPage() {
 
   const patchCreate = useCallback((p: Partial<PlanDraft>) => {
     setCreateDraft((d) => ({ ...d, ...p }));
+    setCreateValidationErrors((current) => clearValidationErrors(current, p));
   }, []);
   const patchEdit = useCallback((p: Partial<PlanDraft>) => {
     setEditDraft((d) => (d ? { ...d, ...p } : d));
+    setEditValidationErrors((current) => clearValidationErrors(current, p));
   }, []);
 
   const handleForceReapplyAll = useCallback(async () => {
@@ -1978,6 +2288,7 @@ export default function AdminPlansPage() {
         }));
     }
     setCreateDraft(draft);
+    setCreateValidationErrors({});
     setCreateCode("");
     setCreateOpen((o) => !o);
     setFeedback(null);
@@ -1986,6 +2297,7 @@ export default function AdminPlansPage() {
   const closeCreate = useCallback(() => {
     setCreateOpen(false);
     setCreateDraft(emptyDraft());
+    setCreateValidationErrors({});
     setCreateCode("");
   }, []);
 
@@ -1993,12 +2305,14 @@ export default function AdminPlansPage() {
     setCreateOpen(false);
     setEditingCode(plan.code);
     setEditDraft(planToDraft(plan));
+    setEditValidationErrors({});
     setFeedback(null);
   }, []);
 
   const cancelEdit = useCallback(() => {
     setEditingCode(null);
     setEditDraft(null);
+    setEditValidationErrors({});
   }, []);
 
   async function onCreateSubmit(e: FormEvent) {
@@ -2011,6 +2325,12 @@ export default function AdminPlansPage() {
     }
     if (!createCode.trim()) {
       setFeedback({ kind: "error", message: "Plan code is required." });
+      return;
+    }
+    const errors = validatePlanDraft(createDraft);
+    if (Object.keys(errors).length > 0) {
+      setCreateValidationErrors(errors);
+      setFeedback({ kind: "error", message: "Fix the highlighted plan values before saving." });
       return;
     }
     setSaving(true);
@@ -2039,6 +2359,12 @@ export default function AdminPlansPage() {
     if (!token || !editingCode || !editDraft) return;
     if (!editDraft.displayName.trim()) {
       setFeedback({ kind: "error", message: "Display name is required." });
+      return;
+    }
+    const errors = validatePlanDraft(editDraft);
+    if (Object.keys(errors).length > 0) {
+      setEditValidationErrors(errors);
+      setFeedback({ kind: "error", message: "Fix the highlighted plan values before saving." });
       return;
     }
     setSaving(true);
@@ -2177,6 +2503,7 @@ export default function AdminPlansPage() {
           <PlanForm
             draft={createDraft}
             onPatch={patchCreate}
+            validationErrors={createValidationErrors}
             showCode
             code={createCode}
             onCodeChange={setCreateCode}
@@ -2231,6 +2558,7 @@ export default function AdminPlansPage() {
                   <PlanForm
                     draft={editDraft}
                     onPatch={patchEdit}
+                    validationErrors={editValidationErrors}
                     showCode={false}
                     code=""
                     onCodeChange={() => {}}

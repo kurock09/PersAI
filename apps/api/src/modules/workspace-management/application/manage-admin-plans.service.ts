@@ -43,7 +43,7 @@ import {
   toPlanSandboxPolicyDocument
 } from "./sandbox-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
-import { isPlanManagedTool } from "../../../../prisma/tool-catalog-data";
+import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
 
@@ -145,6 +145,41 @@ function parseObject(value: unknown, fieldName: string): Record<string, unknown>
   }
   return value as Record<string, unknown>;
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergePlanPatchValue(currentValue: unknown, patchValue: unknown): unknown {
+  if (patchValue === undefined) {
+    return currentValue;
+  }
+  if (isRecord(currentValue) && isRecord(patchValue)) {
+    return mergePlanPatchObject(currentValue, patchValue);
+  }
+  if (patchValue === null && isRecord(currentValue)) {
+    return currentValue;
+  }
+  return patchValue;
+}
+
+function mergePlanPatchObject(
+  currentValue: Record<string, unknown>,
+  patchValue: Record<string, unknown>
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...currentValue };
+  for (const [key, value] of Object.entries(patchValue)) {
+    merged[key] = mergePlanPatchValue(currentValue[key], value);
+  }
+  return merged;
+}
+
+const PLAN_MANAGED_TOOL_DEFAULTS = TOOL_CATALOG.filter((tool) => isPlanManagedTool(tool.code)).map(
+  (tool) => ({
+    toolCode: tool.code,
+    toolClass: tool.toolClass
+  })
+);
 
 function hasAllowedFlag(items: unknown, key: string): boolean {
   if (!Array.isArray(items)) {
@@ -291,6 +326,10 @@ export class ManageAdminPlansService {
     return this.parsePlanInput(parsed);
   }
 
+  parseUpdatePatch(body: unknown): Record<string, unknown> {
+    return parseObject(body, "request body");
+  }
+
   async createPlan(
     userId: string,
     input: AdminCreatePlanInput,
@@ -339,7 +378,7 @@ export class ManageAdminPlansService {
   async updatePlan(
     userId: string,
     code: string,
-    input: AdminPlanInput,
+    patch: Record<string, unknown>,
     stepUpToken: string | null
   ): Promise<AdminPlanState> {
     const access = await this.adminAuthorizationService.assertCanPerformDangerousAdminAction(
@@ -348,20 +387,27 @@ export class ManageAdminPlansService {
       stepUpToken
     );
     const normalizedCode = parseRequiredString(code, "code").toLowerCase();
+    const existing = await this.planCatalogRepository.findByCode(normalizedCode);
+    if (existing === null) {
+      throw new NotFoundException("Plan not found.");
+    }
+    const mergedInput = this.parsePlanInput(
+      mergePlanPatchObject(this.toAdminPlanState(existing), patch)
+    );
+    await this.assertModelKeysAvailable([
+      mergedInput.primaryModelKey,
+      mergedInput.premiumModelKey,
+      mergedInput.reasoningModelKey,
+      mergedInput.retrievalModelKey,
+      mergedInput.embeddingModelKey
+    ]);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
-      this.toWriteInput(input)
+      this.toWriteInput(mergedInput)
     );
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
     }
-    await this.assertModelKeysAvailable([
-      input.primaryModelKey,
-      input.premiumModelKey,
-      input.reasoningModelKey,
-      input.retrievalModelKey,
-      input.embeddingModelKey
-    ]);
     await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: access.workspaceId,
@@ -522,6 +568,7 @@ export class ManageAdminPlansService {
     if (!Array.isArray(raw)) {
       throw new BadRequestException("toolActivations must be an array.");
     }
+    const seenToolCodes = new Set<string>();
     return raw.map((item, idx) => {
       if (item === null || typeof item !== "object" || Array.isArray(item)) {
         throw new BadRequestException(`toolActivations[${String(idx)}] must be an object.`);
@@ -536,6 +583,12 @@ export class ManageAdminPlansService {
           `toolActivations[${String(idx)}].toolCode "${toolCode}" is not plan-managed and cannot be edited here.`
         );
       }
+      if (seenToolCodes.has(toolCode)) {
+        throw new BadRequestException(
+          `toolActivations[${String(idx)}].toolCode "${toolCode}" is duplicated.`
+        );
+      }
+      seenToolCodes.add(toolCode);
       const active = toBoolean(typed.active);
       let dailyCallLimit: number | null = null;
       if (typed.dailyCallLimit !== undefined && typed.dailyCallLimit !== null) {
@@ -622,12 +675,32 @@ export class ManageAdminPlansService {
         ],
         limitsPermissions: []
       },
-      toolActivationOverrides: (input.toolActivations ?? []).map((ta) => ({
+      toolActivationOverrides: this.toCanonicalToolActivationOverrides(input).map((ta) => ({
         toolCode: ta.toolCode,
         active: ta.active,
         dailyCallLimit: ta.dailyCallLimit
       }))
     };
+  }
+
+  private toCanonicalToolActivationOverrides(
+    input: AdminPlanInput
+  ): AdminPlanToolActivationInput[] {
+    const overrides = new Map(
+      (input.toolActivations ?? []).map((ta) => [ta.toolCode, ta] as const)
+    );
+    return PLAN_MANAGED_TOOL_DEFAULTS.map((tool) => {
+      const override = overrides.get(tool.toolCode);
+      const activeByClass =
+        tool.toolClass === "utility"
+          ? input.entitlements.toolClasses.utilityTools
+          : input.entitlements.toolClasses.costDrivingTools;
+      return {
+        toolCode: tool.toolCode,
+        active: override?.active ?? activeByClass,
+        dailyCallLimit: override?.dailyCallLimit ?? null
+      };
+    });
   }
 
   private async assertModelKeysAvailable(modelKeys: Array<string | null>): Promise<void> {

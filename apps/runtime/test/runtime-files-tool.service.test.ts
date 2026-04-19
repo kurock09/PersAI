@@ -39,7 +39,11 @@ function createBundle(overrides?: {
         webMaxOutboundBytes: overrides?.webMaxOutboundBytes ?? 4096,
         telegramMaxOutboundBytes: overrides?.telegramMaxOutboundBytes ?? 4096,
         sandboxJobsPerDay: null,
-        maxArtifactSendCountPerTurn: overrides?.maxArtifactSendCountPerTurn ?? 2
+        ...(overrides?.maxArtifactSendCountPerTurn === undefined
+          ? {}
+          : {
+              maxArtifactSendCountPerTurn: overrides.maxArtifactSendCountPerTurn
+            })
       }
     },
     governance: {
@@ -153,7 +157,31 @@ async function run(): Promise<void> {
         }
         return ids.includes("file-ref-1") ? [canonicalRow] : [];
       },
-      async findFirst() {
+      async findFirst(input?: {
+        where?: {
+          id?: string;
+          relativePath?: string;
+          assistantId?: string;
+          workspaceId?: string;
+        };
+      }) {
+        const where = input?.where;
+        if (
+          where?.id !== undefined &&
+          (where.id !== canonicalRow.id ||
+            where.assistantId !== canonicalRow.assistantId ||
+            where.workspaceId !== canonicalRow.workspaceId)
+        ) {
+          return null;
+        }
+        if (
+          where?.relativePath !== undefined &&
+          (where.relativePath !== canonicalRow.relativePath ||
+            where.assistantId !== canonicalRow.assistantId ||
+            where.workspaceId !== canonicalRow.workspaceId)
+        ) {
+          return null;
+        }
         return canonicalRow;
       }
     }
@@ -268,6 +296,45 @@ async function run(): Promise<void> {
   );
   assert.equal(sendFileRef.artifacts[0]?.filename, "custom-report.txt");
   assert.equal(sendFileRef.artifacts[0]?.caption, "Sandbox output");
+
+  const sendFileRefWithDefaultCap = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-send-default-cap",
+      name: "files",
+      arguments: {
+        action: "send",
+        fileRefs: ["file-ref-1"]
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4b",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(sendFileRefWithDefaultCap.isError, false);
+  assert.equal(sendFileRefWithDefaultCap.payload.action, "queued");
+
+  const missingGet = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-get-missing",
+      name: "files",
+      arguments: {
+        action: "get",
+        fileRef: "missing-file-ref"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4c",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(missingGet.isError, true);
+  assert.equal(missingGet.payload.action, "skipped");
+  assert.equal(missingGet.payload.reason, "file_not_found");
 
   const blockedMime = await service.executeToolCall({
     bundle: createBundle({

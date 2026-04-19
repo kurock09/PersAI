@@ -656,6 +656,63 @@ async function run(): Promise<void> {
     assert.equal(coldReadJob.status, "completed");
     assert.equal(coldReadJob.content, "second version");
 
+    const inheritedWorkspaceHarness = createDurableHarness();
+    for (let index = 0; index < 20; index += 1) {
+      const objectKey = `assistant-media/persisted/inherited-${String(index)}.txt`;
+      const inheritedBuffer = Buffer.from(`seed-${String(index)}`, "utf8");
+      inheritedWorkspaceHarness.storedObjects.set(objectKey, inheritedBuffer);
+      inheritedWorkspaceHarness.assistantFiles.push({
+        id: `assistant-file-inherited-${String(index)}`,
+        assistantId: "assistant-inherited",
+        workspaceId: "workspace-inherited",
+        sandboxJobId: "job-seed",
+        origin: "sandbox_output",
+        sourceToolCode: "files",
+        objectKey,
+        relativePath: `dir-${String(index)}/seed.txt`,
+        displayName: "seed.txt",
+        mimeType: "text/plain",
+        sizeBytes: BigInt(inheritedBuffer.length),
+        logicalSizeBytes: BigInt(inheritedBuffer.length),
+        sha256: createHash("sha256").update(inheritedBuffer).digest("hex"),
+        metadata: {},
+        createdAt: new Date(Date.now() - 5_000),
+        updatedAt: new Date(Date.now() - 5_000)
+      });
+    }
+    inheritedWorkspaceHarness.jobs.set("job-inherited-write", {
+      id: "job-inherited-write",
+      assistantId: "assistant-inherited",
+      workspaceId: "workspace-inherited",
+      toolCode: "files",
+      status: "queued",
+      resultPayload: null,
+      violationCode: null,
+      violationMessage: null,
+      resourceUsage: null
+    });
+    const inheritedWriteService = inheritedWorkspaceHarness.createService();
+    const inheritedWriteAccess = inheritedWriteService as unknown as SandboxServiceTestAccess;
+    await inheritedWriteAccess.executeQueuedJob("job-inherited-write", {
+      assistantId: "assistant-inherited",
+      workspaceId: "workspace-inherited",
+      runtimeRequestId: "request-inherited-write",
+      runtimeSessionId: "session-inherited-write",
+      toolCode: "files",
+      policy: {
+        ...durablePolicy,
+        maxFileCountPerJob: 1,
+        maxDirectoryCountPerJob: 1,
+        maxWorkspaceBytesPerJob: 1024
+      },
+      args: {
+        action: "write",
+        path: "hello_test.txt",
+        content: "hello from PersAI"
+      }
+    });
+    assert.equal(inheritedWorkspaceHarness.jobs.get("job-inherited-write")?.status, "completed");
+
     const leaseHarness = createDurableHarness();
     const leaseServiceA = leaseHarness.createService();
     const leaseServiceB = leaseHarness.createService();
@@ -1081,6 +1138,23 @@ async function run(): Promise<void> {
 
   const processGuardService = new SandboxService({} as never, {} as never);
   const processGuardTestAccess = processGuardService as unknown as SandboxServiceTestAccess;
+  let workspaceStatsChecks = 0;
+  (
+    processGuardService as unknown as {
+      computeWorkspaceStats(workspaceRoot: string): Promise<{
+        fileCount: number;
+        directoryCount: number;
+        totalBytes: number;
+      }>;
+    }
+  ).computeWorkspaceStats = async () => {
+    workspaceStatsChecks += 1;
+    return {
+      fileCount: 0,
+      directoryCount: 0,
+      totalBytes: 0
+    };
+  };
   const processWorkspace = await fs.mkdtemp(join(tmpdir(), "persai-sandbox-process-"));
   const processGuardPolicy = {
     ...DEFAULT_RUNTIME_SANDBOX_POLICY,
@@ -1223,6 +1297,7 @@ async function run(): Promise<void> {
         await processGuardTestAccess.terminateProcessTree(sampledTreeRoot.pid);
       }
     }
+    assert.equal(workspaceStatsChecks, 0);
   } finally {
     await fs.rm(processWorkspace, { recursive: true, force: true });
   }

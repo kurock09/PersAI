@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  ProviderGatewayToolCall,
-  RuntimeFileRef,
-  RuntimeFilesToolAction,
-  RuntimeFilesToolItem,
-  RuntimeFilesToolResult,
-  RuntimeOutputArtifact,
-  RuntimeSandboxJobRequest,
-  RuntimeSandboxJobResult,
-  RuntimeToolPolicy
+import {
+  DEFAULT_RUNTIME_SANDBOX_POLICY,
+  type ProviderGatewayToolCall,
+  type RuntimeFileRef,
+  type RuntimeFilesToolAction,
+  type RuntimeFilesToolItem,
+  type RuntimeFilesToolResult,
+  type RuntimeOutputArtifact,
+  type RuntimeSandboxJobRequest,
+  type RuntimeSandboxJobResult,
+  type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
@@ -251,7 +252,7 @@ export class RuntimeFilesToolService {
           items: resolved.items ?? []
         },
         artifacts: [],
-        isError: resolved.reason !== "file_not_found"
+        isError: true
       };
     }
     return {
@@ -305,7 +306,7 @@ export class RuntimeFilesToolService {
           items: resolved.items ?? []
         },
         artifacts: [],
-        isError: resolved.reason !== "file_not_found"
+        isError: true
       };
     }
 
@@ -417,7 +418,7 @@ export class RuntimeFilesToolService {
           items: resolved.items ?? []
         },
         artifacts: [],
-        isError: resolved.reason !== "file_not_found"
+        isError: true
       };
     }
 
@@ -488,7 +489,7 @@ export class RuntimeFilesToolService {
             items: resolved.items ?? []
           },
           artifacts: [],
-          isError: resolved.reason !== "file_not_found"
+          isError: true
         };
       }
       selectedFileRefs.push(resolved.item.fileRef);
@@ -564,7 +565,9 @@ export class RuntimeFilesToolService {
       filename: params.selection.filename
     });
 
-    const maxCount = params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ?? 0;
+    const maxCount =
+      params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ??
+      DEFAULT_RUNTIME_SANDBOX_POLICY.maxArtifactSendCountPerTurn;
     const existingArtifactIds = new Set(
       params.currentArtifacts.map((artifact) => artifact.artifactId)
     );

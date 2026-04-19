@@ -1203,8 +1203,8 @@ export default function AdminOverviewPage() {
                 <span className="font-mono text-text">
                   api -&gt; runtime -&gt; provider-gateway
                 </span>
-                . The old tier matrix is removed; Step 19 should scale the runtime deployment
-                horizontally instead of pretending there are fixed logical tiers here.
+                . The old tier matrix is removed; scale the runtime deployment horizontally instead
+                of pretending there are fixed logical tiers here.
               </p>
               <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
                 {[d.runtime.runtime, d.runtime.providerGateway].map((workload) => (

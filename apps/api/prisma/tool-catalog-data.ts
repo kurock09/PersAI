@@ -224,7 +224,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
     modelUsageGuidance:
-      "Use this only when a shell command is actually needed. Refer to files in the assistant workspace by relative path and prefer narrower file tools when possible.",
+      "Use this only when a shell command is actually needed. Refer to files in the assistant workspace by relative path and prefer the files tool for normal file IO.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -249,7 +249,7 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   memory_get: { active: true, dailyCallLimit: null },
   cron: { active: false, dailyCallLimit: null },
   scheduled_action: { active: true, dailyCallLimit: null },
-  files: { active: false, dailyCallLimit: 20 },
+  files: { active: true, dailyCallLimit: 20 },
   exec: { active: false, dailyCallLimit: 5 },
   shell: { active: false, dailyCallLimit: 5 }
 };

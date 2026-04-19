@@ -44,6 +44,12 @@ type WorkspaceStats = {
   totalBytes: number;
 };
 
+const EMPTY_WORKSPACE_STATS: WorkspaceStats = {
+  fileCount: 0,
+  directoryCount: 0,
+  totalBytes: 0
+};
+
 type AssistantWorkspaceFileRecord = {
   id: string;
   objectKey: string;
@@ -279,6 +285,7 @@ export class SandboxService {
         request.mountedFileRefs ?? []
       );
       this.assertWorkspaceLeaseActive(leaseGuard);
+      const baselineWorkspaceStats = await this.computeWorkspaceStats(workspaceRoot);
 
       const result = await this.executeTool({
         workspaceRoot,
@@ -291,7 +298,7 @@ export class SandboxService {
 
       const stats = await this.computeWorkspaceStats(workspaceRoot);
       this.assertWorkspaceLeaseActive(leaseGuard);
-      this.assertWorkspaceStats(stats, request.policy);
+      this.assertWorkspaceStats(stats, request.policy, baselineWorkspaceStats);
 
       const files = await this.collectWorkspaceFiles(workspaceRoot);
       const workspaceDelta = this.resolveWorkspaceDelta(
@@ -319,6 +326,7 @@ export class SandboxService {
       });
       this.assertWorkspaceLeaseActive(leaseGuard);
       await this.deleteRemovedWorkspaceFiles({
+        workspaceRoot,
         assistantId: request.assistantId,
         workspaceId: request.workspaceId,
         deletedPaths: workspaceDelta.deletedPaths,
@@ -745,8 +753,6 @@ export class SandboxService {
         void (async () => {
           try {
             this.assertWorkspaceLeaseActive(input.leaseGuard);
-            const stats = await this.computeWorkspaceStats(input.workspaceRoot);
-            this.assertWorkspaceStats(stats, input.policy);
             const usage = await this.readProcessTreeUsage(rootPid);
             if (usage !== null) {
               peakProcessCount = Math.max(peakProcessCount, usage.processCount);
@@ -899,6 +905,13 @@ export class SandboxService {
   }
 
   private async listPosixProcessSnapshots(): Promise<ProcessSnapshot[]> {
+    if (process.platform === "linux") {
+      try {
+        return await this.listLinuxProcProcessSnapshots();
+      } catch {
+        return [];
+      }
+    }
     const output = await this.captureCommandOutput("ps", ["-axo", "pid=,ppid=,rss=,time="]);
     return output
       .split(/\r?\n/)
@@ -924,6 +937,70 @@ export class SandboxService {
         } satisfies ProcessSnapshot;
       })
       .filter((row): row is ProcessSnapshot => row !== null);
+  }
+
+  private async listLinuxProcProcessSnapshots(): Promise<ProcessSnapshot[]> {
+    const entries = await fs.readdir("/proc", { withFileTypes: true });
+    const snapshots = await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && /^[0-9]+$/.test(entry.name))
+        .map(async (entry) => {
+          const pid = Number.parseInt(entry.name, 10);
+          if (!Number.isInteger(pid)) {
+            return null;
+          }
+          try {
+            const [statRaw, statmRaw] = await Promise.all([
+              fs.readFile(`/proc/${entry.name}/stat`, "utf8"),
+              fs.readFile(`/proc/${entry.name}/statm`, "utf8")
+            ]);
+            const parsed = this.parseLinuxProcStat(statRaw);
+            if (parsed === null) {
+              return null;
+            }
+            const rssPages = Number.parseInt(statmRaw.trim().split(/\s+/, 2)[1] ?? "0", 10);
+            return {
+              pid,
+              ppid: parsed.ppid,
+              cpuMs: Math.max(parsed.cpuTicks, 0) * 10,
+              memoryBytes: Number.isInteger(rssPages) && rssPages > 0 ? rssPages * 4096 : 0
+            } satisfies ProcessSnapshot;
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              "code" in error &&
+              ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+                (error as NodeJS.ErrnoException).code === "ESRCH")
+            ) {
+              return null;
+            }
+            throw error;
+          }
+        })
+    );
+    return snapshots.filter((row): row is ProcessSnapshot => row !== null);
+  }
+
+  private parseLinuxProcStat(raw: string): { ppid: number | null; cpuTicks: number } | null {
+    const trimmed = raw.trim();
+    const closingParen = trimmed.lastIndexOf(")");
+    if (closingParen === -1 || closingParen + 2 >= trimmed.length) {
+      return null;
+    }
+    const rest = trimmed
+      .slice(closingParen + 2)
+      .trim()
+      .split(/\s+/);
+    if (rest.length < 22) {
+      return null;
+    }
+    const ppid = Number.parseInt(rest[1] ?? "", 10);
+    const utime = Number.parseInt(rest[11] ?? "", 10);
+    const stime = Number.parseInt(rest[12] ?? "", 10);
+    return {
+      ppid: Number.isInteger(ppid) ? ppid : null,
+      cpuTicks: (Number.isInteger(utime) ? utime : 0) + (Number.isInteger(stime) ? stime : 0)
+    };
   }
 
   private parsePosixCpuTimeToMs(raw: string): number {
@@ -967,8 +1044,14 @@ export class SandboxService {
       }
       return;
     }
-    const usage = await this.readProcessTreeUsage(rootPid);
-    for (const pid of [...new Set(usage?.pids ?? [rootPid])].sort((left, right) => right - left)) {
+    let pids = [rootPid];
+    try {
+      const usage = await this.readProcessTreeUsage(rootPid);
+      pids = [...new Set(usage?.pids ?? [rootPid])];
+    } catch {
+      // Fall back to killing the known root pid when process inspection is unavailable.
+    }
+    for (const pid of pids.sort((left, right) => right - left)) {
       try {
         process.kill(pid, "SIGKILL");
       } catch {
@@ -1601,6 +1684,7 @@ export class SandboxService {
   }
 
   private async deleteRemovedWorkspaceFiles(input: {
+    workspaceRoot: string;
     assistantId: string;
     workspaceId: string;
     deletedPaths: string[];
@@ -1619,6 +1703,7 @@ export class SandboxService {
         }
       }
     });
+    await this.pruneEmptyWorkspaceDirectories(input.workspaceRoot, input.deletedPaths);
   }
 
   private toProducedFile(row: {
@@ -1679,6 +1764,46 @@ export class SandboxService {
     return output.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   }
 
+  private async pruneEmptyWorkspaceDirectories(
+    workspaceRoot: string,
+    deletedPaths: string[]
+  ): Promise<void> {
+    const normalizedRoot = resolve(workspaceRoot);
+    const candidateDirs = new Set<string>();
+    for (const deletedPath of deletedPaths) {
+      const absolutePath = this.resolveWorkspacePath(workspaceRoot, deletedPath);
+      let currentDir = dirname(absolutePath);
+      while (
+        currentDir.startsWith(normalizedRoot) &&
+        currentDir !== normalizedRoot &&
+        currentDir.length >= normalizedRoot.length
+      ) {
+        candidateDirs.add(currentDir);
+        currentDir = dirname(currentDir);
+      }
+    }
+    const orderedCandidates = [...candidateDirs].sort((left, right) => right.length - left.length);
+    for (const candidateDir of orderedCandidates) {
+      try {
+        const entries = await fs.readdir(candidateDir);
+        if (entries.length > 0) {
+          continue;
+        }
+        await fs.rmdir(candidateDir);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+            (error as NodeJS.ErrnoException).code === "ENOTEMPTY")
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
   private selectProducedWorkspaceFiles(
     files: WorkspaceFileSnapshot[],
     mountedFiles: MountedWorkspaceState
@@ -1717,29 +1842,32 @@ export class SandboxService {
     return { fileCount, directoryCount, totalBytes };
   }
 
-  private assertWorkspaceStats(stats: WorkspaceStats, policy: RuntimeSandboxPolicy): void {
-    if (stats.fileCount > policy.maxFileCountPerJob) {
+  private assertWorkspaceStats(
+    stats: WorkspaceStats,
+    policy: RuntimeSandboxPolicy,
+    baselineStats: WorkspaceStats = EMPTY_WORKSPACE_STATS
+  ): void {
+    const addedFileCount = Math.max(stats.fileCount - baselineStats.fileCount, 0);
+    const addedDirectoryCount = Math.max(stats.directoryCount - baselineStats.directoryCount, 0);
+    const addedBytes = Math.max(stats.totalBytes - baselineStats.totalBytes, 0);
+    if (addedFileCount > policy.maxFileCountPerJob) {
       this.throwPolicy(
         "file_count_limit_exceeded",
-        `Sandbox job created ${String(stats.fileCount)} files, above the limit of ${String(
+        `Sandbox job added ${String(addedFileCount)} files, above the per-job limit of ${String(
           policy.maxFileCountPerJob
         )}.`
       );
     }
-    if (stats.directoryCount > policy.maxDirectoryCountPerJob) {
+    if (addedDirectoryCount > policy.maxDirectoryCountPerJob) {
       this.throwPolicy(
         "directory_count_limit_exceeded",
-        `Sandbox job created ${String(stats.directoryCount)} directories, above the limit of ${String(
-          policy.maxDirectoryCountPerJob
-        )}.`
+        `Sandbox job added ${String(addedDirectoryCount)} directories, above the per-job limit of ${String(policy.maxDirectoryCountPerJob)}.`
       );
     }
-    if (stats.totalBytes > policy.maxWorkspaceBytesPerJob) {
+    if (addedBytes > policy.maxWorkspaceBytesPerJob) {
       this.throwPolicy(
         "workspace_size_limit_exceeded",
-        `Sandbox workspace reached ${String(stats.totalBytes)} bytes, above the limit of ${String(
-          policy.maxWorkspaceBytesPerJob
-        )}.`
+        `Sandbox job increased workspace bytes by ${String(addedBytes)}, above the per-job limit of ${String(policy.maxWorkspaceBytesPerJob)} bytes.`
       );
     }
   }

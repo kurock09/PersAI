@@ -30,6 +30,19 @@ async function run(): Promise<void> {
     autoCompactionWeb: false,
     autoCompactionTelegram: true
   };
+  const retrievalPolicyForTest = {
+    defaultMaxResults: 5,
+    maxMaxResults: 8,
+    lexicalCandidateLimit: 60,
+    vectorCandidateLimit: 240,
+    knowledgeFetchWindowRadius: 1,
+    chatFetchWindowRadius: 2,
+    fetchMaxChars: 6000,
+    helperEnabled: true,
+    helperCandidateLimit: 6,
+    helperMaxOutputTokens: 220,
+    embeddingSearchEnabled: true
+  };
 
   const parsed = service.parseUpdateInput({
     displayName: "Starter",
@@ -221,6 +234,237 @@ async function run(): Promise<void> {
       ...contextPolicy,
       sharedCompactionSummaryBudgetTokens: 1200
     }
+  );
+  assert.equal(
+    (
+      writeInput as {
+        toolActivationOverrides: Array<{
+          toolCode: string;
+          active: boolean;
+          dailyCallLimit: number | null;
+        }>;
+      }
+    ).toolActivationOverrides.some(
+      (activation) =>
+        activation.toolCode === "files" &&
+        activation.active === true &&
+        activation.dailyCallLimit === null
+    ),
+    true
+  );
+  assert.equal(
+    (
+      writeInput as {
+        toolActivationOverrides: Array<{
+          toolCode: string;
+          active: boolean;
+          dailyCallLimit: number | null;
+        }>;
+      }
+    ).toolActivationOverrides.some(
+      (activation) =>
+        activation.toolCode === "memory_get" &&
+        activation.active === true &&
+        activation.dailyCallLimit === null
+    ),
+    true
+  );
+
+  let updatedWriteInput: Record<string, unknown> | null = null;
+  const partialUpdateService = createService({
+    planCatalogRepository: {
+      async findByCode(code: string) {
+        assert.equal(code, "starter");
+        return {
+          id: "plan-existing",
+          code: "starter",
+          displayName: "Starter",
+          description: "Existing starter plan",
+          status: "active",
+          billingProviderHints: {
+            schema: "persai.billingHints.v1",
+            providerAgnostic: true,
+            notes: "keep me",
+            contextPolicy: {
+              schema: "persai.planContextHydration.v1",
+              ...contextPolicy
+            },
+            retrievalPolicy: {
+              ...retrievalPolicyForTest
+            },
+            sandboxPolicy: {
+              schema: "persai.planSandboxPolicy.v1",
+              enabled: true,
+              maxSingleFileWriteBytes: 4096,
+              maxWorkspaceBytesPerJob: 8192,
+              maxPersistedArtifactsPerJob: 4,
+              maxFileCountPerJob: 32,
+              maxDirectoryCountPerJob: 16,
+              maxProcessRuntimeMs: 15000,
+              maxCpuMsPerJob: 15000,
+              maxMemoryBytesPerJob: 268435456,
+              maxConcurrentProcesses: 4,
+              maxStdoutBytes: 131072,
+              maxStderrBytes: 131072,
+              networkAccessEnabled: false,
+              artifactMimeAllowlist: ["text/plain"],
+              webMaxOutboundBytes: 26214400,
+              telegramMaxOutboundBytes: 52428800,
+              sandboxJobsPerDay: null,
+              maxArtifactSendCountPerTurn: 4
+            }
+          },
+          entitlementModel: {
+            schemaVersion: 1,
+            capabilities: [],
+            toolClasses: [
+              { key: "cost_driving", allowed: false, quotaGoverned: true },
+              { key: "utility", allowed: true, quotaGoverned: true }
+            ],
+            channelsAndSurfaces: [
+              { key: "web_chat", allowed: true },
+              { key: "telegram", allowed: true },
+              { key: "whatsapp", allowed: false },
+              { key: "max", allowed: false }
+            ],
+            mediaClasses: [
+              { key: "image", allowed: false },
+              { key: "audio", allowed: false },
+              { key: "video", allowed: false },
+              { key: "file", allowed: false }
+            ],
+            limitsPermissions: []
+          },
+          toolActivations: [
+            {
+              toolCode: "files",
+              displayName: "Files",
+              toolClass: "utility",
+              policyClass: "plan_managed",
+              activationStatus: "active",
+              dailyCallLimit: 12
+            },
+            {
+              toolCode: "shell",
+              displayName: "Shell",
+              toolClass: "cost_driving",
+              policyClass: "plan_managed",
+              activationStatus: "inactive",
+              dailyCallLimit: null
+            }
+          ],
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date("2026-04-14T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-14T12:00:00.000Z")
+        } satisfies AssistantPlanCatalog;
+      },
+      async updateByCode(code: string, input: Record<string, unknown>) {
+        assert.equal(code, "starter");
+        updatedWriteInput = input;
+        return {
+          id: "plan-existing",
+          code: "starter",
+          displayName: "Starter patched",
+          description: "Existing starter plan",
+          status: "active",
+          billingProviderHints: (input as { billingProviderHints: Record<string, unknown> | null })
+            .billingProviderHints,
+          entitlementModel: null,
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date("2026-04-14T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-14T12:00:00.000Z")
+        } satisfies AssistantPlanCatalog;
+      }
+    },
+    appendAssistantAuditEventService: {
+      async execute() {
+        return undefined;
+      }
+    },
+    adminAuthorizationService: {
+      async assertCanPerformDangerousAdminAction() {
+        return {
+          workspaceId: "ws-1",
+          roles: ["business_admin"],
+          hasLegacyOwnerFallback: false
+        };
+      }
+    },
+    bumpConfigGenerationService: {
+      async execute() {
+        return undefined;
+      }
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: [],
+            anthropic: []
+          }
+        };
+      }
+    }
+  });
+  await partialUpdateService.updatePlan(
+    "admin-user",
+    "starter",
+    {
+      displayName: "Starter patched",
+      metadata: {
+        notes: "patched notes"
+      }
+    },
+    "step-up"
+  );
+  assert.equal(updatedWriteInput?.displayName, "Starter patched");
+  assert.equal(
+    (
+      updatedWriteInput?.billingProviderHints as {
+        notes?: string | null;
+        sandboxPolicy?: { enabled?: boolean };
+        retrievalPolicy?: { defaultMaxResults?: number };
+      }
+    ).notes,
+    "patched notes"
+  );
+  assert.equal(
+    (
+      updatedWriteInput?.billingProviderHints as {
+        sandboxPolicy?: { enabled?: boolean };
+      }
+    ).sandboxPolicy?.enabled,
+    true
+  );
+  assert.equal(
+    (
+      updatedWriteInput?.billingProviderHints as {
+        retrievalPolicy?: { defaultMaxResults?: number };
+      }
+    ).retrievalPolicy?.defaultMaxResults,
+    retrievalPolicyForTest.defaultMaxResults
+  );
+  assert.equal(
+    (
+      updatedWriteInput as {
+        toolActivationOverrides?: Array<{
+          toolCode: string;
+          active: boolean;
+          dailyCallLimit: number | null;
+        }>;
+      }
+    ).toolActivationOverrides?.some(
+      (activation) =>
+        activation.toolCode === "files" &&
+        activation.active === true &&
+        activation.dailyCallLimit === 12
+    ),
+    true
   );
 
   assert.throws(

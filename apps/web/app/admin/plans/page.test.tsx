@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AdminPlanState } from "@persai/contracts";
-import { ToolActivationsEdit, draftToPayload, planToDraft } from "./page";
+import { ToolActivationsEdit, draftToPayload, planToDraft, validatePlanDraft } from "./page";
 
 function createPlanState(): AdminPlanState {
   return {
@@ -114,6 +114,7 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");
     expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
+    expect("runtimeTierDefault" in draftToPayload(draft)).toBe(false);
     expect(
       draftToPayload({
         ...draft,
@@ -127,6 +128,21 @@ describe("admin plans page helpers", () => {
         videoGenerateModelKey: ""
       }).videoGenerateModelKey
     ).toBeNull();
+  });
+
+  it("flags invalid numeric draft values instead of silently defaulting", () => {
+    const draft = planToDraft(createPlanState());
+    const invalid = {
+      ...draft,
+      retrievalDefaultMaxResults: "",
+      sandboxMaxFilesPerJob: "abc"
+    };
+
+    expect(validatePlanDraft(invalid)).toMatchObject({
+      retrievalDefaultMaxResults: expect.stringContaining("required"),
+      sandboxMaxFilesPerJob: expect.stringContaining("whole number")
+    });
+    expect(() => draftToPayload(invalid)).toThrow(/Default results is required/);
   });
 
   it("renders a video model select only for the video row", () => {
