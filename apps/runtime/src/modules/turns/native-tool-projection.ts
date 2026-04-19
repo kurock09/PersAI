@@ -760,7 +760,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         query: {
           type: "string",
           description:
-            'Search text for action="search", or a selector for action="get", "read", "edit", or "send" when fileRef/path is unavailable.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", or "send" when fileRef/path is unavailable.'
         },
         limit: {
           type: "integer",
@@ -821,7 +821,7 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
     name: "exec",
     description: resolveToolDefinitionDescription(
       policy,
-      "Run one executable with explicit arguments inside the sandbox workspace. Files created earlier in the same turn stay mounted at their relative paths."
+      "Run one executable with explicit arguments inside the assistant sandbox workspace. Refer to files by their relative paths inside that workspace."
     ),
     inputSchema: {
       type: "object",
@@ -851,7 +851,7 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "shell",
     description: resolveToolDefinitionDescription(
       policy,
-      "Run a bounded shell command inside the sandbox workspace. Files created earlier in the same turn stay mounted at their relative paths."
+      "Run a bounded shell command inside the assistant sandbox workspace. Refer to files by their relative paths inside that workspace."
     ),
     inputSchema: {
       type: "object",

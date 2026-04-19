@@ -656,6 +656,26 @@ function Panel({
   );
 }
 
+function SubPanel({
+  title,
+  hint,
+  children,
+  className
+}: {
+  title: string;
+  hint?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("rounded border border-border/70 bg-surface px-2.5 py-2", className)}>
+      <div className="text-[9px] font-bold uppercase tracking-wider text-text-subtle">{title}</div>
+      {hint ? <HelpText className="mt-1">{hint}</HelpText> : null}
+      <div className="mt-2">{children}</div>
+    </div>
+  );
+}
+
 function Check({
   label,
   checked,
@@ -768,75 +788,77 @@ export function ToolActivationsEdit({
   }
 
   return (
-    <div className="space-y-1.5">
-      <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-2 rounded border border-border bg-surface px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-text-subtle">
-        <span>Tool</span>
-        <span className="grid grid-cols-[56px_44px_72px] gap-2">
-          <span>Class</span>
-          <span className="text-center">On</span>
-          <span className="text-right">Limit/d</span>
-        </span>
-      </div>
+    <div className="grid gap-2 md:grid-cols-2">
       {activations.map((ta, idx) => (
         <div
           key={ta.toolCode}
-          className="grid grid-cols-[minmax(0,1fr)_180px] gap-2 rounded border border-border/80 bg-surface-raised px-2 py-1.5"
+          className="rounded-md border border-border/80 bg-surface-raised px-3 py-2"
         >
-          <div className="min-w-0 text-[11px] text-text">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-medium">{ta.displayName}</span>
-              <span className="font-mono text-[10px] text-text-subtle">{ta.toolCode}</span>
-              <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-[11px] font-semibold text-text">{ta.displayName}</span>
+                <span className="font-mono text-[10px] text-text-subtle">{ta.toolCode}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
+                  {ta.toolClass === "cost_driving" ? "cost" : "util"}
+                </Pill>
+                <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+              </div>
             </div>
-            <HelpText className="mt-1">
-              {ta.dailyCallLimit === null
-                ? "Blank limit means this tool inherits the default runtime behavior for the plan."
-                : "Daily cap for this tool on this plan."}
-            </HelpText>
-            {ta.toolCode === "video_generate" ? (
-              <label className="mt-2 flex items-center gap-2 text-[10px] text-text-subtle">
-                <span className="shrink-0 uppercase tracking-wider">Model</span>
-                <select
-                  value={videoGenerateModelKey}
-                  onChange={(e) =>
-                    onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
-                  }
-                  className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
-                >
-                  {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
-                    <option key={option.label} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-          </div>
-          <div className="grid grid-cols-[56px_44px_72px] items-center gap-2">
-            <div className="flex justify-start">
-              <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
-                {ta.toolClass === "cost_driving" ? "cost" : "util"}
-              </Pill>
-            </div>
-            <div className="flex justify-center">
+            <label className="grid shrink-0 gap-1 text-[10px] font-medium text-text-subtle">
+              <span className="text-right uppercase tracking-wider">On</span>
               <input
                 type="checkbox"
                 checked={ta.active}
                 onChange={() => toggle(idx)}
                 aria-label={`${ta.displayName} enabled`}
-                className="h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
+                className="ml-auto h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
               />
+            </label>
+          </div>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div>
+              {ta.toolCode === "video_generate" ? (
+                <label className="grid gap-1">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                    Model
+                  </span>
+                  <select
+                    value={videoGenerateModelKey}
+                    onChange={(e) =>
+                      onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
+                    }
+                    className="min-w-0 rounded border border-border bg-surface px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  >
+                    {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
+                      <option key={option.label} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <HelpText>
+                  Blank daily cap means this tool inherits the plan default behavior.
+                </HelpText>
+              )}
             </div>
-            <div className="flex justify-end">
+            <label className="grid gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                Daily cap
+              </span>
               <input
                 type="number"
                 min={0}
                 value={ta.dailyCallLimit ?? ""}
                 onChange={(e) => setLimit(idx, e.target.value)}
-                placeholder="∞"
-                className="w-[72px] appearance-none rounded border border-border bg-surface px-2 py-0.5 text-right text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                placeholder="inherit"
+                className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
               />
-            </div>
+            </label>
           </div>
         </div>
       ))}
@@ -996,549 +1018,591 @@ function PlanForm({
       </div>
 
       {/* row 4: access + plan defaults */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(280px,0.92fr)_minmax(0,1.45fr)]">
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(280px,0.92fr)_minmax(0,1.45fr)]">
         <Panel
           title="Access surface"
-          hint="The broad plan-level switches. These are intentionally separate from the per-tool toggles below."
+          hint="Broad plan access switches. Keep these simple, then tune individual tools lower on the page."
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Sec label="Tool classes">
-                <div className="space-y-0.5">
-                  <Check
-                    label="Cost-driving"
-                    checked={draft.toolCostDriving}
-                    onChange={(v) => onPatch({ toolCostDriving: v })}
-                  />
-                  <Check
-                    label="Utility"
-                    checked={draft.toolUtility}
-                    onChange={(v) => onPatch({ toolUtility: v })}
-                  />
-                  <Check
-                    label="Cost quota"
-                    checked={draft.toolCostDrivingQuotaGoverned}
-                    onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
-                  />
-                  <Check
-                    label="Util quota"
-                    checked={draft.toolUtilityQuotaGoverned}
-                    onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
-                  />
-                </div>
-              </Sec>
-              <HelpText className="mt-1.5">
-                Cost tools spend quota units. Utility tools are usually free helpers. Quota flags
-                decide whether the class is capped by plan budget.
-              </HelpText>
-            </div>
-            <div>
-              <Sec label="Channels">
-                <div className="space-y-0.5">
-                  <Check
-                    label="Web Chat"
-                    checked={draft.channelWebChat}
-                    onChange={(v) => onPatch({ channelWebChat: v })}
-                  />
-                  <Check
-                    label="Telegram"
-                    checked={draft.channelTelegram}
-                    onChange={(v) => onPatch({ channelTelegram: v })}
-                  />
-                  <Check
-                    label="WhatsApp"
-                    checked={draft.channelWhatsapp}
-                    onChange={(v) => onPatch({ channelWhatsapp: v })}
-                  />
-                  <Check
-                    label="Max"
-                    checked={draft.channelMax}
-                    onChange={(v) => onPatch({ channelMax: v })}
-                  />
-                </div>
-              </Sec>
-              <HelpText className="mt-1.5">
-                Messaging surfaces available to workspaces on this plan.
-              </HelpText>
-            </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <SubPanel
+              title="Tool classes"
+              hint="Cost tools spend quota units. Utility tools are usually free helpers."
+            >
+              <div className="grid gap-1">
+                <Check
+                  label="Cost-driving"
+                  checked={draft.toolCostDriving}
+                  onChange={(v) => onPatch({ toolCostDriving: v })}
+                />
+                <Check
+                  label="Utility"
+                  checked={draft.toolUtility}
+                  onChange={(v) => onPatch({ toolUtility: v })}
+                />
+                <Check
+                  label="Cost quota"
+                  checked={draft.toolCostDrivingQuotaGoverned}
+                  onChange={(v) => onPatch({ toolCostDrivingQuotaGoverned: v })}
+                />
+                <Check
+                  label="Util quota"
+                  checked={draft.toolUtilityQuotaGoverned}
+                  onChange={(v) => onPatch({ toolUtilityQuotaGoverned: v })}
+                />
+              </div>
+            </SubPanel>
+            <SubPanel
+              title="Channels"
+              hint="Messaging surfaces available to workspaces on this plan."
+            >
+              <div className="grid gap-1">
+                <Check
+                  label="Web Chat"
+                  checked={draft.channelWebChat}
+                  onChange={(v) => onPatch({ channelWebChat: v })}
+                />
+                <Check
+                  label="Telegram"
+                  checked={draft.channelTelegram}
+                  onChange={(v) => onPatch({ channelTelegram: v })}
+                />
+                <Check
+                  label="WhatsApp"
+                  checked={draft.channelWhatsapp}
+                  onChange={(v) => onPatch({ channelWhatsapp: v })}
+                />
+                <Check
+                  label="Max"
+                  checked={draft.channelMax}
+                  onChange={(v) => onPatch({ channelMax: v })}
+                />
+              </div>
+            </SubPanel>
           </div>
-          <HelpText className="mt-3">
-            `Runtime tier default` is hidden on purpose. It is no longer useful for everyday admin
-            editing on the active product path.
+          <HelpText className="mt-2">
+            `Runtime tier default` stays hidden here on purpose. It is no longer useful for normal
+            admin editing on the active product path.
           </HelpText>
         </Panel>
         <Panel
           title="Plan limits and model defaults"
-          hint="The knobs admins usually change during plan tuning: storage budgets, retrieval behavior, and model slots."
+          hint="The plan tuning knobs admins usually touch: budgets, retrieval behavior, and model defaults."
         >
-          <Sec label="Quota limits">
-            <div className="space-y-1.5">
-              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                Token budget
-                <input
-                  type="number"
-                  min={0}
-                  value={draft.tokenBudgetLimit}
-                  onChange={(e) => onPatch({ tokenBudgetLimit: e.target.value })}
-                  placeholder="default"
-                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
-                  Media upload budget (MB)
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  value={draft.mediaStorageMb}
-                  onChange={(e) => onPatch({ mediaStorageMb: e.target.value })}
-                  placeholder="default"
-                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                />
-              </label>
-              <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Applied on the PersAI-native runtime path.">
-                  Workspace disk (MB)
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  value={draft.workspaceStorageMb}
-                  onChange={(e) => onPatch({ workspaceStorageMb: e.target.value })}
-                  placeholder="500"
-                  className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-                />
-              </label>
-            </div>
-          </Sec>
-          <Sec label="Retrieval policy">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {[
-                {
-                  label: "Default results",
-                  value: draft.retrievalDefaultMaxResults,
-                  patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
-                },
-                {
-                  label: "Hard max results",
-                  value: draft.retrievalHardMaxResults,
-                  patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
-                },
-                {
-                  label: "Lexical candidate pool",
-                  value: draft.retrievalLexicalCandidateLimit,
-                  patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
-                },
-                {
-                  label: "Vector candidate pool",
-                  value: draft.retrievalVectorCandidateLimit,
-                  patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
-                },
-                {
-                  label: "Doc fetch radius",
-                  value: draft.retrievalKnowledgeFetchWindowRadius,
-                  patch: (value: string) => onPatch({ retrievalKnowledgeFetchWindowRadius: value })
-                },
-                {
-                  label: "Chat fetch radius",
-                  value: draft.retrievalChatFetchWindowRadius,
-                  patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
-                },
-                {
-                  label: "Fetch max chars",
-                  value: draft.retrievalFetchMaxChars,
-                  patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
-                },
-                {
-                  label: "Helper candidates",
-                  value: draft.retrievalHelperCandidateLimit,
-                  patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
-                },
-                {
-                  label: "Helper max output tokens",
-                  value: draft.retrievalHelperMaxOutputTokens,
-                  patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
-                }
-              ].map((field) => (
-                <label
-                  key={field.label}
-                  className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
-                >
-                  {field.label}
+          <div className="grid gap-2">
+            <SubPanel title="Quota limits">
+              <div className="space-y-1.5">
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  Token budget
                   <input
                     type="number"
-                    min={1}
-                    value={field.value}
-                    onChange={(e) => field.patch(e.target.value)}
-                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    min={0}
+                    value={draft.tokenBudgetLimit}
+                    onChange={(e) => onPatch({ tokenBudgetLimit: e.target.value })}
+                    placeholder="default"
+                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
                   />
                 </label>
-              ))}
-            </div>
-            <div className="mt-2 grid gap-1.5">
-              <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
-                <input
-                  type="checkbox"
-                  checked={draft.retrievalHelperEnabled}
-                  onChange={(e) => onPatch({ retrievalHelperEnabled: e.target.checked })}
-                  className="rounded border-border"
-                />
-                Enable helper rerank
-              </label>
-              <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
-                <input
-                  type="checkbox"
-                  checked={draft.retrievalEmbeddingSearchEnabled}
-                  onChange={(e) => onPatch({ retrievalEmbeddingSearchEnabled: e.target.checked })}
-                  className="rounded border-border"
-                />
-                Enable embedding search on query
-              </label>
-            </div>
-          </Sec>
-          <Sec label="AI model slots">
-            <div className="grid gap-2">
-              {[
-                {
-                  label: "Normal reply",
-                  value: draft.primaryModelKey,
-                  patch: (value: string) => onPatch({ primaryModelKey: value }),
-                  placeholder: "platform default"
-                },
-                {
-                  label: "Premium reply",
-                  value: draft.premiumModelKey,
-                  patch: (value: string) => onPatch({ premiumModelKey: value }),
-                  placeholder: "normal reply"
-                },
-                {
-                  label: "Reasoning",
-                  value: draft.reasoningModelKey,
-                  patch: (value: string) => onPatch({ reasoningModelKey: value }),
-                  placeholder: "premium reply"
-                },
-                {
-                  label: "Retrieval helper",
-                  value: draft.retrievalModelKey,
-                  patch: (value: string) => onPatch({ retrievalModelKey: value }),
-                  placeholder: "system/runtime default"
-                },
-                {
-                  label: "Embedding index",
-                  value: draft.embeddingModelKey,
-                  patch: (value: string) => onPatch({ embeddingModelKey: value }),
-                  placeholder: "retrieval helper / runtime default"
-                }
-              ].map((slot) => (
-                <label key={slot.label} className="grid gap-1">
-                  <span className="text-[11px] font-medium text-text">{slot.label}</span>
-                  <select
-                    value={slot.value}
-                    onChange={(e) => slot.patch(e.target.value)}
-                    className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-                  >
-                    <option value="">{slot.placeholder}</option>
-                    {availableModelKeys.length > 0
-                      ? Object.entries(
-                          availableModelKeys.reduce<Record<string, string[]>>(
-                            (acc, { provider, model }) => {
-                              (acc[provider] ??= []).push(model);
-                              return acc;
-                            },
-                            {}
-                          )
-                        ).map(([provider, models]) => (
-                          <optgroup key={provider} label={provider}>
-                            {models.map((m) => (
-                              <option key={`${slot.label}-${m}`} value={m}>
-                                {m}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))
-                      : null}
-                  </select>
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
+                    Media upload budget (MB)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.mediaStorageMb}
+                    onChange={(e) => onPatch({ mediaStorageMb: e.target.value })}
+                    placeholder="default"
+                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                  />
                 </label>
-              ))}
-            </div>
-          </Sec>
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Applied on the PersAI-native runtime path.">
+                    Workspace disk (MB)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.workspaceStorageMb}
+                    onChange={(e) => onPatch({ workspaceStorageMb: e.target.value })}
+                    placeholder="500"
+                    className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                  />
+                </label>
+              </div>
+            </SubPanel>
+
+            <SubPanel title="Retrieval policy">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    label: "Default results",
+                    value: draft.retrievalDefaultMaxResults,
+                    patch: (value: string) => onPatch({ retrievalDefaultMaxResults: value })
+                  },
+                  {
+                    label: "Hard max results",
+                    value: draft.retrievalHardMaxResults,
+                    patch: (value: string) => onPatch({ retrievalHardMaxResults: value })
+                  },
+                  {
+                    label: "Lexical candidate pool",
+                    value: draft.retrievalLexicalCandidateLimit,
+                    patch: (value: string) => onPatch({ retrievalLexicalCandidateLimit: value })
+                  },
+                  {
+                    label: "Vector candidate pool",
+                    value: draft.retrievalVectorCandidateLimit,
+                    patch: (value: string) => onPatch({ retrievalVectorCandidateLimit: value })
+                  },
+                  {
+                    label: "Doc fetch radius",
+                    value: draft.retrievalKnowledgeFetchWindowRadius,
+                    patch: (value: string) =>
+                      onPatch({ retrievalKnowledgeFetchWindowRadius: value })
+                  },
+                  {
+                    label: "Chat fetch radius",
+                    value: draft.retrievalChatFetchWindowRadius,
+                    patch: (value: string) => onPatch({ retrievalChatFetchWindowRadius: value })
+                  },
+                  {
+                    label: "Fetch max chars",
+                    value: draft.retrievalFetchMaxChars,
+                    patch: (value: string) => onPatch({ retrievalFetchMaxChars: value })
+                  },
+                  {
+                    label: "Helper candidates",
+                    value: draft.retrievalHelperCandidateLimit,
+                    patch: (value: string) => onPatch({ retrievalHelperCandidateLimit: value })
+                  },
+                  {
+                    label: "Helper max output tokens",
+                    value: draft.retrievalHelperMaxOutputTokens,
+                    patch: (value: string) => onPatch({ retrievalHelperMaxOutputTokens: value })
+                  }
+                ].map((field) => (
+                  <label
+                    key={field.label}
+                    className="flex items-center justify-between gap-2 text-[11px] font-medium text-text"
+                  >
+                    {field.label}
+                    <input
+                      type="number"
+                      min={1}
+                      value={field.value}
+                      onChange={(e) => field.patch(e.target.value)}
+                      className="w-28 appearance-none rounded border border-border bg-bg px-2 py-1 text-right text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    />
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2 grid gap-1.5">
+                <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                  <input
+                    type="checkbox"
+                    checked={draft.retrievalHelperEnabled}
+                    onChange={(e) => onPatch({ retrievalHelperEnabled: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  Enable helper rerank
+                </label>
+                <label className="inline-flex items-center gap-2 text-[11px] text-text-subtle">
+                  <input
+                    type="checkbox"
+                    checked={draft.retrievalEmbeddingSearchEnabled}
+                    onChange={(e) => onPatch({ retrievalEmbeddingSearchEnabled: e.target.checked })}
+                    className="rounded border-border"
+                  />
+                  Enable embedding search on query
+                </label>
+              </div>
+            </SubPanel>
+
+            <SubPanel title="AI model slots">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    label: "Normal reply",
+                    value: draft.primaryModelKey,
+                    patch: (value: string) => onPatch({ primaryModelKey: value }),
+                    placeholder: "platform default"
+                  },
+                  {
+                    label: "Premium reply",
+                    value: draft.premiumModelKey,
+                    patch: (value: string) => onPatch({ premiumModelKey: value }),
+                    placeholder: "normal reply"
+                  },
+                  {
+                    label: "Reasoning",
+                    value: draft.reasoningModelKey,
+                    patch: (value: string) => onPatch({ reasoningModelKey: value }),
+                    placeholder: "premium reply"
+                  },
+                  {
+                    label: "Retrieval helper",
+                    value: draft.retrievalModelKey,
+                    patch: (value: string) => onPatch({ retrievalModelKey: value }),
+                    placeholder: "system/runtime default"
+                  },
+                  {
+                    label: "Embedding index",
+                    value: draft.embeddingModelKey,
+                    patch: (value: string) => onPatch({ embeddingModelKey: value }),
+                    placeholder: "retrieval helper / runtime default"
+                  }
+                ].map((slot) => (
+                  <label key={slot.label} className="grid gap-1">
+                    <span className="text-[11px] font-medium text-text">{slot.label}</span>
+                    <select
+                      value={slot.value}
+                      onChange={(e) => slot.patch(e.target.value)}
+                      className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+                    >
+                      <option value="">{slot.placeholder}</option>
+                      {availableModelKeys.length > 0
+                        ? Object.entries(
+                            availableModelKeys.reduce<Record<string, string[]>>(
+                              (acc, { provider, model }) => {
+                                (acc[provider] ??= []).push(model);
+                                return acc;
+                              },
+                              {}
+                            )
+                          ).map(([provider, models]) => (
+                            <optgroup key={provider} label={provider}>
+                              {models.map((m) => (
+                                <option key={`${slot.label}-${m}`} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : null}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </SubPanel>
+          </div>
         </Panel>
       </div>
 
-      <Sec label="Sandbox policy">
-        <div className="rounded border border-border bg-surface px-3 py-2">
-          <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1">
-            <Check
-              label="Enable sandbox tools"
-              checked={draft.sandboxEnabled}
-              onChange={(value) => onPatch({ sandboxEnabled: value })}
-            />
-            <Check
-              label="Allow sandbox network"
-              checked={draft.sandboxNetworkAccessEnabled}
-              onChange={(value) => onPatch({ sandboxNetworkAccessEnabled: value })}
-            />
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              {
-                label: "Max single file (MB)",
-                value: draft.sandboxMaxSingleFileMb,
-                patch: (value: string) => onPatch({ sandboxMaxSingleFileMb: value })
-              },
-              {
-                label: "Workspace budget (MB)",
-                value: draft.sandboxMaxWorkspaceMb,
-                patch: (value: string) => onPatch({ sandboxMaxWorkspaceMb: value })
-              },
-              {
-                label: "Artifacts per job",
-                value: draft.sandboxMaxArtifactsPerJob,
-                patch: (value: string) => onPatch({ sandboxMaxArtifactsPerJob: value })
-              },
-              {
-                label: "Files per job",
-                value: draft.sandboxMaxFilesPerJob,
-                patch: (value: string) => onPatch({ sandboxMaxFilesPerJob: value })
-              },
-              {
-                label: "Directories per job",
-                value: draft.sandboxMaxDirsPerJob,
-                patch: (value: string) => onPatch({ sandboxMaxDirsPerJob: value })
-              },
-              {
-                label: "Process timeout (ms)",
-                value: draft.sandboxMaxProcessRuntimeMs,
-                patch: (value: string) => onPatch({ sandboxMaxProcessRuntimeMs: value })
-              },
-              {
-                label: "CPU budget (ms)",
-                value: draft.sandboxMaxCpuMs,
-                patch: (value: string) => onPatch({ sandboxMaxCpuMs: value })
-              },
-              {
-                label: "Memory cap (MB)",
-                value: draft.sandboxMaxMemoryMb,
-                patch: (value: string) => onPatch({ sandboxMaxMemoryMb: value })
-              },
-              {
-                label: "Concurrent processes",
-                value: draft.sandboxMaxConcurrentProcesses,
-                patch: (value: string) => onPatch({ sandboxMaxConcurrentProcesses: value })
-              },
-              {
-                label: "Stdout cap (KB)",
-                value: draft.sandboxMaxStdoutKb,
-                patch: (value: string) => onPatch({ sandboxMaxStdoutKb: value })
-              },
-              {
-                label: "Stderr cap (KB)",
-                value: draft.sandboxMaxStderrKb,
-                patch: (value: string) => onPatch({ sandboxMaxStderrKb: value })
-              },
-              {
-                label: "Jobs per day",
-                value: draft.sandboxJobsPerDay,
-                patch: (value: string) => onPatch({ sandboxJobsPerDay: value })
-              },
-              {
-                label: "Web outbound (MB)",
-                value: draft.sandboxWebOutboundMb,
-                patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
-              },
-              {
-                label: "Telegram outbound (MB)",
-                value: draft.sandboxTelegramOutboundMb,
-                patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
-              },
-              {
-                label: "Max sends per turn",
-                value: draft.sandboxMaxArtifactSendCountPerTurn,
-                patch: (value: string) => onPatch({ sandboxMaxArtifactSendCountPerTurn: value })
-              }
-            ].map((field) => (
-              <label key={field.label} className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">{field.label}</span>
-                <Input type="number" min={0} value={field.value} onValue={field.patch} />
-              </label>
-            ))}
-          </div>
-          <label className="mt-2 block space-y-1 text-[11px] font-medium text-text">
-            <span className="block">Allowed delivery mime types</span>
-            <textarea
-              value={draft.sandboxArtifactMimeAllowlist}
-              onChange={(e) => onPatch({ sandboxArtifactMimeAllowlist: e.target.value })}
-              rows={3}
-              className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-              placeholder="text/plain, application/json, image/png"
-            />
-            <span className="block text-[10px] font-normal leading-snug text-text-subtle/80">
-              Comma-separated allowlist for files that may be delivered through `files.send`.
-            </span>
-          </label>
-        </div>
-      </Sec>
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+        <Sec label="Sandbox policy">
+          <div className="rounded border border-border bg-surface px-3 py-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <Check
+                label="Enable sandbox tools"
+                checked={draft.sandboxEnabled}
+                onChange={(value) => onPatch({ sandboxEnabled: value })}
+              />
+              <Check
+                label="Allow sandbox network"
+                checked={draft.sandboxNetworkAccessEnabled}
+                onChange={(value) => onPatch({ sandboxNetworkAccessEnabled: value })}
+              />
+            </div>
 
-      {/* row 5: context policy */}
-      <Sec label="Context policy">
-        <div className="rounded border border-border bg-surface px-3 py-2">
-          <div className="grid gap-2 md:grid-cols-[180px_1fr]">
-            <div>
-              <label className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-text-subtle">
-                Preset
-              </label>
-              <select
-                value={draft.contextPolicyPreset}
-                onChange={(e) => {
-                  const preset = e.target.value as ContextPolicyPresetDraft;
-                  if (preset === "lean" || preset === "balanced" || preset === "rich") {
-                    onPatch(applyContextPolicyPreset(preset));
-                    return;
-                  }
-                  onPatch({ contextPolicyPreset: "custom" });
-                }}
-                className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+            <div className="mt-2 grid gap-2 lg:grid-cols-3">
+              <SubPanel title="Workspace and files">
+                <div className="grid gap-2">
+                  {[
+                    {
+                      label: "Max single file (MB)",
+                      value: draft.sandboxMaxSingleFileMb,
+                      patch: (value: string) => onPatch({ sandboxMaxSingleFileMb: value })
+                    },
+                    {
+                      label: "Workspace budget (MB)",
+                      value: draft.sandboxMaxWorkspaceMb,
+                      patch: (value: string) => onPatch({ sandboxMaxWorkspaceMb: value })
+                    },
+                    {
+                      label: "Artifacts per job",
+                      value: draft.sandboxMaxArtifactsPerJob,
+                      patch: (value: string) => onPatch({ sandboxMaxArtifactsPerJob: value })
+                    },
+                    {
+                      label: "Files per job",
+                      value: draft.sandboxMaxFilesPerJob,
+                      patch: (value: string) => onPatch({ sandboxMaxFilesPerJob: value })
+                    },
+                    {
+                      label: "Directories per job",
+                      value: draft.sandboxMaxDirsPerJob,
+                      patch: (value: string) => onPatch({ sandboxMaxDirsPerJob: value })
+                    }
+                  ].map((field) => (
+                    <label
+                      key={field.label}
+                      className="space-y-1 text-[11px] font-medium text-text"
+                    >
+                      <span className="block">{field.label}</span>
+                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                    </label>
+                  ))}
+                </div>
+              </SubPanel>
+
+              <SubPanel title="Processes and output">
+                <div className="grid gap-2">
+                  {[
+                    {
+                      label: "Process timeout (ms)",
+                      value: draft.sandboxMaxProcessRuntimeMs,
+                      patch: (value: string) => onPatch({ sandboxMaxProcessRuntimeMs: value })
+                    },
+                    {
+                      label: "CPU budget (ms)",
+                      value: draft.sandboxMaxCpuMs,
+                      patch: (value: string) => onPatch({ sandboxMaxCpuMs: value })
+                    },
+                    {
+                      label: "Memory cap (MB)",
+                      value: draft.sandboxMaxMemoryMb,
+                      patch: (value: string) => onPatch({ sandboxMaxMemoryMb: value })
+                    },
+                    {
+                      label: "Concurrent processes",
+                      value: draft.sandboxMaxConcurrentProcesses,
+                      patch: (value: string) => onPatch({ sandboxMaxConcurrentProcesses: value })
+                    },
+                    {
+                      label: "Stdout cap (KB)",
+                      value: draft.sandboxMaxStdoutKb,
+                      patch: (value: string) => onPatch({ sandboxMaxStdoutKb: value })
+                    },
+                    {
+                      label: "Stderr cap (KB)",
+                      value: draft.sandboxMaxStderrKb,
+                      patch: (value: string) => onPatch({ sandboxMaxStderrKb: value })
+                    },
+                    {
+                      label: "Jobs per day",
+                      value: draft.sandboxJobsPerDay,
+                      patch: (value: string) => onPatch({ sandboxJobsPerDay: value })
+                    }
+                  ].map((field) => (
+                    <label
+                      key={field.label}
+                      className="space-y-1 text-[11px] font-medium text-text"
+                    >
+                      <span className="block">{field.label}</span>
+                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                    </label>
+                  ))}
+                </div>
+              </SubPanel>
+
+              <SubPanel
+                title="Delivery"
+                hint="Final delivery limits for files selected through the `files` tool."
               >
-                {CONTEXT_POLICY_PRESET_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-[10px] leading-snug text-text-subtle/80">
-                Presets tune prompt budget, compaction pressure, and auto-behavior per plan. Any
-                manual override switches the draft to custom.
-              </p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-              <label className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">Target context budget</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.targetContextBudget}
-                  onValue={(value) =>
-                    onPatch({
-                      contextPolicyPreset: "custom",
-                      targetContextBudget: value
-                    })
-                  }
-                  placeholder="24000"
-                />
-              </label>
-              <label className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">Compaction trigger</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.compactionTriggerThreshold}
-                  onValue={(value) =>
-                    onPatch({
-                      contextPolicyPreset: "custom",
-                      compactionTriggerThreshold: value
-                    })
-                  }
-                  placeholder="8000"
-                />
-              </label>
-              <label className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">Keep recent turns</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.keepRecentMinimum}
-                  onValue={(value) =>
-                    onPatch({
-                      contextPolicyPreset: "custom",
-                      keepRecentMinimum: value
-                    })
-                  }
-                  placeholder="4"
-                />
-              </label>
-              <label className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">Knowledge budget</span>
-                <Input
-                  type="number"
-                  min={0}
-                  value={draft.knowledgeHydrationBudget}
-                  onValue={(value) =>
-                    onPatch({
-                      contextPolicyPreset: "custom",
-                      knowledgeHydrationBudget: value
-                    })
-                  }
-                  placeholder="2400"
-                />
-              </label>
-              <label className="space-y-1 text-[11px] font-medium text-text">
-                <span className="block">Shared summary budget</span>
-                <Input
-                  type="number"
-                  min={1}
-                  value={draft.sharedCompactionSummaryBudgetTokens}
-                  onValue={(value) =>
-                    onPatch({
-                      contextPolicyPreset: "custom",
-                      sharedCompactionSummaryBudgetTokens: value
-                    })
-                  }
-                  placeholder={String(
-                    deriveSharedCompactionSummaryBudgetTokens(
-                      resolveDraftTargetContextBudget(draft)
-                    )
-                  )}
-                />
-                <span className="block text-[10px] font-normal leading-snug text-text-subtle/80">
-                  Leave blank for auto (
-                  {String(
-                    deriveSharedCompactionSummaryBudgetTokens(
-                      resolveDraftTargetContextBudget(draft)
-                    )
-                  )}{" "}
-                  tokens, ~
-                  {String(
-                    deriveSharedCompactionSummaryBudgetTokens(
-                      resolveDraftTargetContextBudget(draft)
-                    ) * APPROX_SUMMARY_CHARS_PER_TOKEN
-                  )}{" "}
-                  chars).
-                </span>
-              </label>
+                <div className="grid gap-2">
+                  {[
+                    {
+                      label: "Web outbound (MB)",
+                      value: draft.sandboxWebOutboundMb,
+                      patch: (value: string) => onPatch({ sandboxWebOutboundMb: value })
+                    },
+                    {
+                      label: "Telegram outbound (MB)",
+                      value: draft.sandboxTelegramOutboundMb,
+                      patch: (value: string) => onPatch({ sandboxTelegramOutboundMb: value })
+                    },
+                    {
+                      label: "Max sends per turn",
+                      value: draft.sandboxMaxArtifactSendCountPerTurn,
+                      patch: (value: string) =>
+                        onPatch({ sandboxMaxArtifactSendCountPerTurn: value })
+                    }
+                  ].map((field) => (
+                    <label
+                      key={field.label}
+                      className="space-y-1 text-[11px] font-medium text-text"
+                    >
+                      <span className="block">{field.label}</span>
+                      <Input type="number" min={0} value={field.value} onValue={field.patch} />
+                    </label>
+                  ))}
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Allowed delivery mime types</span>
+                    <textarea
+                      value={draft.sandboxArtifactMimeAllowlist}
+                      onChange={(e) => onPatch({ sandboxArtifactMimeAllowlist: e.target.value })}
+                      rows={4}
+                      className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+                      placeholder="text/plain, application/json, image/png"
+                    />
+                    <HelpText>
+                      Comma-separated allowlist for files that may be delivered through
+                      `files.send`.
+                    </HelpText>
+                  </label>
+                </div>
+              </SubPanel>
             </div>
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-            <Check
-              label="Auto-compact on web"
-              checked={draft.autoCompactionWeb}
-              onChange={(value) =>
-                onPatch({
-                  contextPolicyPreset: "custom",
-                  autoCompactionWeb: value
-                })
-              }
-            />
-            <Check
-              label="Auto-compact on Telegram"
-              checked={draft.autoCompactionTelegram}
-              onChange={(value) =>
-                onPatch({
-                  contextPolicyPreset: "custom",
-                  autoCompactionTelegram: value
-                })
-              }
-            />
+        </Sec>
+
+        {/* row 5: context policy */}
+        <Sec label="Context policy">
+          <div className="rounded border border-border bg-surface px-3 py-2">
+            <div className="grid gap-2">
+              <SubPanel
+                title="Preset"
+                hint="Presets tune prompt budget, compaction pressure, and auto behavior. Any manual override switches the draft to custom."
+              >
+                <select
+                  value={draft.contextPolicyPreset}
+                  onChange={(e) => {
+                    const preset = e.target.value as ContextPolicyPresetDraft;
+                    if (preset === "lean" || preset === "balanced" || preset === "rich") {
+                      onPatch(applyContextPolicyPreset(preset));
+                      return;
+                    }
+                    onPatch({ contextPolicyPreset: "custom" });
+                  }}
+                  className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+                >
+                  {CONTEXT_POLICY_PRESET_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 grid gap-1">
+                  <Check
+                    label="Auto-compact on web"
+                    checked={draft.autoCompactionWeb}
+                    onChange={(value) =>
+                      onPatch({
+                        contextPolicyPreset: "custom",
+                        autoCompactionWeb: value
+                      })
+                    }
+                  />
+                  <Check
+                    label="Auto-compact on Telegram"
+                    checked={draft.autoCompactionTelegram}
+                    onChange={(value) =>
+                      onPatch({
+                        contextPolicyPreset: "custom",
+                        autoCompactionTelegram: value
+                      })
+                    }
+                  />
+                </div>
+              </SubPanel>
+
+              <SubPanel title="Budgets and thresholds">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Target context budget</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.targetContextBudget}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          targetContextBudget: value
+                        })
+                      }
+                      placeholder="24000"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Compaction trigger</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.compactionTriggerThreshold}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          compactionTriggerThreshold: value
+                        })
+                      }
+                      placeholder="8000"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Keep recent turns</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.keepRecentMinimum}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          keepRecentMinimum: value
+                        })
+                      }
+                      placeholder="4"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Knowledge budget</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={draft.knowledgeHydrationBudget}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          knowledgeHydrationBudget: value
+                        })
+                      }
+                      placeholder="2400"
+                    />
+                  </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text sm:col-span-2">
+                    <span className="block">Shared summary budget</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.sharedCompactionSummaryBudgetTokens}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          sharedCompactionSummaryBudgetTokens: value
+                        })
+                      }
+                      placeholder={String(
+                        deriveSharedCompactionSummaryBudgetTokens(
+                          resolveDraftTargetContextBudget(draft)
+                        )
+                      )}
+                    />
+                    <HelpText>
+                      Leave blank for auto (
+                      {String(
+                        deriveSharedCompactionSummaryBudgetTokens(
+                          resolveDraftTargetContextBudget(draft)
+                        )
+                      )}{" "}
+                      tokens, ~
+                      {String(
+                        deriveSharedCompactionSummaryBudgetTokens(
+                          resolveDraftTargetContextBudget(draft)
+                        ) * APPROX_SUMMARY_CHARS_PER_TOKEN
+                      )}{" "}
+                      chars).
+                    </HelpText>
+                  </label>
+                </div>
+                <HelpText className="mt-2">
+                  `Target context budget` is the plan&apos;s target message budget. `Compaction
+                  trigger` defines when runtime should start compressing older context. `Knowledge
+                  budget` reserves room for durable memory and future retrieval inserts.
+                </HelpText>
+              </SubPanel>
+            </div>
           </div>
-          <p className="mt-2 text-[10px] leading-snug text-text-subtle/80">
-            `Target context budget` is the plan&apos;s target message budget. `Compaction trigger`
-            defines when runtime should start compressing older context. `Knowledge budget` reserves
-            space for durable memory and future retrieval inserts. `Shared summary budget` caps the
-            retained reusable summary from shared compaction; leave it blank to auto-derive from the
-            target budget.
-          </p>
-        </div>
-      </Sec>
+        </Sec>
+      </div>
 
       {/* row 6: tool activations */}
       <Sec label="Tool activations">

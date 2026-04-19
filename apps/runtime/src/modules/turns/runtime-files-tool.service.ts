@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
@@ -13,7 +14,6 @@ import type {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
-import { RuntimeSendMediaToUserService } from "./runtime-send-media-to-user.service";
 import { SandboxClientService } from "./sandbox-client.service";
 
 const DEFAULT_FILES_SEARCH_LIMIT = 8;
@@ -78,6 +78,13 @@ type ResolvedFilesToolTarget =
   | { item: null; reason: string; warning: string | null; items?: RuntimeFilesToolItem[] };
 
 type SandboxFilesAction = "read" | "write" | "edit";
+type RuntimeResolvedQueuedArtifacts = {
+  artifacts: RuntimeOutputArtifact[];
+  queuedArtifacts: number;
+  reason: string | null;
+  warning: string | null;
+  isError: boolean;
+};
 
 export interface RuntimeFilesToolExecutionResult {
   payload: RuntimeFilesToolResult;
@@ -90,7 +97,6 @@ export class RuntimeFilesToolService {
   constructor(
     private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
     private readonly sandboxClientService: SandboxClientService,
-    private readonly runtimeSendMediaToUserService: RuntimeSendMediaToUserService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
@@ -310,9 +316,9 @@ export class RuntimeFilesToolService {
       action: "read",
       args: {
         action: "read",
-        fileRef: resolved.item.fileRef
+        path: resolved.item.relativePath
       },
-      mountedFileRefs: this.collectMountedFileRefs(params.currentFileRefs, resolved.item.fileRef)
+      mountedFileRefs: []
     });
 
     return {
@@ -357,7 +363,7 @@ export class RuntimeFilesToolService {
         path: request.path,
         content: request.content
       },
-      mountedFileRefs: this.collectMountedFileRefs(params.currentFileRefs)
+      mountedFileRefs: []
     });
     const items = this.toItemsFromJob(job);
     return {
@@ -426,7 +432,7 @@ export class RuntimeFilesToolService {
         oldText: request.oldText,
         newText: request.newText
       },
-      mountedFileRefs: this.collectMountedFileRefs(params.currentFileRefs, resolved.item.fileRef)
+      mountedFileRefs: []
     });
     const items = this.toItemsFromJob(job);
     return {
@@ -489,7 +495,7 @@ export class RuntimeFilesToolService {
     }
 
     const dedupedFileRefs = [...new Set(selectedFileRefs)];
-    const queued = await this.runtimeSendMediaToUserService.queueResolvedSelection({
+    const queued = await this.queueResolvedSelection({
       bundle: params.bundle,
       currentArtifacts: params.currentArtifacts,
       channel: params.channel,
@@ -536,6 +542,77 @@ export class RuntimeFilesToolService {
       return null;
     }
     return policy;
+  }
+
+  private async queueResolvedSelection(params: {
+    bundle: AssistantRuntimeBundle;
+    currentArtifacts: RuntimeOutputArtifact[];
+    channel: "web" | "telegram" | "max_ru";
+    selection: {
+      fileRefs: string[];
+      artifactIds: string[];
+      caption: string | null;
+      filename: string | null;
+    };
+  }): Promise<RuntimeResolvedQueuedArtifacts> {
+    const queuedArtifacts = await this.resolveArtifacts({
+      bundle: params.bundle,
+      currentArtifacts: params.currentArtifacts,
+      fileRefs: params.selection.fileRefs,
+      artifactIds: params.selection.artifactIds,
+      caption: params.selection.caption,
+      filename: params.selection.filename
+    });
+
+    const maxCount = params.bundle.runtime.sandbox?.maxArtifactSendCountPerTurn ?? 0;
+    const existingArtifactIds = new Set(
+      params.currentArtifacts.map((artifact) => artifact.artifactId)
+    );
+    const additionalArtifacts = queuedArtifacts.filter(
+      (artifact) => !existingArtifactIds.has(artifact.artifactId)
+    );
+    const finalArtifacts = [...params.currentArtifacts, ...additionalArtifacts];
+    if (params.currentArtifacts.length + additionalArtifacts.length > maxCount) {
+      return {
+        artifacts: [],
+        queuedArtifacts: 0,
+        reason: "artifact_send_limit_exceeded",
+        warning: `Turn would deliver ${String(
+          params.currentArtifacts.length + additionalArtifacts.length
+        )} artifacts, above the per-turn cap of ${String(maxCount)}.`,
+        isError: true
+      };
+    }
+
+    const channelCap =
+      params.channel === "telegram"
+        ? params.bundle.runtime.sandbox?.telegramMaxOutboundBytes
+        : params.bundle.runtime.sandbox?.webMaxOutboundBytes;
+    const totalOutboundBytes = finalArtifacts.reduce((sum, artifact) => {
+      return (
+        sum +
+        (typeof artifact.sizeBytes === "number" && Number.isFinite(artifact.sizeBytes)
+          ? artifact.sizeBytes
+          : 0)
+      );
+    }, 0);
+    if (channelCap !== undefined && totalOutboundBytes > channelCap) {
+      return {
+        artifacts: [],
+        queuedArtifacts: 0,
+        reason: "channel_size_limit_exceeded",
+        warning: `Turn would deliver ${String(totalOutboundBytes)} bytes on ${params.channel}, above the channel cap of ${String(channelCap)} bytes.`,
+        isError: true
+      };
+    }
+
+    return {
+      artifacts: queuedArtifacts,
+      queuedArtifacts: queuedArtifacts.length,
+      reason: null,
+      warning: null,
+      isError: false
+    };
   }
 
   private parseArguments(value: unknown): ParsedFilesToolRequest | Error {
@@ -740,15 +817,67 @@ export class RuntimeFilesToolService {
     } satisfies RuntimeSandboxJobRequest);
   }
 
-  private collectMountedFileRefs(
-    currentFileRefs: RuntimeFileRef[],
-    extraFileRef?: string
-  ): string[] {
-    const refs = currentFileRefs.map((item) => item.fileRef);
-    if (extraFileRef !== undefined) {
-      refs.push(extraFileRef);
+  private async resolveArtifacts(input: {
+    bundle: AssistantRuntimeBundle;
+    currentArtifacts: RuntimeOutputArtifact[];
+    fileRefs: string[];
+    artifactIds: string[];
+    caption: string | null;
+    filename: string | null;
+  }): Promise<RuntimeOutputArtifact[]> {
+    const allowlist = new Set(
+      (input.bundle.runtime.sandbox?.artifactMimeAllowlist ?? []).map((entry) =>
+        entry.toLowerCase()
+      )
+    );
+    const artifactMap = new Map(
+      input.currentArtifacts.map((artifact) => [artifact.artifactId, artifact] as const)
+    );
+    const selectedCurrentArtifacts = input.artifactIds.map(
+      (artifactId) => artifactMap.get(artifactId) ?? null
+    );
+    if (selectedCurrentArtifacts.some((artifact) => artifact === null)) {
+      throw new Error("One or more artifactIds do not refer to current-turn artifacts.");
     }
-    return [...new Set(refs)];
+    for (const artifact of selectedCurrentArtifacts) {
+      this.assertMimeAllowed(artifact!.mimeType, allowlist);
+    }
+
+    const refs = await this.runtimeAssistantFileRegistryService.listByFileRefs({
+      assistantId: input.bundle.metadata.assistantId,
+      workspaceId: input.bundle.metadata.workspaceId,
+      fileRefs: input.fileRefs
+    });
+    if (refs.length !== input.fileRefs.length) {
+      throw new Error("One or more fileRefs are unavailable for this assistant.");
+    }
+
+    const resolvedFileArtifacts = refs.map((ref) => {
+      this.assertMimeAllowed(ref.mimeType, allowlist);
+      return {
+        artifactId: randomUUID(),
+        kind: this.toArtifactKind(ref.mimeType),
+        objectKey: ref.objectKey,
+        mimeType: ref.mimeType,
+        filename:
+          input.filename !== null && input.fileRefs.length + input.artifactIds.length === 1
+            ? input.filename
+            : (ref.displayName ?? ref.relativePath.split("/").pop() ?? "file"),
+        sizeBytes: ref.sizeBytes,
+        voiceNote: false,
+        caption: input.caption
+      } satisfies RuntimeOutputArtifact;
+    });
+
+    const resolvedCurrentArtifacts = selectedCurrentArtifacts.map((artifact) => ({
+      ...artifact!,
+      ...(input.caption !== null ? { caption: input.caption } : {}),
+      ...(input.filename !== null && input.fileRefs.length + input.artifactIds.length === 1
+        ? { filename: input.filename }
+        : {})
+    }));
+
+    return [...resolvedFileArtifacts, ...resolvedCurrentArtifacts];
   }
 
   private toItemsFromJob(job: RuntimeSandboxJobResult): RuntimeFilesToolItem[] {
@@ -775,6 +904,25 @@ export class RuntimeFilesToolService {
       sizeBytes: fileRef.sizeBytes,
       logicalSizeBytes: fileRef.logicalSizeBytes
     };
+  }
+
+  private assertMimeAllowed(mimeType: string, allowlist: Set<string>): void {
+    if (allowlist.size > 0 && !allowlist.has(mimeType.toLowerCase())) {
+      throw new Error(`Mime type "${mimeType}" is blocked by sandbox delivery policy.`);
+    }
+  }
+
+  private toArtifactKind(mimeType: string): RuntimeOutputArtifact["kind"] {
+    if (mimeType.startsWith("image/")) {
+      return "image";
+    }
+    if (mimeType.startsWith("audio/")) {
+      return "audio";
+    }
+    if (mimeType.startsWith("video/")) {
+      return "video";
+    }
+    return "file";
   }
 
   private createSkippedResult(input: {

@@ -263,17 +263,6 @@ export interface RuntimeFilesToolResult {
   queuedArtifacts: number;
 }
 
-export interface RuntimeSendMediaToUserToolResult {
-  toolCode: "send_media_to_user";
-  executionMode: "inline";
-  action: "queued" | "skipped";
-  reason: string | null;
-  warning: string | null;
-  fileRefs: string[];
-  artifactIds: string[];
-  queuedArtifacts: number;
-}
-
 export interface RuntimeInboundMessage {
   text: string;
   attachments: RuntimeAttachmentRef[];

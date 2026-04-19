@@ -17,7 +17,6 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
-import { RuntimeSendMediaToUserService } from "./runtime-send-media-to-user.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
 import { SandboxClientService } from "./sandbox-client.service";
@@ -48,7 +47,6 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
-    RuntimeSendMediaToUserService,
     RuntimeTtsToolService,
     SandboxClientService,
     IdempotencyService,
@@ -76,7 +74,6 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
-    RuntimeSendMediaToUserService,
     RuntimeTtsToolService,
     SandboxClientService,
     IdempotencyService,

@@ -177,7 +177,6 @@ async function run(): Promise<void> {
   );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);
-  assert.doesNotMatch(markdown, /read_file/);
 }
 
 void run();

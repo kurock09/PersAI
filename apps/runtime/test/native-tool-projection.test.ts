@@ -119,6 +119,49 @@ async function run(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: 30
+        },
+        {
+          toolCode: "files",
+          displayName: "Files",
+          description: "Search, inspect, read, write, edit, or send assistant-managed files.",
+          usageGuidance:
+            "Use files.search with a non-empty query when you need to discover a file.",
+          kind: "plan",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "exec",
+          displayName: "Exec",
+          description:
+            "Run one bounded executable with explicit arguments inside the assistant sandbox workspace.",
+          usageGuidance:
+            "Use this only when a real process execution is necessary. Refer to files in the assistant workspace by relative path.",
+          kind: "plan",
+          executionMode: "sandbox",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        },
+        {
+          toolCode: "shell",
+          displayName: "Shell",
+          description: "Run a bounded shell command inside the assistant sandbox workspace.",
+          usageGuidance:
+            "Use this only when a shell command is actually needed. Refer to files in the assistant workspace by relative path.",
+          kind: "plan",
+          executionMode: "sandbox",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
         }
       ],
       quota: {
@@ -161,6 +204,9 @@ async function run(): Promise<void> {
 
   const projected = projectRuntimeNativeTools(artifact.bundle);
   const webSearch = projected.tools.find((tool) => tool.name === "web_search");
+  const files = projected.tools.find((tool) => tool.name === "files");
+  const exec = projected.tools.find((tool) => tool.name === "exec");
+  const shell = projected.tools.find((tool) => tool.name === "shell");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
@@ -169,6 +215,11 @@ async function run(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts. Use this when the answer depends on recent external information or links."
   );
+  assert.match(files?.description ?? "", /files\.search with a non-empty query/);
+  assert.match(exec?.description ?? "", /assistant sandbox workspace/);
+  assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
+  assert.match(shell?.description ?? "", /assistant sandbox workspace/);
+  assert.doesNotMatch(shell?.description ?? "", /same turn stay mounted/i);
 }
 
 void run();

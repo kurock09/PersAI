@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
@@ -43,6 +44,8 @@ type SandboxServiceTestAccess = {
   resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string;
   materializeMountedFiles(
     workspaceRoot: string,
+    assistantId: string,
+    workspaceId: string,
     args: { fileRef: string }
   ): Promise<MountedWorkspaceState>;
   executeFilesReadAction(
@@ -167,12 +170,19 @@ function createDurableHarness() {
     },
     assistantFile: {
       async findMany(input: {
-        where: { id: { in: string[] } } | { assistantId: string; workspaceId: string };
+        where:
+          | { id: { in: string[] }; assistantId?: string; workspaceId?: string }
+          | { assistantId: string; workspaceId: string };
         orderBy?: Array<Record<string, "asc" | "desc">>;
       }) {
         const where = input.where;
         if ("id" in where) {
-          return assistantFiles.filter((file) => where.id.in.includes(file.id));
+          return assistantFiles.filter(
+            (file) =>
+              where.id.in.includes(file.id) &&
+              (where.assistantId === undefined || file.assistantId === where.assistantId) &&
+              (where.workspaceId === undefined || file.workspaceId === where.workspaceId)
+          );
         }
         return assistantFiles
           .filter(
@@ -246,21 +256,25 @@ function createDurableHarness() {
         where: {
           assistantId: string;
           workspaceId: string;
-          relativePath: string | { in: string[] };
-          id?: { not: string };
+          relativePath?: string | { in: string[] };
+          id?: { not?: string; in?: string[] };
         };
       }) {
         const relativePaths =
-          typeof input.where.relativePath === "string"
-            ? [input.where.relativePath]
-            : input.where.relativePath.in;
+          input.where.relativePath === undefined
+            ? null
+            : typeof input.where.relativePath === "string"
+              ? [input.where.relativePath]
+              : input.where.relativePath.in;
+        const allowedIds = input.where.id?.in ?? null;
         let removed = 0;
         for (let index = assistantFiles.length - 1; index >= 0; index -= 1) {
           const file = assistantFiles[index]!;
           if (
             file.assistantId !== input.where.assistantId ||
             file.workspaceId !== input.where.workspaceId ||
-            !relativePaths.includes(file.relativePath) ||
+            (relativePaths !== null && !relativePaths.includes(file.relativePath)) ||
+            (allowedIds !== null && !allowedIds.includes(file.id)) ||
             (input.where.id?.not !== undefined && file.id === input.where.id.not)
           ) {
             continue;
@@ -381,8 +395,12 @@ async function run(): Promise<void> {
   const service = new SandboxService(
     {
       assistantFile: {
-        async findMany(input: { where: { id: { in: string[] } } }) {
+        async findMany(input: {
+          where: { id: { in: string[] }; assistantId: string; workspaceId: string };
+        }) {
           assert.deepEqual(input.where.id.in, ["file-ref-1"]);
+          assert.equal(input.where.assistantId, "assistant-1");
+          assert.equal(input.where.workspaceId, "workspace-1");
           return [
             {
               id: "file-ref-1",
@@ -404,9 +422,12 @@ async function run(): Promise<void> {
 
   const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-sandbox-test-"));
   try {
-    const mountedFiles = await serviceTestAccess.materializeMountedFiles(workspaceRoot, {
-      fileRef: "file-ref-1"
-    });
+    const mountedFiles = await serviceTestAccess.materializeMountedFiles(
+      workspaceRoot,
+      "assistant-1",
+      "workspace-1",
+      { fileRef: "file-ref-1" }
+    );
     assert.equal(mountedFiles.byRef.get("file-ref-1")?.relativePath, "inputs/example.txt");
 
     const readResult = await serviceTestAccess.executeFilesReadAction(
@@ -435,6 +456,45 @@ async function run(): Promise<void> {
     assert.deepEqual(
       producedAfterChange.map((file: { relativePath: string }) => file.relativePath),
       ["inputs/example.txt", "outputs/fresh.txt"]
+    );
+
+    const staleMountHarness = createDurableHarness();
+    staleMountHarness.assistantFiles.push({
+      id: "assistant-file-stale-mount",
+      assistantId: "assistant-mount",
+      workspaceId: "workspace-mount",
+      sandboxJobId: null,
+      origin: "sandbox_output",
+      sourceToolCode: "files",
+      objectKey: "assistant-media/persisted/mount-missing.txt",
+      relativePath: "docs/mount-missing.txt",
+      displayName: "mount-missing.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(4),
+      logicalSizeBytes: BigInt(4),
+      sha256: null,
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    const staleMountService = staleMountHarness.createService();
+    const staleMountAccess = staleMountService as unknown as SandboxServiceTestAccess;
+    await assert.rejects(
+      staleMountAccess.materializeMountedFiles(
+        workspaceRoot,
+        "assistant-mount",
+        "workspace-mount",
+        { fileRef: "assistant-file-stale-mount" }
+      ),
+      (error) =>
+        error instanceof Error &&
+        "code" in error &&
+        (error as { code?: string }).code === "file_ref_not_found" &&
+        /stored object is missing/i.test(error.message)
+    );
+    assert.equal(
+      staleMountHarness.assistantFiles.some((file) => file.id === "assistant-file-stale-mount"),
+      false
     );
   } finally {
     await fs.rm(workspaceRoot, { recursive: true, force: true });
@@ -738,6 +798,105 @@ async function run(): Promise<void> {
     assert.notEqual(
       reclaimHarness.workspaceLeases.get("assistant-reclaim:workspace-reclaim")?.leaseToken,
       "stale-token"
+    );
+
+    const hydrateCleanupHarness = createDurableHarness();
+    const persistedHydrateBuffer = Buffer.from("persisted good", "utf8");
+    hydrateCleanupHarness.storedObjects.set(
+      "assistant-media/persisted/good.txt",
+      persistedHydrateBuffer
+    );
+    hydrateCleanupHarness.assistantFiles.push(
+      {
+        id: "assistant-file-good",
+        assistantId: "assistant-hydrate",
+        workspaceId: "workspace-hydrate",
+        sandboxJobId: "job-before",
+        origin: "sandbox_output",
+        sourceToolCode: "files",
+        objectKey: "assistant-media/persisted/good.txt",
+        relativePath: "docs/good.txt",
+        displayName: "good.txt",
+        mimeType: "text/plain",
+        sizeBytes: BigInt(persistedHydrateBuffer.length),
+        logicalSizeBytes: BigInt(persistedHydrateBuffer.length),
+        sha256: createHash("sha256").update(persistedHydrateBuffer).digest("hex"),
+        metadata: {},
+        createdAt: new Date(Date.now() - 2_000),
+        updatedAt: new Date(Date.now() - 2_000)
+      },
+      {
+        id: "assistant-file-stale",
+        assistantId: "assistant-hydrate",
+        workspaceId: "workspace-hydrate",
+        sandboxJobId: "job-before",
+        origin: "sandbox_output",
+        sourceToolCode: "files",
+        objectKey: "assistant-media/persisted/missing.txt",
+        relativePath: "docs/stale.txt",
+        displayName: "stale.txt",
+        mimeType: "text/plain",
+        sizeBytes: BigInt(5),
+        logicalSizeBytes: BigInt(5),
+        sha256: "stale",
+        metadata: {},
+        createdAt: new Date(Date.now() - 1_000),
+        updatedAt: new Date(Date.now() - 1_000)
+      }
+    );
+    hydrateCleanupHarness.jobs.set("job-hydrate-cleanup", {
+      id: "job-hydrate-cleanup",
+      assistantId: "assistant-hydrate",
+      workspaceId: "workspace-hydrate",
+      toolCode: "files",
+      status: "queued",
+      resultPayload: null,
+      violationCode: null,
+      violationMessage: null,
+      resourceUsage: null
+    });
+    const hydrateCleanupService = hydrateCleanupHarness.createService();
+    const hydrateCleanupTestAccess = hydrateCleanupService as unknown as SandboxServiceTestAccess;
+    const hydrateCleanupWorkspaceRoot = hydrateCleanupTestAccess.resolveWorkspaceSessionRoot(
+      "assistant-hydrate",
+      "workspace-hydrate"
+    );
+    await hydrateCleanupTestAccess.executeQueuedJob("job-hydrate-cleanup", {
+      assistantId: "assistant-hydrate",
+      workspaceId: "workspace-hydrate",
+      runtimeRequestId: "request-hydrate-cleanup",
+      runtimeSessionId: "session-hydrate-cleanup",
+      toolCode: "files",
+      policy: durablePolicy,
+      args: {
+        action: "write",
+        path: "docs/new.txt",
+        content: "fresh content"
+      }
+    });
+    assert.equal(hydrateCleanupHarness.jobs.get("job-hydrate-cleanup")?.status, "completed");
+    assert.equal(
+      hydrateCleanupHarness.assistantFiles.some((file) => file.id === "assistant-file-stale"),
+      false
+    );
+    assert.equal(
+      hydrateCleanupHarness.assistantFiles.some((file) => file.relativePath === "docs/good.txt"),
+      true
+    );
+    assert.equal(
+      hydrateCleanupHarness.assistantFiles.some((file) => file.relativePath === "docs/new.txt"),
+      true
+    );
+    assert.equal(
+      await fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "good.txt"), "utf8"),
+      "persisted good"
+    );
+    await assert.rejects(
+      fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "stale.txt"), "utf8")
+    );
+    assert.equal(
+      await fs.readFile(join(hydrateCleanupWorkspaceRoot, "docs", "new.txt"), "utf8"),
+      "fresh content"
     );
 
     const resetHarness = createDurableHarness();

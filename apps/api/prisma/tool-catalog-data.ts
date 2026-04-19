@@ -15,13 +15,6 @@ export type ToolCatalogEntry = {
   policyClass?: ToolPolicyClass;
 };
 
-export const REMOVED_LEGACY_PUBLIC_TOOL_CODES = [
-  "read_file",
-  "write_file",
-  "edit_file",
-  "send_media_to_user"
-] as const;
-
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
   {
     id: "77777777-7777-7777-7777-777777777777",
@@ -206,7 +199,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Search, inspect, read, write, edit, or send assistant-managed files through one canonical file surface.",
     modelUsageGuidance:
-      "Use files.search or files.get to locate the right assistant file first, then use files.read, files.write, files.edit, or files.send as needed. Keep shell and exec for actual process execution only.",
+      "Use files.search with a non-empty query when you need to discover a file. When you already know the target, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Keep shell and exec for actual process execution only.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -216,9 +209,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "exec",
     displayName: "Exec",
     description: "Run a bounded executable inside the isolated sandbox workspace.",
-    modelDescription: "Run a bounded process only through the isolated sandbox execution boundary.",
+    modelDescription:
+      "Run one bounded executable with explicit arguments inside the assistant sandbox workspace.",
     modelUsageGuidance:
-      "Use this only when a real process execution is necessary and stay within the sandbox limits.",
+      "Use this only when a real process execution is necessary. Refer to files in the assistant workspace by relative path and stay within the sandbox limits.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -228,14 +222,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "shell",
     displayName: "Shell",
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
-    modelDescription: "Run shell commands only through the isolated sandbox execution boundary.",
+    modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
     modelUsageGuidance:
-      "Use this only when a shell command is actually needed and prefer narrower file tools when possible.",
+      "Use this only when a shell command is actually needed. Refer to files in the assistant workspace by relative path and prefer narrower file tools when possible.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
   }
 ];
+
+export const CURRENT_TOOL_CODES = TOOL_CATALOG.map((tool) => tool.code);
+export const CURRENT_TOOL_CODE_SET = new Set(CURRENT_TOOL_CODES);
 
 export const STARTER_TRIAL_TOOL_POLICY: Record<
   string,

@@ -116,7 +116,7 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return "Use files.search or files.get to locate a stable fileRef first, then use files.read, files.write, files.edit, or files.send as needed. Keep exec and shell for actual process execution only.";
+    return "Use files.search with a non-empty query when you need to discover a file. When you already know the target, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Keep exec and shell for actual process execution only.";
   }
   return tool.modelUsageGuidance;
 }

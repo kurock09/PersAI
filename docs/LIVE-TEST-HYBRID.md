@@ -101,7 +101,7 @@ The active path truth is:
 
 ## Step 20 Sandbox Smoke
 
-Use this only after the selected assistant's effective plan enables sandbox tools and `send_media_to_user`.
+Use this only after the selected assistant's effective plan enables the active `files`, `exec`, and `shell` sandbox surface.
 
 With a signed-in browser session on `/app`:
 

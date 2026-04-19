@@ -274,8 +274,9 @@ async function run(): Promise<void> {
     );
 
     await assert.rejects(
-      () => service.update("admin-user", "read_file", { modelDescription: "legacy" }),
-      /Tool "read_file" does not exist/
+      () =>
+        service.update("admin-user", "removed_public_file_tool", { modelDescription: "legacy" }),
+      /Tool "removed_public_file_tool" does not exist/
     );
     assert.equal(touchedCatalog, false);
   }

@@ -34,12 +34,12 @@ corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts
 corepack pnpm --filter @persai/sandbox run typecheck
 corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
-corepack pnpm --filter @persai/runtime exec tsx test/runtime-send-media-to-user.service.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts
 corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts
 corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts
+corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-plan-catalog.repository.test.ts
 corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts
@@ -66,10 +66,13 @@ Interpretation rules:
 14. if assistant-level file registry storage changes, verify the Prisma migrations leave `assistant_files` as the only live file-registry truth, that current runtime lookup no longer depends on `sandbox_file_refs` fallback on the active path, and that any schema cleanup keeps operator/runtime code aligned with the canonical model
 15. if sandbox file mounting or produced-file persistence changes, verify new public/runtime `fileRef`s come from `AssistantFile` ids, completed sandbox job polling returns those canonical ids on the real result path, sandbox mount resolution only accepts canonical assistant-file ids on the live path, and persisted `sourceToolCode` truth reflects the clean `files` execution model rather than sandbox-era split action names
 16. if admin Prompt Constructor or model-visible tool vocabulary changes, verify the editable/admin-visible file-tool surface shows `files` rather than legacy split public file tool names and that direct admin metadata updates reject hidden legacy public file tool codes
-17. if tool catalog or plan/runtime materialization changes around file tools, verify removed legacy public file tool codes are no longer active catalog truth, startup seed deactivates stale rows for those codes, Admin Plans exposes only the canonical file-tool surface, and runtime direct dispatch accepts `files` rather than the split public file tool names
+17. if tool catalog or plan/runtime materialization changes around file tools, verify removed legacy public file tool codes are no longer active catalog truth, DB cleanup plus repository/API projection keep stale legacy rows from surfacing in `Admin Plans`, and runtime direct dispatch accepts `files` rather than the split public file tool names
 18. if sandbox workspace lifecycle changes, verify one assistant can complete `write/edit -> separate later read` across separate sandbox jobs without remount-only turn state, verify edited files keep a stable `AssistantFile` id for the same relative path, and verify cold restore from `assistant_files` recreates the workspace after local session deletion without reviving removed legacy file-ref fallbacks
 19. if assistant workspace coordination changes, verify one `assistantId + workspaceId` has only one active lease holder cluster-wide, a second same-workspace job stays queued until release instead of writing concurrently, a different workspace can still proceed in parallel, expired leases are reclaimable, and lease loss resets the local workspace back to canonical persisted `assistant_files` truth before the pod can keep mutating it
 20. if sandbox internal file execution or admin sandbox observability changes, verify the active sandbox job/operator truth uses `files` for file operations rather than internal `read_file` / `write_file` / `edit_file` codes, and confirm `Admin > Ops` persisted file counts come from canonical `assistantFiles` rather than removed sandbox-era relations
+21. if `files.send` changes, verify runtime no longer carries a separate `send_media_to_user` tool payload/service path and that send-by-`fileRef` plus current-turn `artifactId` delivery still resolve through the same canonical `files` execution result
+22. if assistant workspace hydrate/reset changes, verify missing object-storage blobs do not crash the sandbox path: stale `assistant_files` rows must be removed from canonical truth, the local workspace must rebuild from the remaining accessible files, and the job must complete or fail structurally instead of taking down the pod
+23. if `files.read` / `files.write` / `files.edit` or sandbox explicit mounts change, verify the normal canonical `files` path runs by hydrated workspace `relativePath` without redundant `mountedFileRefs`, and verify any remaining explicit mounted `fileRef` path is scoped to the same assistant/workspace and fails structurally after stale-row cleanup when the backing blob is missing
 
 ## Knowledge/admin focused checks
 

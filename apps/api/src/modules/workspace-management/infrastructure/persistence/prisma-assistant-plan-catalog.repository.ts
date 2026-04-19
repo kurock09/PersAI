@@ -8,6 +8,7 @@ import type {
 import type { AssistantPlanCatalog } from "../../domain/assistant-plan-catalog.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 import {
+  CURRENT_TOOL_CODE_SET,
   isPlanManagedTool,
   isPlatformManagedTool,
   resolveToolPolicyClass
@@ -249,15 +250,17 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
               mediaClasses: this.toArray(plan.entitlement.mediaClasses),
               limitsPermissions: this.toArray(plan.entitlement.limitsPermissions)
             },
-      toolActivations: plan.toolActivations.map((activation) => ({
-        toolCode: activation.tool.code,
-        displayName: activation.tool.displayName,
-        toolClass: activation.tool.toolClass as "cost_driving" | "utility",
-        policyClass: resolveToolPolicyClass(activation.tool.code),
-        activationStatus:
-          activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
-        dailyCallLimit: activation.dailyCallLimit
-      })),
+      toolActivations: plan.toolActivations
+        .filter((activation) => CURRENT_TOOL_CODE_SET.has(activation.tool.code))
+        .map((activation) => ({
+          toolCode: activation.tool.code,
+          displayName: activation.tool.displayName,
+          toolClass: activation.tool.toolClass as "cost_driving" | "utility",
+          policyClass: resolveToolPolicyClass(activation.tool.code),
+          activationStatus:
+            activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
+          dailyCallLimit: activation.dailyCallLimit
+        })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
       isTrialPlan: plan.isTrialPlan,
       trialDurationDays: plan.trialDurationDays,
@@ -356,7 +359,12 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
     input: AssistantPlanCatalogWriteInput
   ): Promise<void> {
     const tools = await tx.toolCatalogTool.findMany({
-      where: { status: "active" },
+      where: {
+        status: "active",
+        code: {
+          in: [...CURRENT_TOOL_CODE_SET]
+        }
+      },
       select: { id: true, code: true, toolClass: true }
     });
 

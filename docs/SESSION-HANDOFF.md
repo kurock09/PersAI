@@ -1,5 +1,180 @@
 # SESSION-HANDOFF
 
+## 2026-04-19 - Remove redundant files mount seam and harden explicit mount cleanup
+
+### What changed
+
+1. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` no longer submits `files.read` through sandbox with `fileRef`-only resolution or ambient `mountedFileRefs`. The canonical files path now resolves the target in runtime and executes `files.read` / `files.edit` / `files.write` against the hydrated workspace by `relativePath`, which removes an unnecessary mount seam from the active `files` tool path.
+2. `apps/sandbox/src/sandbox.service.ts` now scopes `materializeMountedFiles()` to the current `assistantId + workspaceId` instead of querying mounted refs by bare id only.
+3. The same mount path now fail-closes on missing blobs without crashing: stale mounted `assistant_files` rows are removed from canonical truth, optional ambient mounts are skipped safely, and required explicit mounts now return a structured `file_ref_not_found` policy error when the stored object is gone.
+4. `apps/runtime/test/runtime-files-tool.service.test.ts` and `apps/sandbox/test/sandbox.service.test.ts` now lock the new behavior directly.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the active `files` path no longer depends on explicit sandbox mount-by-`fileRef` for normal canonical assistant-workspace reads/edits/writes, and the remaining explicit mount path is scoped + self-healing instead of crash-prone.
+- **No longer live prod residue:** normal `files` operations no longer carry a redundant mount seam for their own canonical `AssistantFile` targets.
+- **Still not landed:** assistant-level Files API/UI and compact workspace digest hydration instead of attachment-heavy prompt state.
+
+### Current active slice
+
+- `Assistant workspace redesign / remove redundant files mount seam and harden explicit mount cleanup`
+
+### Current active step
+
+- `The active files path now matches the durable assistant-workspace model more closely; next honest work is live deploy/smoke and remaining product UX gaps, not keeping redundant internal mount seams`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+
+### Risks / notes
+
+1. Explicit mounted refs still exist as an internal sandbox mechanism for real mount scenarios such as broader sandbox/process flows; this slice removes them from the normal canonical `files` path rather than pretending the mechanism must disappear everywhere at once.
+2. Missing-object self-heal now covers both workspace hydrate and explicit mounted refs, but live environments still need the already-added cleanup migrations and new deploy to pick up the behavior.
+
+### Next recommended step
+
+1. Deploy `runtime` and `sandbox`, then run the real file smoke again with `find/get -> read/edit/send` so the live environment proves the cleaned path instead of the old mount-shaped behavior.
+
+## 2026-04-19 - Prod cleanup for legacy plan activations and stale workspace blobs
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts` now filters plan tool activations against the canonical current tool catalog before returning `AdminPlanState`, so persisted legacy `read_file` / `write_file` / `edit_file` / `send_media_to_user` rows can no longer leak into `Admin Plans` even if they still exist in older DB state.
+2. The same repository now syncs plan activations only for current live tool codes, and `apps/api/prisma/migrations/20260419233000_remove_legacy_plan_file_tool_activations/migration.sql` deletes the historical split public file-tool activation rows from `plan_catalog_tool_activations` DB truth.
+3. `apps/sandbox/src/sandbox.service.ts` now makes assistant workspace hydrate fail closed on missing blobs in object storage. When a persisted `AssistantFile` row points to a missing object, the sandbox logs it as stale, removes the broken row from canonical truth, skips that blob, reloads current `assistant_files`, and rebuilds the local workspace from the remaining accessible files instead of crash-looping the pod.
+4. `apps/sandbox/test/sandbox.service.test.ts` now proves the self-heal path directly, and `apps/api/test/prisma-assistant-plan-catalog.repository.test.ts` now locks the canonical tool-set filter so legacy plan activation rows do not reappear through the repository/API path.
+
+### Code-based truth summary
+
+- **Landed in this slice:** active Admin Plans projection now depends on the canonical current tool set rather than persisted legacy activation rows, and assistant workspace hydrate now self-heals stale `assistant_files` rows whose blobs are gone.
+- **No longer live prod residue:** split public file-tool activations no longer surface through the active admin API path, and missing workspace blobs no longer have to take down sandbox hydration.
+- **Still not landed:** assistant-level Files API/UI and compact workspace digest hydration instead of attachment-heavy prompt state.
+
+### Current active slice
+
+- `Assistant workspace redesign / prod cleanup for legacy plan activations and stale workspace blobs`
+
+### Current active step
+
+- `The active files/sandbox path is now cleaned further for live smoke; the next honest step is apply/deploy plus a real smoke, not another compatibility seam`
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/prisma/migrations/20260419233000_remove_legacy_plan_file_tool_activations/migration.sql`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts`
+- `apps/api/test/prisma-assistant-plan-catalog.repository.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-plan-catalog.repository.test.ts`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run lint`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+
+### Risks / notes
+
+1. The admin/UI fix is now safe on the active code path even before the new cleanup migration is applied, because the repository/API projection ignores non-canonical tool rows.
+2. The DB cleanup migration still needs to be applied in live environments so the stale `plan_catalog_tool_activations` rows are physically removed instead of merely filtered out.
+3. The sandbox self-heal in this slice covers workspace hydrate/reset from persisted `assistant_files` truth; it intentionally removes broken canonical rows rather than preserving dead references for historical compatibility.
+
+### Next recommended step
+
+1. Apply the new Prisma migration, deploy `api` and `sandbox`, and rerun the real Step 20 smoke so the live environment picks up both the admin cleanup and the hydrate self-heal behavior.
+
+## 2026-04-19 - Final Step 20 files.send seam collapse
+
+### What changed
+
+1. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now owns `files.send` end to end. The active runtime path no longer delegates send resolution through a separate `RuntimeSendMediaToUserService`; fileRef selection, current-turn artifact selection, mime allowlist enforcement, outbound size checks, and queued artifact shaping now live inside the canonical `files` tool service.
+2. `apps/runtime/src/modules/turns/turns.module.ts` no longer registers a separate send-media runtime provider, and `packages/runtime-contract/src/index.ts` no longer defines a standalone `RuntimeSendMediaToUserToolResult`. The active runtime contract now has one file-tool result shape instead of a hidden parallel send-tool payload.
+3. `apps/runtime/test/runtime-files-tool.service.test.ts` now covers `files.send` directly for current-turn artifacts, persisted file refs, mime blocking, and outbound byte caps, while the separate `runtime-send-media-to-user.service.test.ts` file was removed because the separate service no longer exists.
+4. `apps/api/prisma/migrations/20260419220000_deactivate_removed_legacy_public_file_tools/migration.sql` now makes removed split public file-tool rows inactive in DB truth, so startup seed code no longer has to carry explicit legacy file-tool deactivation bookkeeping.
+5. Live-test and plan truth now treat Step 20 delivery as `files.send` rather than a separate internal send-media tool path.
+
+### Code-based truth summary
+
+- **Landed in this slice:** Step 20 runtime truth is now unified around one `files` tool surface and one `RuntimeFilesToolService` implementation for `search/get/read/write/edit/send`, with sandbox already executing file work only as `files`.
+- **No longer live runtime residue:** there is no longer a separate `send_media_to_user` service or runtime-contract payload on the active code path.
+- **Still not landed:** assistant-level Files API/UI and compact workspace digest hydration instead of attachment-heavy prompt state.
+
+### Current active slice
+
+- `Assistant workspace redesign / final Step 20 files.send seam collapse`
+
+### Current active step
+
+- `Step 20 code truth is now cleaned to one files-path end to end; next honest step is still deploy/apply plus a real live smoke, not another internal file-tool cleanup`
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/src/modules/turns/turns.module.ts`
+- `apps/runtime/src/modules/turns/runtime-send-media-to-user.service.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/runtime-send-media-to-user.service.test.ts`
+- `apps/api/prisma/migrations/20260419220000_deactivate_removed_legacy_public_file_tools/migration.sql`
+- `apps/api/prisma/seed.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `apps/api/test/runtime-tool-policy.test.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/ROADMAP.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `C:\Users\alex\.cursor\plans\assistant_workspace_redesign_036b647a.plan.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run test`
+
+### Risks / notes
+
+1. Historical migrations/docs may still mention `send_media_to_user` as archive truth, but the active runtime/service/contract path no longer depends on it.
+2. This slice intentionally removes the internal send-tool seam instead of preserving it behind another compatibility wrapper.
+
+### Next recommended step
+
+1. Run focused runtime verification plus the required repo checks, then deploy/apply and execute one real `files.write -> files.send` smoke on the live surface.
+
 ## 2026-04-19 - Sandbox residue cleanup and clean internal files execution
 
 ### What changed

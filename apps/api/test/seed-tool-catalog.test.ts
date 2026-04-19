@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { REMOVED_LEGACY_PUBLIC_TOOL_CODES, TOOL_CATALOG } from "../prisma/tool-catalog-data";
+import { TOOL_CATALOG } from "../prisma/tool-catalog-data";
 import { SeedToolCatalogService } from "../src/modules/workspace-management/application/seed-tool-catalog.service";
 
 type PlanRecord = {
@@ -70,10 +70,6 @@ function createService({
 async function run(): Promise<void> {
   {
     const upsertedToolIds: string[] = [];
-    let deactivationArgs: {
-      where: { code: { in: string[] }; status: string };
-      data: { status: string };
-    } | null = null;
     const service = new SeedToolCatalogService({
       toolCatalogTool: {
         async findMany() {
@@ -82,13 +78,6 @@ async function run(): Promise<void> {
         async upsert(args: { where: { id: string } }) {
           upsertedToolIds.push(args.where.id);
           return undefined;
-        },
-        async updateMany(args: {
-          where: { code: { in: string[] }; status: string };
-          data: { status: string };
-        }) {
-          deactivationArgs = args;
-          return { count: 4 };
         }
       }
     } as never) as SeedToolCatalogService & {
@@ -98,13 +87,6 @@ async function run(): Promise<void> {
     await service["syncToolCatalog"]();
 
     assert.equal(upsertedToolIds.length, TOOL_CATALOG.length);
-    assert.deepEqual(deactivationArgs, {
-      where: {
-        code: { in: [...REMOVED_LEGACY_PUBLIC_TOOL_CODES] },
-        status: "active"
-      },
-      data: { status: "inactive" }
-    });
   }
 
   {

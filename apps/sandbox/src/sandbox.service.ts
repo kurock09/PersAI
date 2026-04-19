@@ -259,12 +259,12 @@ export class SandboxService {
           startedAt: new Date()
         }
       });
-      const existingWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
+      let existingWorkspaceFiles = await this.loadCurrentAssistantWorkspaceFiles(
         request.assistantId,
         request.workspaceId
       );
       this.assertWorkspaceLeaseActive(leaseGuard);
-      await this.ensureWorkspaceSessionHydrated(
+      existingWorkspaceFiles = await this.ensureWorkspaceSessionHydrated(
         workspaceRoot,
         request.assistantId,
         request.workspaceId,
@@ -273,6 +273,8 @@ export class SandboxService {
       this.assertWorkspaceLeaseActive(leaseGuard);
       const mountedFiles = await this.materializeMountedFiles(
         workspaceRoot,
+        request.assistantId,
+        request.workspaceId,
         request.args,
         request.mountedFileRefs ?? []
       );
@@ -1227,30 +1229,54 @@ export class SandboxService {
     assistantId: string,
     workspaceId: string,
     existingWorkspaceFiles?: Map<string, AssistantWorkspaceFileRecord>
-  ): Promise<void> {
-    const filesByPath =
+  ): Promise<Map<string, AssistantWorkspaceFileRecord>> {
+    let filesByPath =
       existingWorkspaceFiles ??
       (await this.loadCurrentAssistantWorkspaceFiles(assistantId, workspaceId));
-    const stateToken = this.buildWorkspaceStateToken(filesByPath);
-    const readyMarkerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
-    try {
-      const existingMarker = await fs.readFile(readyMarkerPath, "utf8");
-      if (existingMarker.trim() === stateToken) {
-        await fs.access(workspaceRoot);
-        return;
+    for (let cleanupPass = 0; cleanupPass < 8; cleanupPass += 1) {
+      const stateToken = this.buildWorkspaceStateToken(filesByPath);
+      const readyMarkerPath = this.resolveWorkspaceStateMarkerPath(workspaceRoot);
+      try {
+        const existingMarker = await fs.readFile(readyMarkerPath, "utf8");
+        if (existingMarker.trim() === stateToken) {
+          await fs.access(workspaceRoot);
+          return filesByPath;
+        }
+      } catch {
+        // Fall through to rebuild the local assistant workspace session.
       }
-    } catch {
-      // Fall through to rebuild the local assistant workspace session.
+      await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
+      await fs.mkdir(workspaceRoot, { recursive: true });
+      const staleFileIds: string[] = [];
+      for (const file of filesByPath.values()) {
+        const absolutePath = this.resolveWorkspacePath(workspaceRoot, file.relativePath);
+        await fs.mkdir(dirname(absolutePath), { recursive: true });
+        try {
+          const buffer = await this.objectStorage.downloadObject(file.objectKey);
+          await fs.writeFile(absolutePath, buffer);
+        } catch (error) {
+          if (!this.isMissingObjectStorageError(error)) {
+            throw error;
+          }
+          staleFileIds.push(file.id);
+          this.logger.warn(
+            `Skipping stale assistant file ${file.id} (${file.relativePath}) during workspace hydrate because object "${file.objectKey}" is missing.`
+          );
+        }
+      }
+      if (staleFileIds.length === 0) {
+        await this.writeWorkspaceSessionStateMarker(workspaceRoot, filesByPath);
+        return filesByPath;
+      }
+      await this.deleteStaleAssistantWorkspaceFiles({
+        assistantId,
+        workspaceId,
+        fileIds: staleFileIds,
+        reason: "workspace_hydrate_missing_object"
+      });
+      filesByPath = await this.loadCurrentAssistantWorkspaceFiles(assistantId, workspaceId);
     }
-    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
-    await fs.mkdir(workspaceRoot, { recursive: true });
-    for (const file of filesByPath.values()) {
-      const absolutePath = this.resolveWorkspacePath(workspaceRoot, file.relativePath);
-      await fs.mkdir(dirname(absolutePath), { recursive: true });
-      const buffer = await this.objectStorage.downloadObject(file.objectKey);
-      await fs.writeFile(absolutePath, buffer);
-    }
-    await this.writeWorkspaceSessionStateMarker(workspaceRoot, filesByPath);
+    throw new Error("Assistant workspace hydrate exceeded stale-file cleanup retries.");
   }
 
   private async resetWorkspaceSessionToCurrentState(
@@ -1322,6 +1348,29 @@ export class SandboxService {
     await fs.writeFile(markerPath, this.buildWorkspaceStateToken(filesByPath), "utf8");
   }
 
+  private async deleteStaleAssistantWorkspaceFiles(input: {
+    assistantId: string;
+    workspaceId: string;
+    fileIds: string[];
+    reason: string;
+  }): Promise<void> {
+    if (input.fileIds.length === 0) {
+      return;
+    }
+    const removed = await this.prisma.assistantFile.deleteMany({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        id: {
+          in: input.fileIds
+        }
+      }
+    });
+    this.logger.warn(
+      `Removed ${String(removed.count)} stale assistant file row(s) for ${input.assistantId}/${input.workspaceId} after ${input.reason}.`
+    );
+  }
+
   private resolveWorkspaceDelta(
     files: WorkspaceFileSnapshot[],
     existingWorkspaceFiles: Map<string, AssistantWorkspaceFileRecord>,
@@ -1355,6 +1404,8 @@ export class SandboxService {
 
   private async materializeMountedFiles(
     workspaceRoot: string,
+    assistantId: string,
+    workspaceId: string,
     args: Record<string, unknown>,
     mountedFileRefs: string[] = []
   ): Promise<MountedWorkspaceState> {
@@ -1362,18 +1413,19 @@ export class SandboxService {
       byRef: new Map(),
       byPath: new Map()
     };
-    const mountRefs = new Set<string>();
+    const requiredRefs = new Set<string>();
     const singleRef = this.readNullableString(args.fileRef);
     if (singleRef) {
-      mountRefs.add(singleRef);
+      requiredRefs.add(singleRef);
     }
     if (Array.isArray(args.mountFileRefs)) {
       for (const item of args.mountFileRefs) {
         if (typeof item === "string" && item.trim().length > 0) {
-          mountRefs.add(item.trim());
+          requiredRefs.add(item.trim());
         }
       }
     }
+    const mountRefs = new Set<string>(requiredRefs);
     for (const item of mountedFileRefs) {
       if (typeof item === "string" && item.trim().length > 0) {
         mountRefs.add(item.trim());
@@ -1385,14 +1437,20 @@ export class SandboxService {
     const requestedRefs = [...mountRefs];
     const canonicalRefs = await this.prisma.assistantFile.findMany({
       where: {
+        assistantId,
+        workspaceId,
         id: {
           in: requestedRefs
         }
       }
     });
-    if (canonicalRefs.length !== mountRefs.size) {
+    const canonicalIds = new Set(canonicalRefs.map((ref) => ref.id));
+    const missingRequiredRefs = [...requiredRefs].filter((ref) => !canonicalIds.has(ref));
+    if (missingRequiredRefs.length > 0) {
       this.throwPolicy("file_ref_not_found", "One or more sandbox file references were not found.");
     }
+    const staleFileIds: string[] = [];
+    let requiredMountMissingObject = false;
     for (const ref of canonicalRefs) {
       const relativePath = this.requireRelativePath(ref.relativePath, "relativePath");
       if (mountedFiles.byPath.has(relativePath)) {
@@ -1403,7 +1461,20 @@ export class SandboxService {
       }
       const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
       await fs.mkdir(dirname(absolutePath), { recursive: true });
-      const buffer = await this.objectStorage.downloadObject(ref.objectKey);
+      let buffer: Buffer;
+      try {
+        buffer = await this.objectStorage.downloadObject(ref.objectKey);
+      } catch (error) {
+        if (!this.isMissingObjectStorageError(error)) {
+          throw error;
+        }
+        staleFileIds.push(ref.id);
+        requiredMountMissingObject = requiredMountMissingObject || requiredRefs.has(ref.id);
+        this.logger.warn(
+          `Skipping stale mounted assistant file ${ref.id} (${ref.relativePath}) because object "${ref.objectKey}" is missing.`
+        );
+        continue;
+      }
       await fs.writeFile(absolutePath, buffer);
       const mounted: MountedFileSnapshot = {
         fileRef: ref.id,
@@ -1414,6 +1485,20 @@ export class SandboxService {
       };
       mountedFiles.byRef.set(ref.id, mounted);
       mountedFiles.byPath.set(relativePath, mounted);
+    }
+    if (staleFileIds.length > 0) {
+      await this.deleteStaleAssistantWorkspaceFiles({
+        assistantId,
+        workspaceId,
+        fileIds: staleFileIds,
+        reason: "mounted_file_missing_object"
+      });
+    }
+    if (requiredMountMissingObject) {
+      this.throwPolicy(
+        "file_ref_not_found",
+        "One or more sandbox file references are stale because their stored object is missing."
+      );
     }
     return mountedFiles;
   }
@@ -1852,6 +1937,25 @@ export class SandboxService {
       typeof error === "object" &&
       "code" in error &&
       (error as { code?: unknown }).code === "P2002"
+    );
+  }
+
+  private isMissingObjectStorageError(error: unknown): boolean {
+    if (error === null || typeof error !== "object") {
+      return false;
+    }
+    const typed = error as {
+      code?: unknown;
+      status?: unknown;
+      statusCode?: unknown;
+      message?: unknown;
+    };
+    if (typed.code === 404 || typed.status === 404 || typed.statusCode === 404) {
+      return true;
+    }
+    return (
+      typeof typed.message === "string" &&
+      /no such object|not found|missing stored object/i.test(typed.message)
     );
   }
 
