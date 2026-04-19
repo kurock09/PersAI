@@ -177,7 +177,7 @@ async function run(): Promise<void> {
   );
   assert.match(
     markdown,
-    /\*\*`files`\*\*\nList, search, inspect, read, write, write-and-send, edit, or send assistant-managed files/
+    /\*\*`files`\*\*\nList, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files/
   );
   assert.doesNotMatch(markdown, /cron/);
   assert.doesNotMatch(markdown, /image_generate/);

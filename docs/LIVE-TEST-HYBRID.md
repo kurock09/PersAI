@@ -99,6 +99,22 @@ The active path truth is:
 - provider-gateway owns provider client interaction
 - sandbox owns isolated file/process execution plus canonical persisted `AssistantFile` output
 
+### If the stream looks pathologically slow
+
+Use this only for live debugging of the intermittent “slow motion” web-stream case:
+
+```powershell
+kubectl logs -n persai-dev deployment/api --since=10m | rg "web_stream_timing|web_stream_timing_failed"
+kubectl logs -n persai-dev deployment/runtime --since=10m | rg "\[provider-gateway-stream\]|\[turn-stream\]"
+```
+
+Interpret the result as follows:
+
+1. if `api` has a long total time but `runtime` never prints a matching `[provider-gateway-stream] ... headers-received`, the delay is still before the upstream provider call
+2. if `[provider-gateway-stream] ... headers-received elapsedMs=...` is already large, the slow case is on the path to upstream headers rather than browser rendering only
+3. if headers arrive quickly but `web_stream_timing firstDeltaMs=...` stays large, inspect runtime/provider stages around first provider event and first text delta
+4. always compare one slow turn and one normal turn from the same deployment before concluding that the issue is “model tokens are just slower”
+
 ## Step 20 Sandbox Smoke
 
 Use this only after the selected assistant's effective plan enables the active `files`, `exec`, and `shell` sandbox surface.

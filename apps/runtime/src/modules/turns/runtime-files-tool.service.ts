@@ -21,6 +21,9 @@ const DEFAULT_FILES_SEARCH_LIMIT = 8;
 const MAX_FILES_SEARCH_LIMIT = 20;
 const DEFAULT_FILES_LIST_LIMIT = 100;
 const MAX_FILES_LIST_LIMIT = 200;
+const FILE_LIST_SECTION_ORDER = ["workspace", "uploads", "artifacts"] as const;
+
+type FilesListSection = (typeof FILE_LIST_SECTION_ORDER)[number];
 
 type FilesListRequest = {
   action: "list";
@@ -72,6 +75,11 @@ type FilesEditRequest = {
   newText: string;
 };
 
+type FilesDeleteRequest = FilesLookupTarget & {
+  action: "delete";
+  recursive: boolean;
+};
+
 type FilesSendRequest = {
   action: "send";
   fileRef: string | null;
@@ -91,13 +99,14 @@ type ParsedFilesToolRequest =
   | FilesWriteRequest
   | FilesWriteAndSendRequest
   | FilesEditRequest
+  | FilesDeleteRequest
   | FilesSendRequest;
 
 type ResolvedFilesToolTarget =
   | { item: RuntimeFilesToolItem; warning: string | null }
   | { item: null; reason: string; warning: string | null; items?: RuntimeFilesToolItem[] };
 
-type SandboxFilesAction = "read" | "write" | "edit";
+type SandboxFilesAction = "read" | "write" | "edit" | "delete";
 type RuntimeResolvedQueuedArtifacts = {
   artifacts: RuntimeOutputArtifact[];
   queuedArtifacts: number;
@@ -202,6 +211,8 @@ export class RuntimeFilesToolService {
           return await this.executeWriteAndSendAction(params, request);
         case "edit":
           return await this.executeEditAction(params, request);
+        case "delete":
+          return await this.executeDeleteAction(params, request);
         case "send":
           return await this.executeSendAction(params, request);
       }
@@ -582,6 +593,94 @@ export class RuntimeFilesToolService {
     };
   }
 
+  private async executeDeleteAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+      currentArtifacts: RuntimeOutputArtifact[];
+      currentFileRefs: RuntimeFileRef[];
+      channel: "web" | "telegram" | "max_ru";
+    },
+    request: FilesDeleteRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    let deletedItem: RuntimeFilesToolItem | null = null;
+    let warning: string | null = null;
+    let targetPath = request.path;
+
+    if (request.fileRef !== null || request.query !== null) {
+      const resolved = await this.resolveTarget({
+        assistantId: params.bundle.metadata.assistantId,
+        workspaceId: params.bundle.metadata.workspaceId,
+        currentFileRefs: params.currentFileRefs,
+        fileRef: request.fileRef,
+        path: null,
+        query: request.query
+      });
+      if (resolved.item === null) {
+        return {
+          payload: {
+            ...this.createSkippedResult({
+              reason: resolved.reason,
+              requestedAction: "delete",
+              warning: resolved.warning
+            }),
+            items: resolved.items ?? []
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
+      deletedItem = resolved.item;
+      warning = resolved.warning;
+      targetPath = resolved.item.relativePath;
+    }
+
+    if (targetPath === null) {
+      return {
+        payload: this.createSkippedResult({
+          reason: "path_required",
+          requestedAction: "delete",
+          warning: "files.delete requires a target path."
+        }),
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    const job = await this.executeSandboxJob({
+      bundle: params.bundle,
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      action: "delete",
+      args: {
+        action: "delete",
+        path: targetPath,
+        recursive: request.recursive
+      },
+      mountedFileRefs: []
+    });
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "delete",
+        action: job.status === "completed" ? "deleted" : "skipped",
+        reason: job.reason,
+        warning: job.warning ?? job.violationMessage ?? warning,
+        item: deletedItem,
+        items: deletedItem === null ? [] : [deletedItem],
+        content: null,
+        job,
+        fileRefs: [],
+        artifactIds: [],
+        queuedArtifacts: 0
+      },
+      artifacts: [],
+      isError: job.status !== "completed"
+    };
+  }
+
   private async executeSendAction(
     params: {
       bundle: AssistantRuntimeBundle;
@@ -751,7 +850,7 @@ export class RuntimeFilesToolService {
     const action = this.readRequestedAction(row);
     if (action === null) {
       return new Error(
-        "files.action must be one of list, search, get, read, write, write_and_send, edit, or send."
+        "files.action must be one of list, search, get, read, write, write_and_send, edit, delete, or send."
       );
     }
     switch (action) {
@@ -833,6 +932,21 @@ export class RuntimeFilesToolService {
           query: this.readNonEmptyString(row.query),
           oldText,
           newText
+        };
+      }
+      case "delete": {
+        const fileRef = this.readNonEmptyString(row.fileRef);
+        const path = this.readNonEmptyString(row.path);
+        const query = this.readNonEmptyString(row.query);
+        if (fileRef === null && path === null && query === null) {
+          return new Error("files.delete requires one target selector: fileRef, path, or query.");
+        }
+        return {
+          action,
+          fileRef,
+          path,
+          query,
+          recursive: row.recursive === true
         };
       }
       case "send": {
@@ -963,45 +1077,147 @@ export class RuntimeFilesToolService {
     const label = input.path === null ? "." : input.path;
     const lines: string[] = [];
     if (input.recursive) {
-      lines.push(`Recursive file list for "${label}"`);
+      lines.push(`Available files in "${label}"`);
       if (input.totalFiles === 0) {
         lines.push("(no files)");
         return lines.join("\n");
       }
+      lines.push(...this.renderGroupedFileSections(input.items));
       if (input.truncated) {
         lines.push(
           `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
         );
-      }
-      for (const item of input.items) {
-        lines.push(`- ${item.relativePath}`);
       }
       return lines.join("\n");
     }
 
-    lines.push(`Directory listing for "${label}"`);
+    lines.push(`Available entries in "${label}"`);
     if (input.directories.length === 0 && input.items.length === 0) {
       lines.push("(empty)");
       return lines.join("\n");
     }
-    if (input.directories.length > 0) {
-      lines.push("Directories:");
-      for (const directory of input.directories) {
-        lines.push(`- ${directory}/`);
-      }
-    }
-    if (input.items.length > 0) {
-      lines.push("Files:");
-      for (const item of input.items) {
-        lines.push(`- ${item.relativePath}`);
-      }
-      if (input.truncated) {
+    if (label === ".") {
+      const workspaceDirectories = input.directories.filter(
+        (directory) => this.classifyDirectoryAtRoot(directory) === "workspace"
+      );
+      const serviceDirectories = input.directories.filter(
+        (directory) => this.classifyDirectoryAtRoot(directory) !== "workspace"
+      );
+      if (workspaceDirectories.length > 0) {
         lines.push(
-          `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
+          `Workspace folders: ${workspaceDirectories.map((entry) => `${entry}/`).join(", ")}`
         );
       }
+      if (serviceDirectories.length > 0) {
+        lines.push(`Service folders: ${serviceDirectories.map((entry) => `${entry}/`).join(", ")}`);
+      }
+      if (input.items.length > 0) {
+        lines.push(...this.renderGroupedFileSections(input.items));
+      }
+      return lines.join("\n");
+    }
+
+    if (label === "uploads" || label === "artifacts") {
+      if (input.directories.length > 0) {
+        lines.push(
+          `Hidden ${String(input.directories.length)} internal folder(s). Use recursive=true to see actual files.`
+        );
+      }
+      if (input.items.length > 0) {
+        lines.push(...this.renderGroupedFileSections(input.items));
+      }
+    } else {
+      if (input.directories.length > 0) {
+        lines.push(`Folders: ${input.directories.map((entry) => `${entry}/`).join(", ")}`);
+      }
+      if (input.items.length > 0) {
+        lines.push(`Files: ${input.items.map((item) => this.formatFileLabel(item)).join(", ")}`);
+      }
+    }
+    if (input.truncated) {
+      lines.push(
+        `Showing first ${String(input.items.length)} of ${String(input.totalFiles)} file(s).`
+      );
     }
     return lines.join("\n");
+  }
+
+  private renderGroupedFileSections(items: RuntimeFilesToolItem[]): string[] {
+    const groups = new Map<FilesListSection, Map<string, number>>();
+    for (const section of FILE_LIST_SECTION_ORDER) {
+      groups.set(section, new Map());
+    }
+    for (const item of items) {
+      const section = this.classifyFileSection(item.relativePath);
+      const label = this.formatFileLabel(item);
+      const sectionEntries = groups.get(section)!;
+      sectionEntries.set(label, (sectionEntries.get(label) ?? 0) + 1);
+    }
+
+    const lines: string[] = [];
+    for (const section of FILE_LIST_SECTION_ORDER) {
+      const entries = groups.get(section);
+      if (entries === undefined || entries.size === 0) {
+        continue;
+      }
+      lines.push(`${this.formatSectionTitle(section)}:`);
+      for (const [label, count] of entries.entries()) {
+        lines.push(count > 1 ? `- ${label} x${String(count)}` : `- ${label}`);
+      }
+    }
+    return lines;
+  }
+
+  private classifyFileSection(relativePath: string): FilesListSection {
+    if (relativePath.startsWith("uploads/")) {
+      return "uploads";
+    }
+    if (relativePath.startsWith("artifacts/")) {
+      return "artifacts";
+    }
+    return "workspace";
+  }
+
+  private classifyDirectoryAtRoot(directory: string): FilesListSection {
+    if (directory === "uploads") {
+      return "uploads";
+    }
+    if (directory === "artifacts") {
+      return "artifacts";
+    }
+    return "workspace";
+  }
+
+  private formatSectionTitle(section: FilesListSection): string {
+    switch (section) {
+      case "workspace":
+        return "Workspace";
+      case "uploads":
+        return "Uploads";
+      case "artifacts":
+        return "Artifacts";
+    }
+  }
+
+  private formatFileLabel(item: RuntimeFilesToolItem): string {
+    const section = this.classifyFileSection(item.relativePath);
+    const trimmed = this.trimTechnicalPrefix(item.relativePath, section);
+    const fallbackName = trimmed.split("/").pop() ?? item.relativePath.split("/").pop() ?? "file";
+    const displayName = item.displayName?.trim() ?? "";
+    if (section === "workspace") {
+      return trimmed;
+    }
+    return displayName.length > 0 ? displayName : fallbackName;
+  }
+
+  private trimTechnicalPrefix(relativePath: string, section: FilesListSection): string {
+    if (section === "uploads" || section === "artifacts") {
+      const parts = relativePath.split("/");
+      if (parts.length >= 3) {
+        return parts.slice(2).join("/");
+      }
+    }
+    return relativePath;
   }
 
   private async executeSandboxJob(input: {
@@ -1170,6 +1386,7 @@ export class RuntimeFilesToolService {
       action === "write" ||
       action === "write_and_send" ||
       action === "edit" ||
+      action === "delete" ||
       action === "send"
       ? action
       : null;

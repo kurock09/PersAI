@@ -76,7 +76,8 @@ async function run(): Promise<void> {
       }
     },
     quotaLimits: {
-      tokenBudgetLimit: 1000
+      tokenBudgetLimit: 1000,
+      knowledgeStorageBytesLimit: 4096
     },
     contextPolicy,
     primaryModelKey: null,
@@ -104,6 +105,10 @@ async function run(): Promise<void> {
     (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateModelKey,
     "sora-2-pro"
   );
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).quotaAccounting, {
+    tokenBudgetLimit: 1000,
+    knowledgeStorageBytesLimit: 4096
+  });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).contextPolicy, {
     schema: "persai.planContextHydration.v1",
     ...contextPolicy
@@ -114,6 +119,7 @@ async function run(): Promise<void> {
       toAdminPlanState(plan: AssistantPlanCatalog): {
         videoGenerateModelKey: string | null;
         contextPolicy: { preset: string };
+        quotaLimits: { knowledgeStorageBytesLimit: number | null };
       };
     }
   ).toAdminPlanState({
@@ -133,6 +139,7 @@ async function run(): Promise<void> {
   });
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
   assert.equal(state.contextPolicy.preset, "balanced");
+  assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
   const normalizedState = (
     service as unknown as {
       toAdminPlanState(plan: AssistantPlanCatalog): {
@@ -211,7 +218,8 @@ async function run(): Promise<void> {
       }
     },
     quotaLimits: {
-      tokenBudgetLimit: 1000
+      tokenBudgetLimit: 1000,
+      knowledgeStorageBytesLimit: 4096
     },
     contextPolicy: {
       ...contextPolicy,

@@ -55,7 +55,8 @@ import {
   type RuntimeUsageAccounting,
   type RuntimeUsageAccountingEntry,
   type RuntimeUsageSnapshot,
-  type PersaiRuntimeModelRole
+  type PersaiRuntimeModelRole,
+  type RuntimeTrace
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
@@ -109,6 +110,11 @@ type PreparedTurnExecution = {
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
+};
+
+type RuntimeStreamTraceCollector = {
+  stage: (key: string) => void;
+  build: (status: RuntimeTrace["status"]) => RuntimeTrace;
 };
 
 type TurnProviderRequestClassification = "main_turn" | "tool_loop_followup";
@@ -275,12 +281,22 @@ export class TurnExecutionService {
       case "replayed":
         return this.replayStreamResult(acceptedTurn.receipt);
       case "accepted": {
+        const trace = this.createRuntimeStreamTraceCollector();
+        trace.stage("accepted");
         const execution = await this.prepareTurnExecution(input, {
-          allowModelToolExposure: true
+          allowModelToolExposure: true,
+          trace
         });
         const turnState = this.createTurnExecutionState();
         this.applyPreparedTurnExecutionState(turnState, execution);
-        return this.streamAcceptedTurn(acceptedTurn, execution, input, turnState, options?.signal);
+        return this.streamAcceptedTurn(
+          acceptedTurn,
+          execution,
+          input,
+          turnState,
+          options?.signal,
+          trace
+        );
       }
     }
   }
@@ -307,7 +323,10 @@ export class TurnExecutionService {
 
   private async prepareTurnExecution(
     input: RuntimeTurnRequest,
-    options?: { allowModelToolExposure?: boolean }
+    options?: {
+      allowModelToolExposure?: boolean;
+      trace?: RuntimeStreamTraceCollector;
+    }
   ): Promise<PreparedTurnExecution> {
     let bundleEntry = this.resolveBundleEntry(input.bundle);
     if (bundleEntry === null || !this.bundleEntryMatchesRequest(bundleEntry, input.bundle)) {
@@ -341,25 +360,39 @@ export class TurnExecutionService {
         )
       );
     }
+    options?.trace?.stage("prepare.bundle_ready");
 
     const hydratedMessages = await this.turnContextHydrationService.buildMessages(
       input,
       bundleEntry.parsedBundle
     );
+    options?.trace?.stage("prepare.context_hydrated");
     const baselineProjectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
       allowModelToolExposure: options?.allowModelToolExposure ?? true
     });
+    options?.trace?.stage("prepare.tools_projected");
     const executionPlan = await this.resolveTurnExecutionPlan(
       bundleEntry.parsedBundle,
       input,
       hydratedMessages,
       baselineProjectedTools
     );
+    options?.trace?.stage("prepare.execution_plan_ready");
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     });
+    options?.trace?.stage("prepare.provider_selected");
+    const providerRequest = this.buildProviderRequest(
+      bundleEntry.parsedBundle,
+      providerSelection,
+      hydratedMessages,
+      baselineProjectedTools,
+      input.deepMode === true,
+      executionPlan.routeDecision
+    );
+    options?.trace?.stage("prepare.provider_request_built");
     return {
       bundle: bundleEntry.parsedBundle,
       projectedTools: baselineProjectedTools,
@@ -369,14 +402,7 @@ export class TurnExecutionService {
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
       preludeUsageEntries: executionPlan.usageEntries,
-      providerRequest: this.buildProviderRequest(
-        bundleEntry.parsedBundle,
-        providerSelection,
-        hydratedMessages,
-        baselineProjectedTools,
-        input.deepMode === true,
-        executionPlan.routeDecision
-      )
+      providerRequest
     };
   }
 
@@ -409,7 +435,8 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution,
     input: RuntimeTurnRequest,
     turnState: TurnExecutionState,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    trace?: RuntimeStreamTraceCollector
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
     // Keep the fully assembled assistant text separate from the user-visible stream text.
     let assembledText = "";
@@ -422,6 +449,7 @@ export class TurnExecutionService {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId
     };
+    trace?.stage("stream.started_emitted");
 
     try {
       for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
@@ -438,17 +466,25 @@ export class TurnExecutionService {
         this.logger.log(
           `[turn-stream] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} classification=${providerRequest.requestMetadata?.classification ?? "unknown"} modelRole=${execution.selectedModelRole} provider=${providerRequest.provider} model=${providerRequest.model} toolCount=${String(providerRequest.tools?.length ?? 0)} toolHistoryCount=${String(providerRequest.toolHistory?.length ?? 0)}`
         );
+        trace?.stage(`iter${String(iteration)}.provider_request_ready`);
         const providerStream = await this.providerGatewayClientService.streamText(
           providerRequest,
           signal === undefined ? undefined : { signal }
         );
+        trace?.stage(`iter${String(iteration)}.provider_headers_received`);
         let advancedToNextIteration = false;
+        let firstProviderEventSeen = false;
 
         for await (const event of providerStream) {
           if (signal?.aborted) {
             await this.interruptAcceptedTurnQuietly({
               acceptedTurn,
-              event: this.toInterruptedEvent(acceptedTurn, deliveredText, null)
+              event: this.toInterruptedEvent(
+                acceptedTurn,
+                deliveredText,
+                null,
+                trace?.build("interrupted")
+              )
             });
             return;
           }
@@ -456,9 +492,16 @@ export class TurnExecutionService {
           if (event.type === "keepalive") {
             continue;
           }
+          if (!firstProviderEventSeen) {
+            firstProviderEventSeen = true;
+            trace?.stage(`iter${String(iteration)}.first_provider_event`);
+          }
 
           if (event.type === "text_delta" && event.delta !== undefined) {
             assembledText = this.mergeAssistantTurnText(iterationBaseText, event.accumulatedText);
+            if (deliveredText.length === 0) {
+              trace?.stage("stream.first_text_delta");
+            }
             const deltaEvent = this.createVisibleTextDeltaStreamEvent({
               acceptedTurn,
               previousDeliveredText: deliveredText,
@@ -473,6 +516,7 @@ export class TurnExecutionService {
           }
 
           if (event.type === "tool_calls") {
+            trace?.stage(`iter${String(iteration)}.tool_calls_received`);
             this.recordUsageEntry(turnState, {
               stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
               modelRole: execution.selectedModelRole,
@@ -545,6 +589,7 @@ export class TurnExecutionService {
           }
 
           if (event.type === "completed" && event.result !== undefined) {
+            trace?.stage(`iter${String(iteration)}.completed_event`);
             const completedProviderResult = this.withAssistantText(
               event.result,
               this.resolveCompletedStreamAssistantText(
@@ -583,7 +628,8 @@ export class TurnExecutionService {
               acceptedTurn,
               correctedProviderResult,
               turnState,
-              execution.routeDecision
+              execution.routeDecision,
+              trace?.build("ok")
             );
             completionFinalizationAttempted = true;
             const finalizedResult = await this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -601,8 +647,14 @@ export class TurnExecutionService {
           }
 
           if (event.type === "failed") {
+            trace?.stage(`iter${String(iteration)}.failed_event`);
             if (deliveredText.trim().length > 0) {
-              const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
+              const interrupted = this.toInterruptedEvent(
+                acceptedTurn,
+                deliveredText,
+                null,
+                trace?.build("interrupted")
+              );
               await this.interruptAcceptedTurnQuietly({
                 acceptedTurn,
                 event: interrupted
@@ -617,7 +669,8 @@ export class TurnExecutionService {
               sessionId: acceptedTurn.session.sessionId,
               code: event.code ?? "provider_stream_failed",
               message: event.message ?? "Provider stream failed.",
-              willRetry: false
+              willRetry: false,
+              ...(trace === undefined ? {} : { trace: trace.build("failed") })
             });
             yield failed;
             return;
@@ -629,7 +682,12 @@ export class TurnExecutionService {
         }
 
         if (deliveredText.trim().length > 0) {
-          const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
+          const interrupted = this.toInterruptedEvent(
+            acceptedTurn,
+            deliveredText,
+            null,
+            trace?.build("interrupted")
+          );
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
             event: interrupted
@@ -644,7 +702,8 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           code: "provider_stream_ended",
           message: "Provider stream ended before native turn completion.",
-          willRetry: false
+          willRetry: false,
+          ...(trace === undefined ? {} : { trace: trace.build("failed") })
         });
         yield failed;
         return;
@@ -656,7 +715,8 @@ export class TurnExecutionService {
         sessionId: acceptedTurn.session.sessionId,
         code: "native_tool_loop_exhausted",
         message: `Native tool loop exceeded ${String(MAX_NATIVE_TOOL_LOOP_ITERATIONS)} iterations.`,
-        willRetry: false
+        willRetry: false,
+        ...(trace === undefined ? {} : { trace: trace.build("failed") })
       });
       yield exhausted;
     } catch (error) {
@@ -667,13 +727,23 @@ export class TurnExecutionService {
       if (signal?.aborted || this.isAbortError(error)) {
         await this.interruptAcceptedTurnQuietly({
           acceptedTurn,
-          event: this.toInterruptedEvent(acceptedTurn, deliveredText, null)
+          event: this.toInterruptedEvent(
+            acceptedTurn,
+            deliveredText,
+            null,
+            trace?.build("interrupted")
+          )
         });
         return;
       }
 
       if (deliveredText.trim().length > 0) {
-        const interrupted = this.toInterruptedEvent(acceptedTurn, deliveredText, null);
+        const interrupted = this.toInterruptedEvent(
+          acceptedTurn,
+          deliveredText,
+          null,
+          trace?.build("interrupted")
+        );
         await this.interruptAcceptedTurnQuietly({
           acceptedTurn,
           event: interrupted
@@ -682,7 +752,11 @@ export class TurnExecutionService {
         return;
       }
 
-      const failed = await this.failAcceptedTurnQuietly(acceptedTurn, error);
+      const failed = await this.failAcceptedTurnQuietly(
+        acceptedTurn,
+        error,
+        trace?.build("failed")
+      );
       yield failed;
     }
   }
@@ -699,11 +773,44 @@ export class TurnExecutionService {
     })();
   }
 
+  private createRuntimeStreamTraceCollector(): RuntimeStreamTraceCollector {
+    const startedAtMs = Date.now();
+    const points: Array<{ key: string; atMs: number }> = [{ key: "start", atMs: startedAtMs }];
+    return {
+      stage: (key: string) => {
+        points.push({ key, atMs: Date.now() });
+      },
+      build: (status: RuntimeTrace["status"]) => {
+        const finishedAtMs = Date.now();
+        const finalizedPoints = [...points, { key: "finish", atMs: finishedAtMs }];
+        const stages: RuntimeTrace["stages"] = [];
+        for (let index = 1; index < finalizedPoints.length; index += 1) {
+          const previous = finalizedPoints[index - 1];
+          const point = finalizedPoints[index];
+          if (previous === undefined || point === undefined) {
+            continue;
+          }
+          stages.push({
+            key: `${previous.key} -> ${point.key}`,
+            durationMs: Math.max(0, point.atMs - previous.atMs)
+          });
+        }
+        return {
+          scope: "stream_turn",
+          status,
+          totalMs: Math.max(0, finishedAtMs - startedAtMs),
+          stages
+        };
+      }
+    };
+  }
+
   private buildTurnResult(
     acceptedTurn: AcceptedRuntimeTurn,
     providerResult: ProviderGatewayTextGenerateResult,
     turnState: TurnExecutionState,
-    routeDecision?: TurnRouteDecision
+    routeDecision?: TurnRouteDecision,
+    trace?: RuntimeTrace
   ): RuntimeTurnResult {
     if (providerResult.stopReason !== "completed" || providerResult.text === null) {
       throw new InternalServerErrorException(
@@ -720,6 +827,7 @@ export class TurnExecutionService {
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage,
+      ...(trace === undefined ? {} : { trace }),
       ...(turnRouting === null ? {} : { turnRouting }),
       ...(turnState.usageEntries.length === 0
         ? {}
@@ -2521,9 +2629,10 @@ export class TurnExecutionService {
 
   private async failAcceptedTurnQuietly(
     acceptedTurn: AcceptedRuntimeTurn,
-    error: unknown
+    error: unknown,
+    trace?: RuntimeTrace
   ): Promise<RuntimeFailedEvent> {
-    const failure = this.toFailureEvent(acceptedTurn, error);
+    const failure = this.toFailureEvent(acceptedTurn, error, trace);
     try {
       await this.turnFinalizationService.failAcceptedTurn(acceptedTurn, failure);
     } catch {
@@ -2547,20 +2656,26 @@ export class TurnExecutionService {
   private toInterruptedEvent(
     acceptedTurn: AcceptedRuntimeTurn,
     assistantText: string,
-    respondedAt: string | null
+    respondedAt: string | null,
+    trace?: RuntimeTrace
   ): RuntimeInterruptedEvent {
     return {
       type: "interrupted",
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText: assistantText.trim(),
-      respondedAt
+      respondedAt,
+      ...(trace === undefined ? {} : { trace })
     };
   }
 
-  private toFailureEvent(acceptedTurn: AcceptedRuntimeTurn, error: unknown): RuntimeFailedEvent {
+  private toFailureEvent(
+    acceptedTurn: AcceptedRuntimeTurn,
+    error: unknown,
+    trace?: RuntimeTrace
+  ): RuntimeFailedEvent {
     if (this.isRuntimeFailedEvent(error)) {
-      return error;
+      return trace === undefined || error.trace !== undefined ? error : { ...error, trace };
     }
     if (error instanceof TurnExecutionError) {
       return {
@@ -2569,7 +2684,8 @@ export class TurnExecutionService {
         sessionId: acceptedTurn.session.sessionId,
         code: error.code,
         message: error.message,
-        willRetry: false
+        willRetry: false,
+        ...(trace === undefined ? {} : { trace })
       };
     }
     if (error instanceof HttpException) {
@@ -2581,7 +2697,8 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           code: "native_runtime_request_invalid",
           message: error.message,
-          willRetry: false
+          willRetry: false,
+          ...(trace === undefined ? {} : { trace })
         };
       }
     }
@@ -2592,7 +2709,8 @@ export class TurnExecutionService {
         sessionId: acceptedTurn.session.sessionId,
         code: "turn_execution_failed",
         message: error.message,
-        willRetry: false
+        willRetry: false,
+        ...(trace === undefined ? {} : { trace })
       };
     }
     return {
@@ -2601,7 +2719,8 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId,
       code: "turn_execution_failed",
       message: "Native turn execution failed.",
-      willRetry: false
+      willRetry: false,
+      ...(trace === undefined ? {} : { trace })
     };
   }
 

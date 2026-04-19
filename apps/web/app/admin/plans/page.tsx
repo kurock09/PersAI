@@ -66,6 +66,7 @@ export type PlanDraft = {
   channelMax: boolean;
   tokenBudgetLimit: string;
   mediaStorageMb: string;
+  knowledgeStorageMb: string;
   workspaceStorageMb: string;
   retrievalDefaultMaxResults: string;
   retrievalHardMaxResults: string;
@@ -117,6 +118,7 @@ export type PlanDraft = {
 type NumericDraftField =
   | "tokenBudgetLimit"
   | "mediaStorageMb"
+  | "knowledgeStorageMb"
   | "workspaceStorageMb"
   | "retrievalDefaultMaxResults"
   | "retrievalHardMaxResults"
@@ -299,7 +301,7 @@ function parseStrictIntegerDraft(
 const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
-  { field: "workspaceStorageMb", label: "Workspace disk (MB)", min: 1, allowBlank: true },
+  { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
   { field: "retrievalDefaultMaxResults", label: "Default results", min: 1 },
   { field: "retrievalHardMaxResults", label: "Hard max results", min: 1 },
   { field: "retrievalLexicalCandidateLimit", label: "Lexical candidate pool", min: 1 },
@@ -407,6 +409,7 @@ function emptyDraft(): PlanDraft {
     channelMax: false,
     tokenBudgetLimit: "",
     mediaStorageMb: "",
+    knowledgeStorageMb: "",
     workspaceStorageMb: "",
     retrievalDefaultMaxResults: "5",
     retrievalHardMaxResults: "8",
@@ -472,6 +475,10 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     mediaStorageMb:
       plan.quotaLimits?.mediaStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))
+        : "",
+    knowledgeStorageMb:
+      plan.quotaLimits?.knowledgeStorageBytesLimit != null
+        ? String(Math.round(plan.quotaLimits.knowledgeStorageBytesLimit / 1048576))
         : "",
     workspaceStorageMb:
       plan.quotaLimits?.workspaceStorageBytesLimit != null
@@ -555,6 +562,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     min: 1,
     allowBlank: true
   });
+  const knowledgeStorageMb = parseStrictIntegerDraft(draft.knowledgeStorageMb, {
+    label: "Knowledge storage (MB)",
+    min: 1,
+    allowBlank: true
+  });
   const workspaceStorageMb = parseStrictIntegerDraft(draft.workspaceStorageMb, {
     label: "Workspace disk (MB)",
     min: 1,
@@ -596,6 +608,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     quotaLimits: {
       tokenBudgetLimit,
       mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
+      knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
       workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
     },
     retrievalPolicy: {
@@ -1348,24 +1361,24 @@ function PlanForm({
                 </label>
                 <FieldError message={validationErrors.mediaStorageMb} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                  <span title="Total sandbox disk — max MB for everything (agent files, downloads, user uploads). Applied on the PersAI-native runtime path.">
-                    Workspace disk (MB)
+                  <span title="Assistant-owned knowledge storage budget — max MB for indexed knowledge sources. Tracked separately from chat uploads and sandbox files.">
+                    Knowledge storage (MB)
                   </span>
                   <input
                     type="number"
                     min={0}
-                    value={draft.workspaceStorageMb}
-                    onChange={(e) => onPatch({ workspaceStorageMb: e.target.value })}
+                    value={draft.knowledgeStorageMb}
+                    onChange={(e) => onPatch({ knowledgeStorageMb: e.target.value })}
                     placeholder="default"
                     className={cn(
                       "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
-                      validationErrors.workspaceStorageMb
+                      validationErrors.knowledgeStorageMb
                         ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
                         : "border-border focus:border-accent focus:ring-accent/50"
                     )}
                   />
                 </label>
-                <FieldError message={validationErrors.workspaceStorageMb} />
+                <FieldError message={validationErrors.knowledgeStorageMb} />
               </div>
             </SubPanel>
 
@@ -2091,10 +2104,10 @@ function PlanCardReadOnly({
                       : "default"}
                   </div>
                   <div>
-                    Workspace disk:{" "}
-                    {plan.quotaLimits?.workspaceStorageBytesLimit != null
-                      ? `${String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))} MB`
-                      : "platform default"}
+                    Knowledge storage:{" "}
+                    {plan.quotaLimits?.knowledgeStorageBytesLimit != null
+                      ? `${String(Math.round(plan.quotaLimits.knowledgeStorageBytesLimit / 1048576))} MB`
+                      : "default"}
                   </div>
                 </div>
               </Sec>

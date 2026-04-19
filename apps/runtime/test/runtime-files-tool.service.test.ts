@@ -75,6 +75,29 @@ class FakeSandboxClientService {
 
   async waitForCompletion(input: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
     this.calls.push(input);
+    const producedFiles =
+      input.args.action === "delete"
+        ? []
+        : [
+            {
+              relativePath: "reports/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64,
+              fileRef: {
+                fileRef: "file-ref-1",
+                origin: "uploaded_attachment" as const,
+                sourceToolCode: "files",
+                objectKey: "assistant-media/uploads/file-ref-1/report.txt",
+                relativePath: "reports/report.txt",
+                displayName: "report.txt",
+                mimeType: "text/plain",
+                sizeBytes: 64,
+                logicalSizeBytes: 64
+              }
+            }
+          ];
     return {
       jobId: "sandbox-job-1",
       status: "completed",
@@ -87,26 +110,7 @@ class FakeSandboxClientService {
       stdout: null,
       stderr: null,
       content: "file body",
-      files: [
-        {
-          relativePath: "reports/report.txt",
-          displayName: "report.txt",
-          mimeType: "text/plain",
-          sizeBytes: 64,
-          logicalSizeBytes: 64,
-          fileRef: {
-            fileRef: "file-ref-1",
-            origin: "uploaded_attachment",
-            sourceToolCode: "files",
-            objectKey: "assistant-media/uploads/file-ref-1/report.txt",
-            relativePath: "reports/report.txt",
-            displayName: "report.txt",
-            mimeType: "text/plain",
-            sizeBytes: 64,
-            logicalSizeBytes: 64
-          }
-        }
-      ]
+      files: producedFiles
     };
   }
 }
@@ -176,6 +180,23 @@ async function run(): Promise<void> {
       sha256: null,
       metadata: null,
       createdAt: new Date("2026-04-19T12:02:00.000Z")
+    },
+    {
+      id: "file-ref-artifact",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "sandbox_output" as const,
+      sourceToolCode: "files",
+      objectKey: "assistant-media/artifacts/file-ref-artifact/hello.txt",
+      relativePath: "artifacts/2dc36f9f-6046-4e82-a081-2e7125c7e448/hello.txt",
+      displayName: "hello.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(21),
+      logicalSizeBytes: BigInt(21),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:03:00.000Z")
     }
   ];
   const prisma = {
@@ -283,9 +304,10 @@ async function run(): Promise<void> {
   });
   assert.equal(listRoot.isError, false);
   assert.equal(listRoot.payload.action, "listed");
-  assert.match(listRoot.payload.content ?? "", /Directory listing for "\."/);
-  assert.match(listRoot.payload.content ?? "", /reports\//);
-  assert.match(listRoot.payload.content ?? "", /uploads\//);
+  assert.match(listRoot.payload.content ?? "", /Available entries in "\."/);
+  assert.match(listRoot.payload.content ?? "", /Workspace folders: reports\//);
+  assert.match(listRoot.payload.content ?? "", /Service folders: artifacts\/, uploads\//);
+  assert.match(listRoot.payload.content ?? "", /Workspace:/);
   assert.match(listRoot.payload.content ?? "", /hello_test\.txt/);
   assert.deepEqual(listRoot.payload.fileRefs, ["file-ref-root"]);
 
@@ -308,7 +330,13 @@ async function run(): Promise<void> {
   });
   assert.equal(listUploadsRecursive.isError, false);
   assert.equal(listUploadsRecursive.payload.action, "listed");
-  assert.match(listUploadsRecursive.payload.content ?? "", /Recursive file list for "uploads"/);
+  assert.match(listUploadsRecursive.payload.content ?? "", /Available files in "uploads"/);
+  assert.match(listUploadsRecursive.payload.content ?? "", /Uploads:/);
+  assert.match(listUploadsRecursive.payload.content ?? "", /KB\.txt/);
+  assert.doesNotMatch(
+    listUploadsRecursive.payload.content ?? "",
+    /94ec8468-10ce-4761-9065-2498de7130ee/
+  );
   assert.deepEqual(listUploadsRecursive.payload.fileRefs, ["file-ref-kb"]);
   assert.equal(
     listUploadsRecursive.payload.items[0]?.relativePath,
@@ -339,6 +367,31 @@ async function run(): Promise<void> {
   assert.equal(sandboxClientService.calls.at(-1)?.args.action, "read");
   assert.equal(sandboxClientService.calls.at(-1)?.args.path, "reports/report.txt");
   assert.deepEqual(sandboxClientService.calls.at(-1)?.mountedFileRefs, []);
+
+  const deleteResult = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-delete",
+      name: "files",
+      arguments: {
+        action: "delete",
+        path: "artifacts",
+        recursive: true
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(deleteResult.isError, false);
+  assert.equal(deleteResult.payload.requestedAction, "delete");
+  assert.equal(deleteResult.payload.action, "deleted");
+  assert.equal(deleteResult.payload.fileRefs.length, 0);
+  assert.equal(sandboxClientService.calls.at(-1)?.args.action, "delete");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.path, "artifacts");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.recursive, true);
 
   const currentArtifact = createArtifact();
   const sendCurrentArtifact = await service.executeToolCall({

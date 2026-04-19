@@ -11,5 +11,7 @@ export interface AdminPlanQuotaLimits {
   /** @nullable */
   mediaStorageBytesLimit?: number | null;
   /** @nullable */
+  knowledgeStorageBytesLimit?: number | null;
+  /** @nullable */
   workspaceStorageBytesLimit?: number | null;
 }

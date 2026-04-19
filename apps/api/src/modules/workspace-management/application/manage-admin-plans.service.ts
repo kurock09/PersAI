@@ -542,6 +542,9 @@ export class ManageAdminPlansService {
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit),
+        knowledgeStorageBytesLimit: toNullablePositiveInt(
+          quotaLimitsRaw.knowledgeStorageBytesLimit
+        ),
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       contextPolicy,
@@ -614,6 +617,9 @@ export class ManageAdminPlansService {
     }
     if (input.quotaLimits.mediaStorageBytesLimit !== null) {
       quotaAccounting.mediaStorageBytesLimit = input.quotaLimits.mediaStorageBytesLimit;
+    }
+    if (input.quotaLimits.knowledgeStorageBytesLimit !== null) {
+      quotaAccounting.knowledgeStorageBytesLimit = input.quotaLimits.knowledgeStorageBytesLimit;
     }
     if (input.quotaLimits.workspaceStorageBytesLimit !== null) {
       quotaAccounting.workspaceStorageBytesLimit = input.quotaLimits.workspaceStorageBytesLimit;
@@ -777,6 +783,9 @@ export class ManageAdminPlansService {
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit),
+        knowledgeStorageBytesLimit: toNullablePositiveInt(
+          quotaAccountingRaw.knowledgeStorageBytesLimit
+        ),
         workspaceStorageBytesLimit: toNullablePositiveInt(
           quotaAccountingRaw.workspaceStorageBytesLimit
         )

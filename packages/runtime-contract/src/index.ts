@@ -233,6 +233,7 @@ export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "write",
   "write_and_send",
   "edit",
+  "delete",
   "send"
 ] as const;
 
@@ -261,6 +262,7 @@ export interface RuntimeFilesToolResult {
     | "written"
     | "written_and_queued"
     | "edited"
+    | "deleted"
     | "queued"
     | "skipped";
   reason: string | null;

@@ -745,7 +745,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
+      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
     ),
     inputSchema: {
       type: "object",
@@ -756,12 +756,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "search", "get", "read", "write", "write_and_send", "edit", or "send".'
+            'One files action: "list", "search", "get", "read", "write", "write_and_send", "edit", "delete", or "send".'
         },
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", or "send" when fileRef/path is unavailable.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable.'
         },
         limit: {
           type: "integer",
@@ -773,12 +773,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         path: {
           type: "string",
           description:
-            'Assistant file path for action="list", "get", "read", "write", "write_and_send", or "edit". For action="list", leave unset or use "." for the root.'
+            'Assistant file path for action="list", "get", "read", "write", "write_and_send", "edit", or "delete". For action="list", leave unset or use "." for the root.'
         },
         fileRef: {
           type: "string",
           description:
-            'Canonical assistant file reference for action="get", "read", "edit", or "send". Prefer this when a prior tool result already returned a stable fileRef.'
+            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this when a prior tool result already returned a stable fileRef.'
         },
         content: {
           type: "string",
@@ -795,7 +795,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         recursive: {
           type: "boolean",
           description:
-            'Optional recursion flag for action="list". When true, return files from the whole subtree under path.'
+            'Optional recursion flag for action="list". For action="delete", set true when deleting a directory tree.'
         },
         fileRefs: {
           type: "array",

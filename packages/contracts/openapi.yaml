@@ -5226,6 +5226,9 @@ components:
         mediaStorageBytesLimit:
           type: integer
           nullable: true
+        knowledgeStorageBytesLimit:
+          type: integer
+          nullable: true
         workspaceStorageBytesLimit:
           type: integer
           nullable: true

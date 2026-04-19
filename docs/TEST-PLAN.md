@@ -75,6 +75,25 @@ Interpretation rules:
 23. if delivery-honesty protection changes, verify a completed turn that claims a file was sent but returns zero delivered artifacts is corrected explicitly instead of being stored as a confident false-success reply
 22. if assistant workspace hydrate/reset changes, verify missing object-storage blobs do not crash the sandbox path: stale `assistant_files` rows must be removed from canonical truth, the local workspace must rebuild from the remaining accessible files, and the job must complete or fail structurally instead of taking down the pod
 23. if `files.read` / `files.write` / `files.edit` or sandbox explicit mounts change, verify the normal canonical `files` path runs by hydrated workspace `relativePath` without redundant `mountedFileRefs`, and verify any remaining explicit mounted `fileRef` path is scoped to the same assistant/workspace and fails structurally after stale-row cleanup when the backing blob is missing
+24. if `files.delete` or default `files.list` presentation changes, verify recursive directory delete works, root delete stays blocked, single-file delete returns the canonical deleted item, and the default list summary groups `workspace`, `uploads`, and `artifacts` without exposing raw service-noise paths unnecessarily
+
+## Web stream latency-trace focused checks
+
+When a change touches web SSE orchestration, replay wait behavior, pre-first-delta timing, or provider stream timing logs, add the focused pack below before calling the slice clean:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. verify API latency traces keep the same trace across `prepare_begin`, replay claim, prepared state, SSE `started`, runtime request, and first visible delta instead of starting only after the slow part already passed
+2. verify completed/failed/interrupted runtime stream results can carry structured `trace` stages such as `prepare.*`, `provider_headers_received`, `first_provider_event`, and `first_text_delta`
+3. verify provider-gateway stream logs include elapsed time to response headers or `failed-before-headers`, so live slow cases can be split between upstream-connect delay and token-generation delay
+4. for any live slow-stream investigation, correlate `web_stream_timing` / `web_stream_timing_failed` from `api` with `[provider-gateway-stream]` lines from `runtime` by `requestId` before making claims about where the delay lives
 
 ## Knowledge/admin focused checks
 

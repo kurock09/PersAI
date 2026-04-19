@@ -1,5 +1,96 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - Step 20 cleanup semantics plus slow-stream tracing
+
+### What changed
+
+1. `packages/runtime-contract/src/index.ts`, `apps/runtime/src/modules/turns/native-tool-projection.ts`, `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`, and `apps/sandbox/src/sandbox.service.ts` now expose a real `files.delete` action with recursive directory deletion support and root-safety checks, so the active `files` surface now covers explicit cleanup instead of only create/read/edit/send flows.
+2. `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now renders default `files.list` output as grouped `workspace` / `uploads` / `artifacts` sections with less raw service-path noise, which makes model-facing and user-quoted file summaries closer to the intended product shape instead of a single technical dump.
+3. Final delivery honesty now lives at the actual web delivery boundary. `apps/api/src/modules/workspace-management/application/final-delivery-honesty.ts`, `send-web-chat-turn.service.ts`, `stream-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts`, and `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts` now correct stored assistant text only after `MediaDeliveryService` proves whether any attachment was really delivered.
+4. Admin Plans storage truth is cleaner: `apps/api` plan-management types/services, `packages/contracts/openapi.yaml`, regenerated `@persai/contracts`, and `apps/web/app/admin/plans/page.tsx` now surface `Knowledge storage (MB)` as the visible plan-owned budget for indexed knowledge sources instead of keeping the stale `Workspace disk (MB)` as the main operator-facing storage knob.
+5. Slow-stream investigation now has real timing seams. `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`, `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`, and `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` now emit correlated timing around `prepare`, replay claim, SSE `started`, runtime request, provider headers, first provider event, and first text delta, so the next live “slow motion” stream can be pinned to a specific stage instead of being treated as one opaque delay.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the active Step 20 user-visible file surface now includes cleanup (`files.delete`) and cleaner default listing semantics, final delivery honesty is persisted at the real post-delivery boundary, the plan UI now exposes `Knowledge storage (MB)` explicitly, and native web streaming now has bounded pre-first-delta timing traces across API/runtime/provider-gateway seams.
+- **No longer live repo truth:** cleanup of assistant-visible files is no longer missing from the canonical `files` tool, the main plan storage knob is no longer presented as the stale visible `Workspace disk (MB)` field, and slow-stream debugging no longer has to rely on guesswork before the provider call.
+- **Still not landed:** live dev proof for the current Step 20 file roundtrip on a real surface, plus one captured real slow-stream case using the new tracing/logging seams.
+
+### Current active slice
+
+- `Assistant workspace redesign / cleanup semantics and stream tracing`
+
+### Current active step
+
+- `Local Step 20 cleanup/list/delete semantics and slow-stream instrumentation are now in repo truth; the next honest step is live validation on dev rather than more local-only cleanup`
+
+### Files touched
+
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts`
+- `apps/api/src/modules/workspace-management/application/final-delivery-honesty.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts`
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`
+- `apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts`
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/test/manage-admin-plans.service.test.ts`
+- `apps/api/test/send-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/runtime-files-tool.service.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/web/app/admin/plans/page.test.tsx`
+- `apps/web/app/admin/plans/page.tsx`
+- `packages/contracts/openapi.yaml`
+- `packages/contracts/src/generated/*`
+- `packages/runtime-contract/src/index.ts`
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/LIVE-TEST-HYBRID.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+
+### Verification run
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm --filter @persai/sandbox test`
+- `corepack pnpm --filter @persai/sandbox exec tsx test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-activation.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-plan-catalog.repository.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+
+### Risks / notes
+
+1. `files.delete` and the cleaner grouped list output now exist on the active path, but the real user-surface proof is still the live `/app` smoke where file creation, listing, cleanup, and final delivery all behave honestly on deployed services.
+2. The new slow-stream tracing explains where the delay lives only after one real slow case is captured with correlated `api` and `runtime` logs; it does not by itself prove whether the remaining culprit is replay wait, runtime prep, upstream headers, or token generation.
+
+### Next recommended step
+
+1. Deploy the current `api`, `runtime`, `sandbox`, and `web`, then run two live dev checks: one `/app` Step 20 smoke covering `files.write_and_send` plus `files.delete`, and one deliberately observed slow-stream case where `web_stream_timing` is correlated with `[provider-gateway-stream]` logs by `requestId`.
+
 ## 2026-04-19 - Atomic files.write_and_send plus delivery-honesty guard
 
 ### What changed

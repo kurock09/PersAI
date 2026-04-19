@@ -80,6 +80,7 @@ export type AdminPlanInput = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     mediaStorageBytesLimit: number | null;
+    knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
   contextPolicy: AdminPlanContextPolicy;
@@ -115,6 +116,7 @@ export type AdminPlanState = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     mediaStorageBytesLimit: number | null;
+    knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
   contextPolicy: AdminPlanContextPolicy;

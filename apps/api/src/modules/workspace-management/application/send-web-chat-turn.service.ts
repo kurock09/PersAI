@@ -27,6 +27,7 @@ import { MediaDeliveryService } from "./media/media-delivery.service";
 import { toRuntimeAttachmentRef } from "./media/media.types";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
+import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import {
   SendNativeWebChatTurnService,
   type SendNativeWebChatTurnInput
@@ -280,6 +281,14 @@ export class SendWebChatTurnService {
         workspaceId: prepared.assistant.workspaceId
       });
       trace.stage("media_delivered");
+      const finalAssistantContent = await this.persistFinalAssistantContentIfNeeded({
+        assistantMessage,
+        assistantId: prepared.assistantId,
+        assistantText: runtimeResponse.assistantMessage,
+        attemptedArtifactCount: runtimeResponse.media.length,
+        deliveredAttachmentCount: delivered.attachments.length,
+        locale: request.welcomeLocale ?? null
+      });
 
       await this.recordWebChatMemoryTurnService.execute({
         assistantId: prepared.assistantId,
@@ -289,14 +298,14 @@ export class SendWebChatTurnService {
         userMessageId: prepared.userMessage.id,
         assistantMessageId: assistantMessage.id,
         userContent: baseMessage,
-        assistantContent: runtimeResponse.assistantMessage,
+        assistantContent: finalAssistantContent,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
       trace.stage("memory_recorded");
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
         userContent: baseMessage,
-        assistantContent: assistantMessage.content,
+        assistantContent: finalAssistantContent,
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
@@ -326,7 +335,7 @@ export class SendWebChatTurnService {
 
       trace.finish({
         status: "completed",
-        outputPreview: runtimeResponse.assistantMessage
+        outputPreview: finalAssistantContent
       });
       return {
         chat: prepared.chat,
@@ -336,7 +345,7 @@ export class SendWebChatTurnService {
           chatId: assistantMessage.chatId,
           assistantId: assistantMessage.assistantId,
           author: assistantMessage.author,
-          content: assistantMessage.content,
+          content: finalAssistantContent,
           attachments: delivered.attachments,
           createdAt: assistantMessage.createdAt.toISOString()
         },
@@ -479,6 +488,43 @@ export class SendWebChatTurnService {
         ...(state.turnRouting === undefined ? {} : { turnRouting: state.turnRouting })
       }
     };
+  }
+
+  private async persistFinalAssistantContentIfNeeded(input: {
+    assistantMessage: {
+      id: string;
+      chatId: string;
+      assistantId: string;
+      author: "assistant" | "user" | "system";
+      content: string;
+      createdAt: Date;
+    };
+    assistantId: string;
+    assistantText: string;
+    attemptedArtifactCount: number;
+    deliveredAttachmentCount: number;
+    locale: string | null;
+  }): Promise<string> {
+    const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
+      assistantText: input.assistantText,
+      attemptedArtifactCount: input.attemptedArtifactCount,
+      deliveredAttachmentCount: input.deliveredAttachmentCount,
+      locale: input.locale
+    });
+    if (finalAssistantContent === input.assistantMessage.content) {
+      return finalAssistantContent;
+    }
+    const updated = await this.assistantChatRepository.updateMessageContent(
+      input.assistantMessage.id,
+      input.assistantId,
+      finalAssistantContent
+    );
+    if (updated === null) {
+      this.logger.warn(
+        `Failed to persist final delivery-honesty correction for assistant message "${input.assistantMessage.id}".`
+      );
+    }
+    return finalAssistantContent;
   }
 
   private buildNativeSyncTurnInput(input: {

@@ -33,6 +33,7 @@ function createPlanState(): AdminPlanState {
     quotaLimits: {
       tokenBudgetLimit: 1000,
       mediaStorageBytesLimit: null,
+      knowledgeStorageBytesLimit: 128 * 1024 * 1024,
       workspaceStorageBytesLimit: null
     },
     retrievalPolicy: {
@@ -104,12 +105,14 @@ describe("admin plans page helpers", () => {
   it("maps videoGenerateModelKey between plan state and payload", () => {
     const draft = planToDraft(createPlanState());
     expect(draft.videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draft.knowledgeStorageMb).toBe("128");
     expect(draft.sharedCompactionSummaryBudgetTokens).toBe("");
     expect(draft.premiumModelKey).toBe("gpt-5.4");
     expect(draft.reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draft.retrievalModelKey).toBe("gpt-5.4-nano");
 
     expect(draftToPayload(draft).videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draftToPayload(draft).quotaLimits?.knowledgeStorageBytesLimit).toBe(128 * 1024 * 1024);
     expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");

@@ -466,4 +466,133 @@ describe("SendWebChatTurnService", () => {
     });
     assert.deepEqual(result.assistantMessage.attachments, deliveredAttachments);
   });
+
+  test("corrects assistant text when runtime queued a file but final web delivery produced no attachments", async () => {
+    const updatedContents: string[] = [];
+    const memoryWrites: Array<Record<string, unknown>> = [];
+    const quotaWrites: Array<Record<string, unknown>> = [];
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        }),
+        updateMessageContent: async (_messageId: string, _assistantId: string, content: string) => {
+          updatedContents.push(content);
+          return {
+            id: "assistant-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content,
+            createdAt: new Date("2026-04-05T12:00:02.000Z")
+          };
+        }
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          assistantMessage: "Готово, отправляю hello.txt",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/sandbox/jobs/job-1/hello.txt",
+              type: "document",
+              mimeType: "text/plain",
+              filename: "hello.txt",
+              sizeBytes: 29
+            }
+          ]
+        })
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "send hello again",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async (input: Record<string, unknown>) => {
+          memoryWrites.push(input);
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
+          quotaWrites.push(input);
+        }
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
+    );
+
+    const result = await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "send hello again"
+    });
+
+    assert.equal(updatedContents.length, 1);
+    assert.match(updatedContents[0] ?? "", /Поправка: файл не был реально доставлен в этот чат/);
+    assert.equal(result.assistantMessage.attachments.length, 0);
+    assert.match(
+      result.assistantMessage.content,
+      /Поправка: файл не был реально доставлен в этот чат/
+    );
+    assert.match(
+      String(memoryWrites[0]?.assistantContent ?? ""),
+      /Поправка: файл не был реально доставлен в этот чат/
+    );
+    assert.match(
+      String(quotaWrites[0]?.assistantContent ?? ""),
+      /Поправка: файл не был реально доставлен в этот чат/
+    );
+  });
 });

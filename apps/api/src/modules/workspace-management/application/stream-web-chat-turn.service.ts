@@ -34,7 +34,11 @@ import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { RuntimeTier } from "./runtime-assignment";
-import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
+import {
+  OverviewLatencyTraceService,
+  type OverviewLatencyTraceHandle
+} from "./overview-latency-trace.service";
+import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 import {
   StreamNativeWebChatTurnService,
   type StreamNativeWebChatTurnInput
@@ -53,6 +57,7 @@ export interface StreamWebChatTurnPrepared {
   userId: string;
   workspaceId: string;
   workspaceTimezone: string;
+  traceHandle?: OverviewLatencyTraceHandle;
   clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
@@ -155,28 +160,48 @@ export class StreamWebChatTurnService {
     userId: string,
     request: StreamWebChatTurnRequest
   ): Promise<StreamWebChatTurnPreparation> {
-    const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
-    if (replayTransport !== null) {
-      return { mode: "replayed", transport: replayTransport };
-    }
-
-    const prepared = await this.prepareAssistantInboundTurnService.execute({
-      userId,
-      surface: "web_chat",
-      surfaceThreadKey: request.surfaceThreadKey,
-      message: request.message,
-      ...(request.title !== undefined ? { title: request.title } : {}),
-      ...(request.deepModeEnabled === undefined ? {} : { deepModeEnabled: request.deepModeEnabled })
+    const trace = this.overviewLatencyTraceService.start({
+      traceId: randomUUID(),
+      surface: "web_chat_stream",
+      threadKey: request.surfaceThreadKey
     });
-    return {
-      mode: "prepared",
-      prepared: {
-        ...prepared,
-        ...(request.clientTurnId !== undefined ? { clientTurnId: request.clientTurnId } : {}),
-        ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
-        ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+    trace.stage("prepare_begin");
+    try {
+      const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
+      trace.stage("replay_claim_checked");
+      if (replayTransport !== null) {
+        trace.finish({
+          status: "replayed",
+          outputPreview: replayTransport.assistantMessage.content
+        });
+        return { mode: "replayed", transport: replayTransport };
       }
-    };
+
+      const prepared = await this.prepareAssistantInboundTurnService.execute({
+        userId,
+        surface: "web_chat",
+        surfaceThreadKey: request.surfaceThreadKey,
+        message: request.message,
+        ...(request.title !== undefined ? { title: request.title } : {}),
+        ...(request.deepModeEnabled === undefined
+          ? {}
+          : { deepModeEnabled: request.deepModeEnabled })
+      });
+      trace.stage("prepared");
+      return {
+        mode: "prepared",
+        prepared: {
+          ...prepared,
+          traceHandle: trace,
+          ...(request.clientTurnId !== undefined ? { clientTurnId: request.clientTurnId } : {}),
+          ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
+          ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+        }
+      };
+    } catch (error) {
+      trace.finish({ status: "failed" });
+      throw error;
+    }
   }
 
   async streamToCompletion(
@@ -199,16 +224,20 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
-    const trace = this.overviewLatencyTraceService.start({
-      traceId: randomUUID(),
-      surface: "web_chat_stream",
-      assistantId: prepared.assistantId,
-      threadKey: prepared.chat.surfaceThreadKey
-    });
+    const trace =
+      prepared.traceHandle ??
+      this.overviewLatencyTraceService.start({
+        traceId: randomUUID(),
+        surface: "web_chat_stream",
+        assistantId: prepared.assistantId,
+        threadKey: prepared.chat.surfaceThreadKey
+      });
+    trace.stage("stream_begin");
 
     const userAttachments = await this.attachmentRepository.listByMessageId(
       prepared.userMessage.id
     );
+    trace.stage("attachments_loaded");
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
       : prepared.userMessage.content;
@@ -233,6 +262,7 @@ export class StreamWebChatTurnService {
           }
         : {})
     });
+    trace.stage("native_turn_input_built");
     this.logWebRuntimeRoute({
       route: "stream",
       assistantId: prepared.assistantId,
@@ -243,6 +273,7 @@ export class StreamWebChatTurnService {
     let primaryFirstDeltaMs: number | null = null;
 
     try {
+      trace.stage("runtime_stream_requested");
       for await (const chunk of this.executeRuntimeStream({
         nativeTurnInput,
         ...(callbacks.clientAbortSignal === undefined
@@ -366,6 +397,14 @@ export class StreamWebChatTurnService {
       });
       const attachmentStates = delivered.attachments;
       trace.stage("media_delivered");
+      const finalAssistantContent = await this.persistFinalAssistantContentIfNeeded({
+        assistantMessage,
+        assistantId: prepared.assistantId,
+        assistantText: cleanedAccumulated,
+        attemptedArtifactCount: collectedMedia.length,
+        deliveredAttachmentCount: attachmentStates.length,
+        locale: prepared.welcomeLocale ?? null
+      });
 
       await this.recordWebChatMemoryTurnService.execute({
         assistantId: prepared.assistantId,
@@ -377,14 +416,14 @@ export class StreamWebChatTurnService {
         userContent: prepared.welcomeTurn
           ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
           : prepared.userMessage.content,
-        assistantContent: cleanedAccumulated,
+        assistantContent: finalAssistantContent,
         memoryWriteContext: WEB_CHAT_GLOBAL_MEMORY_WRITE_CONTEXT
       });
       trace.stage("memory_recorded");
       await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
         assistant: prepared.assistant,
         userContent: baseMessage,
-        assistantContent: cleanedAccumulated,
+        assistantContent: finalAssistantContent,
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
@@ -415,8 +454,11 @@ export class StreamWebChatTurnService {
 
       trace.finish({
         status: "completed",
-        outputPreview: cleanedAccumulated
+        outputPreview: finalAssistantContent
       });
+      this.logger.log(
+        `web_stream_timing assistantId=${prepared.assistantId} threadKey=${prepared.chat.surfaceThreadKey} clientTurnId=${prepared.clientTurnId ?? "n/a"} firstDeltaMs=${primaryFirstDeltaMs ?? -1} totalRuntimeMs=${String(Date.now() - primaryRuntimeStartedAt)}`
+      );
       return {
         status: "completed",
         transport: {
@@ -438,7 +480,7 @@ export class StreamWebChatTurnService {
             chatId: assistantMessage.chatId,
             assistantId: assistantMessage.assistantId,
             author: assistantMessage.author,
-            content: assistantMessage.content,
+            content: finalAssistantContent,
             attachments: attachmentStates,
             createdAt: assistantMessage.createdAt.toISOString()
           },
@@ -470,6 +512,9 @@ export class StreamWebChatTurnService {
         status: "failed",
         outputPreview: accumulated
       });
+      this.logger.warn(
+        `web_stream_timing_failed assistantId=${prepared.assistantId} threadKey=${prepared.chat.surfaceThreadKey} clientTurnId=${prepared.clientTurnId ?? "n/a"} firstDeltaMs=${primaryFirstDeltaMs ?? -1} totalRuntimeMs=${String(Date.now() - primaryRuntimeStartedAt)} code=${normalized.code}`
+      );
       return {
         status: "failed",
         transport: interruptedOutcome.transport,
@@ -654,6 +699,43 @@ export class StreamWebChatTurnService {
         ...(state.turnRouting === undefined ? {} : { turnRouting: state.turnRouting })
       }
     };
+  }
+
+  private async persistFinalAssistantContentIfNeeded(input: {
+    assistantMessage: {
+      id: string;
+      chatId: string;
+      assistantId: string;
+      author: "assistant" | "user" | "system";
+      content: string;
+      createdAt: Date;
+    };
+    assistantId: string;
+    assistantText: string;
+    attemptedArtifactCount: number;
+    deliveredAttachmentCount: number;
+    locale: string | null;
+  }): Promise<string> {
+    const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
+      assistantText: input.assistantText,
+      attemptedArtifactCount: input.attemptedArtifactCount,
+      deliveredAttachmentCount: input.deliveredAttachmentCount,
+      locale: input.locale
+    });
+    if (finalAssistantContent === input.assistantMessage.content) {
+      return finalAssistantContent;
+    }
+    const updated = await this.assistantChatRepository.updateMessageContent(
+      input.assistantMessage.id,
+      input.assistantId,
+      finalAssistantContent
+    );
+    if (updated === null) {
+      this.logger.warn(
+        `Failed to persist final delivery-honesty correction for assistant message "${input.assistantMessage.id}".`
+      );
+    }
+    return finalAssistantContent;
   }
 
   private async persistInterruptedOutcome(

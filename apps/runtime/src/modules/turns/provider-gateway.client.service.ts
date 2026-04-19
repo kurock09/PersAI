@@ -369,6 +369,7 @@ export class ProviderGatewayClientService {
       input.requestMetadata?.toolLoopIteration === undefined
         ? "null"
         : String(input.requestMetadata.toolLoopIteration);
+    const startedAtMs = Date.now();
     try {
       this.logger.log(
         `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} provider=${input.provider} model=${input.model} toolCount=${String(input.tools?.length ?? 0)} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
@@ -388,7 +389,7 @@ export class ProviderGatewayClientService {
       );
     } catch (error) {
       this.logger.warn(
-        `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} failed-before-headers: ${
+        `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} failed-before-headers elapsedMs=${String(Date.now() - startedAtMs)}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
@@ -396,7 +397,7 @@ export class ProviderGatewayClientService {
       throw error;
     }
     this.logger.log(
-      `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} headers-received status=${String(response.status)}`
+      `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} headers-received status=${String(response.status)} elapsedMs=${String(Date.now() - startedAtMs)}`
     );
     if (!response.ok) {
       const body = await this.readBody(response);

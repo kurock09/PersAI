@@ -232,6 +232,171 @@ describe("StreamWebChatTurnService", () => {
     );
   });
 
+  test("corrects streamed assistant text when runtime queued media but final web delivery produced no attachments", async () => {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    const updatedContents: string[] = [];
+    const memoryWrites: Array<Record<string, unknown>> = [];
+    const quotaWrites: Array<Record<string, unknown>> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => {
+          createdMessages.push(input);
+          return {
+            id: "assistant-msg-1",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            createdAt: new Date("2026-04-05T12:00:00.000Z")
+          };
+        },
+        updateMessageContent: async (_messageId: string, _assistantId: string, content: string) => {
+          updatedContents.push(content);
+          return {
+            id: "assistant-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content,
+            createdAt: new Date("2026-04-05T12:00:00.000Z")
+          };
+        },
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "delta",
+            delta: "Отправляю hello.txt",
+            accumulated: "Отправляю hello.txt"
+          };
+          yield {
+            type: "media",
+            media: [
+              {
+                source: "persai_object_storage",
+                objectKey: "assistant-media/sandbox/jobs/job-1/hello.txt",
+                type: "document",
+                mimeType: "text/plain",
+                filename: "hello.txt",
+                sizeBytes: 29
+              }
+            ]
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z"
+          };
+        }
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async (input: Record<string, unknown>) => {
+          memoryWrites.push(input);
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
+          quotaWrites.push(input);
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: []
+        })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "send it",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(createdMessages[0]?.content, "Отправляю hello.txt");
+    assert.equal(updatedContents.length, 1);
+    assert.match(updatedContents[0] ?? "", /Поправка: файл не был реально доставлен в этот чат/);
+    const transport = (
+      outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
+    ).transport.assistantMessage;
+    assert.equal(transport.attachments.length, 0);
+    assert.match(transport.content, /Поправка: файл не был реально доставлен в этот чат/);
+    assert.match(
+      String(memoryWrites[0]?.assistantContent ?? ""),
+      /Поправка: файл не был реально доставлен в этот чат/
+    );
+    assert.match(
+      String(quotaWrites[0]?.assistantContent ?? ""),
+      /Поправка: файл не был реально доставлен в этот чат/
+    );
+  });
+
   test("routes stream web turns through the native runtime service", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const toolEvents: Array<Record<string, unknown>> = [];

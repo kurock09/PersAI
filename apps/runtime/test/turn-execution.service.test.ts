@@ -3270,6 +3270,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(completedEvent?.type, "completed");
   if (completedEvent?.type === "completed") {
     assert.equal(completedEvent.result.assistantText, "runtime reply");
+    assert.equal(completedEvent.result.trace?.scope, "stream_turn");
+    assert.equal(completedEvent.result.trace?.status, "ok");
+    assert.ok(
+      completedEvent.result.trace?.stages.some((stage) =>
+        stage.key.includes("prepare.provider_request_built")
+      )
+    );
+    assert.ok(
+      completedEvent.result.trace?.stages.some((stage) => stage.key.includes("first_text_delta"))
+    );
   }
 
   providerGatewayClient.streamEventsQueue = [

@@ -82,7 +82,7 @@ type WorkspaceLeaseGuard = {
   renewing: boolean;
 };
 
-type SandboxFilesAction = "read" | "write" | "edit";
+type SandboxFilesAction = "read" | "write" | "edit" | "delete";
 
 type ProcessResult = {
   exitCode: number | null;
@@ -434,6 +434,8 @@ export class SandboxService {
               input.request.args,
               input.request.policy
             );
+          case "delete":
+            return this.executeFilesDeleteAction(input.workspaceRoot, input.request.args);
         }
         throw new Error(`Unsupported files action: ${String(action)}`);
       }
@@ -539,6 +541,40 @@ export class SandboxService {
       );
     }
     await fs.writeFile(absolutePath, next, "utf8");
+    return {
+      reason: null,
+      warning: null,
+      exitCode: null,
+      stdout: null,
+      stderr: null,
+      content: null
+    };
+  }
+
+  private async executeFilesDeleteAction(workspaceRoot: string, args: Record<string, unknown>) {
+    const relativePath = this.requireRelativePath(args.path, "path");
+    if (relativePath === ".") {
+      this.throwPolicy("invalid_path", "Deleting the workspace root is not allowed.");
+    }
+    const recursive = args.recursive === true;
+    const absolutePath = this.resolveWorkspacePath(workspaceRoot, relativePath);
+    let stats;
+    try {
+      stats = await fs.lstat(absolutePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        this.throwPolicy("path_not_found", "The requested path to delete was not found.");
+      }
+      throw error;
+    }
+    if (stats.isDirectory()) {
+      if (!recursive) {
+        this.throwPolicy("recursive_required", "Deleting a directory requires recursive=true.");
+      }
+      await fs.rm(absolutePath, { recursive: true, force: false });
+    } else {
+      await fs.rm(absolutePath, { force: false });
+    }
     return {
       reason: null,
       warning: null,
@@ -1933,12 +1969,17 @@ export class SandboxService {
   }
 
   private readSandboxFilesAction(args: Record<string, unknown>): SandboxFilesAction {
-    if (args.action === "read" || args.action === "write" || args.action === "edit") {
+    if (
+      args.action === "read" ||
+      args.action === "write" ||
+      args.action === "edit" ||
+      args.action === "delete"
+    ) {
       return args.action;
     }
     throw this.createPolicyError(
       "invalid_arguments",
-      "files action must be one of read, write, or edit."
+      "files action must be one of read, write, edit, or delete."
     );
   }
 

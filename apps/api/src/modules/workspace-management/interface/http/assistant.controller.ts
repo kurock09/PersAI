@@ -950,6 +950,7 @@ export class AssistantController {
         chat: prepared.chat,
         userMessage: prepared.userMessage
       });
+      prepared.traceHandle?.stage("sse_started_sent");
 
       const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
         isClientAborted: () => clientClosed,

@@ -103,7 +103,7 @@ function resolveRuntimeToolDescription(
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
   if (runtimeToolCode === "files") {
-    return "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files through one canonical file surface.";
+    return "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface.";
   }
   return tool.modelDescription ?? tool.description;
 }
@@ -116,7 +116,7 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep exec and shell for actual process execution only.";
+    return "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.delete for cleanup of obsolete files or directory trees. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. By default, present file inventories as a short grouped summary (workspace, uploads, artifacts) and hide raw service paths or UUID folders; only enumerate every raw relativePath when the user explicitly asks for the full raw list. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, files.delete, or files.send. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep exec and shell for actual process execution only.";
   }
   return tool.modelUsageGuidance;
 }
