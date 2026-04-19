@@ -232,6 +232,16 @@ async function run(): Promise<void> {
         ?.enum ?? []
     ).includes("write_and_send")
   );
+  const filesProperties = (
+    files?.inputSchema as {
+      properties?: {
+        path?: { description?: string };
+        filename?: { description?: string };
+      };
+    }
+  )?.properties;
+  assert.match(filesProperties?.path?.description ?? "", /canonical save location/);
+  assert.match(filesProperties?.filename?.description ?? "", /does not replace path/);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);

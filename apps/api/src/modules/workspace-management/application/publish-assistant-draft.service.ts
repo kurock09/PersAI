@@ -21,6 +21,9 @@ import { MaterializeAssistantPublishedVersionService } from "./materialize-assis
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
+import { TelegramBotClientService } from "./telegram-bot.client.service";
+import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import {
   applyAssistantGenderVoiceDefaults,
   normalizeAssistantVoiceProfile
@@ -42,7 +45,10 @@ export class PublishAssistantDraftService {
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
+    private readonly telegramBotClientService: TelegramBotClientService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -95,7 +101,7 @@ export class PublishAssistantDraftService {
     );
     await this.applyAssistantPublishedVersionService.execute(userId, publishedVersion, false);
 
-    await this.syncTelegramBindingMetadata(
+    await this.syncTelegramBotProfile(
       assistant.id,
       assistant.draftDisplayName,
       assistant.draftAvatarUrl
@@ -121,7 +127,7 @@ export class PublishAssistantDraftService {
     );
   }
 
-  private async syncTelegramBindingMetadata(
+  private async syncTelegramBotProfile(
     assistantId: string,
     displayName: string | null,
     avatarUrl: string | null
@@ -146,8 +152,45 @@ export class PublishAssistantDraftService {
         "telegram_bot",
         patch
       );
+
+      const runtimeConfig =
+        await this.resolveTelegramChannelRuntimeConfigService.resolveByAssistantId(assistantId);
+      if (runtimeConfig === null) {
+        return;
+      }
+
+      if (displayName !== null && displayName.trim().length > 0) {
+        await this.telegramBotClientService.setBotProfileName(runtimeConfig.botToken, displayName);
+      }
+
+      if (avatarUrl !== null) {
+        const avatar = await this.mediaObjectStorage.downloadObject(
+          `${this.mediaObjectStorage.buildAssistantPrefix(assistantId)}avatar/current`
+        );
+        if (avatar !== null) {
+          await this.telegramBotClientService.setBotProfilePhoto({
+            botToken: runtimeConfig.botToken,
+            buffer: avatar.buffer,
+            filename: this.resolveTelegramAvatarFilename(avatar.contentType)
+          });
+        }
+      }
     } catch (err) {
       console.warn("[publish] Non-fatal: failed to sync Telegram binding metadata:", err);
     }
+  }
+
+  private resolveTelegramAvatarFilename(contentType: string): string {
+    const normalized = contentType.trim().toLowerCase();
+    if (normalized === "image/png") {
+      return "assistant-avatar.png";
+    }
+    if (normalized === "image/webp") {
+      return "assistant-avatar.webp";
+    }
+    if (normalized === "image/gif") {
+      return "assistant-avatar.gif";
+    }
+    return "assistant-avatar.jpg";
   }
 }

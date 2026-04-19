@@ -475,6 +475,55 @@ async function run(): Promise<void> {
   assert.equal(writeAndSendResult.artifacts[0]?.caption, "Delivered in one step");
   assert.equal(sandboxClientService.calls.at(-1)?.args.action, "write");
 
+  const writeWithFilenameFallback = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-write-filename-fallback",
+      name: "files",
+      arguments: {
+        action: "write",
+        filename: "draft.txt",
+        content: "saved from filename fallback"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4aaa",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(writeWithFilenameFallback.isError, false);
+  assert.equal(writeWithFilenameFallback.payload.requestedAction, "write");
+  assert.equal(writeWithFilenameFallback.payload.action, "written");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.action, "write");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.path, "draft.txt");
+
+  const writeAndSendFilenameFallback = await service.executeToolCall({
+    bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
+    toolCall: {
+      id: "tool-call-write-and-send-filename-fallback",
+      name: "files",
+      arguments: {
+        action: "write_and_send",
+        filename: "fallback-report.txt",
+        content: "written from filename fallback",
+        caption: "Fallback send"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4aab",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(writeAndSendFilenameFallback.isError, false);
+  assert.equal(writeAndSendFilenameFallback.payload.requestedAction, "write_and_send");
+  assert.equal(writeAndSendFilenameFallback.payload.action, "written_and_queued");
+  assert.equal(writeAndSendFilenameFallback.artifacts[0]?.filename, "fallback-report.txt");
+  assert.equal(writeAndSendFilenameFallback.artifacts[0]?.caption, "Fallback send");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.action, "write");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.path, "fallback-report.txt");
+
   const blockedWriteAndSend = await service.executeToolCall({
     bundle: createBundle({
       webMaxOutboundBytes: 10,

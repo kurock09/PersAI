@@ -773,7 +773,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         path: {
           type: "string",
           description:
-            'Assistant file path for action="list", "get", "read", "write", "write_and_send", "edit", or "delete". For action="list", leave unset or use "." for the root.'
+            'Assistant file path for action="list", "get", "read", "write", "write_and_send", "edit", or "delete". For action="write" and "write_and_send", this is the canonical save location. For action="list", leave unset or use "." for the root.'
         },
         fileRef: {
           type: "string",
@@ -816,7 +816,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         filename: {
           type: "string",
           description:
-            'Optional filename override for action="send" or action="write_and_send" when exactly one file or artifact is selected.'
+            'Optional filename override for action="send" or action="write_and_send" when exactly one file or artifact is selected. This does not replace path as the canonical save location.'
         }
       }
     }

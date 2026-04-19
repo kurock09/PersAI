@@ -63,6 +63,10 @@ function hasVoiceReply(media: RuntimeMediaArtifact[]): boolean {
   return media.some((item) => item.type === "audio" && item.audioAsVoice === true);
 }
 
+function hasCaptionedMedia(media: RuntimeMediaArtifact[]): boolean {
+  return media.some((item) => typeof item.caption === "string" && item.caption.trim().length > 0);
+}
+
 function isMultipartFilePart(value: unknown): value is {
   buffer: Buffer;
   filename: string;
@@ -122,6 +126,29 @@ export class TelegramBotClientService {
     await this.requestJson(botToken, "sendChatAction", {
       chat_id: chatId,
       action
+    });
+  }
+
+  async setBotProfileName(botToken: string, name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    await this.requestJson(botToken, "setMyName", {
+      name: trimmed
+    });
+  }
+
+  async setBotProfilePhoto(params: {
+    botToken: string;
+    buffer: Buffer;
+    filename: string;
+  }): Promise<void> {
+    await this.requestMultipart(params.botToken, "setMyProfilePhoto", {
+      photo: {
+        buffer: params.buffer,
+        filename: params.filename
+      }
     });
   }
 
@@ -236,7 +263,13 @@ export class TelegramBotClientService {
       return;
     }
 
-    if (!hasVoiceReply(params.turnResult.media)) {
+    const shouldSkipPlainTextReply =
+      params.mediaAlreadyDelivered === true && hasCaptionedMedia(params.turnResult.media);
+    if (
+      !hasVoiceReply(params.turnResult.media) &&
+      !shouldSkipPlainTextReply &&
+      params.turnResult.assistantMessage.trim().length > 0
+    ) {
       await this.sendReplyWithConfiguredParseMode(
         params.botToken,
         params.chatId,

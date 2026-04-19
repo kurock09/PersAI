@@ -155,6 +155,7 @@ async function run(): Promise<void> {
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
   assert.match(filesPolicy?.description ?? "", /write-and-send/);
   assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /filename is only a delivery-name override/);
   assert.match(filesPolicy?.usageGuidance ?? "", /Do not claim a file was sent unless/);
   assert.equal(
     toolPolicies.filter((tool) => tool.toolCode === "quota_status").length,

@@ -146,13 +146,18 @@ export async function runProviderTextGenerationControllerTest(): Promise<void> {
       };
     })();
 
-  const resWithBatchedDeltas = new FakeResponse();
-  await controller.streamText(req as never, resWithBatchedDeltas as never, body);
-  assert.equal(resWithBatchedDeltas.writes.length, 2);
+  const resWithRawDeltas = new FakeResponse();
+  await controller.streamText(req as never, resWithRawDeltas as never, body);
+  assert.equal(resWithRawDeltas.writes.length, 3);
   assert.ok(
-    resWithBatchedDeltas.writes[0]?.includes('"type":"text_delta"') &&
-      resWithBatchedDeltas.writes[0]?.includes('"delta":"Hello"') &&
-      resWithBatchedDeltas.writes[0]?.includes('"accumulatedText":"Hello"')
+    resWithRawDeltas.writes[0]?.includes('"type":"text_delta"') &&
+      resWithRawDeltas.writes[0]?.includes('"delta":"Hel"') &&
+      resWithRawDeltas.writes[0]?.includes('"accumulatedText":"Hel"')
   );
-  assert.ok(resWithBatchedDeltas.writes[1]?.includes('"type":"completed"'));
+  assert.ok(
+    resWithRawDeltas.writes[1]?.includes('"type":"text_delta"') &&
+      resWithRawDeltas.writes[1]?.includes('"delta":"lo"') &&
+      resWithRawDeltas.writes[1]?.includes('"accumulatedText":"Hello"')
+  );
+  assert.ok(resWithRawDeltas.writes[2]?.includes('"type":"completed"'));
 }

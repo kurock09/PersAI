@@ -898,25 +898,30 @@ export class RuntimeFilesToolService {
           query: this.readNonEmptyString(row.query)
         };
       case "write": {
-        const path = this.readNonEmptyString(row.path);
+        const path = this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.filename);
         const content = this.readString(row.content);
         if (path === null || content === null) {
-          return new Error("files.write requires a non-empty path and string content.");
+          return new Error(
+            "files.write requires a non-empty path (or filename fallback) and string content."
+          );
         }
         return { action, path, content };
       }
       case "write_and_send": {
-        const path = this.readNonEmptyString(row.path);
+        const filename = this.readNonEmptyString(row.filename);
+        const path = this.readNonEmptyString(row.path) ?? filename;
         const content = this.readString(row.content);
         if (path === null || content === null) {
-          return new Error("files.write_and_send requires a non-empty path and string content.");
+          return new Error(
+            "files.write_and_send requires a non-empty path (or filename fallback) and string content."
+          );
         }
         return {
           action,
           path,
           content,
           caption: this.readNonEmptyString(row.caption),
-          filename: this.readNonEmptyString(row.filename)
+          filename
         };
       }
       case "edit": {
