@@ -9,8 +9,14 @@ import { createStreamWriterInstrumentation } from "./stream-writer-instrumentati
 
 const TRACE_HEADER_NAME = "x-persai-trace";
 
-function readTraceEnabledHeader(req: IncomingMessage): boolean {
-  const raw = req.headers[TRACE_HEADER_NAME];
+function readTraceEnabledHeader(req: IncomingMessage | undefined | null): boolean {
+  const headers = (
+    req as { headers?: Record<string, string | string[] | undefined> } | null | undefined
+  )?.headers;
+  if (headers === undefined || headers === null) {
+    return false;
+  }
+  const raw = headers[TRACE_HEADER_NAME];
   if (typeof raw === "string") {
     return raw.toLowerCase() === "on";
   }

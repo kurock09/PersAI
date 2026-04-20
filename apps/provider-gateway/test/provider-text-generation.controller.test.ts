@@ -44,7 +44,9 @@ class FakeProviderTextGenerationService {
   }
 }
 
-class FakeRequest extends EventEmitter {}
+class FakeRequest extends EventEmitter {
+  headers: Record<string, string | string[] | undefined> = {};
+}
 
 class FakeResponse extends EventEmitter {
   headers = new Map<string, string>();
