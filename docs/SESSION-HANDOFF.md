@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - ADR-074 humanity-and-cost polish program accepted (no code yet)
+
+### What changed
+
+1. `docs/ADR/074-humanity-and-cost-polish-program.md` (new) captures the founder-driven polish program that follows ADR-073. It defines two product goals (token cost per active user, human-likeness/companion feel), five founder principles, a 13-question decisions table from the founder interview, and 12 self-contained implementation slices (S0, P1, V1, M1, M2, M3, T1, T2, L1, R1, R2, R3) organized in 4 phases. Each slice is fully agent-implementable: goal, founder anchor, touch points, implementation outline, acceptance criteria, out-of-scope, and a per-slice handoff prompt. The document closes with a universal handoff prompt so any Cursor agent can pick up any slice without prior interview context.
+2. **Principle 5 (no transitional modes)** is a hard constraint added per founder direction: PersAI has no real users yet, so slices cut over directly to new behavior. No `useNewX` flags, no shadow paths, no v1/v2 duplicates, no legacy fallbacks. Reverting a bad slice is `git revert`, not a runtime toggle. The only acceptable switches are existing plan-policy fields already in the architecture (e.g. flipping `autoCompactionWeb` default in M2 is fine; inventing a new `useNewCompaction` flag would not be).
+
+### Code-based truth summary
+
+- **Landed in this slice:** an accepted, dated, agent-runnable ADR that decomposes the next ~12 slices of work without touching any runtime code. The ADR is the single source of truth for the polish program and supersedes ad-hoc decisions made in chat.
+- **No longer live repo truth:** nothing — this slice is documentation only, no behavior changed.
+- **Still not landed:** every slice in ADR-074. Slice S0 (smoke harness) is the unblocking dependency for the rest of the program and must land first in a separate session.
+
+### Current active slice
+
+- `ADR-074 acceptance (program planning, no code)`
+
+### Current active step
+
+- `ADR is written, reviewed by the founder, and Principle 5 (no transitional modes) is locked in; the next honest step is to start a new session and implement Slice S0 (agent-runnable smoke harness under scripts/smoke/) per the per-slice handoff prompt in ADR-074, since no other slice is measurable until S0 lands`
+
+### Files touched
+
+- `docs/ADR/074-humanity-and-cost-polish-program.md` (new)
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- none (documentation-only change; no typecheck/lint/test impact)
+
 ## 2026-04-20 - Web stream cadence watchdog + one safe retry + API logger flush fix
 
 ### What changed
