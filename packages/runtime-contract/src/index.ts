@@ -1210,6 +1210,13 @@ export interface RuntimeTurnRoutingSnapshot {
   source: "precheck" | "llm" | "fallback";
 }
 
+export interface RuntimeTurnToolInvocation {
+  name: string;
+  iteration: number;
+  ok: boolean;
+  executionMode?: PersaiRuntimeToolExecutionMode;
+}
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -1221,6 +1228,7 @@ export interface RuntimeTurnResult {
   turnRouting?: RuntimeTurnRoutingSnapshot;
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
+  toolInvocations?: RuntimeTurnToolInvocation[];
 }
 
 export interface RuntimeTurnAutoCompactionState {

@@ -40,6 +40,7 @@ export interface SmokeRunSummary {
     averagePerTurn: number;
   };
   toolCalls: Array<{ toolCode: string; count: number }>;
+  toolCallsSource: "tool_invocations" | "usage_entries" | "mixed" | "none";
   routing: {
     modes: Record<string, number>;
     executionModes: Record<string, number>;
@@ -73,6 +74,7 @@ export function summarizeTrace(
   const modes: Record<string, number> = {};
   const executionModes: Record<string, number> = {};
   let autoCompactionTriggers = 0;
+  const sources = new Set<"tool_invocations" | "usage_entries" | "none">();
   for (const t of trace) {
     const usage = t.receipt?.usage;
     if (usage) {
@@ -83,6 +85,9 @@ export function summarizeTrace(
     }
     for (const call of t.receipt?.toolCalls ?? []) {
       toolCounts.set(call.toolCode, (toolCounts.get(call.toolCode) ?? 0) + call.count);
+    }
+    if (t.receipt) {
+      sources.add(t.receipt.toolCallsSource ?? "none");
     }
     if (t.receipt?.routingMode) {
       modes[t.receipt.routingMode] = (modes[t.receipt.routingMode] ?? 0) + 1;
@@ -125,6 +130,7 @@ export function summarizeTrace(
     toolCalls: [...toolCounts.entries()]
       .map(([toolCode, count]) => ({ toolCode, count }))
       .sort((a, b) => b.count - a.count),
+    toolCallsSource: resolveToolCallsSource(sources),
     routing: { modes, executionModes },
     autoCompactionTriggers,
     latencyMs: {
@@ -134,6 +140,15 @@ export function summarizeTrace(
       max: latencies.length > 0 ? Math.max(...latencies) : 0
     }
   };
+}
+
+function resolveToolCallsSource(
+  sources: Set<"tool_invocations" | "usage_entries" | "none">
+): "tool_invocations" | "usage_entries" | "mixed" | "none" {
+  const meaningful = [...sources].filter((s) => s !== "none");
+  if (meaningful.length === 0) return "none";
+  if (meaningful.length === 1) return meaningful[0]!;
+  return "mixed";
 }
 
 function percentile(values: number[], p: number): number {

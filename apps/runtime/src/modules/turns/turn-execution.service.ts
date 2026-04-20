@@ -49,6 +49,7 @@ import {
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
   type RuntimeTurnRoutingSnapshot,
+  type RuntimeTurnToolInvocation,
   type RuntimeTurnStreamEvent,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
@@ -127,6 +128,7 @@ type TurnExecutionState = {
   artifacts: RuntimeOutputArtifact[];
   fileRefs: RuntimeFileRef[];
   usageEntries: RuntimeUsageAccountingEntry[];
+  toolInvocations: RuntimeTurnToolInvocation[];
 };
 
 type AutoCompactionRequest = RuntimeCompactionRequest & {
@@ -564,7 +566,7 @@ export class TurnExecutionService {
                 throw error;
               }
               toolHistory.push(outcome.exchange);
-              this.applyToolExecutionOutcome(turnState, outcome);
+              this.applyToolExecutionOutcome(turnState, outcome, iteration);
               durableCompactionExecuted =
                 durableCompactionExecuted ||
                 outcome.sharedCompaction?.durableStatePersisted === true;
@@ -841,7 +843,10 @@ export class TurnExecutionService {
       ...(turnRouting === null ? {} : { turnRouting }),
       ...(turnState.usageEntries.length === 0
         ? {}
-        : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) })
+        : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) }),
+      ...(turnState.toolInvocations.length === 0
+        ? {}
+        : { toolInvocations: [...turnState.toolInvocations] })
     };
   }
 
@@ -1283,7 +1288,7 @@ export class TurnExecutionService {
           turnState.fileRefs
         );
         exchanges.push(outcome.exchange);
-        this.applyToolExecutionOutcome(turnState, outcome);
+        this.applyToolExecutionOutcome(turnState, outcome, iteration);
         durableCompactionExecuted =
           durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
       }
@@ -2032,7 +2037,8 @@ export class TurnExecutionService {
       },
       artifacts: [],
       fileRefs: [],
-      usageEntries: []
+      usageEntries: [],
+      toolInvocations: []
     };
   }
 
@@ -2047,8 +2053,17 @@ export class TurnExecutionService {
 
   private applyToolExecutionOutcome(
     turnState: TurnExecutionState,
-    outcome: ToolExecutionOutcome
+    outcome: ToolExecutionOutcome,
+    iteration: number
   ): void {
+    turnState.toolInvocations.push({
+      name: outcome.exchange.toolCall.name,
+      iteration,
+      ok: outcome.exchange.toolResult.isError !== true,
+      ...(this.resolveToolInvocationExecutionMode(outcome.payload) === undefined
+        ? {}
+        : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! })
+    });
     if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
       for (const artifact of outcome.artifacts) {
         const existingIndex = turnState.artifacts.findIndex(
@@ -2090,6 +2105,19 @@ export class TurnExecutionService {
     turnState.sharedCompaction.durableStatePersisted =
       turnState.sharedCompaction.durableStatePersisted ||
       outcome.sharedCompaction.durableStatePersisted;
+  }
+
+  private resolveToolInvocationExecutionMode(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeTurnToolInvocation["executionMode"] | undefined {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return undefined;
+    }
+    const value = (payload as { executionMode?: unknown }).executionMode;
+    if (value === "inline" || value === "worker" || value === "sandbox") {
+      return value;
+    }
+    return undefined;
   }
 
   private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {

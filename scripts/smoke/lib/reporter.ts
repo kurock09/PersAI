@@ -120,10 +120,20 @@ export function formatSummary(summary: SmokeRunSummary, baseline: BaselineDiff):
     `Latency:  p50=${summary.latencyMs.p50}ms p95=${summary.latencyMs.p95}ms ` +
       `p99=${summary.latencyMs.p99}ms max=${summary.latencyMs.max}ms`
   );
+  const sourceLabel =
+    summary.toolCallsSource === "tool_invocations"
+      ? ""
+      : summary.toolCallsSource === "usage_entries"
+        ? " (billable-only — model may have invoked more inline tools)"
+        : summary.toolCallsSource === "mixed"
+          ? " (mixed sources: invocations + billable-only fallback)"
+          : "";
   if (summary.toolCalls.length === 0) {
-    lines.push(`Tools:    <none>`);
+    lines.push(`Tools:    <none>${sourceLabel}`);
   } else {
-    lines.push(`Tools:    ${summary.toolCalls.map((t) => `${t.toolCode}=${t.count}`).join(", ")}`);
+    lines.push(
+      `Tools:    ${summary.toolCalls.map((t) => `${t.toolCode}=${t.count}`).join(", ")}${sourceLabel}`
+    );
   }
   const modeStr = Object.entries(summary.routing.modes)
     .map(([key, value]) => `${key}=${value}`)

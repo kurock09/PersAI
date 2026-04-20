@@ -136,6 +136,8 @@ async function run(): Promise<void> {
     assert.equal(item.usage?.totalTokens, 1580);
     assert.equal(item.usage?.entries.length, 3);
     assert.deepEqual(item.toolCalls, [{ toolCode: "web_search", count: 2 }]);
+    assert.equal(item.toolCallsSource, "usage_entries");
+    assert.deepEqual(item.toolInvocations, []);
     assert.equal(item.routingMode, "normal");
     assert.equal(item.routingExecutionMode, "ordinary_reply");
     assert.equal(item.autoCompactionTokensBefore, 8000);
@@ -273,8 +275,128 @@ async function run(): Promise<void> {
     assert.equal(item.errorCode, "provider_failed");
     assert.equal(item.usage, null);
     assert.deepEqual(item.toolCalls, []);
+    assert.equal(item.toolCallsSource, "none");
+    assert.deepEqual(item.toolInvocations, []);
     assert.equal(item.routingMode, null);
     assert.equal(item.autoCompactionTokensBefore, null);
+  }
+
+  // 10. toolInvocations in payload take precedence over usage.entries[].toolCode for tool counts.
+  {
+    const stub = buildPrismaStub([
+      {
+        id: "receipt-3",
+        requestId: "req-3",
+        status: "completed",
+        channel: "web",
+        mode: "ordinary",
+        conversationKey: "conv-3",
+        externalThreadKey: "thread-3",
+        bundleHash: "hash-xyz",
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date("2026-04-20T14:00:00.000Z"),
+        completedAt: new Date("2026-04-20T14:00:01.500Z"),
+        resultPayload: {
+          usageAccounting: {
+            inputTokens: 5000,
+            cachedInputTokens: 2000,
+            outputTokens: 200,
+            totalTokens: 5200,
+            entries: [
+              {
+                stepType: "main_turn",
+                modelRole: "normal_reply",
+                providerKey: "openai",
+                modelKey: "gpt-5.4-mini",
+                inputTokens: 5000,
+                cachedInputTokens: 2000,
+                outputTokens: 200,
+                totalTokens: 5200
+              },
+              {
+                stepType: "tool_execution",
+                modelRole: null,
+                providerKey: "openai",
+                modelKey: "gpt-image-1",
+                toolCode: "image_generate",
+                inputTokens: 50,
+                cachedInputTokens: 0,
+                outputTokens: 0,
+                totalTokens: 50
+              }
+            ]
+          },
+          toolInvocations: [
+            { name: "web_search", iteration: 0, ok: true, executionMode: "inline" },
+            { name: "web_fetch", iteration: 0, ok: true, executionMode: "inline" },
+            { name: "web_fetch", iteration: 0, ok: false, executionMode: "inline" },
+            { name: "image_generate", iteration: 1, ok: true, executionMode: "worker" }
+          ]
+        }
+      }
+    ]);
+    const controller = new InternalSmokeReceiptsController(stub.service);
+    const result = await controller.listTurnReceipts(
+      { headers: { authorization: "Bearer smoke-token" } },
+      { assistantId: "assistant-1" }
+    );
+    const item = result.items[0] as SmokeTurnReceiptItem;
+    assert.equal(item.toolCallsSource, "tool_invocations");
+    assert.deepEqual(item.toolCalls, [
+      { toolCode: "image_generate", count: 1 },
+      { toolCode: "web_fetch", count: 2 },
+      { toolCode: "web_search", count: 1 }
+    ]);
+    assert.equal(item.toolInvocations.length, 4);
+    assert.deepEqual(item.toolInvocations[0], {
+      name: "web_search",
+      iteration: 0,
+      ok: true,
+      executionMode: "inline"
+    });
+    assert.equal(item.toolInvocations[2]?.ok, false);
+  }
+
+  // 11. malformed toolInvocations entries (missing name, bad types) are filtered out.
+  {
+    const stub = buildPrismaStub([
+      {
+        id: "receipt-4",
+        requestId: "req-4",
+        status: "completed",
+        channel: "web",
+        mode: "ordinary",
+        conversationKey: "conv-4",
+        externalThreadKey: "thread-4",
+        bundleHash: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date("2026-04-20T15:00:00.000Z"),
+        completedAt: new Date("2026-04-20T15:00:00.500Z"),
+        resultPayload: {
+          toolInvocations: [
+            { name: "web_search", iteration: 0, ok: true, executionMode: "inline" },
+            { name: "", iteration: 0, ok: true },
+            { iteration: 0, ok: true },
+            "not-an-object",
+            { name: "memory_write", iteration: "bad", ok: "true" }
+          ]
+        }
+      }
+    ]);
+    const controller = new InternalSmokeReceiptsController(stub.service);
+    const result = await controller.listTurnReceipts(
+      { headers: { authorization: "Bearer smoke-token" } },
+      { assistantId: "assistant-1" }
+    );
+    const item = result.items[0] as SmokeTurnReceiptItem;
+    assert.equal(item.toolInvocations.length, 2);
+    assert.equal(item.toolInvocations[0]?.name, "web_search");
+    assert.equal(item.toolInvocations[1]?.name, "memory_write");
+    assert.equal(item.toolInvocations[1]?.iteration, 0);
+    assert.equal(item.toolInvocations[1]?.ok, false);
+    assert.equal(item.toolInvocations[1]?.executionMode, null);
   }
 }
 

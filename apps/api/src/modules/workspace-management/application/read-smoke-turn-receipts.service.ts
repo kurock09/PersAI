@@ -44,6 +44,13 @@ export interface SmokeTurnReceiptItem {
   completedAt: string | null;
   usage: SmokeTurnReceiptUsage | null;
   toolCalls: Array<{ toolCode: string; count: number }>;
+  toolCallsSource: "tool_invocations" | "usage_entries" | "none";
+  toolInvocations: Array<{
+    name: string;
+    iteration: number;
+    ok: boolean;
+    executionMode: string | null;
+  }>;
   routingMode: string | null;
   routingExecutionMode: string | null;
   autoCompactionTokensBefore: number | null;
@@ -149,7 +156,16 @@ export class ReadSmokeTurnReceiptsService {
     const usage = extractUsage(payload);
     const routing = extractRouting(payload);
     const compaction = extractCompaction(payload);
-    const toolCalls = aggregateToolCalls(usage);
+    const toolInvocations = extractToolInvocations(payload);
+    const toolCallsFromInvocations = aggregateToolCallsFromInvocations(toolInvocations);
+    const toolCallsFromUsage = aggregateToolCallsFromUsage(usage);
+    const toolCalls = toolInvocations.length > 0 ? toolCallsFromInvocations : toolCallsFromUsage;
+    const toolCallsSource: SmokeTurnReceiptItem["toolCallsSource"] =
+      toolInvocations.length > 0
+        ? "tool_invocations"
+        : toolCallsFromUsage.length > 0
+          ? "usage_entries"
+          : "none";
     return {
       receiptId: row.id,
       requestId: row.requestId,
@@ -165,6 +181,8 @@ export class ReadSmokeTurnReceiptsService {
       completedAt: row.completedAt === null ? null : row.completedAt.toISOString(),
       usage,
       toolCalls,
+      toolCallsSource,
+      toolInvocations,
       routingMode: routing.mode,
       routingExecutionMode: routing.executionMode,
       autoCompactionTokensBefore: compaction.tokensBefore,
@@ -243,7 +261,48 @@ function extractCompaction(payload: Record<string, unknown>): {
   };
 }
 
-function aggregateToolCalls(
+function extractToolInvocations(
+  payload: Record<string, unknown>
+): SmokeTurnReceiptItem["toolInvocations"] {
+  const raw = payload.toolInvocations;
+  if (!Array.isArray(raw)) return [];
+  const result: SmokeTurnReceiptItem["toolInvocations"] = [];
+  for (const itemRaw of raw) {
+    if (itemRaw === null || typeof itemRaw !== "object" || Array.isArray(itemRaw)) continue;
+    const item = itemRaw as Record<string, unknown>;
+    const name = typeof item.name === "string" ? item.name.trim() : "";
+    if (name.length === 0) continue;
+    const iteration =
+      typeof item.iteration === "number" && Number.isFinite(item.iteration)
+        ? Math.max(0, Math.trunc(item.iteration))
+        : 0;
+    const ok = item.ok === true;
+    const executionModeRaw = item.executionMode;
+    const executionMode =
+      executionModeRaw === "inline" ||
+      executionModeRaw === "worker" ||
+      executionModeRaw === "sandbox"
+        ? executionModeRaw
+        : null;
+    result.push({ name, iteration, ok, executionMode });
+  }
+  return result;
+}
+
+function aggregateToolCallsFromInvocations(
+  invocations: SmokeTurnReceiptItem["toolInvocations"]
+): Array<{ toolCode: string; count: number }> {
+  if (invocations.length === 0) return [];
+  const counts = new Map<string, number>();
+  for (const invocation of invocations) {
+    counts.set(invocation.name, (counts.get(invocation.name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([toolCode, count]) => ({ toolCode, count }))
+    .sort((a, b) => a.toolCode.localeCompare(b.toolCode));
+}
+
+function aggregateToolCallsFromUsage(
   usage: SmokeTurnReceiptUsage | null
 ): Array<{ toolCode: string; count: number }> {
   if (usage === null) return [];

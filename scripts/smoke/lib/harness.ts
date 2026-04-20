@@ -120,7 +120,12 @@ export async function runScenario(options: SmokeRunOptions): Promise<SmokeRunRes
         : "tokens=<no receipt>";
       const toolStr =
         receipt && receipt.toolCalls.length > 0
-          ? ` tools=[${receipt.toolCalls.map((t) => `${t.toolCode}×${t.count}`).join(", ")}]`
+          ? ` tools=[${receipt.toolCalls.map((t) => `${t.toolCode}×${t.count}`).join(", ")}]` +
+            (receipt.toolCallsSource === "usage_entries"
+              ? " (billable-only)"
+              : receipt.toolCallsSource === "tool_invocations"
+                ? ""
+                : "")
           : "";
       const statusStr = outcome.ok ? "OK" : `FAIL ${outcome.errorCode}`;
       log(

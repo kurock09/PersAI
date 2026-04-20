@@ -47,6 +47,13 @@ export interface SmokeReceiptUsage {
   entries: SmokeReceiptUsageEntry[];
 }
 
+export interface SmokeReceiptToolInvocation {
+  name: string;
+  iteration: number;
+  ok: boolean;
+  executionMode: string | null;
+}
+
 export interface SmokeReceipt {
   receiptId: string;
   requestId: string;
@@ -62,6 +69,8 @@ export interface SmokeReceipt {
   completedAt: string | null;
   usage: SmokeReceiptUsage | null;
   toolCalls: Array<{ toolCode: string; count: number }>;
+  toolCallsSource?: "tool_invocations" | "usage_entries" | "none";
+  toolInvocations?: SmokeReceiptToolInvocation[];
   routingMode: string | null;
   routingExecutionMode: string | null;
   autoCompactionTokensBefore: number | null;
