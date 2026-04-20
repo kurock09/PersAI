@@ -12,4 +12,5 @@ coverage/
 scripts/loadtest/*.local.json
 artifacts/sr10-loadtest/
 scripts/smoke/artifacts/
-.tmp-api-tail.txt
+.tmp-*
+!.tmp-api-tail.txt.example

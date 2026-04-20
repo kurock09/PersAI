@@ -1,0 +1,37 @@
+{
+  "scenarioId": "onboarding",
+  "scenarioTitle": "Onboarding вЂ” first contact through warmup",
+  "startedAt": "2026-04-20T18:31:50.712Z",
+  "finishedAt": "2026-04-20T18:32:44.233Z",
+  "totalDurationMs": 53521,
+  "totals": {
+    "turns": 5,
+    "succeeded": 5,
+    "failed": 0,
+    "receiptsCaptured": 5,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 35147,
+    "totalCachedInputTokens": 24576,
+    "totalOutputTokens": 592,
+    "totalTokens": 35739,
+    "averagePerTurn": 7148
+  },
+  "toolCalls": [],
+  "routing": {
+    "modes": {
+      "active": 5
+    },
+    "executionModes": {
+      "normal": 5
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 4125,
+    "p95": 4502,
+    "p99": 4502,
+    "max": 4502
+  }
+}

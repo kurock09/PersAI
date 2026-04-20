@@ -1,0 +1,37 @@
+{
+  "scenarioId": "tool-heavy-search",
+  "scenarioTitle": "Tool-heavy вЂ” РїРѕРёСЃРє СЃ СЃСЃС‹Р»РєР°РјРё Рё РѕРїРёСЃР°РЅРёРµРј",
+  "startedAt": "2026-04-20T18:32:53.369Z",
+  "finishedAt": "2026-04-20T18:34:47.096Z",
+  "totalDurationMs": 113727,
+  "totals": {
+    "turns": 5,
+    "succeeded": 5,
+    "failed": 0,
+    "receiptsCaptured": 5,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 165699,
+    "totalCachedInputTokens": 104960,
+    "totalOutputTokens": 2305,
+    "totalTokens": 168004,
+    "averagePerTurn": 33601
+  },
+  "toolCalls": [],
+  "routing": {
+    "modes": {
+      "active": 5
+    },
+    "executionModes": {
+      "normal": 5
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 13390,
+    "p95": 30911,
+    "p99": 30911,
+    "max": 30911
+  }
+}

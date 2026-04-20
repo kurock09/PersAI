@@ -25,7 +25,9 @@ Required env:
   SMOKE_ASSISTANT_ID            assistantId whose receipts the harness will read.
 
 Optional env:
-  SMOKE_API_BASE_URL            Default: http://127.0.0.1:3001 (local apps/api).
+  SMOKE_API_BASE_URL            Default: http://127.0.0.1:3001 (public apps/api listener).
+  SMOKE_API_INTERNAL_BASE_URL   Default: http://127.0.0.1:3002 (internal apps/api listener,
+                                must port-forward svc/api-internal).
   SMOKE_ARTIFACTS_DIR           Default: scripts/smoke/artifacts.
   SMOKE_FETCH_TIMEOUT_MS        Default: 120000.
   SMOKE_RECEIPT_POLL_TIMEOUT_MS Default: 30000.

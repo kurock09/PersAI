@@ -1,0 +1,37 @@
+{
+  "scenarioId": "chitchat-short",
+  "scenarioTitle": "Chit-chat вЂ” РєРѕСЂРѕС‚РєРёРµ Р±С‹С‚РѕРІС‹Рµ СЂРµРїР»РёРєРё",
+  "startedAt": "2026-04-20T18:09:35.759Z",
+  "finishedAt": "2026-04-20T18:11:30.278Z",
+  "totalDurationMs": 114519,
+  "totals": {
+    "turns": 8,
+    "succeeded": 8,
+    "failed": 0,
+    "receiptsCaptured": 8,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 57654,
+    "totalCachedInputTokens": 49152,
+    "totalOutputTokens": 366,
+    "totalTokens": 58020,
+    "averagePerTurn": 7253
+  },
+  "toolCalls": [],
+  "routing": {
+    "modes": {
+      "active": 8
+    },
+    "executionModes": {
+      "normal": 8
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 3584,
+    "p95": 30827,
+    "p99": 30827,
+    "max": 30827
+  }
+}

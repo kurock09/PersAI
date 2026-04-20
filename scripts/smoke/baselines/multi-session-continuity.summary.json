@@ -1,0 +1,37 @@
+{
+  "scenarioId": "multi-session-continuity",
+  "scenarioTitle": "Multi-session вЂ” РѕС‚РєСЂС‹С‚С‹Рµ РїРµС‚Р»Рё РјРµР¶РґСѓ СЃРµСЃСЃРёСЏРјРё",
+  "startedAt": "2026-04-20T18:34:59.771Z",
+  "finishedAt": "2026-04-20T18:37:57.956Z",
+  "totalDurationMs": 178185,
+  "totals": {
+    "turns": 12,
+    "succeeded": 12,
+    "failed": 0,
+    "receiptsCaptured": 12,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 161116,
+    "totalCachedInputTokens": 132608,
+    "totalOutputTokens": 2085,
+    "totalTokens": 163201,
+    "averagePerTurn": 13600
+  },
+  "toolCalls": [],
+  "routing": {
+    "modes": {
+      "active": 12
+    },
+    "executionModes": {
+      "normal": 12
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 5263,
+    "p95": 20196,
+    "p99": 20196,
+    "max": 20196
+  }
+}

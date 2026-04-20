@@ -22,6 +22,7 @@ export interface SmokeScenarioDefinition {
   title: string;
   description: string;
   defaultKind?: SmokeTurnKind;
+  defaultThinkAfterMs?: number;
   threadKeySuffix?: string;
   sessions: SmokeSessionDefinition[];
 }
@@ -57,6 +58,12 @@ function normalizeScenario(scenarioId: string, raw: unknown): SmokeScenarioDefin
   const title = assertString(obj.title, `${scenarioId}.title`);
   const description = assertString(obj.description, `${scenarioId}.description`);
   const defaultKind = parseKind(obj.defaultKind, `${scenarioId}.defaultKind`) ?? "web_sync";
+  const defaultThinkAfterMs =
+    typeof obj.defaultThinkAfterMs === "number" &&
+    Number.isFinite(obj.defaultThinkAfterMs) &&
+    obj.defaultThinkAfterMs >= 0
+      ? obj.defaultThinkAfterMs
+      : undefined;
   const threadKeySuffix =
     typeof obj.threadKeySuffix === "string" && obj.threadKeySuffix.trim().length > 0
       ? obj.threadKeySuffix.trim()
@@ -73,6 +80,7 @@ function normalizeScenario(scenarioId: string, raw: unknown): SmokeScenarioDefin
     title,
     description,
     defaultKind,
+    ...(defaultThinkAfterMs === undefined ? {} : { defaultThinkAfterMs }),
     ...(threadKeySuffix === undefined ? {} : { threadKeySuffix }),
     sessions
   };

@@ -61,6 +61,10 @@ export async function runScenario(options: SmokeRunOptions): Promise<SmokeRunRes
       const kind = turn.kind ?? options.scenario.defaultKind ?? "web_sync";
       const turnLabel = `[${session.sessionKey}#${turnIndex}/${kind}]`;
       const turnStart = nowIso();
+      // Capture cursor BEFORE we send so the receipt that the server creates for THIS turn
+      // satisfies `createdAt > afterCursor`. We back off a few hundred ms to absorb any
+      // small clock skew between local box and the API pod.
+      const afterCursorIso = new Date(Date.now() - 1_000).toISOString();
       const outcome =
         kind === "web_stream"
           ? await client.sendWebChatStream({
@@ -77,15 +81,18 @@ export async function runScenario(options: SmokeRunOptions): Promise<SmokeRunRes
 
       let receipt: SmokeTurnTrace["receipt"] = null;
       let receiptMissingReason: string | undefined;
-      if (outcome.ok && outcome.requestId !== null) {
-        receipt = await client.findReceiptByRequestId(outcome.requestId);
+      if (outcome.ok) {
+        // The HTTP-level requestId returned by /assistant/chat/web is a tracing id and is
+        // NOT the same identifier persisted on RuntimeTurnReceipt.requestId. We correlate
+        // by externalThreadKey + createdAt cursor instead, which is unambiguous because
+        // the harness sends turns sequentially per thread.
+        receipt = await client.findReceiptForThreadAfter(surfaceThreadKey, afterCursorIso);
         if (receipt === null) {
-          receiptMissingReason = "polling timed out before receipt status moved past 'accepted'";
+          receiptMissingReason =
+            "polling timed out before a completed receipt appeared for this thread";
         }
-      } else if (!outcome.ok) {
-        receiptMissingReason = `turn failed: ${outcome.errorCode}`;
       } else {
-        receiptMissingReason = "API response did not include requestId";
+        receiptMissingReason = `turn failed: ${outcome.errorCode}`;
       }
 
       const traceItem: SmokeTurnTrace = {
@@ -124,8 +131,10 @@ export async function runScenario(options: SmokeRunOptions): Promise<SmokeRunRes
             : "")
       );
 
-      if (turn.thinkAfterMs && turn.thinkAfterMs > 0) {
-        await sleep(turn.thinkAfterMs);
+      const thinkAfterMs = turn.thinkAfterMs ?? options.scenario.defaultThinkAfterMs ?? 0;
+      const isLastTurn = turnIndex === session.turns.length;
+      if (thinkAfterMs > 0 && !isLastTurn) {
+        await sleep(thinkAfterMs);
       }
     }
   }

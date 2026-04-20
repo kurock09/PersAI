@@ -1,0 +1,42 @@
+{
+  "scenarioId": "long-session-200",
+  "scenarioTitle": "Long session вЂ” РґР»РёРЅРЅР°СЏ СЃРµСЃСЃРёСЏ СЃРѕ СЃРјРµРЅРѕР№ С‚РµРј",
+  "startedAt": "2026-04-20T18:18:24.068Z",
+  "finishedAt": "2026-04-20T18:25:46.810Z",
+  "totalDurationMs": 442742,
+  "totals": {
+    "turns": 29,
+    "succeeded": 29,
+    "failed": 0,
+    "receiptsCaptured": 29,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 412760,
+    "totalCachedInputTokens": 248320,
+    "totalOutputTokens": 6261,
+    "totalTokens": 419021,
+    "averagePerTurn": 14449
+  },
+  "toolCalls": [
+    {
+      "toolCode": "summarize_context",
+      "count": 1
+    }
+  ],
+  "routing": {
+    "modes": {
+      "active": 29
+    },
+    "executionModes": {
+      "normal": 29
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 4626,
+    "p95": 24869,
+    "p99": 58405,
+    "max": 58405
+  }
+}

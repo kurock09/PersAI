@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - ADR-074 Slice S0 — smoke harness goes green on persai-dev
+
+### What changed
+
+The S0 harness from earlier today landed code-complete locally but had three real defects against the live API. All three are now fixed and the harness is producing the first real `summary.json` baselines from `persai-dev`.
+
+1. `scripts/smoke/lib/api-client.ts` was hitting `${apiBaseUrl}/assistant/chat/web` and `${apiBaseUrl}/assistant/chat/web/stream` without the `/api/v1` prefix the public NestJS controllers actually mount under. Every chat turn returned `404 Cannot POST /assistant/chat/web` from Express's default 404 handler. Fixed: both fetch URLs now include `/api/v1/` and turns succeed end-to-end.
+2. `apps/api/src/main.ts` runs a `routeByListenerPort` middleware that hard-404s any `/api/v1/internal/*` request received on the public listener (`PORT`, default `3001`) and any non-internal request received on the dedicated internal listener (`API_INTERNAL_PORT`, default `3002`). The dev cluster also renders a separate `api-internal` ClusterIP service for the internal port. The S0 harness was reaching the new `/api/v1/internal/smoke/turn-receipts` endpoint via `apiBaseUrl` (port 3001), which always returned 404, even though NestJS had registered the route (confirmed in pod logs as `Mapped {/api/v1/internal/smoke/turn-receipts, GET}`). Fixed: `scripts/smoke/lib/workspace.ts` now exposes a separate `apiInternalBaseUrl` (default `http://127.0.0.1:3002`, env override `SMOKE_API_INTERNAL_BASE_URL`); `api-client.ts` uses it for the internal endpoint only; `scripts/smoke/README.md` documents the additional `kubectl port-forward svc/api-internal 3002:3002` step required for live use.
+3. The `requestId` returned by `POST /assistant/chat/web` (and the SSE `started` event for streaming) is the **HTTP-level tracing id** assigned by `apps/api`'s request middleware. It is **not** the same identifier persisted on `runtime_turn_receipts.requestId` by the runtime. The original receipt poll filtered by `requestId` and never matched anything, so even after fix #1 every turn showed `tokens=<no receipt>`. Fixed: `api-client.ts` now exposes `findReceiptForThreadAfter(externalThreadKey, afterCursorIso)`, and `scripts/smoke/lib/harness.ts` captures `afterCursorIso = (now - 1s)` immediately before each turn and correlates by `externalThreadKey` (which is exactly the `surfaceThreadKey` we sent) plus `createdAt > afterCursor`. This is unambiguous because the harness sends turns sequentially per thread; the first new completed receipt for that thread after the cursor is, by construction, our turn. Receipts are now captured 8/8 with full token / routing / auto-compaction data.
+
+A fourth, smaller pacing issue surfaced once turns started succeeding: the dev `apps/api` enforces `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8` (see `enforce-abuse-rate-limit.service.ts`), and a back-to-back chitchat scenario at ~3 sec/turn with no pause was triggering `429 rate_limited` on the 8th turn. Fixed: `scripts/smoke/lib/scenario.ts` and `harness.ts` now support `defaultThinkAfterMs` at scenario level, every starter scenario JSON now sets `defaultThinkAfterMs: 8000` (combined with ~3 sec turn latency that gives ~5.4 turns/min, comfortably under 8/min), and the post-think pause is skipped after the last turn of each session to avoid wasting time. `scripts/smoke/README.md` now has a `Pacing и rate-limit` section explaining the contract.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the S0 harness now actually works against the live `persai-dev` deployment as a Clerk-authenticated user, captures real per-turn token usage / tool calls / routing / auto-compaction from canonical `runtime_turn_receipts`, and produces machine-readable `summary.json` artifacts plus first-real baselines under `scripts/smoke/baselines/`.
+- **No longer live repo truth:** it is no longer true that "the smoke harness is code-complete but not live-validated against persai-dev". Slice S0 is now objectively measurable from one CLI command on the operator box.
+- **Still not landed:** the receipt-correlation strategy still uses `externalThreadKey + afterCursor` rather than a stable receipt-side identifier returned by the HTTP API. If we ever want to run multiple smoke scenarios against the same `surfaceThreadKey` in parallel (we don't today), or want strict zero-overlap with real user traffic on the same thread, the cleaner long-term fix is to return a receipt-side correlation id from the public chat endpoint or to namespace receipts by a per-run tag. None of this is required for S0; documenting it here so the next slice doesn't re-investigate.
+
+### Current active slice
+
+- `ADR-074 Slice S0 — smoke harness foundation`
+
+### Current active step
+
+- `S0 is live-validated. The next honest step is to finish the first full `pnpm smoke:run-all --update-baseline` against persai-dev (in progress at end of this session) to populate every scripts/smoke/baselines/<id>.summary.json file, then start Slice P1 (stable prefix engineering) using the captured chitchat-short and long-session-200 baselines as the before-side measurement for the ≥5x input-tokens reduction acceptance criterion`
+
+### Files touched
+
+- `scripts/smoke/lib/api-client.ts` (use `/api/v1/...` for public chat; switch internal endpoint to `apiInternalBaseUrl`; replace `findReceiptByRequestId` with `findReceiptForThreadAfter`)
+- `scripts/smoke/lib/workspace.ts` (add `apiInternalBaseUrl` + `SMOKE_API_INTERNAL_BASE_URL` env)
+- `scripts/smoke/lib/harness.ts` (capture cursor before turn; correlate by threadKey + cursor; respect `defaultThinkAfterMs`; skip pause after last turn)
+- `scripts/smoke/lib/scenario.ts` (add `defaultThinkAfterMs` to `SmokeScenarioDefinition`)
+- `scripts/smoke/scenarios/*.json` (all six scenarios get `defaultThinkAfterMs: 8000`)
+- `scripts/smoke/run-scenario.ts` (document `SMOKE_API_INTERNAL_BASE_URL` in `--help`)
+- `scripts/smoke/README.md` (live-dev port-forward steps for both `api` and `api-internal`; rate-limit pacing section)
+- `scripts/smoke/baselines/*.summary.json` (first real baselines from persai-dev)
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+---
+
 ## 2026-04-20 - ADR-074 Slice S0 — smoke harness foundation landed
 
 ### What changed

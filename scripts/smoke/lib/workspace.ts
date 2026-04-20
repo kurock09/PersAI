@@ -10,6 +10,7 @@ export const ARTIFACTS_DIR_DEFAULT = path.join(SMOKE_ROOT, "artifacts");
 
 export interface SmokeEnv {
   apiBaseUrl: string;
+  apiInternalBaseUrl: string;
   userBearer: string;
   internalToken: string;
   assistantId: string;
@@ -40,9 +41,13 @@ function optionalNumber(name: string, fallback: number): number {
 
 export function loadSmokeEnv(): SmokeEnv {
   const apiBaseUrl = (process.env.SMOKE_API_BASE_URL ?? "http://127.0.0.1:3001").replace(/\/$/, "");
+  const apiInternalBaseUrl = (
+    process.env.SMOKE_API_INTERNAL_BASE_URL ?? "http://127.0.0.1:3002"
+  ).replace(/\/$/, "");
   const artifactsDir = path.resolve(process.env.SMOKE_ARTIFACTS_DIR ?? ARTIFACTS_DIR_DEFAULT);
   return {
     apiBaseUrl,
+    apiInternalBaseUrl,
     userBearer: requireEnv("SMOKE_USER_BEARER"),
     internalToken: requireEnv("PERSAI_INTERNAL_API_TOKEN"),
     assistantId: requireEnv("SMOKE_ASSISTANT_ID"),

@@ -39,6 +39,14 @@ scripts/smoke/
 └── artifacts/                   # gitignored, выход прогонов
 ```
 
+## Pacing и rate-limit
+
+Harness шлёт ходы строго **последовательно** в одной сессии. Между ходами действует `defaultThinkAfterMs` сценария (по умолчанию `8000` ms, итого ≤ ~5.4 turns/min) — это **под лимитом** dev-окружения `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8` (см. `enforce-abuse-rate-limit.service.ts`). Если уменьшать паузу — есть риск получить `rate_limited` посередине сценария.
+
+Если очень нужно гонять быстрее — поднимите `ABUSE_USER_*_REQUESTS_PER_MINUTE` в Helm values для своего dev workspace, либо добавьте admin override через `peerBypass`.
+
+После последнего хода сессии пауза не делается (экономит время на коротких сценариях).
+
 ## ENV
 
 Обязательные:
@@ -49,7 +57,8 @@ scripts/smoke/
 
 Опциональные:
 
-- `SMOKE_API_BASE_URL` (default `http://127.0.0.1:3001`) — куда стучимся. Под live-dev → `http://127.0.0.1:8080` после `kubectl port-forward` (см. `docs/LIVE-TEST-HYBRID.md`).
+- `SMOKE_API_BASE_URL` (default `http://127.0.0.1:3001`) — публичный listener API (web sync/stream). Под live-dev: `kubectl port-forward -n persai-dev svc/api 3001:3001`.
+- `SMOKE_API_INTERNAL_BASE_URL` (default `http://127.0.0.1:3002`) — **отдельный** internal listener API (`API_INTERNAL_PORT=3002`), на нём только `/api/v1/internal/*` маршруты. Под live-dev: `kubectl port-forward -n persai-dev svc/api-internal 3002:3002`. Публичный listener специально возвращает 404 на `/api/v1/internal/*` (см. `apps/api/src/main.ts`).
 - `SMOKE_ARTIFACTS_DIR` (default `scripts/smoke/artifacts`).
 - `SMOKE_FETCH_TIMEOUT_MS` (default `120000`).
 - `SMOKE_RECEIPT_POLL_TIMEOUT_MS` (default `30000`).

@@ -1,0 +1,37 @@
+{
+  "scenarioId": "emotional-long",
+  "scenarioTitle": "Emotional вЂ” 30-С…РѕРґРѕРІР°СЏ РїРѕРґРґРµСЂР¶РёРІР°СЋС‰Р°СЏ Р±РµСЃРµРґР°",
+  "startedAt": "2026-04-20T18:11:30.370Z",
+  "finishedAt": "2026-04-20T18:18:24.052Z",
+  "totalDurationMs": 413682,
+  "totals": {
+    "turns": 30,
+    "succeeded": 30,
+    "failed": 0,
+    "receiptsCaptured": 30,
+    "receiptsMissing": 0
+  },
+  "tokens": {
+    "totalInputTokens": 420815,
+    "totalCachedInputTokens": 194560,
+    "totalOutputTokens": 9470,
+    "totalTokens": 430285,
+    "averagePerTurn": 14343
+  },
+  "toolCalls": [],
+  "routing": {
+    "modes": {
+      "active": 30
+    },
+    "executionModes": {
+      "normal": 30
+    }
+  },
+  "autoCompactionTriggers": 0,
+  "latencyMs": {
+    "p50": 5087,
+    "p95": 9789,
+    "p99": 17895,
+    "max": 17895
+  }
+}

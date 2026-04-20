@@ -84,7 +84,7 @@ export class SmokeApiClient {
     const startedAt = Date.now();
     const timeout = createAbort(this.env.fetchTimeoutMs);
     try {
-      const response = await fetch(`${this.env.apiBaseUrl}/assistant/chat/web`, {
+      const response = await fetch(`${this.env.apiBaseUrl}/api/v1/assistant/chat/web`, {
         method: "POST",
         headers: this.userJsonHeaders(),
         body: JSON.stringify(body),
@@ -138,7 +138,7 @@ export class SmokeApiClient {
     const startedAt = Date.now();
     const timeout = createAbort(this.env.fetchTimeoutMs);
     try {
-      const response = await fetch(`${this.env.apiBaseUrl}/assistant/chat/web/stream`, {
+      const response = await fetch(`${this.env.apiBaseUrl}/api/v1/assistant/chat/web/stream`, {
         method: "POST",
         headers: this.userJsonHeaders(),
         body: JSON.stringify(body),
@@ -249,20 +249,22 @@ export class SmokeApiClient {
     }
   }
 
-  async findReceiptByRequestId(requestId: string): Promise<SmokeReceipt | null> {
-    const url = new URL(`${this.env.apiBaseUrl}/api/v1/internal/smoke/turn-receipts`);
+  async findReceiptForThreadAfter(
+    externalThreadKey: string,
+    afterCursorIso: string
+  ): Promise<SmokeReceipt | null> {
+    const url = new URL(`${this.env.apiInternalBaseUrl}/api/v1/internal/smoke/turn-receipts`);
     url.searchParams.set("assistantId", this.env.assistantId);
-    url.searchParams.set("requestId", requestId);
-    url.searchParams.set("limit", "1");
+    url.searchParams.set("afterCursor", afterCursorIso);
+    url.searchParams.set("limit", "20");
     const deadline = Date.now() + this.env.receiptPollTimeoutMs;
     while (Date.now() < deadline) {
       const result = await this.fetchInternalReceipts(url.toString());
-      const candidate = result.items.find((item) => item.requestId === requestId);
-      if (candidate && candidate.status !== "accepted") {
+      const candidate = result.items.find(
+        (item) => item.externalThreadKey === externalThreadKey && item.status !== "accepted"
+      );
+      if (candidate) {
         return candidate;
-      }
-      if (candidate && candidate.status === "accepted") {
-        // receipt exists but turn still in flight; keep polling.
       }
       await sleep(this.env.receiptPollIntervalMs);
     }
