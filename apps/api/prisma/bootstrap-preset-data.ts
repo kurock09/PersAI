@@ -49,9 +49,7 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 
 {{tools_block}}
 
-{{agents_block}}
-
-{{heartbeat_block}}`,
+{{agents_block}}`,
 
   soul: `# Core Persona
 
@@ -95,9 +93,7 @@ Greet on birthdays. Respect timezone for scheduling.`,
   tools: `Native tool runtime:
 
 Use only the machine-readable tools declared for this turn.
-Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
-
-{{tools_catalog_block}}`,
+Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
 
   heartbeat: `# Task Heartbeat
 

@@ -929,10 +929,17 @@ export class TurnExecutionService {
       deepModeEnabled,
       projectedTools
     });
+    const developerInstructions = this.buildDeveloperInstructions(
+      bundle,
+      projectedTools,
+      deepModeEnabled,
+      routeDecision
+    );
     return {
       provider: providerSelection.provider,
       model: providerSelection.model,
-      systemPrompt: this.buildSystemPrompt(bundle, projectedTools, deepModeEnabled, routeDecision),
+      systemPrompt: this.buildSystemPrompt(bundle),
+      ...(developerInstructions === null ? {} : { developerInstructions }),
       messages,
       ...(promptCache === undefined ? {} : { promptCache }),
       ...(projectedTools.tools.length === 0
@@ -944,19 +951,26 @@ export class TurnExecutionService {
     };
   }
 
-  private buildSystemPrompt(
+  private buildSystemPrompt(bundle: AssistantRuntimeBundle): string | null {
+    // ADR-074 P1: `systemPrompt` is the cached stable prefix only. Per-turn variability (routing
+    // guidance, heartbeat) is moved to `developerInstructions` so provider prompt caching stays
+    // hot across turns for the same assistant + bundle.
+    return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
+  }
+
+  private buildDeveloperInstructions(
     bundle: AssistantRuntimeBundle,
-    projectedTools?: RuntimeNativeToolProjection,
-    deepModeEnabled = false,
-    routeDecision?: TurnRouteDecision
+    projectedTools: RuntimeNativeToolProjection | undefined,
+    deepModeEnabled: boolean,
+    routeDecision: TurnRouteDecision | undefined
   ): string | null {
-    const normalized = this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
+    const heartbeatBlock = this.normalizeOptionalText(bundle.promptDocuments.heartbeat ?? null);
     const routingGuidance = this.buildTurnRoutingPrompt(
       projectedTools,
       routeDecision,
       deepModeEnabled
     );
-    const sections = [normalized, routingGuidance]
+    const sections = [routingGuidance, heartbeatBlock]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;

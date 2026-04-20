@@ -241,6 +241,10 @@ export function createAssistantRuntimeBundle(
         agents: input.promptDocuments.agents,
         heartbeat: input.promptDocuments.heartbeat
       },
+      // ADR-074 P1: the fallback synthesizer mirrors the production compile path and intentionally
+      // omits `heartbeat` from both `systemPrompt` and `stablePrefix`. Heartbeat is surfaced via
+      // `promptDocuments.heartbeat` only and is rendered by the runtime as a per-turn developer
+      // message tail so it never invalidates provider prompt caching.
       systemPrompt: [
         input.persona.displayName === null
           ? null
@@ -255,8 +259,7 @@ export function createAssistantRuntimeBundle(
         input.promptDocuments.user,
         input.promptDocuments.identity,
         input.promptDocuments.tools,
-        input.promptDocuments.agents,
-        input.promptDocuments.heartbeat
+        input.promptDocuments.agents
       ]
         .filter(
           (section): section is string => typeof section === "string" && section.trim().length > 0
@@ -277,8 +280,7 @@ export function createAssistantRuntimeBundle(
           input.promptDocuments.user,
           input.promptDocuments.identity,
           input.promptDocuments.tools,
-          input.promptDocuments.agents,
-          input.promptDocuments.heartbeat
+          input.promptDocuments.agents
         ]
           .filter(
             (section): section is string => typeof section === "string" && section.trim().length > 0

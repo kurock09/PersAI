@@ -77,7 +77,7 @@ type OpenAIInputContent =
     >;
 type OpenAIBuiltInputItem =
   | {
-      role: "user" | "assistant";
+      role: "user" | "assistant" | "developer";
       content: OpenAIInputContent;
     }
   | {
@@ -760,6 +760,21 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         type: "function_call_output",
         call_id: exchange.toolCall.id,
         output: exchange.toolResult.content
+      });
+    }
+    // ADR-074 P1: per-turn developer instructions live OUTSIDE the cached `instructions` prefix.
+    // Appending them as the last input item (after history and any tool exchange) keeps the
+    // common prompt prefix byte-stable across turns so OpenAI prompt caching can stay hot.
+    const developerInstructions = this.normalizeOptionalText(input.developerInstructions);
+    if (developerInstructions !== null) {
+      items.push({
+        role: "developer",
+        content: [
+          {
+            type: "input_text",
+            text: developerInstructions
+          }
+        ]
       });
     }
     return items;

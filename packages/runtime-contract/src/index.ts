@@ -1339,6 +1339,16 @@ export interface ProviderGatewayTextGenerateRequest {
   provider: "openai" | "anthropic";
   model: string;
   systemPrompt: string | null;
+  /**
+   * ADR-074 P1: per-turn developer instructions appended OUTSIDE the cached system prefix.
+   * This is the canonical place for content that must NOT invalidate provider prompt caching:
+   * routing/execution-mode hints, the per-turn heartbeat block, and (in later slices) time
+   * awareness fields. Providers project this field provider-natively:
+   *   - OpenAI Responses API: a `role: "developer"` input item appended after history.
+   *   - Anthropic: a second text block appended to the `system` array (no `cache_control`).
+   * The runtime owns assembly and must keep `systemPrompt` byte-stable across turns.
+   */
+  developerInstructions?: string | null;
   messages: ProviderGatewayTextMessage[];
   maxOutputTokens?: number;
   tools?: ProviderGatewayToolDefinition[];

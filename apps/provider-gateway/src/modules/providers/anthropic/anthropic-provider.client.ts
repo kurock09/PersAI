@@ -114,8 +114,11 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         max_tokens: input.maxOutputTokens ?? 1_024,
         messages: this.buildAnthropicMessages(input) as AnthropicMessageParams
       };
-      if (input.systemPrompt !== null) {
-        payload.system = input.systemPrompt;
+      const systemBlocks = this.buildAnthropicSystemBlocks(input);
+      if (systemBlocks !== null) {
+        payload.system = systemBlocks as NonNullable<
+          AnthropicNonStreamingCreateMessageParams["system"]
+        >;
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toAnthropicTools(input) as AnthropicToolsParam;
@@ -213,8 +216,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         messages: this.buildAnthropicMessages(input) as AnthropicMessageParams,
         stream: true
       };
-      if (input.systemPrompt !== null) {
-        payload.system = input.systemPrompt;
+      const systemBlocks = this.buildAnthropicSystemBlocks(input);
+      if (systemBlocks !== null) {
+        payload.system = systemBlocks;
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toAnthropicTools(input) as AnthropicToolsParam;
@@ -455,6 +459,41 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       });
     }
     return messages;
+  }
+
+  /**
+   * ADR-074 P1: separate the cached system prefix from per-turn developer instructions.
+   *
+   * Anthropic accepts `system` as either a string or an array of `TextBlockParam`. When per-turn
+   * developer guidance is present, we project two text blocks: the stable cached `systemPrompt`
+   * first (this is what future Anthropic prompt-cache slices will mark with `cache_control`), and
+   * the developer instructions appended after it. When only `systemPrompt` is set, we keep the
+   * legacy string form to minimize behavioural drift.
+   */
+  private buildAnthropicSystemBlocks(
+    input: ProviderGatewayTextGenerateRequest
+  ): string | Array<{ type: "text"; text: string }> | null {
+    const systemPrompt =
+      typeof input.systemPrompt === "string" && input.systemPrompt.length > 0
+        ? input.systemPrompt
+        : null;
+    const developerInstructions =
+      typeof input.developerInstructions === "string" &&
+      input.developerInstructions.trim().length > 0
+        ? input.developerInstructions
+        : null;
+    if (systemPrompt === null && developerInstructions === null) {
+      return null;
+    }
+    if (developerInstructions === null) {
+      return systemPrompt;
+    }
+    const blocks: Array<{ type: "text"; text: string }> = [];
+    if (systemPrompt !== null) {
+      blocks.push({ type: "text", text: systemPrompt });
+    }
+    blocks.push({ type: "text", text: developerInstructions });
+    return blocks;
   }
 
   private toAnthropicTools(input: ProviderGatewayTextGenerateRequest): AnthropicTool[] {

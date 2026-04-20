@@ -147,6 +147,7 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 ### Slice P1 — Stable prefix engineering (cheap, biggest token win)
 
+- **Status (2026-04-20):** code-complete on `main`. The cached `systemPrompt` no longer carries `heartbeat_block` or `tools_catalog_block`; routing guidance + heartbeat now travel as a separate `developerInstructions` tail (OpenAI: `role: "developer"` input item; Anthropic: second `text` block on the `system` array). Unit tests in `apps/api/test/compile-prompt-constructor.service.test.ts` and `apps/runtime/test/turn-execution.service.test.ts` lock the invariants. The live-token before/after smoke validation against `persai-dev` (`chitchat-short`, `long-session-200`, `tool-heavy-search`) is the remaining operator-side step before declaring P1 closed.
 - **Goal:** Restructure the system prompt so a large exact prefix is reusable across turns by provider-native prompt caching, cutting input tokens by 5–8x in typical long sessions without changing assistant behavior.
 - **Founder anchor:** Principle 3. From Q12-B.
 

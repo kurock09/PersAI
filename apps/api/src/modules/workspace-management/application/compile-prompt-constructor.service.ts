@@ -82,6 +82,9 @@ export class CompilePromptConstructorService {
       identity: promptDocuments.identity,
       tools: promptDocuments.tools,
       agents: promptDocuments.agents,
+      // ADR-074 P1: heartbeat lives outside the cached system prefix; the runtime renders it into
+      // a separate per-turn developer message (it is intentionally absent from `systemPrompt` /
+      // `stablePrefix`). It is still surfaced here for any consumer that needs the raw text.
       heartbeat: promptDocuments.heartbeat
     };
 
@@ -225,14 +228,18 @@ export class CompilePromptConstructorService {
   }
 
   private generateToolsPrompt(toolPolicies: RuntimeToolPolicy[], template: string | null): string {
-    const catalog = buildRuntimeToolPoliciesMarkdown(toolPolicies);
+    // ADR-074 P1: native provider tool definitions already carry full descriptions; we no longer
+    // duplicate them as a markdown catalog inside the cached system prompt. If a custom template
+    // still references `{{tools_catalog_block}}`, the placeholder is stripped because the value
+    // resolves to null in `interpolateTemplate`. The catalog is preserved as a fallback only when
+    // no template row exists at all (legacy / fresh-DB before seed).
     if (template) {
       return this.interpolateTemplate(template, {
-        tools_catalog_block: catalog
+        tools_catalog_block: null
       });
     }
 
-    return catalog;
+    return buildRuntimeToolPoliciesMarkdown(toolPolicies);
   }
 
   private generateAgentsPrompt(template: string | null): string {
@@ -247,6 +254,12 @@ export class CompilePromptConstructorService {
     ordinarySections: AssistantRuntimeCompiledOrdinaryPromptSections,
     template: string | null
   ): string {
+    // ADR-074 P1: the cached system prefix is intentionally free of per-turn variability.
+    // - `heartbeat_block` is rendered downstream as a developer message at the tail of every
+    //   provider request (so future T1 dynamic time fields cannot invalidate the cached prefix).
+    // - `route_control_block` is also a developer-message tail rendered by the runtime.
+    // Both placeholders are passed as null so legacy custom templates that still reference them
+    // simply drop the placeholder line in `interpolateTemplate` instead of leaking a literal token.
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_identity_block: ordinarySections.assistantIdentity,
@@ -260,7 +273,7 @@ export class CompilePromptConstructorService {
         route_control_block: null,
         tools_block: ordinarySections.tools,
         agents_block: ordinarySections.agents,
-        heartbeat_block: ordinarySections.heartbeat
+        heartbeat_block: null
       }).trim();
     }
 
@@ -274,8 +287,7 @@ export class CompilePromptConstructorService {
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),
       this.normalizeOptionalText(ordinarySections.tools),
-      this.normalizeOptionalText(ordinarySections.agents),
-      this.normalizeOptionalText(ordinarySections.heartbeat)
+      this.normalizeOptionalText(ordinarySections.agents)
     ]
       .filter((section): section is string => section !== null)
       .join("\n\n");

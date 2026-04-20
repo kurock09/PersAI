@@ -2140,9 +2140,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     /Recent conversation tail/
   );
   assert.equal(providerGatewayClient.calls[chooserCallOffset + 1]?.model, "gpt-5.4-thinking");
+  // ADR-074 P1: routing guidance lives in `developerInstructions` (out of the cached system prefix).
   assert.match(
-    providerGatewayClient.calls[chooserCallOffset + 1]?.systemPrompt ?? "",
+    providerGatewayClient.calls[chooserCallOffset + 1]?.developerInstructions ?? "",
     /Selected execution mode: reasoning\./
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[chooserCallOffset + 1]?.systemPrompt ?? "",
+    /Selected execution mode: reasoning\./,
+    "execution-mode hint must not leak into the cached system prefix"
   );
   assert.equal(
     providerGatewayClient.calls[chooserCallOffset + 1]?.tools?.some(
@@ -2266,8 +2272,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     "turn_routing"
   );
   assert.equal(providerGatewayClient.calls[deepModeChooserOffset + 1]?.model, "gpt-5.4-pro");
+  // ADR-074 P1: routing guidance is never injected into the cached system prefix; in deep mode
+  // with this fixture the routing block is also expected to be absent from `developerInstructions`.
   assert.doesNotMatch(
     providerGatewayClient.calls[deepModeChooserOffset + 1]?.systemPrompt ?? "",
+    /## Early Routing Hints/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[deepModeChooserOffset + 1]?.developerInstructions ?? "",
     /## Early Routing Hints/
   );
   assert.equal(
@@ -2408,7 +2420,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.tools?.map((tool) => tool.name) ?? [];
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
+  // ADR-074 P1: retrieval routing hint travels via `developerInstructions`, not the cached prefix.
   assert.match(
+    providerGatewayClient.calls[retrievalHintPlannerOffset]?.developerInstructions ?? "",
+    /Assistant knowledge retrieval is likely needed before answering/
+  );
+  assert.doesNotMatch(
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.systemPrompt ?? "",
     /Assistant knowledge retrieval is likely needed before answering/
   );
@@ -2470,7 +2487,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
+  // ADR-074 P1: web tool routing hint also lives in `developerInstructions`.
   assert.match(
+    providerGatewayClient.calls[liveWebPlannerOffset]?.developerInstructions ?? "",
+    /Fresh external information is likely needed/
+  );
+  assert.doesNotMatch(
     providerGatewayClient.calls[liveWebPlannerOffset]?.systemPrompt ?? "",
     /Fresh external information is likely needed/
   );
@@ -2523,6 +2545,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[unavailableLiveWebPlannerOffset]?.systemPrompt ?? "",
+    /Fresh external information is likely needed/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[unavailableLiveWebPlannerOffset]?.developerInstructions ?? "",
     /Fresh external information is likely needed/
   );
   await flushTaskQueue();

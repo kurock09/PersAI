@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - ADR-074 Slice P1 — stable prefix engineering (cached system prompt + developer-message tail)
+
+### What changed
+
+1. The cached system prompt that goes to OpenAI/Anthropic on every ordinary turn is now intentionally byte-stable across turns, so provider-native prompt caching can stay hot. `apps/api/prisma/bootstrap-preset-data.ts` no longer puts `{{heartbeat_block}}` into the default `system` template, and no longer puts `{{tools_catalog_block}}` into the default `tools` template (the markdown duplication of native provider tool definitions was pure cache-buster).
+2. `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` now always passes `heartbeat_block`, `route_control_block`, and `tools_catalog_block` as `null` when interpolating any custom template, so admin-customized prompts still drop those placeholders cleanly via `interpolateTemplate`'s null-line stripping. The legacy fallback concatenation in the same service no longer carries `heartbeat`. `packages/runtime-bundle/src/index.ts` mirrors that in the bundle's fallback `systemPrompt` / `stablePrefix`.
+3. `packages/runtime-contract/src/index.ts` adds an optional `developerInstructions` field on `ProviderGatewayTextGenerateRequest`, documented as the canonical home for per-turn tail content that must not invalidate the cached prefix. `apps/runtime/src/modules/turns/turn-execution.service.ts` now builds the request so `systemPrompt` is only the cached `bundle.promptConstructor.ordinary.systemPrompt`, and the previous routing-guidance + heartbeat content is concatenated into `developerInstructions` via the new `buildDeveloperInstructions` helper.
+4. `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` projects `developerInstructions` as a final `role: "developer"` input item appended after history and any tool-history exchange. `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` projects it as a second `text` block on the `system` array via the new `buildAnthropicSystemBlocks` helper (legacy single-string `system` is preserved when only `systemPrompt` is set, to minimize behavioural drift on Anthropic-only paths).
+5. Tests updated: `apps/api/test/compile-prompt-constructor.service.test.ts` now locks the new ADR-074 P1 invariants — `systemPrompt` MUST NOT contain heartbeat or per-turn tool-catalog markdown, the `promptDocuments.heartbeat` document still carries the heartbeat text for the runtime developer-message renderer, and changing only the heartbeat does not change `systemPrompt` / `stablePrefix.hash` byte-for-byte. `apps/runtime/test/turn-execution.service.test.ts` was updated so all routing-hint assertions (`Selected execution mode: …`, `Assistant knowledge retrieval is likely needed before answering`, `Fresh external information is likely needed`, `## Early Routing Hints`) now look at `developerInstructions` and explicitly assert absence from `systemPrompt`.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the runtime now sends a cached, byte-stable `systemPrompt` and a separate per-turn `developerInstructions` tail to provider clients on the ordinary text path, the OpenAI client maps that tail to a `developer` input item, the Anthropic client maps it to a second `system` text block, and the existing unit tests for compile-prompt-constructor and turn-execution were updated to lock the new P1 invariants and pass.
+- **No longer live repo truth:** it is no longer true that the system prompt sent to providers contains the heartbeat block or a duplicated markdown tool catalog. It is also no longer true that turn routing guidance (Early Routing Hints, Selected execution mode, retrieval/web/browser/media hints) is interpolated into the cached `systemPrompt`.
+- **Still not landed:** the live before/after smoke deltas for `chitchat-short`, `long-session-200`, and `tool-heavy-search` against `persai-dev` are not yet captured. The committed `scripts/smoke/baselines/*.summary.json` files from S0 are the "before" reference; the operator-side step is one fresh `pnpm smoke:run --scenario chitchat-short --scenario long-session-200 --scenario tool-heavy-search` against `persai-dev` after the P1 image is rolled out, then comparing `tokens.totalCachedInputTokens` / `tokens.totalInputTokens` / `tokens.averagePerTurn` against the committed baselines and recording the resulting deltas in CHANGELOG + this SESSION-HANDOFF. Anthropic prompt caching is also not yet wired with `cache_control` on the system block — that's intentional for P1 (the helper is shaped so the future slice can add `cache_control` to the first system text block without changing the contract).
+
+### Current active slice
+
+- `ADR-074 Slice P1 — stable prefix engineering`
+
+### Current active step
+
+- `Implementation landed and unit tests updated. Next honest step is the operator-side live smoke run against persai-dev (chitchat-short, long-session-200, tool-heavy-search with --update-baseline disabled) to capture the post-P1 token deltas vs. the committed S0 baselines, then record those deltas in CHANGELOG and SESSION-HANDOFF before moving to the next ADR-074 slice (V1 — voice DNA, or M1 — durable memory cleanup, depending on observed deltas).`
+
+### Files touched
+
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts`
+- `apps/api/test/compile-prompt-constructor.service.test.ts`
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts`
+- `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `packages/runtime-contract/src/index.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `pnpm --filter @persai/api exec tsc --noEmit -p tsconfig.json` (clean)
+- `pnpm --filter @persai/runtime exec tsc --noEmit -p tsconfig.json` (clean)
+- `pnpm --filter @persai/provider-gateway exec tsc --noEmit -p tsconfig.json` (clean)
+- `pnpm --filter @persai/api test` (full suite green; `compile-prompt-constructor.service.test.ts` exercises the three new ADR-074 P1 invariants — heartbeat-stripped `systemPrompt`, tool-catalog-stripped `systemPrompt`, and stable-prefix invariance under heartbeat-only changes)
+- `pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts` (clean; routing hints now asserted against `developerInstructions`)
+- `pnpm --filter @persai/provider-gateway test` (full suite green)
+
+---
+
 ## 2026-04-20 - ADR-074 Slice S0 finish-up — UTF-8 smoke scenarios and clean re-baselines
 
 ### What changed
