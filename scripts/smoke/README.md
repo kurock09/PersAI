@@ -16,9 +16,9 @@ tool-loop'ам и латентности.
 ## Что делает
 
 1. Берёт сценарий из `scripts/smoke/scenarios/<id>.json` (одна или несколько сессий, у каждой свой `surfaceThreadKey` с уникальным суффиксом).
-2. Шлёт каждый ход через `POST /assistant/chat/web` (или `/assistant/chat/web/stream`) от лица real Clerk-юзера (`SMOKE_USER_BEARER`).
-3. Получает `requestId` из ответа.
-4. Поллит внутренний эндпоинт `/api/v1/internal/smoke/turn-receipts?assistantId=...&requestId=...` (защищён `PERSAI_INTERNAL_API_TOKEN`) пока статус receipt'а не выйдет из `accepted`.
+2. Шлёт каждый ход через `POST /api/v1/assistant/chat/web` (или `/api/v1/assistant/chat/web/stream`) от лица real Clerk-юзера (`SMOKE_USER_BEARER`).
+3. Перед отправкой берёт `afterCursorIso = now − 1s` (компенсация clock skew между локальным боксом и API-подом).
+4. Поллит **внутренний** эндпоинт `/api/v1/internal/smoke/turn-receipts?assistantId=...&afterCursor=...` на `SMOKE_API_INTERNAL_BASE_URL` (по умолчанию `http://127.0.0.1:3002`, защищён `PERSAI_INTERNAL_API_TOKEN`), пока для нашего `externalThreadKey` (== `surfaceThreadKey`) не появится receipt со статусом `≠ accepted`. Корреляция по `externalThreadKey + createdAt > afterCursor` детерминистична, потому что harness шлёт ходы по треду строго последовательно. HTTP-level `requestId`, который возвращает публичный chat-эндпойнт, — это **tracing id**, не `runtime_turn_receipts.requestId`, поэтому им сопоставлять нельзя (см. ADR-074 Slice S0 deltas).
 5. Складывает `trace.json` (полный per-turn raw) и `summary.json` (агрегаты) в `scripts/smoke/artifacts/<runId>/`.
 6. Если в `scripts/smoke/baselines/<id>.summary.json` есть baseline — печатает дельту по токенам, латентности, tool-counts, успехам/фейлам.
 
@@ -110,12 +110,13 @@ scripts/smoke/artifacts/onboarding-2026-04-20T12-00-00-000Z/
 внутренняя метрика. `RuntimeTurnReceipt.resultPayload` — единственный канонический
 источник `usageAccounting`, `turnRouting`, `autoCompaction`. Поэтому harness:
 
-- получает `requestId` (уникален) от публичного API;
-- через internal endpoint находит соответствующий receipt;
-- маппит его в `SmokeReceipt` (см. `apps/api/src/modules/workspace-management/application/read-smoke-turn-receipts.service.ts`).
+- запоминает `afterCursorIso = now − 1s` непосредственно перед отправкой хода;
+- через internal endpoint опрашивает receipts по `assistantId + afterCursor` и берёт первую запись с нашим `externalThreadKey` (== `surfaceThreadKey`), у которой `status ≠ accepted`;
+- маппит её в `SmokeReceipt` (см. `apps/api/src/modules/workspace-management/application/read-smoke-turn-receipts.service.ts`).
 
 Это даёт harness'у **тот же объективный взгляд**, что и админский dashboard и
-ADR-073 retrieval explorer, без дублирования усечённой логики.
+ADR-073 retrieval explorer, без дублирования усечённой логики, и не зависит от
+несуществующего отображения «HTTP-tracing-`requestId` ↔ `RuntimeTurnReceipt.requestId`».
 
 ## Что дальше (Slices ADR-074, использующие этот harness)
 

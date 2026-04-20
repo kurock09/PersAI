@@ -115,6 +115,28 @@ Interpret the result as follows:
 3. if headers arrive quickly but `web_stream_timing firstDeltaMs=...` stays large, inspect runtime/provider stages around first provider event and first text delta
 4. always compare one slow turn and one normal turn from the same deployment before concluding that the issue is “model tokens are just slower”
 
+## Smoke harness (ADR-074)
+
+Repeatable scenario harness for ADR-074 humanity-and-cost slices lives in `scripts/smoke/`. It runs against the same hybrid topology as this guide, but additionally needs the **internal** API listener (`API_INTERNAL_PORT=3002`, `svc/api-internal`) for the gated `/api/v1/internal/smoke/turn-receipts` endpoint — `apps/api/src/main.ts`'s `routeByListenerPort` middleware keeps internal routes off the public listener by design, so a single port-forward against `svc/api` is not enough.
+
+Add a second port-forward in another terminal:
+
+```powershell
+kubectl port-forward -n persai-dev svc/api-internal 3002:3002
+```
+
+Then drive the harness from the repo root:
+
+```powershell
+$env:SMOKE_USER_BEARER = "<Clerk session JWT>"
+$env:PERSAI_INTERNAL_API_TOKEN = "<value of persai-runtime-secrets/PERSAI_INTERNAL_API_TOKEN>"
+$env:SMOKE_ASSISTANT_ID = "<assistantId uuid you own>"
+pnpm smoke:run --scenario chitchat-short
+pnpm smoke:run-all --update-baseline
+```
+
+Defaults assume `SMOKE_API_BASE_URL=http://127.0.0.1:3001` (public) and `SMOKE_API_INTERNAL_BASE_URL=http://127.0.0.1:3002` (internal). The harness paces turns at ~5.4/min by default to stay under dev's `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8`. Full operator notes (CLI flags, env vars, scenario catalog, baseline diff semantics, why receipt correlation goes by `externalThreadKey + afterCursor` rather than `requestId`) live in `scripts/smoke/README.md`. The S0 acceptance/landing context lives in `docs/ADR/074-humanity-and-cost-polish-program.md` Slice S0.
+
 ## Step 20 Sandbox Smoke
 
 Use this only after the selected assistant's effective plan enables the active `files`, `exec`, and `shell` sandbox surface.
