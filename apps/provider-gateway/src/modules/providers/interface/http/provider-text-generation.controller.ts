@@ -5,6 +5,20 @@ import type {
   ProviderGatewayTextGenerateResult
 } from "@persai/runtime-contract";
 import { ProviderTextGenerationService } from "../../provider-text-generation.service";
+import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
+
+const TRACE_HEADER_NAME = "x-persai-trace";
+
+function readTraceEnabledHeader(req: IncomingMessage): boolean {
+  const raw = req.headers[TRACE_HEADER_NAME];
+  if (typeof raw === "string") {
+    return raw.toLowerCase() === "on";
+  }
+  if (Array.isArray(raw) && raw.length > 0) {
+    return (raw[0] ?? "").toLowerCase() === "on";
+  }
+  return false;
+}
 
 @Controller("api/v1/providers")
 export class ProviderTextGenerationController {
@@ -39,6 +53,7 @@ export class ProviderTextGenerationController {
       } provider=${body.provider} model=${body.model} toolCount=${String(body.tools?.length ?? 0)} toolHistoryCount=${String(body.toolHistory?.length ?? 0)}`
     );
 
+    const traceEnabled = readTraceEnabledHeader(req);
     const stream = await this.providerTextGenerationService.streamText(
       body,
       abortController.signal
@@ -49,22 +64,38 @@ export class ProviderTextGenerationController {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
+    const writerInstrumentation = createStreamWriterInstrumentation();
     const writeEvent = (event: unknown): void => {
       if (res.writableEnded) {
         return;
       }
-      res.write(`${JSON.stringify(event)}\n`);
+      const writeReturnedTrue = res.write(`${JSON.stringify(event)}\n`);
+      writerInstrumentation.recordWrite(writeReturnedTrue, res);
       res.flush?.();
     };
 
-    for await (const event of stream) {
-      if (res.writableEnded) {
-        return;
+    const startedAtMs = Date.now();
+    try {
+      for await (const event of stream) {
+        if (res.writableEnded) {
+          return;
+        }
+        writeEvent(event);
       }
-      writeEvent(event);
-    }
-    if (!res.writableEnded) {
-      res.end();
+    } finally {
+      if (!res.writableEnded) {
+        res.end();
+      }
+      if (traceEnabled) {
+        this.logger.log(
+          `[stream-text-writer-stats] requestId=${body.requestMetadata?.runtimeRequestId ?? "unknown"} classification=${body.requestMetadata?.classification ?? "unknown"} iteration=${
+            body.requestMetadata?.toolLoopIteration === null ||
+            body.requestMetadata?.toolLoopIteration === undefined
+              ? "null"
+              : String(body.requestMetadata.toolLoopIteration)
+          } provider=${body.provider} model=${body.model} elapsedMs=${String(Date.now() - startedAtMs)} ${writerInstrumentation.formatStats()}`
+        );
+      }
     }
   }
 }

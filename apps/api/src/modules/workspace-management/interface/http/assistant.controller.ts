@@ -68,6 +68,7 @@ import {
   type WorkspaceMemoryItemState
 } from "../../application/manage-assistant-workspace-memory.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
+import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
 const WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
 
@@ -913,12 +914,14 @@ export class AssistantController {
       }
     });
 
+    const sseWriterInstrumentation = createStreamWriterInstrumentation();
     const sendSse = (event: string, payload: unknown): void => {
       if (clientClosed) {
         return;
       }
 
-      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      const writeReturnedTrue = res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      sseWriterInstrumentation.recordWrite(writeReturnedTrue, res);
       const flushable = res as unknown as { flush?: () => void };
       if (typeof flushable.flush === "function") {
         flushable.flush();
@@ -929,7 +932,8 @@ export class AssistantController {
         return;
       }
       // SSE comments are ignored by the browser client but keep the stream warm through proxies.
-      res.write(": keepalive\n\n");
+      const writeReturnedTrue = res.write(": keepalive\n\n");
+      sseWriterInstrumentation.recordWrite(writeReturnedTrue, res);
       const flushable = res as unknown as { flush?: () => void };
       if (typeof flushable.flush === "function") {
         flushable.flush();
@@ -966,7 +970,9 @@ export class AssistantController {
         },
         onDone: (respondedAt) => {
           sendSse("runtime_done", { respondedAt });
-        }
+        },
+        getSseWriterStatsSummary: () =>
+          prepared.traceHandle?.isEnabled() === true ? sseWriterInstrumentation.formatStats() : null
       });
 
       if (outcome.status === "completed") {

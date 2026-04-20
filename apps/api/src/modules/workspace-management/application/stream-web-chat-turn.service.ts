@@ -218,6 +218,7 @@ export class StreamWebChatTurnService {
         isError: boolean;
       }) => void;
       onDone: (respondedAt: string) => void;
+      getSseWriterStatsSummary?: () => string | null;
     }
   ): Promise<StreamWebChatTurnOutcome> {
     let accumulated = "";
@@ -233,6 +234,8 @@ export class StreamWebChatTurnService {
         threadKey: prepared.chat.surfaceThreadKey
       });
     trace.stage("stream_begin");
+    const traceEnabled = trace.isEnabled();
+    const cadenceState = traceEnabled ? createDeltaCadenceState() : null;
 
     const userAttachments = await this.attachmentRepository.listByMessageId(
       prepared.userMessage.id
@@ -276,6 +279,7 @@ export class StreamWebChatTurnService {
       trace.stage("runtime_stream_requested");
       for await (const chunk of this.executeRuntimeStream({
         nativeTurnInput,
+        traceEnabled,
         ...(callbacks.clientAbortSignal === undefined
           ? {}
           : { signal: callbacks.clientAbortSignal })
@@ -303,6 +307,9 @@ export class StreamWebChatTurnService {
           if (primaryFirstDeltaMs === null) {
             primaryFirstDeltaMs = Date.now() - primaryRuntimeStartedAt;
           }
+          if (cadenceState !== null) {
+            recordDeltaArrival(cadenceState);
+          }
           accumulated += chunk.delta;
           callbacks.onDelta(chunk.delta, accumulated);
         }
@@ -321,6 +328,9 @@ export class StreamWebChatTurnService {
           typeof chunk.toolName === "string" &&
           typeof chunk.toolCallId === "string"
         ) {
+          if (cadenceState !== null) {
+            recordToolPhase(cadenceState, chunk.toolPhase);
+          }
           callbacks.onTool?.({
             phase: chunk.toolPhase,
             toolName: chunk.toolName,
@@ -457,7 +467,17 @@ export class StreamWebChatTurnService {
         outputPreview: finalAssistantContent
       });
       this.logger.log(
-        `web_stream_timing assistantId=${prepared.assistantId} threadKey=${prepared.chat.surfaceThreadKey} clientTurnId=${prepared.clientTurnId ?? "n/a"} firstDeltaMs=${primaryFirstDeltaMs ?? -1} totalRuntimeMs=${String(Date.now() - primaryRuntimeStartedAt)}`
+        this.composeWebStreamTimingLogLine({
+          eventName: "web_stream_timing",
+          assistantId: prepared.assistantId,
+          threadKey: prepared.chat.surfaceThreadKey,
+          clientTurnId: prepared.clientTurnId ?? null,
+          firstDeltaMs: primaryFirstDeltaMs,
+          totalRuntimeMs: Date.now() - primaryRuntimeStartedAt,
+          cadence: cadenceState,
+          sseWriterStatsSummary: callbacks.getSseWriterStatsSummary?.() ?? null,
+          extraFields: null
+        })
       );
       return {
         status: "completed",
@@ -513,7 +533,17 @@ export class StreamWebChatTurnService {
         outputPreview: accumulated
       });
       this.logger.warn(
-        `web_stream_timing_failed assistantId=${prepared.assistantId} threadKey=${prepared.chat.surfaceThreadKey} clientTurnId=${prepared.clientTurnId ?? "n/a"} firstDeltaMs=${primaryFirstDeltaMs ?? -1} totalRuntimeMs=${String(Date.now() - primaryRuntimeStartedAt)} code=${normalized.code}`
+        this.composeWebStreamTimingLogLine({
+          eventName: "web_stream_timing_failed",
+          assistantId: prepared.assistantId,
+          threadKey: prepared.chat.surfaceThreadKey,
+          clientTurnId: prepared.clientTurnId ?? null,
+          firstDeltaMs: primaryFirstDeltaMs,
+          totalRuntimeMs: Date.now() - primaryRuntimeStartedAt,
+          cadence: cadenceState,
+          sseWriterStatsSummary: callbacks.getSseWriterStatsSummary?.() ?? null,
+          extraFields: `code=${normalized.code}`
+        })
       );
       return {
         status: "failed",
@@ -578,11 +608,35 @@ export class StreamWebChatTurnService {
   private executeRuntimeStream(input: {
     nativeTurnInput: StreamNativeWebChatTurnInput;
     signal?: AbortSignal;
+    traceEnabled?: boolean;
   }): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
-    return this.streamNativeWebChatTurnService.execute(
-      input.nativeTurnInput,
-      input.signal === undefined ? undefined : { signal: input.signal }
-    );
+    const options: { signal?: AbortSignal; traceEnabled?: boolean } = {};
+    if (input.signal !== undefined) {
+      options.signal = input.signal;
+    }
+    if (input.traceEnabled === true) {
+      options.traceEnabled = true;
+    }
+    return this.streamNativeWebChatTurnService.execute(input.nativeTurnInput, options);
+  }
+
+  private composeWebStreamTimingLogLine(input: {
+    eventName: "web_stream_timing" | "web_stream_timing_failed";
+    assistantId: string;
+    threadKey: string;
+    clientTurnId: string | null;
+    firstDeltaMs: number | null;
+    totalRuntimeMs: number;
+    cadence: DeltaCadenceState | null;
+    sseWriterStatsSummary: string | null;
+    extraFields: string | null;
+  }): string {
+    const baseFields = `assistantId=${input.assistantId} threadKey=${input.threadKey} clientTurnId=${input.clientTurnId ?? "n/a"} firstDeltaMs=${input.firstDeltaMs ?? -1} totalRuntimeMs=${String(input.totalRuntimeMs)}`;
+    const cadenceFields = input.cadence === null ? "" : ` ${formatDeltaCadence(input.cadence)}`;
+    const sseFields =
+      input.sseWriterStatsSummary === null ? "" : ` sse_${input.sseWriterStatsSummary}`;
+    const extraFields = input.extraFields === null ? "" : ` ${input.extraFields}`;
+    return `${input.eventName} ${baseFields}${cadenceFields}${sseFields}${extraFields}`;
   }
 
   private async claimOrReplayWebTurn(
@@ -810,4 +864,75 @@ export class StreamWebChatTurnService {
       }
     };
   }
+}
+
+interface DeltaCadenceState {
+  lastDeltaAtMs: number | null;
+  lastToolEndAtMs: number | null;
+  toolStartCount: number;
+  toolEndCount: number;
+  interDeltaSamplesMs: number[];
+  postToolFirstDeltaSamplesMs: number[];
+}
+
+function createDeltaCadenceState(): DeltaCadenceState {
+  return {
+    lastDeltaAtMs: null,
+    lastToolEndAtMs: null,
+    toolStartCount: 0,
+    toolEndCount: 0,
+    interDeltaSamplesMs: [],
+    postToolFirstDeltaSamplesMs: []
+  };
+}
+
+function recordDeltaArrival(state: DeltaCadenceState): void {
+  const nowMs = Date.now();
+  if (state.lastDeltaAtMs !== null) {
+    state.interDeltaSamplesMs.push(nowMs - state.lastDeltaAtMs);
+  }
+  if (state.lastToolEndAtMs !== null) {
+    state.postToolFirstDeltaSamplesMs.push(nowMs - state.lastToolEndAtMs);
+    state.lastToolEndAtMs = null;
+  }
+  state.lastDeltaAtMs = nowMs;
+}
+
+function recordToolPhase(state: DeltaCadenceState, phase: "start" | "end"): void {
+  if (phase === "start") {
+    state.toolStartCount += 1;
+    return;
+  }
+  state.toolEndCount += 1;
+  state.lastToolEndAtMs = Date.now();
+}
+
+function formatDeltaCadence(state: DeltaCadenceState): string {
+  const interDelta = summarizeSamples(state.interDeltaSamplesMs);
+  const postTool = summarizeSamples(state.postToolFirstDeltaSamplesMs);
+  return [
+    `toolStarts=${String(state.toolStartCount)}`,
+    `toolEnds=${String(state.toolEndCount)}`,
+    `interDeltaCount=${String(interDelta.count)}`,
+    `interDeltaMaxMs=${String(interDelta.maxMs)}`,
+    `interDeltaP95Ms=${String(interDelta.p95Ms)}`,
+    `postToolFirstDeltaCount=${String(postTool.count)}`,
+    `postToolFirstDeltaMaxMs=${String(postTool.maxMs)}`
+  ].join(" ");
+}
+
+function summarizeSamples(samplesMs: number[]): {
+  count: number;
+  maxMs: number;
+  p95Ms: number;
+} {
+  if (samplesMs.length === 0) {
+    return { count: 0, maxMs: 0, p95Ms: 0 };
+  }
+  const sorted = [...samplesMs].sort((a, b) => a - b);
+  const lastIndex = sorted.length - 1;
+  const maxMs = sorted[lastIndex] ?? 0;
+  const p95Index = Math.min(lastIndex, Math.floor(sorted.length * 0.95));
+  const p95Ms = sorted[p95Index] ?? maxMs;
+  return { count: samplesMs.length, maxMs, p95Ms };
 }

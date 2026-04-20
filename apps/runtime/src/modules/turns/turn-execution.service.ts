@@ -262,7 +262,7 @@ export class TurnExecutionService {
 
   async streamTurn(
     input: RuntimeTurnRequest,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; traceEnabled?: boolean }
   ): Promise<AsyncGenerator<RuntimeTurnStreamEvent>> {
     this.assertSupportedTurnRequest(input, "streamTurn");
 
@@ -295,7 +295,8 @@ export class TurnExecutionService {
           input,
           turnState,
           options?.signal,
-          trace
+          trace,
+          options?.traceEnabled === true
         );
       }
     }
@@ -436,7 +437,8 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     turnState: TurnExecutionState,
     signal?: AbortSignal,
-    trace?: RuntimeStreamTraceCollector
+    trace?: RuntimeStreamTraceCollector,
+    traceEnabled = false
   ): AsyncGenerator<RuntimeTurnStreamEvent> {
     // Keep the fully assembled assistant text separate from the user-visible stream text.
     let assembledText = "";
@@ -469,7 +471,7 @@ export class TurnExecutionService {
         trace?.stage(`iter${String(iteration)}.provider_request_ready`);
         const providerStream = await this.providerGatewayClientService.streamText(
           providerRequest,
-          signal === undefined ? undefined : { signal }
+          this.buildProviderGatewayStreamOptions(signal, traceEnabled)
         );
         trace?.stage(`iter${String(iteration)}.provider_headers_received`);
         let advancedToNextIteration = false;
@@ -578,10 +580,18 @@ export class TurnExecutionService {
               }
             }
             if (durableCompactionExecuted) {
+              const refreshStartedAtMs = Date.now();
               execution.providerRequest = await this.refreshProviderRequestMessages(
                 execution,
                 input
               );
+              const refreshElapsedMs = Date.now() - refreshStartedAtMs;
+              trace?.stage(`iter${String(iteration)}.provider_request_refreshed`);
+              if (traceEnabled) {
+                this.logger.log(
+                  `[turn-stream-refresh] requestId=${acceptedTurn.receipt.requestId} iteration=${String(iteration)} refreshProviderRequestMessagesMs=${String(refreshElapsedMs)} reason=durable_compaction`
+                );
+              }
             }
 
             advancedToNextIteration = true;
@@ -2122,6 +2132,23 @@ export class TurnExecutionService {
       return payload.job;
     }
     return null;
+  }
+
+  private buildProviderGatewayStreamOptions(
+    signal: AbortSignal | undefined,
+    traceEnabled: boolean
+  ): { signal?: AbortSignal; traceEnabled?: boolean } | undefined {
+    if (signal === undefined && !traceEnabled) {
+      return undefined;
+    }
+    const options: { signal?: AbortSignal; traceEnabled?: boolean } = {};
+    if (signal !== undefined) {
+      options.signal = signal;
+    }
+    if (traceEnabled) {
+      options.traceEnabled = true;
+    }
+    return options;
   }
 
   private async refreshProviderRequestMessages(

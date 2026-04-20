@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - Web stream slow-motion telemetry behind admin Trace toggle
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/interface/http/stream-writer-instrumentation.ts`, `apps/runtime/src/modules/turns/interface/http/stream-writer-instrumentation.ts`, and `apps/provider-gateway/src/modules/providers/interface/http/stream-writer-instrumentation.ts` now exist as one tiny shared-shape helper per app that wraps `res.write` calls, counts writes, detects backpressure (`write` returning `false`), and records max/p95 `drain` latency without adding any external dep.
+2. `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` now wraps every SSE write (`sendSse` and `sendHeartbeat`) through the new instrumentation and surfaces a stats summary back into `StreamWebChatTurnService` only when the existing `OverviewLatencyTraceHandle` is enabled, so SSE backpressure is visible in the same trace line that already covers `prepare -> first delta`.
+3. `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` now tracks per-delta cadence (`interDeltaMaxMs`, `interDeltaP95Ms`, sample count), tool start/end counts, and post-tool first-delta delays (`postToolFirstDeltaMaxMs`) when trace is on, and merges those plus the SSE writer summary into the existing `web_stream_timing` log line through a new `composeWebStreamTimingLogLine` helper. With trace off, the line stays exactly as before.
+4. `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts` now forwards `x-persai-trace: on` to `apps/runtime` whenever the API trace handle is active, so the downstream services see the same trace intent without changing the public client contract.
+5. `apps/runtime/src/modules/turns/interface/http/turns.controller.ts` now reads `x-persai-trace` on the inbound NDJSON request, wraps the NDJSON `res.write` path through the runtime-side instrumentation helper, and emits `runtime_stream_writer_stats` in the `finally` block only when trace is on, so runtime backpressure to the API is observable per request.
+6. `apps/runtime/src/modules/turns/turn-execution.service.ts` now accepts `traceEnabled` from the controller, passes it into `providerGatewayClientService.streamText` through a new `buildProviderGatewayStreamOptions` helper, and logs `[turn-stream-refresh] refreshProviderRequestMessagesMs=...` after durable compaction so the heavy synchronous re-hydration between tool rounds is no longer invisible.
+7. `apps/runtime/src/modules/turns/provider-gateway.client.service.ts` now forwards the same `x-persai-trace: on` header to `apps/provider-gateway` so the trace flag survives the last hop.
+8. `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts` now reads `x-persai-trace` from the incoming runtime request, wraps its NDJSON `res.write` path through the gateway-side instrumentation helper, and emits `[stream-text-writer-stats]` in the `finally` block only when trace is on, so the upstream provider -> gateway -> runtime backpressure is also observable per request.
+9. `apps/api/test/stream-writer-instrumentation.test.ts` is a new focused test that locks write counting, backpressure detection, drain-time recording, and the formatted stats output of the helper.
+10. `apps/api/test/stream-web-chat-turn.service.test.ts` now extends the existing `OverviewLatencyTraceService` mock with an `enabled` flag and adds two new test cases that prove the extended `web_stream_timing` cadence/tool/SSE-writer fields are present when trace is on and absent when trace is off.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the active `web -> api -> runtime -> provider-gateway` stream path now has correlated, per-request, per-stage cadence and backpressure telemetry behind one operator-facing toggle, plus visibility into the runtime tool-loop re-hydration cost, without changing user-facing transport behavior or adding any new background log noise when the toggle is off.
+- **No longer live repo truth:** intermittent "slow motion" web streams no longer have to be diagnosed from one opaque `web_stream_timing` line that only covers up to the first delta; the next reproduction can pin the stall to SSE backpressure (api), NDJSON backpressure (runtime / gateway), inter-delta cadence, post-tool first-delta delay, or `refreshProviderRequestMessages` after durable compaction.
+- **Still not landed:** one captured live "slow motion" web turn on `persai.dev` with Trace ON, plus a follow-up fix targeted at whichever stage the new telemetry actually highlights as the bottleneck.
+
+### Current active slice
+
+- `Web stream slow-motion telemetry behind admin Trace toggle`
+
+### Current active step
+
+- `Local telemetry seams now exist end-to-end behind the existing /admin Trace ON/OFF toggle; the next honest step is to deploy, flip Trace ON on persai.dev, and capture one real intermittent slow-stream turn through these new fields rather than more local-only design`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/application/stream-native-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/src/modules/workspace-management/interface/http/stream-writer-instrumentation.ts` (new)
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/api/test/stream-writer-instrumentation.test.ts` (new)
+- `apps/runtime/src/modules/turns/interface/http/turns.controller.ts`
+- `apps/runtime/src/modules/turns/interface/http/stream-writer-instrumentation.ts` (new)
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/provider-text-generation.controller.ts`
+- `apps/provider-gateway/src/modules/providers/interface/http/stream-writer-instrumentation.ts` (new)
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm exec tsx test/stream-writer-instrumentation.test.ts` (cwd `apps/api`)
+- `corepack pnpm exec tsx test/stream-web-chat-turn.service.test.ts` (cwd `apps/api`)
+- `corepack pnpm run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks / notes
+
+1. The new fields are gated only by the existing `OverviewLatencyTraceService` toggle (`/admin` Trace ON/OFF) and the propagated `x-persai-trace: on` header. The toggle is in-process per `apps/api` instance, so multi-replica `api` rollouts will only see trace data on whichever replica handled the toggle flip; this matches the existing trace UI behavior and is intentional, not a regression.
+2. The instrumented `res.write` path keeps the same return value and `flush()` behavior, so backpressure semantics for the actual transport are unchanged. The helper only observes; it never blocks or coalesces writes.
+3. `[turn-stream-refresh]` only fires after durable compaction inside the tool loop. If a slow-stream case never triggers compaction, the absence of that log line is itself a useful signal and should not be treated as missing telemetry.
+
+### Next recommended step
+
+1. Deploy the next normal `main -> Dev Image Publish -> values-dev pin -> Argo CD` rollout, then flip Trace ON on `https://persai.dev/admin` and reproduce or wait for one intermittent slow-motion web turn that involves tool calls.
+2. Inspect the resulting `web_stream_timing`, `runtime_stream_writer_stats`, `[stream-text-writer-stats]`, and `[turn-stream-refresh]` lines for that request id and decide which stage to harden next (e.g. browser SSE backpressure, runtime/provider-gateway NDJSON backpressure, inter-delta cadence, or `refreshProviderRequestMessages` cost).
+
 ## 2026-04-20 - Telegram timeout and safe media-copy fix
 
 ### What changed

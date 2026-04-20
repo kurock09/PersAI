@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Logger, Post, Req, Res } from "@nestjs/common";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   RuntimeCompactionRequest,
@@ -12,11 +12,26 @@ import type {
 import { SessionStoreService } from "../../../sessions/session-store.service";
 import { SessionCompactionService } from "../../session-compaction.service";
 import { TurnExecutionService } from "../../turn-execution.service";
+import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
 const STREAM_HEARTBEAT_INTERVAL_MS = 10_000;
+const TRACE_HEADER_NAME = "x-persai-trace";
+
+function readTraceEnabledHeader(req: IncomingMessage): boolean {
+  const raw = req.headers[TRACE_HEADER_NAME];
+  if (typeof raw === "string") {
+    return raw.toLowerCase() === "on";
+  }
+  if (Array.isArray(raw) && raw.length > 0) {
+    return (raw[0] ?? "").toLowerCase() === "on";
+  }
+  return false;
+}
 
 @Controller("api/v1/turns")
 export class TurnsController {
+  private readonly logger = new Logger(TurnsController.name);
+
   constructor(
     private readonly turnExecutionService: TurnExecutionService,
     private readonly sessionCompactionService: SessionCompactionService,
@@ -37,9 +52,11 @@ export class TurnsController {
     const abortController = new AbortController();
     req.on("aborted", () => abortController.abort());
     res.on("close", () => abortController.abort());
+    const traceEnabled = readTraceEnabledHeader(req);
 
     const stream = await this.turnExecutionService.streamTurn(body, {
-      signal: abortController.signal
+      signal: abortController.signal,
+      traceEnabled
     });
 
     res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
@@ -47,26 +64,34 @@ export class TurnsController {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    const writerInstrumentation = createStreamWriterInstrumentation();
     const heartbeat = setInterval(() => {
       if (res.writableEnded) {
         return;
       }
       // Empty NDJSON lines are ignored by readers but keep the socket active through proxies.
-      res.write("\n");
+      const writeReturnedTrue = res.write("\n");
+      writerInstrumentation.recordWrite(writeReturnedTrue, res);
       res.flush?.();
     }, STREAM_HEARTBEAT_INTERVAL_MS);
 
+    const startedAtMs = Date.now();
     try {
       for await (const event of stream) {
         if (res.writableEnded) {
           return;
         }
-        this.writeEvent(res, event);
+        this.writeEvent(res, event, writerInstrumentation);
       }
     } finally {
       clearInterval(heartbeat);
       if (!res.writableEnded) {
         res.end();
+      }
+      if (traceEnabled) {
+        this.logger.log(
+          `runtime_stream_writer_stats requestId=${body.requestId ?? "unknown"} channel=${body.conversation?.channel ?? "unknown"} elapsedMs=${String(Date.now() - startedAtMs)} ${writerInstrumentation.formatStats()}`
+        );
       }
     }
   }
@@ -89,9 +114,11 @@ export class TurnsController {
 
   private writeEvent(
     res: ServerResponse & { flush?: () => void },
-    event: RuntimeTurnStreamEvent
+    event: RuntimeTurnStreamEvent,
+    writerInstrumentation: ReturnType<typeof createStreamWriterInstrumentation>
   ): void {
-    res.write(`${JSON.stringify(event)}\n`);
+    const writeReturnedTrue = res.write(`${JSON.stringify(event)}\n`);
+    writerInstrumentation.recordWrite(writeReturnedTrue, res);
     res.flush?.();
   }
 }

@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import { StreamWebChatTurnService } from "../src/modules/workspace-management/application/stream-web-chat-turn.service";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
-function createOverviewLatencyTraceServiceMock() {
+function createOverviewLatencyTraceServiceMock(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled === true;
   return {
     start() {
       return {
@@ -11,7 +12,7 @@ function createOverviewLatencyTraceServiceMock() {
           return undefined;
         },
         isEnabled() {
-          return false;
+          return enabled;
         },
         getTraceId() {
           return "trace-test";
@@ -25,6 +26,27 @@ function createOverviewLatencyTraceServiceMock() {
       };
     }
   };
+}
+
+function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
+  result: T;
+  captured: string;
+}> {
+  const original = process.stdout.write.bind(process.stdout);
+  let captured = "";
+  process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    captured += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    return original(chunk as never, ...(rest as never[]));
+  }) as typeof process.stdout.write;
+  return action()
+    .then((result) => {
+      process.stdout.write = original;
+      return { result, captured };
+    })
+    .catch((error) => {
+      process.stdout.write = original;
+      throw error;
+    });
 }
 
 describe("StreamWebChatTurnService", () => {
@@ -772,4 +794,185 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(preparation.transport.assistantMessage.content, "hi back");
     }
   });
+
+  test("emits extended web_stream_timing fields when admin trace toggle is enabled", async () => {
+    const service = buildToolStreamingServiceForTraceTest({ traceEnabled: true });
+    const { captured } = await captureProcessStdoutSync(async () => {
+      const outcome = await service.streamToCompletion(
+        buildToolStreamingPreparedFixture({ traceEnabled: true }) as never,
+        {
+          isClientAborted: () => false,
+          onDelta: () => undefined,
+          onThinking: () => undefined,
+          onTool: () => undefined,
+          onDone: () => undefined,
+          getSseWriterStatsSummary: () =>
+            "writes=4 backpressureWrites=0 backpressureMaxDrainMs=0 backpressureTotalDrainMs=0"
+        }
+      );
+      assert.equal(outcome.status, "completed");
+    });
+
+    const matched = captured.match(/web_stream_timing[^\n]*/);
+    assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
+    const line = matched[0];
+    assert.match(line, /toolStarts=1/);
+    assert.match(line, /toolEnds=1/);
+    assert.match(line, /interDeltaCount=\d+/);
+    assert.match(line, /interDeltaMaxMs=\d+/);
+    assert.match(line, /interDeltaP95Ms=\d+/);
+    assert.match(line, /postToolFirstDeltaCount=\d+/);
+    assert.match(line, /postToolFirstDeltaMaxMs=\d+/);
+    assert.match(line, /sse_writes=4/);
+  });
+
+  test("does not emit extended web_stream_timing fields when admin trace toggle is off", async () => {
+    const service = buildToolStreamingServiceForTraceTest({ traceEnabled: false });
+    const { captured } = await captureProcessStdoutSync(async () => {
+      const outcome = await service.streamToCompletion(
+        buildToolStreamingPreparedFixture({ traceEnabled: false }) as never,
+        {
+          isClientAborted: () => false,
+          onDelta: () => undefined,
+          onThinking: () => undefined,
+          onTool: () => undefined,
+          onDone: () => undefined,
+          getSseWriterStatsSummary: () => null
+        }
+      );
+      assert.equal(outcome.status, "completed");
+    });
+
+    const matched = captured.match(/web_stream_timing[^\n]*/);
+    assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
+    const line = matched[0];
+    assert.doesNotMatch(line, /toolStarts=/);
+    assert.doesNotMatch(line, /interDeltaCount=/);
+    assert.doesNotMatch(line, /sse_writes=/);
+  });
 });
+
+function buildToolStreamingServiceForTraceTest(options: {
+  traceEnabled: boolean;
+}): StreamWebChatTurnService {
+  return new StreamWebChatTurnService(
+    {
+      createMessage: async (input: Record<string, unknown>) => ({
+        id: "assistant-msg-1",
+        chatId: input.chatId,
+        assistantId: input.assistantId,
+        author: input.author,
+        content: input.content,
+        createdAt: new Date("2026-04-05T12:00:00.000Z")
+      }),
+      findChatById: async (chatId: string) => ({
+        id: chatId,
+        assistantId: "assistant-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-1",
+        title: "Chat",
+        archivedAt: null,
+        lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+        createdAt: new Date("2026-04-05T12:00:00.000Z"),
+        updatedAt: new Date("2026-04-05T12:00:00.000Z")
+      })
+    } as never,
+    {
+      listByMessageId: async () => []
+    } as never,
+    {
+      releaseWebTurnProcessing: async () => undefined,
+      completeWebTurnProcessing: async () => undefined
+    } as never,
+    {
+      execute: async function* () {
+        yield {
+          type: "delta",
+          delta: "Looking it up...",
+          accumulated: "Looking it up..."
+        };
+        yield {
+          type: "tool",
+          toolPhase: "start",
+          toolName: "files.list",
+          toolCallId: "tool-1"
+        };
+        yield {
+          type: "tool",
+          toolPhase: "end",
+          toolName: "files.list",
+          toolCallId: "tool-1",
+          isError: false
+        };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        yield {
+          type: "delta",
+          delta: " here it is.",
+          accumulated: "Looking it up... here it is."
+        };
+        yield {
+          type: "done",
+          respondedAt: "2026-04-05T12:00:01.000Z"
+        };
+      }
+    } as never,
+    {
+      execute: async () => {
+        throw new Error("prepare should not be called in this test");
+      }
+    } as never,
+    {
+      resolveByUserId: async () => {
+        throw new Error("resolve should not be called in this test");
+      }
+    } as never,
+    {
+      execute: async () => undefined
+    } as never,
+    {
+      recordWebChatTurnUsage: async () => undefined
+    } as never,
+    {
+      deliver: async () => ({ attachments: [] })
+    } as never,
+    createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never
+  );
+}
+
+function buildToolStreamingPreparedFixture(options: { traceEnabled: boolean }) {
+  return {
+    chat: {
+      id: "chat-1",
+      assistantId: "assistant-1",
+      surface: "web_chat",
+      surfaceThreadKey: "thread-1",
+      title: "Chat",
+      archivedAt: null,
+      lastMessageAt: null,
+      createdAt: "2026-04-05T12:00:00.000Z",
+      updatedAt: "2026-04-05T12:00:00.000Z"
+    },
+    userMessage: {
+      id: "user-msg-1",
+      chatId: "chat-1",
+      assistantId: "assistant-1",
+      author: "user",
+      content: "list files",
+      attachments: [],
+      createdAt: "2026-04-05T12:00:00.000Z"
+    },
+    assistant: {
+      id: "assistant-1",
+      workspaceId: "workspace-1"
+    },
+    assistantId: "assistant-1",
+    publishedVersionId: "pub-1",
+    runtimeTier: "paid_shared",
+    quotaDegradeModelOverride: null,
+    quotaDegradeReason: null,
+    userId: "user-1",
+    workspaceId: "workspace-1",
+    workspaceTimezone: "UTC",
+    traceHandle: createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }).start()
+  };
+}

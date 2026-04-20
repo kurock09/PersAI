@@ -351,7 +351,7 @@ export class ProviderGatewayClientService {
 
   async streamText(
     input: ProviderGatewayTextGenerateRequest,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; traceEnabled?: boolean }
   ): Promise<AsyncGenerator<ProviderGatewayTextStreamEvent>> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
@@ -374,13 +374,17 @@ export class ProviderGatewayClientService {
       this.logger.log(
         `[provider-gateway-stream] requestId=${requestId} classification=${classification} iteration=${iteration} provider=${input.provider} model=${input.model} toolCount=${String(input.tools?.length ?? 0)} toolHistoryCount=${String(input.toolHistory?.length ?? 0)}`
       );
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
+      if (options?.traceEnabled === true) {
+        headers["x-persai-trace"] = "on";
+      }
       response = await this.fetchWithSignal(
         this.buildUrl("/api/v1/providers/stream-text"),
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers,
           body: JSON.stringify(input)
         },
         signal,

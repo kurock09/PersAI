@@ -60,7 +60,7 @@ export class StreamNativeWebChatTurnService {
 
   async *execute(
     input: StreamNativeWebChatTurnInput,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; traceEnabled?: boolean }
   ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
@@ -140,7 +140,8 @@ export class StreamNativeWebChatTurnService {
       const response = await this.fetchStreamResponse(
         new URL("/api/v1/turns/stream", baseUrl).toString(),
         request,
-        signal
+        signal,
+        options?.traceEnabled === true
       );
       if (!response.ok) {
         const body = await this.readBody(response);
@@ -287,14 +288,19 @@ export class StreamNativeWebChatTurnService {
   private async fetchStreamResponse(
     url: string,
     body: unknown,
-    signal: AbortSignal
+    signal: AbortSignal,
+    traceEnabled: boolean
   ): Promise<Response> {
     try {
+      const headers: Record<string, string> = {
+        "content-type": "application/json"
+      };
+      if (traceEnabled) {
+        headers["x-persai-trace"] = "on";
+      }
       return await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json"
-        },
+        headers,
         body: JSON.stringify(body),
         signal
       });
