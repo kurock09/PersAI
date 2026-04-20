@@ -25,6 +25,7 @@ import { InternalRuntimeKnowledgeController } from "./interface/http/internal-ru
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
+import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
 import { ResolveEffectiveCapabilityStateService } from "./application/resolve-effective-capability-state.service";
 import { ResolveEffectiveToolAvailabilityService } from "./application/resolve-effective-tool-availability.service";
@@ -47,6 +48,7 @@ import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-direc
 import { AdminDeleteUserService } from "./application/admin-delete-user.service";
 import { ResolveAdminBusinessCockpitService } from "./application/resolve-admin-business-cockpit.service";
 import { ResolveAdminBusinessPlatformService } from "./application/resolve-admin-business-platform.service";
+import { ReadSmokeTurnReceiptsService } from "./application/read-smoke-turn-receipts.service";
 import { ResolveAdminOverviewDashboardService } from "./application/resolve-admin-overview-dashboard.service";
 import { ResolveExecutionWorkloadOverviewService } from "./application/resolve-execution-workload-overview.service";
 import { ResolveAdminKnowledgeObservabilityService } from "./application/resolve-admin-knowledge-observability.service";
@@ -215,6 +217,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeMemoryController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeToolQuotaController,
+    InternalSmokeReceiptsController,
     AdminForceReapplyController,
     MediaAttachmentController,
     TelegramWebhookController
@@ -231,6 +234,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminDeleteUserService,
     ResolveAdminBusinessCockpitService,
     ResolveAdminBusinessPlatformService,
+    ReadSmokeTurnReceiptsService,
     ResolveAdminOverviewDashboardService,
     ResolveExecutionWorkloadOverviewService,
     ResolveAdminKnowledgeObservabilityService,

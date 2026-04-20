@@ -1,0 +1,33 @@
+{
+  "id": "tool-heavy-search",
+  "title": "Tool-heavy — поиск с ссылками и описанием",
+  "description": "Сценарий, который должен явно тригерить web_search/web_fetch. Используется как baseline для ADR-074 P1 (no tool regression), L1 (≤ adaptive limits), R2 (≤2 round-trips для пакета fetches), R3 (compound tools).",
+  "defaultKind": "web_sync",
+  "sessions": [
+    {
+      "sessionKey": "search-trip",
+      "turns": [
+        {
+          "message": "Найди мне 3 хороших статьи последнего года про prompt caching у OpenAI и Anthropic, дай по каждой короткое описание и ссылку.",
+          "expectToolCode": "web_search"
+        },
+        {
+          "message": "Открой первую ссылку и кратко перескажи, какие там приведены метрики экономии токенов.",
+          "expectToolCode": "web_fetch"
+        },
+        {
+          "message": "А теперь скажи, как этот подход отличается от того, что описано во второй статье — открой её тоже.",
+          "expectToolCode": "web_fetch"
+        },
+        {
+          "message": "Сравни оба подхода в одной короткой таблице плюс/минусов.",
+          "note": "Должен выполниться без новых tool-вызовов; только синтез."
+        },
+        {
+          "message": "Найди ещё одну альтернативу — статью про context distillation за 2026 год — и скинь ссылку.",
+          "expectToolCode": "web_search"
+        }
+      ]
+    }
+  ]
+}

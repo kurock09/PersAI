@@ -1,0 +1,22 @@
+{
+  "name": "@persai/smoke",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "smoke": "tsx run-scenario.ts",
+    "lint": "eslint --max-warnings=0 --ext .ts .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@persai/eslint-config": "workspace:*",
+    "@persai/tsconfig": "workspace:*",
+    "@types/node": "^24.12.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "@typescript-eslint/parser": "^8.46.1",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

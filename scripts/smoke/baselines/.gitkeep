@@ -1,0 +1,2 @@
+# Baselines for the smoke harness live here.
+# Each scenario produces `<scenarioId>.summary.json` after running with --update-baseline.

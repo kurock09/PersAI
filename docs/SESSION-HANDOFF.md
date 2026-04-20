@@ -1,5 +1,77 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - ADR-074 Slice S0 — smoke harness foundation landed
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/read-smoke-turn-receipts.service.ts` (new) reads `runtime_turn_receipts` rows by `assistantId` (with optional `requestId`, `afterCursor`, `limit` filters; limit clamped to 500) and maps `resultPayload` JSONB into a structured `SmokeTurnReceiptItem` exposing `usage` (input/cached/output/total tokens + per-step entries), aggregated `toolCalls` (count per tool code), `routingMode`/`routingExecutionMode`, and `autoCompactionTokensBefore`/`After`. The service deliberately filters in the database layer rather than in JS so the harness can call the endpoint with `requestId=...` and get O(1) lookup against the unique `request_id` index.
+2. `apps/api/src/modules/workspace-management/interface/http/internal-smoke-receipts.controller.ts` (new) exposes `GET /api/v1/internal/smoke/turn-receipts`, gated by `PERSAI_INTERNAL_API_TOKEN` through the existing `assertPersaiInternalApiAuthorized` helper. The controller and service are wired into `workspace-management.module.ts` alongside the other `Internal*` controllers.
+3. `apps/api/test/internal-smoke-receipts.controller.test.ts` (new) covers happy-path mapping (tokens + tool aggregation + routing + auto-compaction), `afterCursor` + `limit` propagation to Prisma, limit clamping to 500, missing `assistantId` → `assistant_id_required`, invalid `afterCursor` → `after_cursor_invalid`, invalid `limit` → `limit_invalid`, unauthorized requests rejected before any Prisma call, `requestId` filter propagation, and empty `resultPayload` mapping with `usage=null`.
+4. `scripts/smoke/` (new workspace package `@persai/smoke`) provides the CLI harness:
+   - `scripts/smoke/lib/api-client.ts` calls `POST /assistant/chat/web` (sync) and `/assistant/chat/web/stream` (SSE) as a Clerk user, captures `requestId`, then polls the new internal endpoint until the receipt status moves past `accepted`.
+   - `scripts/smoke/lib/scenario.ts` loads JSON scenarios from `scripts/smoke/scenarios/*.json` (one or more `sessions`, each with its own `surfaceThreadKey` and a list of `turns`).
+   - `scripts/smoke/lib/harness.ts` orchestrates per-turn execution, suffixes each `surfaceThreadKey` with a per-run random hex (or `--thread-suffix` override) so smoke runs never collide with real chats, and writes per-turn `trace.json` plus aggregate `summary.json` and human-readable `console.txt` under `scripts/smoke/artifacts/<runId>/`.
+   - `scripts/smoke/lib/reporter.ts` diffs the current `summary.json` against `scripts/smoke/baselines/<id>.summary.json` (when present) and prints `Δ tokens / Δ latency p95 / Δ ok / Δ failed / Δ auto-compaction`. `--update-baseline` writes the current summary as the new baseline.
+   - `scripts/smoke/run-scenario.ts` is the CLI entry. Root scripts `pnpm smoke:run --scenario <id>` and `pnpm smoke:run-all` run scenarios end-to-end.
+   - Six starter scenarios live under `scripts/smoke/scenarios/`: `onboarding`, `chitchat-short`, `long-session-200` (~30 turns with recall check), `tool-heavy-search` (with `expectToolCode` hints), `multi-session-continuity` (two `surfaceThreadKey` sessions), `emotional-long` (30 turns).
+   - `scripts/smoke/README.md` documents required ENV (`SMOKE_USER_BEARER`, `PERSAI_INTERNAL_API_TOKEN`, `SMOKE_ASSISTANT_ID`), optional ENV (`SMOKE_API_BASE_URL` default `http://127.0.0.1:3001`, `SMOKE_RECEIPT_POLL_TIMEOUT_MS` default `30000`, etc.), CLI usage, and per-scenario role in subsequent ADR-074 slices.
+5. `pnpm-workspace.yaml` registers `scripts/smoke` as a workspace package; root `package.json` adds `smoke:run` / `smoke:run-all` scripts and extends `format:check` to cover `scripts/smoke/`. `.gitignore` excludes `scripts/smoke/artifacts/`.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the repo now has one objective, repeatable measurement of per-turn token usage, tool-call counts, routing mode, latency, and auto-compaction triggers across six representative conversation shapes. The harness produces machine-readable artifacts (`summary.json`) usable as baselines, and a console diff against `baselines/<id>.summary.json` for every subsequent ADR-074 slice.
+- **No longer live repo truth:** it is no longer true that "we cannot prove ADR-074 token-cost or tool-loop deltas without manually rereading runtime logs". The harness is the canonical S0 measurement seam; subsequent slices (P1, M2, L1, R2, R3) explicitly call it.
+- **Still not landed:** no live baseline runs yet — `scripts/smoke/baselines/` is empty until a founder/operator runs `pnpm smoke:run-all --update-baseline` against `persai-dev` (or pure-local) to capture the pre-ADR-074 starting line. `long-session-200` is currently a 30-turn starter set; full 200-turn expansion happens once baselines stabilize. The harness deliberately does not include LLM-judge content evaluation — that arrives in Q11-C, not S0.
+
+### Current active slice
+
+- `ADR-074 Slice S0 — smoke harness foundation`
+
+### Current active step
+
+- `S0 code, tests, README, and pnpm scripts are landed and green; the next honest step is one operator-driven baseline run (pnpm smoke:run-all --update-baseline) against persai-dev to populate scripts/smoke/baselines/, after which Slice P1 (stable prefix engineering) can begin and use the harness to prove the ≥5x input-tokens reduction acceptance criterion`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/read-smoke-turn-receipts.service.ts` (new)
+- `apps/api/src/modules/workspace-management/interface/http/internal-smoke-receipts.controller.ts` (new)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`
+- `apps/api/test/internal-smoke-receipts.controller.test.ts` (new)
+- `scripts/smoke/package.json` (new)
+- `scripts/smoke/tsconfig.json` (new)
+- `scripts/smoke/.eslintrc.cjs` (new)
+- `scripts/smoke/run-scenario.ts` (new)
+- `scripts/smoke/lib/api-client.ts` (new)
+- `scripts/smoke/lib/harness.ts` (new)
+- `scripts/smoke/lib/reporter.ts` (new)
+- `scripts/smoke/lib/scenario.ts` (new)
+- `scripts/smoke/lib/trace.ts` (new)
+- `scripts/smoke/lib/workspace.ts` (new)
+- `scripts/smoke/scenarios/onboarding.json` (new)
+- `scripts/smoke/scenarios/chitchat-short.json` (new)
+- `scripts/smoke/scenarios/long-session-200.json` (new)
+- `scripts/smoke/scenarios/tool-heavy-search.json` (new)
+- `scripts/smoke/scenarios/multi-session-continuity.json` (new)
+- `scripts/smoke/scenarios/emotional-long.json` (new)
+- `scripts/smoke/baselines/.gitkeep` (new)
+- `scripts/smoke/README.md` (new)
+- `pnpm-workspace.yaml`
+- `package.json`
+- `.gitignore`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/internal-smoke-receipts.controller.test.ts` (focused, green)
+- `corepack pnpm --filter @persai/api run test` (full api suite, green)
+- `corepack pnpm --filter @persai/api run typecheck` (green)
+- `corepack pnpm --filter @persai/smoke run typecheck` (green)
+- `corepack pnpm --filter @persai/smoke run lint` (green)
+- `corepack pnpm run lint` (repo-wide, green — includes `format:check`)
+- `corepack pnpm run typecheck` (repo-wide, green)
+- Live harness execution against `persai-dev` is intentionally deferred to the operator with the required ENV (`SMOKE_USER_BEARER`, `PERSAI_INTERNAL_API_TOKEN`, `SMOKE_ASSISTANT_ID`), per founder direction.
+
 ## 2026-04-20 - Trial plan lifecycle hardening (rollout-safe activations, auto-trialing, saveable trial drafts)
 
 ### What changed
