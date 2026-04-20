@@ -68,6 +68,17 @@ Current active internal service endpoints are served by `apps/runtime`:
 
 These are internal runtime-service boundaries, not a public legacy gateway surface.
 
+### Sandbox
+
+Current active internal sandbox endpoints are served by `apps/sandbox`:
+
+- `GET /health`
+- `GET /ready`
+- `POST /api/v1/jobs`
+- `GET /api/v1/jobs/:jobId`
+
+These are internal runtime-to-sandbox boundaries for isolated `files` / `exec` / `shell` work, not public product APIs.
+
 ### Provider gateway
 
 Current active internal service endpoints are served by `apps/provider-gateway`:
@@ -97,6 +108,7 @@ Current active deploy surface in `persai-dev`:
 - `web`
 - `runtime`
 - `provider-gateway`
+- `sandbox`
 
 Current ingress truth:
 

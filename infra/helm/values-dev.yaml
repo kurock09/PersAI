@@ -139,6 +139,12 @@ api:
   service:
     type: ClusterIP
     port: 3001
+  # Telegram webhooks share the `api` GCLB backend and need the same long
+  # timeout protection as slow web/native turns.
+  backendConfig:
+    enabled: true
+    name: persai-api-backend-config
+    timeoutSec: 3600
   internalService:
     enabled: true
     port: 3002

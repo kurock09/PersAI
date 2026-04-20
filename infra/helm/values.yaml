@@ -120,6 +120,12 @@ api:
   service:
     type: ClusterIP
     port: 3001
+  # GKE Ingress (GCLB): Telegram webhooks and long native turns exceed the
+  # default ~30s backend timeout without an explicit BackendConfig on `api`.
+  backendConfig:
+    enabled: false
+    name: persai-api-backend-config
+    timeoutSec: 3600
   internalService:
     enabled: true
     port: 3002

@@ -1,5 +1,60 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - Telegram timeout and safe media-copy fix
+
+### What changed
+
+1. `infra/helm/templates/api-service.yaml`, new `infra/helm/templates/api-backendconfig.yaml`, and `infra/helm/values.yaml` plus `infra/helm/values-dev.yaml` now attach a GKE `BackendConfig` to the public `api` service, mirroring the existing long-timeout protection already used for `web`.
+2. The active dev values now enable that `api` backend config with `timeoutSec: 3600`, so the `bot.persai.dev/telegram-webhook` path no longer sits on the default GCLB `~30s` backend timeout.
+3. `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts` now deletes the original persai-object-storage source only when the source key is an ephemeral `runtime-output` blob. Persisted chat attachments under `assistant-media/.../chats/...` are no longer deleted during copy/re-persist flows.
+4. `apps/api/test/media-delivery.service.test.ts` now locks both sides of that storage rule: runtime-output artifacts are still cleaned up after repersist, while already-persisted chat attachments are copied without deleting the old object.
+
+### Code-based truth summary
+
+- **Landed in this slice:** Telegram webhook traffic now has the same long-running GCLB backend-timeout protection as the web path, and media repersist no longer deletes durable chat-attachment objects that later turns still reference.
+- **No longer live repo truth:** `/telegram-webhook` is no longer implicitly stuck on the default `~30s` GCLB backend timeout just because it rides the `api` service, and `MediaDeliveryService` no longer treats persistent chat attachments like disposable runtime-output blobs.
+- **Still not landed:** a live dev deploy plus one real Telegram slow-turn validation to confirm the ingress timeout path is gone in-cluster.
+
+### Current active slice
+
+- `Telegram webhook timeout and durable media-copy fix`
+
+### Current active step
+
+- `The code and Helm truth now match the diagnosed root causes; the next honest step is deploy plus live Telegram verification rather than more local speculation`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/media/media-delivery.service.ts`
+- `apps/api/test/media-delivery.service.test.ts`
+- `infra/helm/templates/api-service.yaml`
+- `infra/helm/templates/api-backendconfig.yaml`
+- `infra/helm/values.yaml`
+- `infra/helm/values-dev.yaml`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `helm lint infra/helm -f infra/helm/values.yaml`
+- `helm lint infra/helm -f infra/helm/values-dev.yaml`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml > $null`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / notes
+
+1. The ingress fix only becomes real after deploy/reconcile; local Helm rendering proves chart truth, not that the current live load balancer has already picked up the new timeout.
+2. The safe-delete rule intentionally preserves old chat-attachment blobs even when a copied artifact gets repersisted to a new message. Any historical rows that already point to missing objects still need cleanup or reupload; this patch stops creating new ones through this seam.
+
+### Next recommended step
+
+1. Deploy `api` and let the ingress/backend service reconcile, then run one real Telegram turn that previously crossed `30s` and confirm the webhook no longer fails with `backend_timeout`.
+2. If old `No such object` warnings still appear after deploy, run one bounded cleanup/backfill pass for already-broken historical `assistant_chat_message_attachments.storagePath` rows because this patch prevents new corruption but cannot restore objects that were already deleted.
+
 ## 2026-04-20 - Step 20 cleanup semantics plus slow-stream tracing
 
 ### What changed

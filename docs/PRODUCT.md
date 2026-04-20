@@ -2,7 +2,7 @@
 
 ## Product truth
 
-PersAI is a control plane plus a PersAI-native runtime plane.
+PersAI is a control plane plus a PersAI-native execution plane.
 
 The active product path is:
 
@@ -10,6 +10,7 @@ The active product path is:
 - `apps/api` for public API, control plane, and ingress
 - `apps/runtime` for request-time execution
 - `apps/provider-gateway` for provider transport
+- `apps/sandbox` for isolated file/process execution behind the runtime boundary
 
 OpenClaw is not part of the active product/runtime path.
 
@@ -36,6 +37,8 @@ PersAI owns:
 - runtime bundle materialization
 - request-time turn execution
 - provider routing through `provider-gateway`
+- sandbox-backed file/process execution through the internal `files` / `exec` / `shell` path
+- canonical `AssistantFile` authority for persisted assistant workspace files
 - canonical message persistence
 - assistant/global knowledge retrieval policy and reference-first hybrid search behavior
 - media/quota/governance boundaries

@@ -154,7 +154,8 @@ export class MediaDeliveryService {
     });
     if (
       artifact.source === "persai_object_storage" &&
-      artifact.objectKey !== uploadResult.objectKey
+      artifact.objectKey !== uploadResult.objectKey &&
+      this.isEphemeralRuntimeOutputObjectKey(artifact.objectKey)
     ) {
       await this.mediaObjectStorage.deleteObject(artifact.objectKey);
     }
@@ -215,5 +216,18 @@ export class MediaDeliveryService {
         await adapter.sendDocument(target, buffer, filename, artifact.caption);
         break;
     }
+  }
+
+  private isEphemeralRuntimeOutputObjectKey(objectKey: string): boolean {
+    const normalized = objectKey.trim();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    return (
+      normalized.startsWith("runtime-output/") ||
+      normalized.startsWith("assistant-media/runtime-output/") ||
+      normalized.includes("/runtime-output/")
+    );
   }
 }

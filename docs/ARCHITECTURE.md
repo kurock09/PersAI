@@ -2,12 +2,13 @@
 
 ## System shape
 
-PersAI is a modular monolith control plane plus two internal execution services:
+PersAI is a modular monolith control plane plus three internal execution services:
 
 - `apps/api` - public HTTP API, control plane, ingress-facing orchestration
 - `apps/web` - product and admin UI
 - `apps/runtime` - PersAI-native execution runtime
 - `apps/provider-gateway` - internal provider transport boundary
+- `apps/sandbox` - isolated file/process execution boundary for the native `files` / `exec` / `shell` path
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
@@ -43,6 +44,14 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 - model/provider request transport
 - provider health/readiness surface
 
+### Sandbox plane
+
+`apps/sandbox` owns:
+
+- isolated file/process job execution
+- assistant-workspace materialization and persistence through canonical `AssistantFile` rows
+- sandbox job health/readiness and job polling surfaces used by `apps/runtime`
+
 ## Active request path
 
 ### Web
@@ -50,8 +59,9 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 1. Browser calls `apps/api`
 2. `apps/api` persists canonical state and forwards request-time execution to `apps/runtime`
 3. `apps/runtime` calls `apps/provider-gateway`
-4. result returns through `apps/api`
-5. `apps/api` finalizes canonical message/media/quota state
+4. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
+5. result returns through `apps/api`
+6. `apps/api` finalizes canonical message/media/quota state
 
 ### Telegram
 
@@ -68,6 +78,7 @@ The active dev namespace `persai-dev` should contain only:
 - `web`
 - `runtime`
 - `provider-gateway`
+- `sandbox`
 
 Ingress truth:
 
@@ -84,12 +95,14 @@ Current active config expectations:
 - `PERSAI_RUNTIME_BASE_URL=http://runtime:3012`
 - `PERSAI_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
 - `RUNTIME_PROVIDER_GATEWAY_BASE_URL=http://provider-gateway:3011`
+- `RUNTIME_SANDBOX_BASE_URL=http://sandbox:3013`
 
 ## Data / contract truth
 
 - authoritative API contract: `packages/contracts/openapi.yaml`
 - generated contract artifacts: `packages/contracts/src/generated/*`
 - runtime bundle is the active materialized execution artifact
+- `assistant_files` is the canonical persisted assistant-workspace/file authority on the active path
 - runtime knowledge access now publishes the active bounded `hybrid` retrieval contract
 - historical compatibility/migration traces do not define current request-time behavior
 

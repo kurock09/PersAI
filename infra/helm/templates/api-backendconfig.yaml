@@ -1,0 +1,12 @@
+{{- if and .Values.ingress.enabled .Values.api.enabled .Values.api.backendConfig.enabled }}
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: {{ .Values.api.backendConfig.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: api
+    app.kubernetes.io/part-of: persai
+spec:
+  timeoutSec: {{ .Values.api.backendConfig.timeoutSec }}
+{{- end }}

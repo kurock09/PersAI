@@ -11,7 +11,9 @@ PersAI is the source of truth for:
 - assistants and published versions
 - runtime bundle materialization
 - canonical chats and messages
+- canonical assistant chat attachments and media metadata
 - assistant/global knowledge source metadata and indexed chunks
+- persisted assistant workspace files through `assistant_files`
 - plan-owned retrieval policy and admin-managed knowledge governance
 - durable retrieval observability rollups/events
 - governance, quota, audit, and admin state
@@ -25,6 +27,16 @@ The native runtime path uses PersAI-owned runtime state models for:
 - runtime sessions
 - turn receipts and idempotency state
 - session compaction metadata
+
+## Sandbox and assistant workspace state
+
+Current active Step 20 persistence includes:
+
+- `assistant_files` as the canonical file registry for persisted assistant workspace files
+- `assistant_workspace_leases` for multi-pod workspace ownership/serialization
+- `sandbox_jobs` for queued/running/completed/blocked sandbox execution telemetry and result state
+
+`SandboxFileRef` is not active current-model truth anymore.
 
 ## Knowledge and retrieval state
 

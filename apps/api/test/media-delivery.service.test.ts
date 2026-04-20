@@ -232,6 +232,76 @@ async function run(): Promise<void> {
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
 
+  let persistedAttachmentDeletedObjectKey: string | null = null;
+  const persistedAttachmentService = new MediaDeliveryService(
+    {
+      async create(input: {
+        storagePath: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+      }) {
+        return createAttachment({
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes
+        });
+      }
+    } as never,
+    [],
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/copied.png";
+      },
+      async downloadObject(objectKey: string) {
+        assert.equal(
+          objectKey,
+          "assistant-media/assistants/assistant-1/chats/chat-older/messages/msg-older/original.png"
+        );
+        return {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          contentType: "image/png"
+        };
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/copied.png",
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject(objectKey: string) {
+        persistedAttachmentDeletedObjectKey = objectKey;
+      }
+    } as never,
+    new PlatformHttpMetricsService()
+  );
+
+  const persistedAttachmentDelivered = await persistedAttachmentService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey:
+          "assistant-media/assistants/assistant-1/chats/chat-older/messages/msg-older/original.png",
+        type: "image",
+        mimeType: "image/png",
+        filename: "original.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(persistedAttachmentDeletedObjectKey, null);
+  assert.equal(persistedAttachmentDelivered.attachments.length, 1);
+  assert.equal(persistedAttachmentDelivered.attachments[0]?.originalFilename, "original.png");
+
   let adapterTarget: {
     channel: string;
     chatId: string | number;
