@@ -23,6 +23,7 @@ import {
   type AssistantWebChatCompactionResult,
   type AssistantWebChatCompactionState,
   type AssistantWebChatListItemState,
+  type getAssistantPersonaArchetypesResponse200,
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
   type AssistantSetupPreviewState,
@@ -35,6 +36,7 @@ import {
   type UserPlanVisibilityState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
+  getAssistantPersonaArchetypes as getAssistantPersonaArchetypesContract,
   getAssistantMemoryItems as getAssistantMemoryItemsContract,
   getAssistantTaskItems as getAssistantTaskItemsContract,
   getAssistantWebChats as getAssistantWebChatsContract,
@@ -996,6 +998,27 @@ export async function getAssistant(token: string): Promise<AssistantLifecycleSta
     if (error instanceof ContractsApiError && error.status === 404) {
       return null;
     }
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export type AssistantPersonaArchetypeState =
+  getAssistantPersonaArchetypesResponse200["data"]["archetypes"][number];
+
+export async function getAssistantPersonaArchetypes(
+  token: string
+): Promise<AssistantPersonaArchetypeState[]> {
+  try {
+    const response = await getAssistantPersonaArchetypesContract({
+      headers: getAuthHeaders(token)
+    });
+
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/persona-archetypes.");
+    }
+
+    return response.data.archetypes;
+  } catch (error) {
     throw new Error(toErrorMessage(error));
   }
 }

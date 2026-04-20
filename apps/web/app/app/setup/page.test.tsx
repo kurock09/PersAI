@@ -26,6 +26,7 @@ const meApiMocks = vi.hoisted(() => ({
 
 const assistantApiMocks = vi.hoisted(() => ({
   getAssistant: vi.fn(),
+  getAssistantPersonaArchetypes: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
   postAssistantCreate: vi.fn(),
   patchAssistantDraft: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock("../assistant-api-client", async () => {
   return {
     ...actual,
     getAssistant: assistantApiMocks.getAssistant,
+    getAssistantPersonaArchetypes: assistantApiMocks.getAssistantPersonaArchetypes,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
@@ -268,6 +270,53 @@ function makeVoiceSettings() {
   };
 }
 
+function makePersonaArchetypes() {
+  return [
+    {
+      key: "warm-quiet",
+      displayOrder: 1,
+      label: { en: "Warm Quiet", ru: "Тёплый спокойный" },
+      description: {
+        en: "Soft, grounded, caring without pressure.",
+        ru: "Мягкий, устойчивый, заботливый без давления."
+      },
+      voice: {
+        sentenceLength: "short" as const,
+        pace: "slow" as const,
+        irony: 15
+      },
+      defaultTraits: {
+        formality: 35,
+        verbosity: 40,
+        playfulness: 30,
+        initiative: 50,
+        warmth: 80
+      }
+    },
+    {
+      key: "dry-witty",
+      displayOrder: 2,
+      label: { en: "Dry Witty", ru: "Сухой остроумный" },
+      description: {
+        en: "Direct, crisp, slightly ironic when useful.",
+        ru: "Прямой, собранный, местами ироничный по делу."
+      },
+      voice: {
+        sentenceLength: "short" as const,
+        pace: "quick" as const,
+        irony: 55
+      },
+      defaultTraits: {
+        formality: 70,
+        verbosity: 35,
+        playfulness: 45,
+        initiative: 65,
+        warmth: 35
+      }
+    }
+  ];
+}
+
 describe("SetupWizardPage", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -278,6 +327,7 @@ describe("SetupWizardPage", () => {
     });
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.getAssistant.mockResolvedValue(null);
+    assistantApiMocks.getAssistantPersonaArchetypes.mockResolvedValue(makePersonaArchetypes());
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue(makeVoiceSettings());
     meApiMocks.getMe.mockResolvedValue(makeMeResponse());
     meApiMocks.postOnboarding.mockResolvedValue(makeMeResponse());

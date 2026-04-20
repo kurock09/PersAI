@@ -768,6 +768,7 @@ export class StreamWebChatTurnService {
           typeof chunk.delta === "string" &&
           typeof chunk.accumulated === "string"
         ) {
+          watchdog.recordActivity();
           input.callbacks.onThinking(chunk.delta, chunk.accumulated);
         }
 
@@ -781,6 +782,7 @@ export class StreamWebChatTurnService {
           if (input.cadenceState !== null) {
             recordToolPhase(input.cadenceState, chunk.toolPhase);
           }
+          watchdog.recordActivity();
           input.callbacks.onTool?.({
             phase: chunk.toolPhase,
             toolName: chunk.toolName,
@@ -790,10 +792,12 @@ export class StreamWebChatTurnService {
         }
 
         if (chunk.type === "media" && Array.isArray(chunk.media)) {
+          watchdog.recordActivity();
           collectedMedia.push(...chunk.media);
         }
 
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
+          watchdog.recordActivity();
           respondedAt = chunk.respondedAt;
           turnRouting = chunk.turnRouting ?? null;
           if (chunk.runtimeTrace) {

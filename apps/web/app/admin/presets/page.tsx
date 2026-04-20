@@ -911,7 +911,7 @@ export default function AdminPresetsPage() {
       const token = await getToken();
       if (!token) return;
       const response = await fetch(
-        `/api/v1/admin/persona-archetypes/${encodeURIComponent(key)}/reset`,
+        `/api/v1/admin/persona-archetypes/${encodeURIComponent(key)}/reset-to-default`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` }

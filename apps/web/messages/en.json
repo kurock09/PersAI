@@ -228,6 +228,7 @@
     "instructionPlaceholder": "Warm, observant, proactive, but not pushy...",
     "instructionHint": "Sliders shape the baseline, and this text lets you describe the personality more precisely.",
     "presetSectionLabel": "Personality style",
+    "archetypeSectionHint": "Choose the base Voice DNA archetype. The sliders refine delivery, and the text on the right adds your personal nuances.",
     "presetCustom": "Custom",
     "presetCustomDesc": "Start from scratch — write your own",
     "fineTune": "Fine-tune with sliders",

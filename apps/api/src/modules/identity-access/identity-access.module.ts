@@ -29,6 +29,7 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/me", method: RequestMethod.GET },
       { path: "api/v1/me/onboarding", method: RequestMethod.POST },
       { path: "api/v1/assistant", method: RequestMethod.GET },
+      { path: "api/v1/assistant/persona-archetypes", method: RequestMethod.GET },
       { path: "api/v1/assistant/plan-visibility", method: RequestMethod.GET },
       { path: "api/v1/assistant/voice/settings", method: RequestMethod.GET },
       { path: "api/v1/assistant/notification-preference", method: RequestMethod.GET },
@@ -124,6 +125,12 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
       { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },
       { path: "api/v1/admin/prompt-templates/:id", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/persona-archetypes", method: RequestMethod.GET },
+      { path: "api/v1/admin/persona-archetypes/:key", method: RequestMethod.PATCH },
+      {
+        path: "api/v1/admin/persona-archetypes/:key/reset-to-default",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/knowledge-sources", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/observability", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },

@@ -52,7 +52,9 @@ function createFakeClock(start: number = 1_000_000): FakeClock {
 }
 
 describe("CadenceWatchdog", () => {
-  test("fires silent stall when no delta arrives within silentMs after arm", () => {
+  test("does NOT fire silent stall before any activity, even after silentMs", () => {
+    // Cold-start guard: arm() alone must never trigger a stall. The silent
+    // timer is started lazily by the first recordDelta()/recordActivity() call.
     const clock = createFakeClock();
     const reports: CadenceWatchdogStallReport[] = [];
     const wd = createCadenceWatchdog(
@@ -68,7 +70,30 @@ describe("CadenceWatchdog", () => {
       (r) => reports.push(r)
     );
     wd.arm();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(60_000);
     assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
+  test("first recordDelta arms the silent timer and silentMs of inactivity fires it", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
     clock.advance(4999);
     assert.equal(reports.length, 0);
     clock.advance(2);
@@ -76,6 +101,78 @@ describe("CadenceWatchdog", () => {
     assert.equal(reports[0]?.reason, "silent");
     assert.equal(reports[0]?.silentMs, 5000);
     assert.ok(wd.hasStalled());
+    wd.dispose();
+  });
+
+  test("first recordActivity also arms the silent timer", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordActivity();
+    clock.advance(4999);
+    assert.equal(reports.length, 0);
+    clock.advance(2);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "silent");
+    wd.dispose();
+  });
+
+  test("recordActivity resets the silent timer without feeding slow_avg", () => {
+    // Long gaps from non-text events (thinking / tool calls) must NOT pollute
+    // the slow_avg rolling window — otherwise real slow-motion text streaming
+    // would be masked by the artificial "gap" introduced by, say, a 2s tool
+    // invocation.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 5,
+        avgThresholdMs: 200,
+        avgMinSamples: 5,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    // Healthy fast text deltas:
+    wd.recordDelta();
+    for (let i = 0; i < 4; i++) {
+      clock.advance(40);
+      wd.recordDelta();
+    }
+    // A long non-text activity gap (e.g. a 4s tool call). This must reset the
+    // silent timer but NOT count as an inter-delta gap for slow_avg.
+    clock.advance(4000);
+    wd.recordActivity();
+    // Resume healthy text streaming — slow_avg must stay healthy.
+    for (let i = 0; i < 5; i++) {
+      clock.advance(40);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    // And the silent timer was reset by the activity, so we can still go
+    // silentMs without firing.
+    clock.advance(4999);
+    assert.equal(reports.length, 0);
+    clock.advance(2);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "silent");
     wd.dispose();
   });
 
@@ -235,6 +332,8 @@ describe("CadenceWatchdog", () => {
       (r) => reports.push(r)
     );
     wd.arm();
+    // arm() no longer auto-starts the silent timer; need an activity to start it.
+    wd.recordActivity();
     assert.equal(clock.pendingCount(), 1);
     wd.dispose();
     assert.equal(clock.pendingCount(), 0);
@@ -259,6 +358,7 @@ describe("CadenceWatchdog", () => {
       }
     );
     wd.arm();
+    wd.recordActivity();
     assert.doesNotThrow(() => clock.advance(1100));
     assert.ok(wd.hasStalled());
     wd.dispose();

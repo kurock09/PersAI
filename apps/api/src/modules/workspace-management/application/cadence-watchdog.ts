@@ -2,10 +2,17 @@
  * Cadence watchdog detects when a model stream is unusably slow and reports a stall.
  *
  * Two signals trigger a stall (whichever fires first):
- *  - "silent": no delta has arrived for `silentMs` (default 5000) since the last delta
- *    (or, before the first delta, since `arm()` was called).
+ *  - "silent": no activity has arrived for `silentMs` since the last activity. The
+ *    silent timer is intentionally NOT started by `arm()` — it is started lazily on
+ *    the first `recordDelta()` or `recordActivity()` call. This avoids killing the
+ *    stream during the cold-start / pre-first-token phase (long reasoning, queueing,
+ *    provider warm-up). Once the runtime has shown any sign of life, the silent
+ *    timer guards against mid-stream hangs.
  *  - "slow_avg": after at least `avgMinSamples` inter-delta gaps have been observed,
  *    the rolling average of the last `avgWindow` gaps exceeds `avgThresholdMs`.
+ *    Only `recordDelta()` (text deltas) feeds this rolling window — non-text events
+ *    like `thinking`/`tool`/`media` would inflate the average and mask real slow-mo,
+ *    so they are recorded via `recordActivity()` which only resets the silent timer.
  *
  * The watchdog fires `onStall` at most once and then becomes inert. Callers must
  * always invoke `dispose()` (typically in a `finally` block) so that the silent
@@ -37,10 +44,27 @@ export interface CadenceWatchdogStallReport {
 }
 
 export interface CadenceWatchdog {
-  /** Start the silent timer. Call once before the first expected delta. */
+  /**
+   * Mark the watchdog as ready to track activity. Does NOT start the silent
+   * timer — the timer is started by the first `recordDelta()` or
+   * `recordActivity()` call so that the cold-start phase before the first
+   * runtime event is never reported as a stall.
+   */
   arm(): void;
-  /** Record the arrival of a delta and reset the silent timer. */
+  /**
+   * Record the arrival of a text delta. Resets the silent timer (and starts it
+   * on the first call) and feeds the slow_avg rolling window.
+   * Use ONLY for text deltas — non-text events must use `recordActivity()`.
+   */
   recordDelta(): void;
+  /**
+   * Record any non-text activity from the runtime (`thinking`, `tool` start/
+   * end, `media`, `runtime_done`, etc.). Resets the silent timer (and starts
+   * it on the first call) but does NOT feed the slow_avg window, so that long
+   * inter-text gaps caused by tool calls or reasoning blocks do not mask real
+   * slow-motion text streaming.
+   */
+  recordActivity(): void;
   /** Stop all timers. Idempotent. */
   dispose(): void;
   /** Whether the stall callback already fired. */
@@ -111,8 +135,11 @@ export function createCadenceWatchdog(
 
   return {
     arm() {
+      // Intentionally a no-op for the silent timer — see the file header comment.
+      // We keep the method on the API so callers can express intent ("the stream
+      // is about to start") and so future signals (e.g. tracing) can hook here
+      // without changing call sites.
       if (disposed || fired) return;
-      startSilentTimer();
     },
     recordDelta() {
       if (disposed || fired) return;
@@ -139,6 +166,17 @@ export function createCadenceWatchdog(
         }
       }
       lastDeltaAtMs = ts;
+      startSilentTimer();
+    },
+    recordActivity() {
+      if (disposed || fired) return;
+      // Move the inter-delta anchor forward so that the NEXT recordDelta()
+      // measures the gap from "now" instead of from the last text delta. Without
+      // this, a long activity span (e.g. a 4s tool call) would inject a single
+      // huge gap into the slow_avg rolling window once text streaming resumes,
+      // falsely flagging healthy post-tool text as slow_avg. We only want
+      // slow_avg to reflect real text-delta-to-text-delta cadence.
+      lastDeltaAtMs = now();
       startSilentTimer();
     },
     dispose() {

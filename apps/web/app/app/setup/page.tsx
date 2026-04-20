@@ -6,6 +6,8 @@ import { useAuth } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLocale, useTranslations } from "next-intl";
 import type { AssistantLifecycleState } from "@persai/contracts";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ArrowRight,
   ArrowLeft,
@@ -24,12 +26,14 @@ import { LandingLocaleSwitcher } from "@/app/_components/landing-locale-switcher
 import { useAppDataContext } from "../_components/app-shell";
 import {
   getAssistant,
+  getAssistantPersonaArchetypes,
   getAssistantVoiceSettings,
   patchAssistantDraft,
   postAssistantCreate,
   postAssistantPublish,
   postAssistantSetupPreview,
   uploadAssistantAvatar,
+  type AssistantPersonaArchetypeState,
   type AssistantVoiceSettingsState
 } from "../assistant-api-client";
 import { getMe, postOnboarding } from "../me-api-client";
@@ -37,11 +41,8 @@ import {
   ASSISTANT_GENDER_OPTIONS,
   DEFAULT_TRAITS,
   DEFAULT_VOICE_DNA_ARCHETYPE_KEY,
-  PERSONA_PRESETS,
   TRAIT_SLIDERS,
-  resolveArchetypeKeyForPresetKey,
   type AssistantGender,
-  type PersonaPreset,
   type TraitKey,
   type VoiceDnaArchetypeKey
 } from "../_components/assistant-persona";
@@ -104,10 +105,32 @@ const DEFAULT_SETUP_VOICE_PROFILE: AssistantLifecycleState["draft"]["voiceProfil
 const COMPLETION_TRANSITION_MS = 650;
 const COMPLETION_TRANSITION_DELAY_MS =
   process.env.NODE_ENV === "test" ? 0 : COMPLETION_TRANSITION_MS;
+const SETUP_MODE_NOTICE_MS = 5000;
+
+type LocalizedString = { ru: string; en: string };
 
 function normalizeBirthdayForDateInput(value: string | null | undefined): string {
   if (!value) return "";
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value.slice(0, 10);
+}
+
+function resolveLocalizedString(value: LocalizedString, locale: string): string {
+  if (locale.toLowerCase().startsWith("ru")) {
+    return value.ru || value.en;
+  }
+  return value.en || value.ru;
+}
+
+function toTraitRecord(
+  traits: Record<string, number> | null | undefined
+): Record<TraitKey, number> {
+  return {
+    formality: traits?.formality ?? DEFAULT_TRAITS.formality,
+    verbosity: traits?.verbosity ?? DEFAULT_TRAITS.verbosity,
+    playfulness: traits?.playfulness ?? DEFAULT_TRAITS.playfulness,
+    initiative: traits?.initiative ?? DEFAULT_TRAITS.initiative,
+    warmth: traits?.warmth ?? DEFAULT_TRAITS.warmth
+  };
 }
 
 function findAvatarIdByEmoji(emoji: string | null | undefined): string | null {
@@ -216,8 +239,10 @@ export default function SetupWizardPage() {
   // Step 2 — personality
   const [traits, setTraits] = useState<Record<TraitKey, number>>(DEFAULT_TRAITS);
   const [assistantNotes, setAssistantNotes] = useState("");
-  const [selectedPresetKey, setSelectedPresetKey] = useState<string | null>(null);
-  const presetInitGenderRef = useRef<string | null>(null);
+  const [archetypes, setArchetypes] = useState<AssistantPersonaArchetypeState[]>([]);
+  const [selectedArchetypeKey, setSelectedArchetypeKey] = useState<VoiceDnaArchetypeKey | null>(
+    null
+  );
 
   // Step 3 — create
   const [creating, setCreating] = useState(false);
@@ -230,6 +255,7 @@ export default function SetupWizardPage() {
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [setupMode, setSetupMode] = useState<SetupMode>("create");
+  const [showSetupModeNotice, setShowSetupModeNotice] = useState(false);
   const [completionScreen, setCompletionScreen] = useState<{
     title: string;
     body: string;
@@ -266,15 +292,23 @@ export default function SetupWizardPage() {
         }
         setExistingAssistant(existing);
         setSetupMode(resolveSetupMode(existing));
+        try {
+          const runtimeArchetypes = await getAssistantPersonaArchetypes(token);
+          setArchetypes(runtimeArchetypes);
+        } catch {
+          setArchetypes([]);
+        }
         if (existing?.draft.displayName) {
           setAssistantName(existing.draft.displayName);
         }
         if (existing?.draft.instructions) {
           setAssistantNotes(existing.draft.instructions);
-          setSelectedPresetKey("custom");
         }
         if (existing?.draft.traits) {
-          setTraits(existing.draft.traits as Record<TraitKey, number>);
+          setTraits(toTraitRecord(existing.draft.traits));
+        }
+        if (existing?.draft.archetypeKey) {
+          setSelectedArchetypeKey(existing.draft.archetypeKey as VoiceDnaArchetypeKey);
         }
         if (existing?.draft.assistantGender) {
           setAssistantGender(existing.draft.assistantGender as AssistantGender);
@@ -304,26 +338,36 @@ export default function SetupWizardPage() {
     })();
   }, [getToken, router]);
 
-  // Auto-apply first preset when entering step 2, reset when gender changes
   useEffect(() => {
-    if (step !== 2) return;
-    if (setupMode === "recover") return;
-    const genderKey = assistantGender ?? "neutral";
-    if (presetInitGenderRef.current === genderKey && selectedPresetKey !== null) return;
-    presetInitGenderRef.current = genderKey;
-    const presets = PERSONA_PRESETS[genderKey];
-    const first = presets[0];
-    if (!first) return;
-    setSelectedPresetKey(first.key);
-    setTraits({ ...first.traits });
-    setAssistantNotes(
-      first.buildInstructions(
-        assistantName.trim() || "your assistant",
-        userName.trim() || "you",
-        locale
-      )
-    );
-  }, [assistantGender, setupMode, step]); // intentionally omits preset deps — runs only on step/gender change
+    if (setupMode === "create") {
+      setShowSetupModeNotice(false);
+      return;
+    }
+    setShowSetupModeNotice(true);
+    const timer = window.setTimeout(() => setShowSetupModeNotice(false), SETUP_MODE_NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [setupMode]);
+
+  useEffect(() => {
+    if (step !== 2 || archetypes.length === 0 || selectedArchetypeKey !== null) {
+      return;
+    }
+    const fallbackArchetypeKey =
+      (existingAssistant?.draft.archetypeKey as VoiceDnaArchetypeKey | null) ??
+      (archetypes[0]?.key as VoiceDnaArchetypeKey | undefined) ??
+      DEFAULT_VOICE_DNA_ARCHETYPE_KEY;
+    const fallbackArchetype = archetypes.find((entry) => entry.key === fallbackArchetypeKey);
+    setSelectedArchetypeKey(fallbackArchetypeKey);
+    if (!existingAssistant?.draft.traits && fallbackArchetype) {
+      setTraits(toTraitRecord(fallbackArchetype.defaultTraits));
+    }
+  }, [
+    archetypes,
+    existingAssistant?.draft.archetypeKey,
+    existingAssistant?.draft.traits,
+    selectedArchetypeKey,
+    step
+  ]);
 
   useEffect(() => {
     return () => {
@@ -364,29 +408,19 @@ export default function SetupWizardPage() {
     setTraits((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const currentPresets = useMemo(
-    () => PERSONA_PRESETS[assistantGender ?? "neutral"],
-    [assistantGender]
+  const currentArchetypes = useMemo(
+    () => [...archetypes].sort((left, right) => left.displayOrder - right.displayOrder),
+    [archetypes]
   );
 
-  const applyPreset = useCallback(
-    (preset: PersonaPreset) => {
-      setSelectedPresetKey(preset.key);
-      setTraits({ ...preset.traits });
-      setAssistantNotes(
-        preset.buildInstructions(
-          assistantName.trim() || "your assistant",
-          userName.trim() || "you",
-          locale
-        )
-      );
-    },
-    [assistantName, userName, locale]
+  const selectedArchetype = useMemo(
+    () => currentArchetypes.find((entry) => entry.key === selectedArchetypeKey) ?? null,
+    [currentArchetypes, selectedArchetypeKey]
   );
 
-  const handleCustomPreset = useCallback(() => {
-    setSelectedPresetKey("custom");
-    setAssistantNotes("");
+  const applyArchetype = useCallback((archetype: AssistantPersonaArchetypeState) => {
+    setSelectedArchetypeKey(archetype.key as VoiceDnaArchetypeKey);
+    setTraits(toTraitRecord(archetype.defaultTraits));
   }, []);
 
   const resolveSetupToken = useCallback(
@@ -426,7 +460,7 @@ export default function SetupWizardPage() {
     }
 
     const archetypeKeyForDraft: VoiceDnaArchetypeKey =
-      resolveArchetypeKeyForPresetKey(selectedPresetKey) ??
+      selectedArchetypeKey ??
       (existingAssistant?.draft.archetypeKey as VoiceDnaArchetypeKey | null) ??
       DEFAULT_VOICE_DNA_ARCHETYPE_KEY;
 
@@ -451,7 +485,7 @@ export default function SetupWizardPage() {
     existingAssistant,
     persistedAvatarUrl,
     resolveSetupToken,
-    selectedPresetKey,
+    selectedArchetypeKey,
     setupVoiceProfile,
     traits
   ]);
@@ -577,6 +611,23 @@ export default function SetupWizardPage() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {showSetupModeNotice && setupMode !== "create" ? (
+          <motion.div
+            className="pointer-events-none absolute left-1/2 top-20 z-[70] w-full max-w-4xl -translate-x-1/2 px-6"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          >
+            <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+              <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between px-6 py-4">
         <span className="text-lg font-bold tracking-tight text-text">
@@ -605,12 +656,6 @@ export default function SetupWizardPage() {
       {/* Content — scrollable only inside */}
       <div className="flex flex-1 items-start justify-center overflow-y-auto px-6 py-8">
         <div className="w-full max-w-5xl">
-          {setupMode !== "create" && (
-            <div className="mx-auto mb-6 max-w-4xl rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left">
-              <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
-            </div>
-          )}
           <AnimatePresence mode="wait">
             {/* ===== Step 0: About you ===== */}
             {step === 0 && (
@@ -799,76 +844,97 @@ export default function SetupWizardPage() {
             {step === 2 && (
               <StepContainer key="step-2" className="max-w-5xl">
                 <div className="w-full">
-                  <div className="flex flex-col items-center text-center lg:items-start lg:text-left">
-                    <div className="relative mb-1 inline-flex flex-col items-center lg:items-start">
-                      <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-border bg-surface text-4xl shadow-[0_0_48px_rgba(102,187,106,0.18)]">
-                        {currentAvatarPreviewUrl ? (
-                          <img
-                            src={currentAvatarPreviewUrl}
-                            alt={assistantName}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span>{avatarObj?.emoji ?? "🤖"}</span>
-                        )}
+                  <div className="rounded-[28px] border border-border bg-surface/70 p-6 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-7">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                      <div className="relative shrink-0">
+                        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl border border-border bg-surface text-5xl shadow-[0_0_48px_rgba(102,187,106,0.16)]">
+                          {currentAvatarPreviewUrl ? (
+                            <img
+                              src={currentAvatarPreviewUrl}
+                              alt={assistantName}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span>{avatarObj?.emoji ?? "🤖"}</span>
+                          )}
+                        </div>
+                        <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-bg bg-accent">
+                          <span className="h-2 w-2 rounded-full bg-white" />
+                        </span>
                       </div>
-                      <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent">
-                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                      </span>
+                      <div className="min-w-0 flex-1">
+                        {assistantName ? (
+                          <p className="truncate text-sm font-medium text-accent">
+                            {assistantName}
+                          </p>
+                        ) : null}
+                        <h1 className="mt-1 text-3xl font-bold text-text sm:text-4xl">
+                          {t("step2Title")}
+                        </h1>
+                        <p className="mt-2 max-w-2xl text-base leading-relaxed text-text-muted">
+                          {t("step2Subtitle", { name: assistantName })}
+                        </p>
+                      </div>
                     </div>
-                    {assistantName && (
-                      <p className="mt-2.5 text-sm font-medium text-text-muted">{assistantName}</p>
-                    )}
-                    <h1 className="mt-5 text-3xl font-bold text-text sm:text-4xl">
-                      {t("step2Title")}
-                    </h1>
-                    <p className="mt-2 max-w-2xl text-base text-text-muted">
-                      {t("step2Subtitle", { name: assistantName })}
-                    </p>
                   </div>
 
-                  <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-stretch">
+                  <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)] lg:items-start">
                     <div className="space-y-6">
                       <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
-                        <p className="mb-2.5 text-xs font-medium text-text-muted">
-                          {t("presetSectionLabel")}
-                        </p>
+                        <div className="mb-4">
+                          <p className="text-xs font-medium text-text-muted">
+                            {t("presetSectionLabel")}
+                          </p>
+                          <p className="mt-1 text-[11px] leading-relaxed text-text-subtle">
+                            {t("archetypeSectionHint")}
+                          </p>
+                        </div>
                         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          {currentPresets.map((preset) => (
+                          {currentArchetypes.map((archetype) => (
                             <button
-                              key={preset.key}
+                              key={archetype.key}
                               type="button"
-                              onClick={() => applyPreset(preset)}
+                              onClick={() => applyArchetype(archetype)}
                               className={cn(
-                                "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
-                                selectedPresetKey === preset.key
-                                  ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                                  : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
+                                "rounded-2xl border px-4 py-3 text-left transition-all",
+                                selectedArchetypeKey === archetype.key
+                                  ? "border-accent bg-accent/10 shadow-[0_0_24px_rgba(102,187,106,0.12)]"
+                                  : "border-border bg-surface hover:border-border-strong hover:bg-surface-hover"
                               )}
                             >
-                              {tp(preset.labelKey)}
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p
+                                    className={cn(
+                                      "text-sm font-semibold",
+                                      selectedArchetypeKey === archetype.key
+                                        ? "text-accent"
+                                        : "text-text"
+                                    )}
+                                  >
+                                    {resolveLocalizedString(archetype.label, locale)}
+                                  </p>
+                                  <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+                                    {resolveLocalizedString(archetype.description, locale)}
+                                  </p>
+                                </div>
+                                <div className="shrink-0 rounded-full border border-border bg-surface px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                                  {archetype.voice.sentenceLength}
+                                </div>
+                              </div>
                             </button>
                           ))}
-                          <button
-                            type="button"
-                            onClick={handleCustomPreset}
-                            className={cn(
-                              "truncate rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all",
-                              selectedPresetKey === "custom"
-                                ? "border-accent bg-accent/10 text-accent shadow-[0_0_20px_rgba(102,187,106,0.12)]"
-                                : "border-border bg-surface text-text-muted hover:border-border-strong hover:text-text"
-                            )}
-                          >
-                            {t("presetCustom")}
-                          </button>
                         </div>
-                        <p className="mt-2 min-h-[1.25rem] text-[11px] text-text-subtle">
-                          {selectedPresetKey === "custom"
-                            ? t("presetCustomDesc")
-                            : currentPresets.find((p) => p.key === selectedPresetKey)?.descKey
-                              ? tp(currentPresets.find((p) => p.key === selectedPresetKey)!.descKey)
-                              : ""}
-                        </p>
+                        {selectedArchetype ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <div className="rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-text-subtle">
+                              pace: {selectedArchetype.voice.pace}
+                            </div>
+                            <div className="rounded-full border border-border bg-surface px-2.5 py-1 text-[10px] text-text-subtle">
+                              irony: {selectedArchetype.voice.irony}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="rounded-2xl border border-border bg-surface-raised/70 p-5 text-left">
@@ -913,7 +979,9 @@ export default function SetupWizardPage() {
                         className="mt-2 min-h-[320px] w-full flex-1 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text outline-none transition-colors focus:border-accent"
                         placeholder={t("instructionPlaceholder")}
                       />
-                      <p className="mt-2 text-[11px] text-text-subtle">{t("instructionHint")}</p>
+                      <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
+                        {t("instructionHint")}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -959,9 +1027,9 @@ export default function SetupWizardPage() {
                         <p className="text-sm text-text-muted">{t("previewLoading")}</p>
                       </div>
                     ) : (
-                      <p className="min-h-[120px] text-base leading-relaxed text-text sm:min-h-[140px]">
-                        {runtimePreview || t("previewNotReady")}
-                      </p>
+                      <div className="max-h-[360px] min-h-[140px] overflow-y-auto pr-1">
+                        <PreviewMarkdown content={runtimePreview || t("previewNotReady")} />
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1052,6 +1120,59 @@ export default function SetupWizardPage() {
           )}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Preview markdown                                                   */
+/* ------------------------------------------------------------------ */
+
+function PreviewMarkdown({ content }: { content: string }) {
+  return (
+    <div className="space-y-3 text-base leading-relaxed text-text">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          ul: ({ children }) => (
+            <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+          ),
+          li: ({ children }) => <li className="text-text">{children}</li>,
+          strong: ({ children }) => <strong className="font-semibold text-text">{children}</strong>,
+          em: ({ children }) => <em className="italic text-text-muted">{children}</em>,
+          code: ({ children, className }) => {
+            if (className) {
+              return <code className="text-sm text-text">{children}</code>;
+            }
+            return (
+              <code className="rounded bg-bg px-1.5 py-0.5 text-[0.95em] text-accent">
+                {children}
+              </code>
+            );
+          },
+          pre: ({ children }) => (
+            <pre className="mb-3 overflow-x-auto rounded-xl border border-border bg-bg px-3 py-2 text-sm last:mb-0">
+              {children}
+            </pre>
+          ),
+          a: ({ children, href }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent underline underline-offset-2"
+            >
+              {children}
+            </a>
+          )
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
