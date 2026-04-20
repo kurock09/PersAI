@@ -81,7 +81,16 @@ export class SeedToolCatalogService implements OnModuleInit {
           }
         });
       }
-      await this.syncToolActivations(existingDefaultPlan.id);
+      // Idempotent backfill only: if the admin already edited tool activations for this plan
+      // through /admin/plans, we MUST NOT rewrite them from the hardcoded STARTER_TRIAL_TOOL_POLICY
+      // on every API pod rollout. Historically this ran unconditionally and silently reverted
+      // every operator edit (e.g. enabling image_generate for trial) on the next deploy.
+      const existingActivationCount = await this.prisma.planCatalogToolActivation.count({
+        where: { planId: existingDefaultPlan.id }
+      });
+      if (existingActivationCount === 0) {
+        await this.syncToolActivations(existingDefaultPlan.id);
+      }
       return;
     }
 

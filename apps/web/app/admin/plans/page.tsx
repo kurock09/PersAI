@@ -389,6 +389,19 @@ function describeContextPolicySummaryBudget(policy: AdminPlanState["contextPolic
     : String(policy.sharedCompactionSummaryBudgetTokens);
 }
 
+function isDraftTrialFieldsInvalid(
+  draft: Pick<PlanDraft, "trialEnabled" | "trialDurationDays">
+): boolean {
+  // Server rejects the whole plan with a generic 400 when trialEnabled=true but
+  // trialDurationDays is null/<=0 (see parseTrialDuration in manage-admin-plans.service.ts).
+  // We block Save locally so the operator sees "required" inline instead of a cryptic error
+  // toast after the roundtrip.
+  return (
+    draft.trialEnabled === true &&
+    (draft.trialDurationDays === null || draft.trialDurationDays <= 0)
+  );
+}
+
 function emptyDraft(): PlanDraft {
   return {
     displayName: "",
@@ -1210,7 +1223,17 @@ function PlanForm({
         <Check
           label="Trial"
           checked={draft.trialEnabled}
-          onChange={(v) => onPatch({ trialEnabled: v })}
+          onChange={(v) => {
+            // Auto-fill a sane default when the operator toggles Trial on and the number
+            // field is still empty. Without this the server rejected the whole plan with a
+            // generic 400 because the client sent { trialEnabled: true, trialDurationDays: null },
+            // which looked to the user like "Trial plans cannot be saved at all".
+            if (v && (draft.trialDurationDays === null || draft.trialDurationDays <= 0)) {
+              onPatch({ trialEnabled: true, trialDurationDays: 14 });
+              return;
+            }
+            onPatch({ trialEnabled: v });
+          }}
         />
         {draft.trialEnabled && (
           <div className="flex items-center gap-1">
@@ -1224,9 +1247,17 @@ function PlanForm({
                     e.target.value === "" ? null : Math.max(1, Math.floor(Number(e.target.value)))
                 })
               }
-              className="w-14 rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+              className={cn(
+                "w-14 rounded border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50",
+                draft.trialDurationDays === null || draft.trialDurationDays <= 0
+                  ? "border-red-500/60"
+                  : "border-border"
+              )}
             />
             <span className="text-[10px] text-text-muted">days</span>
+            {(draft.trialDurationDays === null || draft.trialDurationDays <= 0) && (
+              <span className="text-[10px] font-medium text-red-500/80">required</span>
+            )}
           </div>
         )}
       </div>
@@ -2543,7 +2574,7 @@ export default function AdminPlansPage() {
           <div className="mt-3 flex gap-2">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || isDraftTrialFieldsInvalid(createDraft)}
               className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
             >
               {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Save"}
@@ -2556,6 +2587,11 @@ export default function AdminPlansPage() {
             >
               Cancel
             </button>
+            {isDraftTrialFieldsInvalid(createDraft) && (
+              <span className="self-center text-[10px] font-medium text-red-500/80">
+                Trial plan needs trialDurationDays &gt; 0
+              </span>
+            )}
           </div>
         </form>
       )}
@@ -2598,7 +2634,7 @@ export default function AdminPlansPage() {
                   <div className="mt-3 flex gap-2">
                     <button
                       type="submit"
-                      disabled={saving}
+                      disabled={saving || isDraftTrialFieldsInvalid(editDraft)}
                       className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
                     >
                       {saving ? (
@@ -2615,6 +2651,11 @@ export default function AdminPlansPage() {
                     >
                       Cancel
                     </button>
+                    {isDraftTrialFieldsInvalid(editDraft) && (
+                      <span className="self-center text-[10px] font-medium text-red-500/80">
+                        Trial plan needs trialDurationDays &gt; 0
+                      </span>
+                    )}
                   </div>
                 </form>
               );

@@ -6,6 +6,10 @@ import {
   WORKSPACE_SUBSCRIPTION_REPOSITORY,
   type WorkspaceSubscriptionRepository
 } from "../domain/workspace-subscription.repository";
+import {
+  ASSISTANT_PLAN_CATALOG_REPOSITORY,
+  type AssistantPlanCatalogRepository
+} from "../domain/assistant-plan-catalog.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type {
   WorkspaceSubscription,
@@ -43,6 +47,8 @@ export class ManageAdminWorkspaceSubscriptionService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(WORKSPACE_SUBSCRIPTION_REPOSITORY)
     private readonly workspaceSubscriptionRepository: WorkspaceSubscriptionRepository,
+    @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
+    private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -102,7 +108,7 @@ export class ManageAdminWorkspaceSubscriptionService {
       stepUpToken
     );
     const assistant = await this.requireAssistantByUserId(targetUserId);
-    const snapshot = this.toSnapshot(assistant.workspaceId, input);
+    const snapshot = await this.toSnapshotWithTrialDefaults(assistant.workspaceId, input);
     const current = await this.workspaceSubscriptionRepository.findByWorkspaceId(
       assistant.workspaceId
     );
@@ -152,20 +158,29 @@ export class ManageAdminWorkspaceSubscriptionService {
     return assistant;
   }
 
-  private toSnapshot(
+  private async toSnapshotWithTrialDefaults(
     workspaceId: string,
     input: AdminWorkspaceSubscriptionInput
-  ): BillingProviderSubscriptionSnapshot {
+  ): Promise<BillingProviderSubscriptionSnapshot> {
     const planCode = input.planCode.trim();
     if (planCode.length === 0) {
       throw new BadRequestException("planCode is required.");
     }
+
+    // If the target plan is a trial plan and the admin/UI did not explicitly pass trial dates
+    // or status, auto-fill status="trialing" and trialEndsAt = now + plan.trialDurationDays.
+    // Without this the /admin/ops one-click "Apply workspace subscription" produced a plan with
+    // status="active" and null trial windows on a plan marked isTrialPlan=true, so the user
+    // technically moved to the new plan but was never actually in a trial window.
+    const plan = await this.planCatalogRepository.findByCode(planCode);
+    const trialDefaults = this.resolveTrialDefaultsForPlan(plan, input);
+
     return {
       workspaceId,
       planCode,
-      status: input.status ?? "active",
-      trialStartedAt: input.trialStartedAt ?? null,
-      trialEndsAt: input.trialEndsAt ?? null,
+      status: input.status ?? trialDefaults.status,
+      trialStartedAt: input.trialStartedAt ?? trialDefaults.trialStartedAt,
+      trialEndsAt: input.trialEndsAt ?? trialDefaults.trialEndsAt,
       currentPeriodStartedAt: input.currentPeriodStartedAt ?? null,
       currentPeriodEndsAt: input.currentPeriodEndsAt ?? null,
       cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
@@ -173,6 +188,36 @@ export class ManageAdminWorkspaceSubscriptionService {
       providerSubscriptionRef: input.providerSubscriptionRef ?? null,
       metadata: input.metadata ?? null
     };
+  }
+
+  private resolveTrialDefaultsForPlan(
+    plan: { isTrialPlan: boolean; trialDurationDays: number | null } | null,
+    input: AdminWorkspaceSubscriptionInput
+  ): {
+    status: WorkspaceSubscriptionStatus;
+    trialStartedAt: string | null;
+    trialEndsAt: string | null;
+  } {
+    const adminPassedAnyTrialField =
+      input.status !== undefined ||
+      input.trialStartedAt !== undefined ||
+      input.trialEndsAt !== undefined;
+    if (
+      !adminPassedAnyTrialField &&
+      plan !== null &&
+      plan.isTrialPlan === true &&
+      typeof plan.trialDurationDays === "number" &&
+      plan.trialDurationDays > 0
+    ) {
+      const now = new Date();
+      const endsAt = new Date(now.getTime() + plan.trialDurationDays * 86400_000);
+      return {
+        status: "trialing",
+        trialStartedAt: now.toISOString(),
+        trialEndsAt: endsAt.toISOString()
+      };
+    }
+    return { status: "active", trialStartedAt: null, trialEndsAt: null };
   }
 
   private async markWorkspaceAssistantsConfigDirty(workspaceId: string): Promise<void> {

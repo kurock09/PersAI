@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - Trial plan lifecycle hardening (rollout-safe activations, auto-trialing, saveable trial drafts)
+
+### What changed
+
+1. `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts` no longer unconditionally calls `syncToolActivations(existingDefaultPlan.id)` on every API pod startup when the default plan is `starter_trial`. It now first counts existing `planCatalogToolActivation` rows for that plan and only runs the seed backfill when the plan has zero activations. Before this fix, every rollout silently rewrote operator edits in `/admin/plans` (for example turning off `image_generate`, resetting `web_search` daily limit to 30, turning off `exec`/`shell`) back to the hardcoded `STARTER_TRIAL_TOOL_POLICY` from `apps/api/prisma/tool-catalog-data.ts`.
+2. `apps/api/src/modules/workspace-management/application/manage-admin-workspace-subscription.service.ts` now injects `AssistantPlanCatalogRepository` and, inside a renamed `toSnapshotWithTrialDefaults` helper, looks the target plan up by code. When the plan has `isTrialPlan=true` with a positive `trialDurationDays`, and the admin/UI did not pass any of `status`/`trialStartedAt`/`trialEndsAt` explicitly, the service now auto-fills `status="trialing"`, `trialStartedAt=now`, and `trialEndsAt=now + trialDurationDays * 86400000` ms. If the admin passes any of those fields explicitly (including `trialStartedAt=null`), the explicit values win and the auto-default is disabled, so there is no regression for the long-form admin API path. Non-trial plans still resolve to `status="active"` with null trial dates.
+3. `apps/web/app/admin/plans/page.tsx` no longer lets an operator submit a plan with `trialEnabled=true` and `trialDurationDays=null`. Toggling the `Trial` checkbox on while the number field is empty now seeds `trialDurationDays=14` in one patch. The number input is highlighted red with an inline `required` hint whenever the value is empty or non-positive, and both `Save` / `Save changes` buttons are now disabled with an inline `Trial plan needs trialDurationDays > 0` message in the same row. Server-side `parseTrialDuration` in `manage-admin-plans.service.ts` is unchanged and still enforces the invariant; the new guard is purely a client-side fail-closed on the same rule so the operator never sees the generic "400 failed to save" path.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the `starter_trial` plan is no longer a moving target after every API deploy, operator-created trial plans no longer silently land as non-trialing active subscriptions on `/admin/ops > Apply workspace subscription`, and the plan editor no longer refuses to save trial plans because the number field was left blank.
+- **No longer live repo truth:** it is no longer true that "editing tool activations on `starter_trial` through `/admin/plans` is undone by the next `apps/api` rollout", or that "creating a new default trial plan and reassigning a legacy user to it leaves the user on an `active` subscription with no trial window", or that "checking Trial on a new plan draft and clicking Save returns a generic 400 that the operator cannot recover from without reading backend logs".
+- **Still not landed:** one real live-validation run on `persai.dev` where (a) a legacy user is moved from old `starter_trial` onto a freshly created trial plan through the admin UI and lands in `trialing` status with a concrete `trialEndsAt`, and (b) an operator-edited `starter_trial` tool activation survives a full pod rollout.
+
+### Current active slice
+
+- `Trial plan lifecycle hardening (rollout-safe activations, auto-trialing, saveable trial drafts)`
+
+### Current active step
+
+- `All three trial-path bugs are fixed in code with focused tests; the next honest step is to deploy, run one live end-to-end check (Reset workspace subscription -> Apply new trial plan -> confirm trialing+trialEndsAt; edit starter_trial activations -> rollout pod -> confirm they persist; create new plan with Trial toggled -> Save -> no 400), and only then claim the trial lifecycle is honest end-to-end`
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts`
+- `apps/api/src/modules/workspace-management/application/manage-admin-workspace-subscription.service.ts`
+- `apps/api/test/seed-tool-catalog.test.ts`
+- `apps/api/test/manage-admin-workspace-subscription.service.test.ts`
+- `apps/web/app/admin/plans/page.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/api lint`
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/web lint`
+- `corepack pnpm --filter @persai/web test`
+- `corepack pnpm format:check`
+
 ## 2026-04-20 - ADR-074 humanity-and-cost polish program accepted (no code yet)
 
 ### What changed

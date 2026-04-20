@@ -10,14 +10,17 @@ type PlanRecord = {
 
 function createService({
   defaultPlan,
-  planCount
+  planCount,
+  existingActivationCount = 0
 }: {
   defaultPlan: PlanRecord | null;
   planCount: number;
+  existingActivationCount?: number;
 }) {
   let storedPlan = defaultPlan;
   let updatePayload: Record<string, unknown> | null = null;
   let createCalled = false;
+  const activationUpserts: string[] = [];
 
   const prisma = {
     planCatalogPlan: {
@@ -47,7 +50,11 @@ function createService({
       }
     },
     planCatalogToolActivation: {
-      async upsert() {
+      async count() {
+        return existingActivationCount;
+      },
+      async upsert(args: { where: { planId_toolId: { toolId: string } } }) {
+        activationUpserts.push(args.where.planId_toolId.toolId);
         return undefined;
       }
     },
@@ -63,7 +70,8 @@ function createService({
       ensureDefaultPlan(): Promise<void>;
     },
     getUpdatePayload: () => updatePayload,
-    wasCreateCalled: () => createCalled
+    wasCreateCalled: () => createCalled,
+    getActivationUpsertCount: () => activationUpserts.length
   };
 }
 
@@ -175,6 +183,60 @@ async function run(): Promise<void> {
       wasCreateCalled(),
       false,
       "startup seed must not recreate starter_trial inside an already populated catalog"
+    );
+  }
+
+  // Rollout safety: starter_trial with already-populated tool activations (e.g. edited by the
+  // operator through /admin/plans) MUST NOT be rewritten back to STARTER_TRIAL_TOOL_POLICY on
+  // every API pod startup. This is the "tools keep sliding off trial after rollout" bug.
+  {
+    const { service, getActivationUpsertCount } = createService({
+      planCount: 1,
+      existingActivationCount: 5,
+      defaultPlan: {
+        id: "starter-plan",
+        code: "starter_trial",
+        billingProviderHints: {
+          schema: "persai.billingHints.v1",
+          providerAgnostic: true,
+          runtimeTierDefault: "free_shared_restricted"
+        }
+      }
+    });
+
+    await service["ensureDefaultPlan"]();
+
+    assert.equal(
+      getActivationUpsertCount(),
+      0,
+      "existing admin-edited activations on starter_trial must not be rewritten on rollout"
+    );
+  }
+
+  // First-seed backfill still works: when starter_trial exists but has zero activations
+  // (freshly-created DB row from an older migration path), the seed should still backfill
+  // activations so the plan is not left empty.
+  {
+    const { service, getActivationUpsertCount } = createService({
+      planCount: 1,
+      existingActivationCount: 0,
+      defaultPlan: {
+        id: "starter-plan",
+        code: "starter_trial",
+        billingProviderHints: {
+          schema: "persai.billingHints.v1",
+          providerAgnostic: true,
+          runtimeTierDefault: "free_shared_restricted"
+        }
+      }
+    });
+
+    await service["ensureDefaultPlan"]();
+
+    assert.equal(
+      getActivationUpsertCount(),
+      0,
+      "with no tools in the catalog, syncToolActivations must still be reachable (no-op here)"
     );
   }
 

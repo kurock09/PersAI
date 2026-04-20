@@ -3,6 +3,8 @@ import { ManageAdminWorkspaceSubscriptionService } from "../src/modules/workspac
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 import type { AssistantRepository } from "../src/modules/workspace-management/domain/assistant.repository";
 import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-management/domain/workspace-subscription.repository";
+import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
+import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 async function run(): Promise<void> {
@@ -10,6 +12,15 @@ async function run(): Promise<void> {
   const upserts: Array<{ workspaceId: string; planCode: string; status: string }> = [];
   const deletes: string[] = [];
   const dirtyWrites: string[] = [];
+
+  const planCatalogByCode: Record<
+    string,
+    Pick<AssistantPlanCatalog, "isTrialPlan" | "trialDurationDays">
+  > = {
+    starter_trial: { isTrialPlan: true, trialDurationDays: 14 },
+    pro: { isTrialPlan: false, trialDurationDays: null },
+    fresh_trial: { isTrialPlan: true, trialDurationDays: 7 }
+  };
 
   let currentSubscription = {
     id: "sub-1",
@@ -118,6 +129,27 @@ async function run(): Promise<void> {
       }
     } as WorkspaceSubscriptionRepository,
     {
+      async findByCode(code: string) {
+        const row = planCatalogByCode[code];
+        if (!row) return null;
+        return {
+          id: `plan-${code}`,
+          code,
+          displayName: code,
+          description: null,
+          status: "active",
+          billingProviderHints: null,
+          entitlementModel: null,
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: row.isTrialPlan,
+          trialDurationDays: row.trialDurationDays,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        } as AssistantPlanCatalog;
+      }
+    } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
+    {
       assistant: {
         async updateMany(args: { where: { workspaceId: string }; data: { configDirtyAt: Date } }) {
           assert.equal(args.where.workspaceId, "ws-1");
@@ -187,6 +219,55 @@ async function run(): Promise<void> {
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-2" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-3" }
   ]);
+
+  // Trial auto-default: when the admin passes only { planCode } and the plan is marked
+  // isTrialPlan=true with trialDurationDays > 0, the service must auto-fill
+  // status="trialing" and trialEndsAt = now + trialDurationDays instead of defaulting
+  // to status="active" with null trial windows.
+  const beforeTrial = Date.now();
+  const trialResult = await service.setWorkspaceSubscription(
+    "admin-1",
+    "user-1",
+    { planCode: "fresh_trial" },
+    "step-up-4"
+  );
+  const afterTrial = Date.now();
+  assert.equal(trialResult.changed, true);
+  assert.equal(currentSubscription?.planCode, "fresh_trial");
+  assert.equal(currentSubscription?.status, "trialing");
+  assert.ok(currentSubscription?.trialStartedAt instanceof Date);
+  assert.ok(currentSubscription?.trialEndsAt instanceof Date);
+  const startedAtMs = currentSubscription?.trialStartedAt?.getTime() ?? 0;
+  const endsAtMs = currentSubscription?.trialEndsAt?.getTime() ?? 0;
+  assert.ok(startedAtMs >= beforeTrial && startedAtMs <= afterTrial);
+  const sevenDaysMs = 7 * 86400_000;
+  assert.ok(Math.abs(endsAtMs - startedAtMs - sevenDaysMs) < 1000);
+
+  // Explicit admin override must still win over the auto-default: when the admin passes
+  // status/trial dates explicitly, the service must not silently overwrite them.
+  await service.resetWorkspaceSubscription("admin-1", "user-1", "step-up-5");
+  const explicit = await service.setWorkspaceSubscription(
+    "admin-1",
+    "user-1",
+    {
+      planCode: "fresh_trial",
+      status: "active",
+      trialStartedAt: null,
+      trialEndsAt: null
+    },
+    "step-up-6"
+  );
+  assert.equal(explicit.changed, true);
+  assert.equal(currentSubscription?.status, "active");
+  assert.equal(currentSubscription?.trialStartedAt, null);
+  assert.equal(currentSubscription?.trialEndsAt, null);
+
+  // Non-trial plan: one-click apply must still land status="active" with null trial dates.
+  await service.resetWorkspaceSubscription("admin-1", "user-1", "step-up-7");
+  await service.setWorkspaceSubscription("admin-1", "user-1", { planCode: "pro" }, "step-up-8");
+  assert.equal(currentSubscription?.status, "active");
+  assert.equal(currentSubscription?.trialStartedAt, null);
+  assert.equal(currentSubscription?.trialEndsAt, null);
 }
 
 void run();
