@@ -70,6 +70,11 @@ async function bootstrap(): Promise<void> {
   );
 
   await app.init();
+  // CRITICAL: drain the bootstrap log buffer started by `bufferLogs: true`. Without this,
+  // every `Logger.log()`/`.warn()` from any service stays buffered forever (because we use
+  // manual `app.init()` + `createServer + listen` instead of `app.listen()`, which would
+  // drain it for us). See docs/SESSION-HANDOFF.md "Web stream telemetry was invisible".
+  app.flushLogs();
 
   const publicServer = createServer(expressApp);
   await listen(publicServer, config.PORT);

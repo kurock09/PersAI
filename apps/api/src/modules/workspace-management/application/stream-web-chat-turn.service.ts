@@ -43,6 +43,11 @@ import {
   StreamNativeWebChatTurnService,
   type StreamNativeWebChatTurnInput
 } from "./stream-native-web-chat-turn.service";
+import {
+  createCadenceWatchdog,
+  DEFAULT_CADENCE_THRESHOLDS,
+  type CadenceWatchdogStallReport
+} from "./cadence-watchdog";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -82,6 +87,11 @@ const WEB_TURN_SURFACE_TYPE = "web_chat";
 const WEB_TURN_CLAIM_STALE_MS = 120_000;
 const WEB_TURN_REPLAY_WAIT_MS = 12_000;
 const WEB_TURN_REPLAY_POLL_MS = 250;
+/**
+ * Maximum number of times we will (re)open the runtime stream for a single web
+ * chat turn. The first attempt always counts; on stall we may attempt once more.
+ */
+const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
 
 function toAttachmentState(attachment: {
   id: string;
@@ -218,6 +228,14 @@ export class StreamWebChatTurnService {
         isError: boolean;
       }) => void;
       onDone: (respondedAt: string) => void;
+      /**
+       * Fired when the cadence watchdog has detected a stalled stream and we are
+       * about to abort the runtime call and retry. The client UI must clear any
+       * accumulated assistant text it has rendered for this turn so that the
+       * fresh deltas from the retry replace (rather than append to) the partial
+       * frozen output.
+       */
+      onStreamReset?: (payload: { reason: string; attempt: number }) => void;
       getSseWriterStatsSummary?: () => string | null;
     }
   ): Promise<StreamWebChatTurnOutcome> {
@@ -274,87 +292,95 @@ export class StreamWebChatTurnService {
     });
     const primaryRuntimeStartedAt = Date.now();
     let primaryFirstDeltaMs: number | null = null;
+    const stallReports: CadenceWatchdogStallReport[] = [];
+    let lastAttemptStatus: "completed" | "client-aborted" | "stalled" = "completed";
 
     try {
       trace.stage("runtime_stream_requested");
-      for await (const chunk of this.executeRuntimeStream({
-        nativeTurnInput,
-        traceEnabled,
-        ...(callbacks.clientAbortSignal === undefined
-          ? {}
-          : { signal: callbacks.clientAbortSignal })
-      })) {
-        if (callbacks.isClientAborted()) {
-          if (prepared.clientTurnId !== undefined) {
-            await this.bindingRepository.releaseWebTurnProcessing(
-              prepared.assistantId,
-              WEB_TURN_PROVIDER_KEY,
-              WEB_TURN_SURFACE_TYPE,
-              prepared.clientTurnId
-            );
-          }
-          trace.finish({
-            status: "interrupted",
-            outputPreview: accumulated
-          });
-          return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
+
+      for (let attempt = 1; attempt <= WEB_TURN_MAX_STREAM_ATTEMPTS; attempt++) {
+        const isLastAttempt = attempt === WEB_TURN_MAX_STREAM_ATTEMPTS;
+        const result = await this.streamRuntimeAttempt({
+          attempt,
+          isLastAttempt,
+          prepared,
+          nativeTurnInput,
+          traceEnabled,
+          cadenceState,
+          accumulatedSoFar: accumulated,
+          callbacks,
+          trace,
+          primaryRuntimeStartedAt,
+          primaryFirstDeltaMs,
+          onStallReport: (report) => stallReports.push(report)
+        });
+
+        accumulated = result.accumulated;
+        respondedAt = result.respondedAt;
+        turnRouting = result.turnRouting;
+        for (const m of result.collectedMedia) collectedMedia.push(m);
+        if (result.primaryFirstDeltaMs !== null) {
+          primaryFirstDeltaMs = result.primaryFirstDeltaMs;
+        }
+        lastAttemptStatus = result.status;
+
+        if (result.status === "completed" || result.status === "client-aborted") {
+          break;
         }
 
-        if (chunk.type === "delta" && typeof chunk.delta === "string") {
-          if (accumulated.length === 0) {
-            trace.stage("first_delta");
-          }
-          if (primaryFirstDeltaMs === null) {
-            primaryFirstDeltaMs = Date.now() - primaryRuntimeStartedAt;
-          }
-          if (cadenceState !== null) {
-            recordDeltaArrival(cadenceState);
-          }
-          accumulated += chunk.delta;
-          callbacks.onDelta(chunk.delta, accumulated);
+        // result.status === "stalled"
+        if (isLastAttempt) {
+          this.logger.warn(
+            this.composeWebStreamStallLogLine({
+              eventName: "web_stream_stall_unrecovered",
+              prepared,
+              attempt,
+              report: result.stallReport,
+              accumulatedLen: accumulated.length
+            })
+          );
+          break;
         }
 
-        if (
-          chunk.type === "thinking" &&
-          typeof chunk.delta === "string" &&
-          typeof chunk.accumulated === "string"
-        ) {
-          callbacks.onThinking(chunk.delta, chunk.accumulated);
+        // Decide whether to retry. Heavy-state turns (tools fired, media collected,
+        // or a runtime_done already received) are NOT retried - replaying them would
+        // duplicate side effects. We only retry "pure text response" stalls.
+        const safeToRetry =
+          result.toolEventCount === 0 && collectedMedia.length === 0 && respondedAt === null;
+        if (!safeToRetry) {
+          this.logger.warn(
+            this.composeWebStreamStallLogLine({
+              eventName: "web_stream_stall_unrecovered",
+              prepared,
+              attempt,
+              report: result.stallReport,
+              accumulatedLen: accumulated.length,
+              extraReason: "side_effects_present"
+            })
+          );
+          break;
         }
 
-        if (
-          chunk.type === "tool" &&
-          (chunk.toolPhase === "start" || chunk.toolPhase === "end") &&
-          typeof chunk.toolName === "string" &&
-          typeof chunk.toolCallId === "string"
-        ) {
-          if (cadenceState !== null) {
-            recordToolPhase(cadenceState, chunk.toolPhase);
-          }
-          callbacks.onTool?.({
-            phase: chunk.toolPhase,
-            toolName: chunk.toolName,
-            toolCallId: chunk.toolCallId,
-            isError: chunk.isError === true
-          });
-        }
-
-        if (chunk.type === "media" && Array.isArray(chunk.media)) {
-          collectedMedia.push(...chunk.media);
-        }
-
-        if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
-          respondedAt = chunk.respondedAt;
-          turnRouting = chunk.turnRouting ?? null;
-          if (chunk.runtimeTrace) {
-            trace.attachExternalTrace(chunk.runtimeTrace);
-          }
-          trace.stage("runtime_done");
-          callbacks.onDone(chunk.respondedAt);
-        }
+        this.logger.warn(
+          this.composeWebStreamStallLogLine({
+            eventName: "web_stream_stall_recovery_attempted",
+            prepared,
+            attempt,
+            report: result.stallReport,
+            accumulatedLen: accumulated.length
+          })
+        );
+        callbacks.onStreamReset?.({
+          reason: result.stallReport?.reason ?? "unknown",
+          attempt
+        });
+        accumulated = "";
+        respondedAt = null;
+        turnRouting = null;
+        primaryFirstDeltaMs = null;
       }
 
-      if (callbacks.isClientAborted()) {
+      if (callbacks.isClientAborted() || lastAttemptStatus === "client-aborted") {
         if (prepared.clientTurnId !== undefined) {
           await this.bindingRepository.releaseWebTurnProcessing(
             prepared.assistantId,
@@ -368,6 +394,22 @@ export class StreamWebChatTurnService {
           outputPreview: accumulated
         });
         return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
+      }
+
+      if (
+        stallReports.length > 0 &&
+        lastAttemptStatus === "completed" &&
+        accumulated.trim().length > 0
+      ) {
+        this.logger.warn(
+          this.composeWebStreamStallLogLine({
+            eventName: "web_stream_stall_recovered",
+            prepared,
+            attempt: stallReports.length + 1,
+            report: stallReports[stallReports.length - 1] ?? null,
+            accumulatedLen: accumulated.length
+          })
+        );
       }
 
       const cleanedAccumulated = accumulated.trim();
@@ -618,6 +660,244 @@ export class StreamWebChatTurnService {
       options.traceEnabled = true;
     }
     return this.streamNativeWebChatTurnService.execute(input.nativeTurnInput, options);
+  }
+
+  private async streamRuntimeAttempt(input: {
+    attempt: number;
+    isLastAttempt: boolean;
+    prepared: StreamWebChatTurnPrepared;
+    nativeTurnInput: StreamNativeWebChatTurnInput;
+    traceEnabled: boolean;
+    cadenceState: DeltaCadenceState | null;
+    accumulatedSoFar: string;
+    callbacks: {
+      isClientAborted: () => boolean;
+      clientAbortSignal?: AbortSignal;
+      onDelta: (delta: string, accumulated: string) => void;
+      onThinking: (delta: string, accumulated: string) => void;
+      onTool?: (payload: {
+        phase: "start" | "end";
+        toolName: string;
+        toolCallId: string;
+        isError: boolean;
+      }) => void;
+      onDone: (respondedAt: string) => void;
+    };
+    trace: OverviewLatencyTraceHandle;
+    primaryRuntimeStartedAt: number;
+    primaryFirstDeltaMs: number | null;
+    onStallReport: (report: CadenceWatchdogStallReport) => void;
+  }): Promise<{
+    status: "completed" | "client-aborted" | "stalled";
+    accumulated: string;
+    respondedAt: string | null;
+    turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
+    collectedMedia: RuntimeMediaArtifact[];
+    primaryFirstDeltaMs: number | null;
+    toolEventCount: number;
+    stallReport: CadenceWatchdogStallReport | null;
+  }> {
+    let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
+    let respondedAt: string | null = null;
+    let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
+    const collectedMedia: RuntimeMediaArtifact[] = [];
+    let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
+    let toolEventCount = 0;
+    let capturedStallReport: CadenceWatchdogStallReport | null = null;
+
+    const internalAbort = new AbortController();
+    const watchdog = createCadenceWatchdog(DEFAULT_CADENCE_THRESHOLDS, (report) => {
+      capturedStallReport = report;
+      input.onStallReport(report);
+      this.logger.warn(
+        this.composeWebStreamStallLogLine({
+          eventName: "web_stream_stall_detected",
+          prepared: input.prepared,
+          attempt: input.attempt,
+          report,
+          accumulatedLen: accumulated.length
+        })
+      );
+      // Aborting the runtime fetch makes the for-await loop throw an AbortError
+      // which we catch below and translate into a "stalled" outcome.
+      internalAbort.abort();
+    });
+
+    const combinedSignal = combineAbortSignals([
+      input.callbacks.clientAbortSignal,
+      internalAbort.signal
+    ]);
+
+    watchdog.arm();
+    try {
+      for await (const chunk of this.executeRuntimeStream({
+        nativeTurnInput: input.nativeTurnInput,
+        traceEnabled: input.traceEnabled,
+        ...(combinedSignal === undefined ? {} : { signal: combinedSignal })
+      })) {
+        if (input.callbacks.isClientAborted()) {
+          return {
+            status: "client-aborted",
+            accumulated,
+            respondedAt,
+            turnRouting,
+            collectedMedia,
+            primaryFirstDeltaMs,
+            toolEventCount,
+            stallReport: capturedStallReport
+          };
+        }
+
+        if (chunk.type === "delta" && typeof chunk.delta === "string") {
+          if (accumulated.length === 0 && input.attempt === 1) {
+            input.trace.stage("first_delta");
+          }
+          if (primaryFirstDeltaMs === null) {
+            primaryFirstDeltaMs = Date.now() - input.primaryRuntimeStartedAt;
+          }
+          if (input.cadenceState !== null) {
+            recordDeltaArrival(input.cadenceState);
+          }
+          watchdog.recordDelta();
+          accumulated += chunk.delta;
+          input.callbacks.onDelta(chunk.delta, accumulated);
+        }
+
+        if (
+          chunk.type === "thinking" &&
+          typeof chunk.delta === "string" &&
+          typeof chunk.accumulated === "string"
+        ) {
+          input.callbacks.onThinking(chunk.delta, chunk.accumulated);
+        }
+
+        if (
+          chunk.type === "tool" &&
+          (chunk.toolPhase === "start" || chunk.toolPhase === "end") &&
+          typeof chunk.toolName === "string" &&
+          typeof chunk.toolCallId === "string"
+        ) {
+          toolEventCount += 1;
+          if (input.cadenceState !== null) {
+            recordToolPhase(input.cadenceState, chunk.toolPhase);
+          }
+          input.callbacks.onTool?.({
+            phase: chunk.toolPhase,
+            toolName: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+            isError: chunk.isError === true
+          });
+        }
+
+        if (chunk.type === "media" && Array.isArray(chunk.media)) {
+          collectedMedia.push(...chunk.media);
+        }
+
+        if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
+          respondedAt = chunk.respondedAt;
+          turnRouting = chunk.turnRouting ?? null;
+          if (chunk.runtimeTrace) {
+            input.trace.attachExternalTrace(chunk.runtimeTrace);
+          }
+          input.trace.stage("runtime_done");
+          input.callbacks.onDone(chunk.respondedAt);
+        }
+      }
+    } catch (error) {
+      // If the abort came from our internal watchdog (and not the client), this
+      // is a stall, not a real error. Propagate everything else upward so the
+      // outer `try/catch` in `streamToCompletion` can persist a partial state
+      // and emit `web_stream_timing_failed`.
+      if (
+        watchdog.hasStalled() &&
+        internalAbort.signal.aborted &&
+        !input.callbacks.isClientAborted() &&
+        isAbortLikeError(error)
+      ) {
+        return {
+          status: "stalled",
+          accumulated,
+          respondedAt,
+          turnRouting,
+          collectedMedia,
+          primaryFirstDeltaMs,
+          toolEventCount,
+          stallReport: capturedStallReport
+        };
+      }
+      throw error;
+    } finally {
+      watchdog.dispose();
+    }
+
+    if (input.callbacks.isClientAborted()) {
+      return {
+        status: "client-aborted",
+        accumulated,
+        respondedAt,
+        turnRouting,
+        collectedMedia,
+        primaryFirstDeltaMs,
+        toolEventCount,
+        stallReport: capturedStallReport
+      };
+    }
+
+    if (watchdog.hasStalled() && !input.isLastAttempt) {
+      // Watchdog fired right as the stream cleanly finished; treat as completion
+      // unless the result is unusable (caller checks accumulated emptiness).
+      return {
+        status: "completed",
+        accumulated,
+        respondedAt,
+        turnRouting,
+        collectedMedia,
+        primaryFirstDeltaMs,
+        toolEventCount,
+        stallReport: capturedStallReport
+      };
+    }
+
+    return {
+      status: "completed",
+      accumulated,
+      respondedAt,
+      turnRouting,
+      collectedMedia,
+      primaryFirstDeltaMs,
+      toolEventCount,
+      stallReport: capturedStallReport
+    };
+  }
+
+  private composeWebStreamStallLogLine(input: {
+    eventName:
+      | "web_stream_stall_detected"
+      | "web_stream_stall_recovery_attempted"
+      | "web_stream_stall_recovered"
+      | "web_stream_stall_unrecovered";
+    prepared: StreamWebChatTurnPrepared;
+    attempt: number;
+    report: CadenceWatchdogStallReport | null;
+    accumulatedLen: number;
+    extraReason?: string;
+  }): string {
+    const reason = input.report?.reason ?? "unknown";
+    const silent = input.report?.silentMs === undefined ? "n/a" : String(input.report.silentMs);
+    const avg =
+      input.report?.rollingAvgMs === undefined ? "n/a" : String(input.report.rollingAvgMs);
+    const window =
+      input.report?.rollingWindow === undefined ? "n/a" : String(input.report.rollingWindow);
+    const observed = input.report?.observedGaps ?? 0;
+    const extra = input.extraReason === undefined ? "" : ` extraReason=${input.extraReason}`;
+    return (
+      `${input.eventName} assistantId=${input.prepared.assistantId} ` +
+      `threadKey=${input.prepared.chat.surfaceThreadKey} ` +
+      `clientTurnId=${input.prepared.clientTurnId ?? "n/a"} ` +
+      `attempt=${input.attempt} reason=${reason} silentMs=${silent} ` +
+      `rollingAvgMs=${avg} rollingWindow=${window} observedGaps=${String(observed)} ` +
+      `accumulatedLen=${String(input.accumulatedLen)}${extra}`
+    );
   }
 
   private composeWebStreamTimingLogLine(input: {
@@ -919,6 +1199,43 @@ function formatDeltaCadence(state: DeltaCadenceState): string {
     `postToolFirstDeltaCount=${String(postTool.count)}`,
     `postToolFirstDeltaMaxMs=${String(postTool.maxMs)}`
   ].join(" ");
+}
+
+function combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+  const live = signals.filter((s): s is AbortSignal => s !== undefined);
+  if (live.length === 0) return undefined;
+  if (live.length === 1) return live[0];
+  const controller = new AbortController();
+  const onAbort = (event: Event): void => {
+    const reason = (event.target as AbortSignal | null)?.reason;
+    controller.abort(reason);
+  };
+  for (const s of live) {
+    if (s.aborted) {
+      controller.abort(s.reason);
+      break;
+    }
+    s.addEventListener("abort", onAbort, { once: true });
+  }
+  return controller.signal;
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  const e = error as { name?: unknown; code?: unknown; message?: unknown };
+  if (typeof e.name === "string" && (e.name === "AbortError" || e.name === "AbortException")) {
+    return true;
+  }
+  if (typeof e.code === "string" && (e.code === "ABORT_ERR" || e.code === "ECONNRESET")) {
+    return true;
+  }
+  if (
+    typeof e.message === "string" &&
+    /\babort(ed)?\b|operation was aborted|terminated/i.test(e.message)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function summarizeSamples(samplesMs: number[]): {

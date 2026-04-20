@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - Web stream cadence watchdog + one safe retry + API logger flush fix
+
+### What changed
+
+1. `apps/api/src/main.ts` now calls `app.flushLogs()` immediately after `app.init()`. The API bootstraps with `bufferLogs: true` and then uses `app.init()` + manual `createServer().listen()` instead of `app.listen()`. `app.listen()` would normally drain the bootstrap log buffer for us; `app.init()` does not. As a result, every `Logger.log/.warn/.error` call from `StreamWebChatTurnService`, `StreamNativeWebChatTurnService`, and friends (including the new `web_stream_timing` slow-motion telemetry from the previous slice) was buffered forever and never reached `apps/api` pod stdout. Only the global request-completion middleware was visible. This fix unblocks the entire web-stream observability surface in production.
+2. `apps/api/src/modules/workspace-management/application/cadence-watchdog.ts` (new) introduces a small `createCadenceWatchdog` helper with `arm()`, `recordDelta()`, `dispose()`, and a single `onStall` callback. It detects two stall shapes during a live web stream: a hard `silent` gap (no deltas for `silentMs` after arming or after the last delta) and a `slow_avg` shape (rolling average of the last `avgWindow` inter-delta gaps exceeds `avgThresholdMs` once at least `avgMinSamples` deltas have been observed). Defaults are `silentMs=8000`, `avgWindow=12`, `avgThresholdMs=220`, `avgMinSamples=8`. The watchdog fires at most once per arm, swallows callback errors, and clears its timer on dispose.
+3. `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` now drives one provider-stream attempt at a time through a new private `streamRuntimeAttempt` method inside a bounded retry loop (`WEB_TURN_MAX_STREAM_ATTEMPTS=2`). Each attempt instantiates the watchdog, combines the inbound `clientAbortSignal` with an internal abort controller, calls `watchdog.recordDelta()` on every text delta, and aborts the in-flight runtime stream when the watchdog fires. The retry path is only taken when no side effects have happened yet (no tool starts/ends, no media collected); otherwise the stall is logged as `web_stream_stall_unrecovered` and the partial output is preserved. When a retry is taken, the controller is notified via a new `onStreamReset` callback so the client can be told. Structured stall log lines (`web_stream_stall_detected`, `web_stream_stall_attempted`, `web_stream_stall_recovered`, `web_stream_stall_unrecovered`) are emitted regardless of the `/admin` Trace toggle, since stall detection is critical even when the rich `web_stream_timing` line is off.
+4. `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` now wires an `onStreamReset: ({ reason, attempt }) => sendSse("stream_reset", { reason, attempt })` callback into the streaming web-chat call, so the client gets a real SSE event instead of a silent re-stream.
+5. `apps/web/app/app/assistant-api-client.ts` now recognizes the new `stream_reset` SSE event in `toStreamEvent`, declares it in `WebChatStreamEvent`, and dispatches `handlers.onStreamReset({ reason, attempt })` from `handleStreamEvent`.
+6. `apps/web/app/app/_components/use-chat.ts` now handles `onStreamReset` for both the welcome turn and the normal chat turn: it cancels any buffered animation flush, resets `pendingDelta.text` (and `pendingThought.text` for the main turn), and clears the assistant message body in React state so the user sees the partial slow stream replaced by the retried output instead of a silent hang or a duplicated tail.
+7. `apps/api/test/cadence-watchdog.test.ts` (new) locks the watchdog contract with a deterministic fake clock: silent stall after `silentMs`, delta arrival resets the silent timer, healthy cadence does not trigger `slow_avg`, the rolling average correctly waits for `avgMinSamples` before firing, the watchdog fires only once per arm, dispose stops timers, and callback errors are swallowed.
+8. `apps/api/test/stream-web-chat-turn.service.test.ts` had a pre-existing regex bug where `web_stream_timing[^\n]*` was matching the test reporter's own output line (the test name itself contained `web_stream_timing`) instead of the actual log call. The test was passing accidentally before. The regex is now `web_stream_timing assistantId=[^\n]*` so it only matches the real structured log line.
+
+### Code-based truth summary
+
+- **Landed in this slice:** the web stream path is no longer silently hostile when OpenAI temporarily slows down. Pre-tool stalls are auto-retried once with a visible client-side reset; mid/post-tool stalls are honestly preserved with structured log lines so they can still be diagnosed. At the same time, the `apps/api` Logger output reaches stdout in production, which means the previous slice's `web_stream_timing` cadence/backpressure telemetry is finally observable end-to-end.
+- **No longer live repo truth:** an intermittent OpenAI cadence dip in the first few hundred ms of a turn no longer forces the user to sit through a 30s+ slow-motion stream before falling back to manual retry, and the `apps/api` pod no longer hides the structured streaming-telemetry lines that the rest of the chain (`runtime`, `provider-gateway`) was already exposing.
+- **Still not landed:** one captured live `stream_reset` event on `persai.dev` proving the watchdog actually fired and the client recovered cleanly, plus deciding whether the default thresholds (`silentMs=8000`, `avgThresholdMs=220` over a 12-sample window) should be tuned after the first real production reproduction.
+
+### Current active slice
+
+- `Web stream cadence watchdog + one safe retry + API logger flush fix`
+
+### Current active step
+
+- `Local code path for stall detection, abort/retry, SSE stream_reset, and client text reset is in place plus typecheck/lint/format/tests are green; the next honest step is to deploy, watch for a real intermittent slow-stream turn on persai.dev, confirm a stream_reset round-trips end-to-end, and then tune the watchdog thresholds against the first production hit instead of more local-only design`
+
+### Files touched
+
+- `apps/api/src/main.ts`
+- `apps/api/src/modules/workspace-management/application/cadence-watchdog.ts` (new)
+- `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`
+- `apps/api/test/cadence-watchdog.test.ts` (new)
+- `apps/api/test/stream-web-chat-turn.service.test.ts`
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification run
+
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/api lint`
+- `corepack pnpm --filter @persai/web typecheck`
+- `corepack pnpm --filter @persai/web test`
+- `corepack pnpm format:check`
+
 ## 2026-04-20 - Web stream slow-motion telemetry behind admin Trace toggle
 
 ### What changed

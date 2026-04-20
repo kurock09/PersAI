@@ -971,6 +971,9 @@ export class AssistantController {
         onDone: (respondedAt) => {
           sendSse("runtime_done", { respondedAt });
         },
+        onStreamReset: ({ reason, attempt }) => {
+          sendSse("stream_reset", { reason, attempt });
+        },
         getSseWriterStatsSummary: () =>
           prepared.traceHandle?.isEnabled() === true ? sseWriterInstrumentation.formatStats() : null
       });

@@ -647,6 +647,14 @@ export function useChat(threadKey: string): UseChatReturn {
                 pendingDelta.raf = requestAnimationFrame(flushDelta);
               }
             },
+            onStreamReset: () => {
+              cancelBufferedAssistantFlush();
+              pendingDelta.text = "";
+              pendingThought.text = "";
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
+              );
+            },
             onTool: ({ phase, toolName, isError }) => {
               flushBufferedAssistantState(true);
               setLiveActivitiesByMessageId((prev) => ({
@@ -977,6 +985,13 @@ export function useChat(threadKey: string): UseChatReturn {
               if (!pendingDelta.raf) {
                 pendingDelta.raf = requestAnimationFrame(flushDelta);
               }
+            },
+            onStreamReset: () => {
+              cancelBufferedAssistantFlush();
+              pendingDelta.text = "";
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
+              );
             },
             onRuntimeDone: ({ respondedAt }) => {
               flushBufferedAssistantState(true);

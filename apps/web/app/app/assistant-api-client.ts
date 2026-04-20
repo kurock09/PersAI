@@ -195,6 +195,7 @@ type WebChatStreamEvent =
       data: { phase: "start" | "end"; completed: boolean; willRetry: boolean };
     }
   | { event: "runtime_done"; data: { respondedAt: string } }
+  | { event: "stream_reset"; data: { reason: string; attempt: number } }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
   | { event: "failed"; data: { code?: string; message: string; transport: unknown } };
@@ -228,6 +229,7 @@ export interface AssistantWebChatStreamHandlers {
     willRetry: boolean;
   }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
+  onStreamReset?: (payload: { reason: string; attempt: number }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
   onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
@@ -752,6 +754,11 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
     }
     return { event: "runtime_done", data: { respondedAt: body.respondedAt } };
   }
+  if (eventName === "stream_reset") {
+    const reason = typeof body.reason === "string" ? body.reason : "unknown";
+    const attempt = typeof body.attempt === "number" ? body.attempt : 0;
+    return { event: "stream_reset", data: { reason, attempt } };
+  }
   if (eventName === "compaction") {
     if (
       (body.phase !== "start" && body.phase !== "end") ||
@@ -900,6 +907,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onCompaction?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {
       handlers.onRuntimeDone?.(streamEvent.data);
+    } else if (streamEvent.event === "stream_reset") {
+      handlers.onStreamReset?.(streamEvent.data);
     } else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);

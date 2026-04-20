@@ -813,7 +813,7 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(outcome.status, "completed");
     });
 
-    const matched = captured.match(/web_stream_timing[^\n]*/);
+    const matched = captured.match(/web_stream_timing assistantId=[^\n]*/);
     assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
     const line = matched[0];
     assert.match(line, /toolStarts=1/);
@@ -843,7 +843,7 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(outcome.status, "completed");
     });
 
-    const matched = captured.match(/web_stream_timing[^\n]*/);
+    const matched = captured.match(/web_stream_timing assistantId=[^\n]*/);
     assert.ok(matched, `expected web_stream_timing log line in captured stdout: ${captured}`);
     const line = matched[0];
     assert.doesNotMatch(line, /toolStarts=/);
