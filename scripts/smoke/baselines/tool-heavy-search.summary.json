@@ -1,9 +1,9 @@
 {
   "scenarioId": "tool-heavy-search",
-  "scenarioTitle": "Tool-heavy вЂ” РїРѕРёСЃРє СЃ СЃСЃС‹Р»РєР°РјРё Рё РѕРїРёСЃР°РЅРёРµРј",
-  "startedAt": "2026-04-20T18:32:53.369Z",
-  "finishedAt": "2026-04-20T18:34:47.096Z",
-  "totalDurationMs": 113727,
+  "scenarioTitle": "Tool-heavy — поиск с ссылками и описанием",
+  "startedAt": "2026-04-20T20:13:22.745Z",
+  "finishedAt": "2026-04-20T20:14:57.565Z",
+  "totalDurationMs": 94820,
   "totals": {
     "turns": 5,
     "succeeded": 5,
@@ -12,13 +12,23 @@
     "receiptsMissing": 0
   },
   "tokens": {
-    "totalInputTokens": 165699,
-    "totalCachedInputTokens": 104960,
-    "totalOutputTokens": 2305,
-    "totalTokens": 168004,
-    "averagePerTurn": 33601
+    "totalInputTokens": 98834,
+    "totalCachedInputTokens": 76800,
+    "totalOutputTokens": 1553,
+    "totalTokens": 100387,
+    "averagePerTurn": 20077
   },
-  "toolCalls": [],
+  "toolCalls": [
+    {
+      "toolCode": "web_search",
+      "count": 6
+    },
+    {
+      "toolCode": "web_fetch",
+      "count": 4
+    }
+  ],
+  "toolCallsSource": "tool_invocations",
   "routing": {
     "modes": {
       "active": 5
@@ -29,9 +39,9 @@
   },
   "autoCompactionTriggers": 0,
   "latencyMs": {
-    "p50": 13390,
-    "p95": 30911,
-    "p99": 30911,
-    "max": 30911
+    "p50": 11857,
+    "p95": 25143,
+    "p99": 25143,
+    "max": 25143
   }
 }

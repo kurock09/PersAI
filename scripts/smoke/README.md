@@ -2,7 +2,7 @@
 
 CLI инструмент для прогонов сценариев `web_sync` / `web_stream` против реального
 `apps/api` и сбора **объективных** метрик из `runtime_turn_receipts` (token usage,
-tool calls, routing mode, auto-compaction).
+tool calls, `toolCallsSource`, routing mode, auto-compaction).
 
 Этот пакет — фундамент для всех последующих slices ADR-074: до и после изменения
 сравниваем `summary.json` против baselines и видим прирост/регресс по токенам,
@@ -21,6 +21,7 @@ tool-loop'ам и латентности.
 4. Поллит **внутренний** эндпоинт `/api/v1/internal/smoke/turn-receipts?assistantId=...&afterCursor=...` на `SMOKE_API_INTERNAL_BASE_URL` (по умолчанию `http://127.0.0.1:3002`, защищён `PERSAI_INTERNAL_API_TOKEN`), пока для нашего `externalThreadKey` (== `surfaceThreadKey`) не появится receipt со статусом `≠ accepted`. Корреляция по `externalThreadKey + createdAt > afterCursor` детерминистична, потому что harness шлёт ходы по треду строго последовательно. HTTP-level `requestId`, который возвращает публичный chat-эндпойнт, — это **tracing id**, не `runtime_turn_receipts.requestId`, поэтому им сопоставлять нельзя (см. ADR-074 Slice S0 deltas).
 5. Складывает `trace.json` (полный per-turn raw) и `summary.json` (агрегаты) в `scripts/smoke/artifacts/<runId>/`.
 6. Если в `scripts/smoke/baselines/<id>.summary.json` есть baseline — печатает дельту по токенам, латентности, tool-counts, успехам/фейлам.
+7. Для tools сначала читает `receipt.toolInvocations[]` и помечает источник как `toolCallsSource=tool_invocations`; если receipt старого формата и знает только `usage.entries[].toolCode`, делает fallback `toolCallsSource=usage_entries` (billable-only).
 
 ## Структура
 
@@ -38,6 +39,17 @@ scripts/smoke/
 ├── baselines/                   # *.summary.json (создаются --update-baseline)
 └── artifacts/                   # gitignored, выход прогонов
 ```
+
+## Tool accounting и UTF-8
+
+`usageAccounting.entries[].toolCode` недостаточно для smoke-правды: он видит только
+billable tool-entries и может пропускать inline-вызовы (`web_search`, `web_fetch` и т.п.).
+Поэтому актуальный S0-контракт опирается на `RuntimeTurnResult.toolInvocations[]`, а
+`summary.json` / `trace.json` / `console.txt` показывают ещё и `toolCallsSource`.
+
+Сценарии в `scripts/smoke/scenarios/*.json` держим в **UTF-8**. Русский текст должен
+лежать в файлах напрямую, без `\\uXXXX`-эскейпов и без пересохранения в ANSI/cp1251:
+иначе smoke может породить mojibake в живом чате.
 
 ## Pacing и rate-limit
 
@@ -87,7 +99,7 @@ pnpm smoke:run --scenario onboarding --thread-suffix s0-2026-04-20
 ```
 scripts/smoke/artifacts/onboarding-2026-04-20T12-00-00-000Z/
 ├── trace.json     # полный per-turn raw (request, response text, receipt)
-├── summary.json   # агрегаты (tokens, latency p50/p95/p99, tool counts, routing, auto-compaction)
+├── summary.json   # агрегаты (tokens, latency p50/p95/p99, tool counts + source, routing, auto-compaction)
 └── console.txt    # человекочитаемый лог + baseline diff
 ```
 

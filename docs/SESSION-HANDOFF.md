@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-04-20 - ADR-074 Slice S0 finish-up — UTF-8 smoke scenarios and clean re-baselines
+
+### What changed
+
+1. `scripts/smoke/scenarios/*.json` were normalized back to clean UTF-8. Russian starter prompts/titles/descriptions are now stored literally again, so smoke no longer seeds mojibake into fresh live chats just because a scenario file was re-saved through the wrong Windows encoding.
+2. Live smoke was re-run sequentially against `persai-dev` with public traffic going through `https://persai.dev` and internal receipt polling still using `SMOKE_API_INTERNAL_BASE_URL` on `3002`. This refreshed the previously dirty baselines for `chitchat-short` and `tool-heavy-search` with green `ok=N failed=0` runs.
+3. `tool-heavy-search` now reflects the real tool picture in smoke artifacts: the current green baseline reports `web_fetch=6`, `web_search=5`, `knowledge_search=4` rather than the old false `<none>`, because the harness/docs now treat `toolInvocations` as the primary source of truth and make the source explicit through `toolCallsSource`.
+4. `docs/ADR/074-humanity-and-cost-polish-program.md`, `scripts/smoke/README.md`, and `docs/CHANGELOG.md` were synced to the live S0 contract: UTF-8-only scenario edits, `toolInvocations`-first accounting, and honest operator guidance for future slices.
+
+### Code-based truth summary
+
+- **Landed in this finish-up:** the smoke starter scenarios are clean UTF-8 again, the two previously noisy live baselines were re-recorded green, and the docs now say plainly that `toolCallsSource=tool_invocations` is the preferred path while `usage_entries` is only a backward-compat fallback.
+- **No longer live repo truth:** it is no longer true that `tool-heavy-search` has a meaningful `Tools: <none>` baseline. The live baseline now shows actual inline/search tool usage.
+- **Still not landed:** no extra automation was added to scrub already-persisted old mojibake chats from storage; this finish-up only prevents fresh smoke runs from writing new corrupted prompts.
+
+### Current active slice
+
+- `ADR-074 Slice S0 — smoke harness foundation`
+
+### Current active step
+
+- `S0 is closed. The next honest step is Slice P1 (stable prefix engineering), using the committed smoke baselines — especially chitchat-short, long-session-200, and tool-heavy-search — as the before-side measurement for token and tool-loop deltas`
+
+### Files touched
+
+- `scripts/smoke/scenarios/chitchat-short.json`
+- `scripts/smoke/scenarios/emotional-long.json`
+- `scripts/smoke/scenarios/long-session-200.json`
+- `scripts/smoke/scenarios/multi-session-continuity.json`
+- `scripts/smoke/scenarios/onboarding.json`
+- `scripts/smoke/scenarios/tool-heavy-search.json`
+- `scripts/smoke/baselines/chitchat-short.summary.json`
+- `scripts/smoke/baselines/tool-heavy-search.summary.json`
+- `scripts/smoke/README.md`
+- `docs/ADR/074-humanity-and-cost-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Verification
+
+- `corepack pnpm smoke:run --scenario chitchat-short --update-baseline` with `SMOKE_API_BASE_URL=https://persai.dev`
+- `corepack pnpm smoke:run --scenario tool-heavy-search --update-baseline` with `SMOKE_API_BASE_URL=https://persai.dev`
+
+---
+
 ## 2026-04-20 - ADR-074 Slice S0 — smoke harness goes green on persai-dev
 
 ### What changed

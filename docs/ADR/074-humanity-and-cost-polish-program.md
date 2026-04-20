@@ -57,18 +57,18 @@ The only acceptable kind of "switch" in ADR-074 slices is plan-policy-driven con
 
 The interview yielded the following bound decisions. Each decision is implemented by one or more slices listed in the next section.
 
-| # | Topic | Decision | Slice(s) | Deferred to |
-|---|---|---|---|---|
-| Q4 | Durable memory injection | Core (~10–15 facts always) + relevance-retrieved tail | M1 | — |
-| Q5 | Long-session compaction | Rolling synopsis + verbatim recent window + auto-extract to memory | M2 | (no user-visible C — magic) |
-| Q6 | Cross-session continuity | Open-loops always + last-session synopsis (TTL 7 days) | M3 | — |
-| Q7 | Time awareness + proactive push | Phased: time/safeguards then multichannel | T1, T2 | T3 (web push) |
-| Q8 | Turn routing | Keep current precheck + classifier on ambiguity | (no slice) | (sticky-routing C dropped) |
-| Q9 | Tool loop limits | Adaptive per mode + per-tool hard caps | L1 | — |
-| Q10 | Round-trip reduction | Smart budgets + parallel calls + compound tools (with discipline) | R1, R2, R3 | — |
-| Q11 | Smoke harness | Scenario catalog + JSON report + diff mode + agent-runnable | S0 | LLM-judge layer (Q11-C) |
-| Q12 | Stable prefix / cache | Heartbeat to tail, routing to developer message, drop tools markdown duplication | P1 | Multi-level cache key (Q12-C) |
-| Q13 | Persona quality | Voice DNA scaffold + 3–4 archetypes | V1 | Living USER.md (Q13-C) |
+| #   | Topic                           | Decision                                                                         | Slice(s)   | Deferred to                   |
+| --- | ------------------------------- | -------------------------------------------------------------------------------- | ---------- | ----------------------------- |
+| Q4  | Durable memory injection        | Core (~10–15 facts always) + relevance-retrieved tail                            | M1         | —                             |
+| Q5  | Long-session compaction         | Rolling synopsis + verbatim recent window + auto-extract to memory               | M2         | (no user-visible C — magic)   |
+| Q6  | Cross-session continuity        | Open-loops always + last-session synopsis (TTL 7 days)                           | M3         | —                             |
+| Q7  | Time awareness + proactive push | Phased: time/safeguards then multichannel                                        | T1, T2     | T3 (web push)                 |
+| Q8  | Turn routing                    | Keep current precheck + classifier on ambiguity                                  | (no slice) | (sticky-routing C dropped)    |
+| Q9  | Tool loop limits                | Adaptive per mode + per-tool hard caps                                           | L1         | —                             |
+| Q10 | Round-trip reduction            | Smart budgets + parallel calls + compound tools (with discipline)                | R1, R2, R3 | —                             |
+| Q11 | Smoke harness                   | Scenario catalog + JSON report + diff mode + agent-runnable                      | S0         | LLM-judge layer (Q11-C)       |
+| Q12 | Stable prefix / cache           | Heartbeat to tail, routing to developer message, drop tools markdown duplication | P1         | Multi-level cache key (Q12-C) |
+| Q13 | Persona quality                 | Voice DNA scaffold + 3–4 archetypes                                              | V1         | Living USER.md (Q13-C)        |
 
 ## Slice catalog
 
@@ -134,7 +134,8 @@ S0 was implemented and validated end-to-end against `persai-dev`. All six starte
 - **Receipt correlation:** the harness does **not** correlate by `requestId`. The HTTP-level `requestId` returned by the public chat endpoint is a tracing id, not the value persisted on `runtime_turn_receipts.requestId`. Correlation runs through `/api/v1/internal/smoke/turn-receipts?assistantId=...&afterCursor=...` filtered by `externalThreadKey == surfaceThreadKey` with a `now − 1s` cursor captured before send. This is unambiguous because the harness sends turns sequentially per thread, and it is the contract every later slice (P1/M1/M2/V1/L1/R1/R2/R3) must rely on.
 - **Internal endpoint listener split:** the internal smoke-receipts route is served only on `API_INTERNAL_PORT=3002` (`svc/api-internal`), enforced by `routeByListenerPort` middleware in `apps/api/src/main.ts`. Live-dev runs require **two** port-forwards (`svc/api 3001:3001` and `svc/api-internal 3002:3002`), driven by `SMOKE_API_BASE_URL` (default `http://127.0.0.1:3001`) and `SMOKE_API_INTERNAL_BASE_URL` (default `http://127.0.0.1:3002`).
 - **Pacing:** every starter scenario uses `defaultThinkAfterMs: 8000` and `harness.ts` honors it (skipping the pause after the last turn of each session). This keeps user-perceived traffic at ≤ ~5.4 turns/min, safely under dev's `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8`. Slices that need to push faster must lift the limit at the workspace level rather than shorten the harness pause.
-- **Live readability of `tool-heavy-search`:** the first baseline shows the model not actually invoking `web_search`/`web_fetch` for the seeded prompts. This is captured as a real baseline observation, not a harness bug. R1/R2/R3 will revisit prompt shape and tool selection from this same scenario.
+- **Tool-call accounting:** smoke tool counts now prefer `RuntimeTurnResult.toolInvocations[]`, surfaced through receipts as `toolCallsSource=tool_invocations`, and only fall back to billable `usage.entries[].toolCode` when invocation data is absent. This closes the earlier blind spot where inline tools such as `web_search` / `web_fetch` could execute in real chats but still show up as `Tools: <none>` in `tool-heavy-search`.
+- **Scenario encoding:** starter JSON scenarios are canonical UTF-8 files and may contain Cyrillic text directly. Keep edits in UTF-8; do not round-trip them through ANSI / cp1251, or the browser transcript will show mojibake in user bubbles during smoke runs.
 
 Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the cross-link from `docs/LIVE-TEST-HYBRID.md` "Smoke harness (ADR-074)" section is the canonical entry point for live-dev runs). Later slices in this ADR (P1/V1/M1/M2/M3/T1/T2/L1/R1/R2/R3) must read those two documents instead of re-reading the original plan text above when wiring acceptance commands.
 
@@ -457,7 +458,7 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 ### Slice L1 — Adaptive tool loop limits per execution mode
 
-- **Goal:** Replace the universal 4-step tool loop limit with mode-aware limits (normal: 2, premium: 4, reasoning: 8) and per-tool hard caps (web_fetch ≤5, web_search ≤3, image/video ≤1, memory_*/compact: unlimited).
+- **Goal:** Replace the universal 4-step tool loop limit with mode-aware limits (normal: 2, premium: 4, reasoning: 8) and per-tool hard caps (web*fetch ≤5, web_search ≤3, image/video ≤1, memory*\*/compact: unlimited).
 - **Founder anchor:** Principle 3 (tune, don't rebuild). From Q9-C part 1.
 
 **Touch points:**

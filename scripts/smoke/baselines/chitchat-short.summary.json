@@ -1,9 +1,9 @@
 {
   "scenarioId": "chitchat-short",
-  "scenarioTitle": "Chit-chat вЂ” РєРѕСЂРѕС‚РєРёРµ Р±С‹С‚РѕРІС‹Рµ СЂРµРїР»РёРєРё",
-  "startedAt": "2026-04-20T18:09:35.759Z",
-  "finishedAt": "2026-04-20T18:11:30.278Z",
-  "totalDurationMs": 114519,
+  "scenarioTitle": "Chit-chat — короткие бытовые реплики",
+  "startedAt": "2026-04-20T20:11:36.961Z",
+  "finishedAt": "2026-04-20T20:13:03.012Z",
+  "totalDurationMs": 86051,
   "totals": {
     "turns": 8,
     "succeeded": 8,
@@ -12,13 +12,14 @@
     "receiptsMissing": 0
   },
   "tokens": {
-    "totalInputTokens": 57654,
-    "totalCachedInputTokens": 49152,
-    "totalOutputTokens": 366,
-    "totalTokens": 58020,
-    "averagePerTurn": 7253
+    "totalInputTokens": 56466,
+    "totalCachedInputTokens": 36864,
+    "totalOutputTokens": 355,
+    "totalTokens": 56821,
+    "averagePerTurn": 7103
   },
   "toolCalls": [],
+  "toolCallsSource": "none",
   "routing": {
     "modes": {
       "active": 8
@@ -29,9 +30,9 @@
   },
   "autoCompactionTriggers": 0,
   "latencyMs": {
-    "p50": 3584,
-    "p95": 30827,
-    "p99": 30827,
-    "max": 30827
+    "p50": 3100,
+    "p95": 6117,
+    "p99": 6117,
+    "max": 6117
   }
 }
