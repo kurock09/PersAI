@@ -36,11 +36,14 @@ import { getMe, postOnboarding } from "../me-api-client";
 import {
   ASSISTANT_GENDER_OPTIONS,
   DEFAULT_TRAITS,
+  DEFAULT_VOICE_DNA_ARCHETYPE_KEY,
   PERSONA_PRESETS,
   TRAIT_SLIDERS,
+  resolveArchetypeKeyForPresetKey,
   type AssistantGender,
   type PersonaPreset,
-  type TraitKey
+  type TraitKey,
+  type VoiceDnaArchetypeKey
 } from "../_components/assistant-persona";
 import {
   filterVoiceOptions,
@@ -422,6 +425,11 @@ export default function SetupWizardPage() {
       setExistingAssistant(createdAssistant);
     }
 
+    const archetypeKeyForDraft: VoiceDnaArchetypeKey =
+      resolveArchetypeKeyForPresetKey(selectedPresetKey) ??
+      (existingAssistant?.draft.archetypeKey as VoiceDnaArchetypeKey | null) ??
+      DEFAULT_VOICE_DNA_ARCHETYPE_KEY;
+
     await patchAssistantDraft(await resolveSetupToken(true), {
       displayName: assistantName.trim(),
       instructions: assistantNotes.trim(),
@@ -429,7 +437,8 @@ export default function SetupWizardPage() {
       avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
       avatarUrl: customAvatarFile ? null : avatarObj?.emoji ? null : persistedAvatarUrl,
       assistantGender,
-      voiceProfile: setupVoiceProfile
+      voiceProfile: setupVoiceProfile,
+      archetypeKey: archetypeKeyForDraft
     });
     previewDraftPersistedRef.current = true;
   }, [
@@ -442,6 +451,7 @@ export default function SetupWizardPage() {
     existingAssistant,
     persistedAvatarUrl,
     resolveSetupToken,
+    selectedPresetKey,
     setupVoiceProfile,
     traits
   ]);

@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
+import { PERSONA_ARCHETYPE_DEFAULTS } from "./persona-archetype-data.js";
 import { upsertToolCatalogEntry } from "./tool-catalog-sync.js";
 
 const prisma = new PrismaClient();
@@ -37,9 +38,38 @@ async function upsertPromptTemplates(): Promise<void> {
   }
 }
 
+/**
+ * ADR-074 V1 — seed Voice DNA archetypes with insert-only semantics so that
+ * editor-driven changes via `/admin/presets` survive subsequent deploys.
+ * To force-restore an archetype to its compiled default, the admin UI exposes
+ * an explicit "Reset to default" action that overwrites the row.
+ */
+async function upsertPersonaArchetypes(): Promise<void> {
+  for (const archetype of PERSONA_ARCHETYPE_DEFAULTS) {
+    await prisma.personaArchetype.upsert({
+      where: { key: archetype.key },
+      update: {},
+      create: {
+        key: archetype.key,
+        displayOrder: archetype.displayOrder,
+        label: archetype.label,
+        description: archetype.description,
+        voice: archetype.voice,
+        openingsAllowed: archetype.openingsAllowed,
+        openingsForbidden: archetype.openingsForbidden,
+        behaviors: archetype.behaviors,
+        silenceRule: archetype.silenceRule,
+        examples: archetype.examples,
+        defaultTraits: archetype.defaultTraits
+      }
+    });
+  }
+}
+
 async function main(): Promise<void> {
   await upsertToolCatalog();
   await upsertPromptTemplates();
+  await upsertPersonaArchetypes();
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },

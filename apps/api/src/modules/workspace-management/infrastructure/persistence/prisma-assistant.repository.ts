@@ -66,6 +66,9 @@ export class PrismaAssistantRepository implements AssistantRepository {
           ? Prisma.DbNull
           : (input.draftVoiceProfile as unknown as Prisma.InputJsonValue);
     }
+    if (input.draftArchetypeKey !== undefined) {
+      data.draftArchetypeKey = input.draftArchetypeKey;
+    }
 
     const assistant = await this.prisma.assistant.update({
       where: { userId },
@@ -222,6 +225,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       draftAvatarUrl: assistant.draftAvatarUrl,
       draftAssistantGender: assistant.draftAssistantGender,
       draftVoiceProfile: assistant.draftVoiceProfile as RuntimeAssistantVoiceProfile | null,
+      draftArchetypeKey: assistant.draftArchetypeKey,
       draftUpdatedAt: assistant.draftUpdatedAt,
       applyStatus: assistant.applyStatus,
       applyTargetVersionId: assistant.applyTargetVersionId,

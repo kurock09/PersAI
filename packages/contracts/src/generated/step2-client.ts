@@ -45,6 +45,7 @@ import type {
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
+  GetAssistantPersonaArchetypesResponse,
   GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
@@ -298,6 +299,57 @@ export const patchAssistantDraft = async (
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(assistantDraftUpdateRequest)
+  });
+};
+
+/**
+ * ADR-074 V1. Returns the catalogue of Voice DNA archetypes the
+assistant can pick from in onboarding and settings. Records are
+editable by admins via `/admin/persona-archetypes`; clients should
+always call this endpoint instead of hard-coding archetype rosters.
+
+ * @summary List Voice DNA archetypes available for assistant setup
+ */
+export type getAssistantPersonaArchetypesResponse200 = {
+  data: GetAssistantPersonaArchetypesResponse;
+  status: 200;
+};
+
+export type getAssistantPersonaArchetypesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantPersonaArchetypesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantPersonaArchetypesResponseSuccess =
+  getAssistantPersonaArchetypesResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantPersonaArchetypesResponseError = (
+  | getAssistantPersonaArchetypesResponse401
+  | getAssistantPersonaArchetypesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantPersonaArchetypesResponse =
+  | getAssistantPersonaArchetypesResponseSuccess
+  | getAssistantPersonaArchetypesResponseError;
+
+export const getGetAssistantPersonaArchetypesUrl = () => {
+  return `/assistant/persona-archetypes`;
+};
+
+export const getAssistantPersonaArchetypes = async (
+  options?: RequestInit
+): Promise<getAssistantPersonaArchetypesResponse> => {
+  return customFetch<getAssistantPersonaArchetypesResponse>(getGetAssistantPersonaArchetypesUrl(), {
+    ...options,
+    method: "GET"
   });
 };
 

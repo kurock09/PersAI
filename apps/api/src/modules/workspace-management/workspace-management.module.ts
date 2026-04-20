@@ -15,6 +15,7 @@ import { AdminPlatformRolloutsController } from "./interface/http/admin-platform
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
+import { AdminPersonaArchetypesController } from "./interface/http/admin-persona-archetypes.controller";
 import { AdminToolMetadataController } from "./interface/http/admin-tool-metadata.controller";
 import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledge-sources.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
@@ -162,6 +163,9 @@ import { PrismaAssistantTaskRegistryRepository } from "./infrastructure/persiste
 import { PROMPT_TEMPLATE_REPOSITORY } from "./domain/bootstrap-document-preset.repository";
 import { PrismaPromptTemplateRepository } from "./infrastructure/persistence/prisma-bootstrap-document-preset.repository";
 import { ManagePromptTemplatesService } from "./application/manage-bootstrap-presets.service";
+import { PERSONA_ARCHETYPE_REPOSITORY } from "./domain/persona-archetype.repository";
+import { PrismaPersonaArchetypeRepository } from "./infrastructure/persistence/prisma-persona-archetype.repository";
+import { ManagePersonaArchetypesService } from "./application/manage-persona-archetypes.service";
 import { SeedToolCatalogService } from "./application/seed-tool-catalog.service";
 import { BumpConfigGenerationService } from "./application/bump-config-generation.service";
 import { ForceReapplyAllService } from "./application/force-reapply-all.service";
@@ -209,6 +213,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminToolCredentialsController,
     AdminToolMetadataController,
     AdminPromptTemplatesController,
+    AdminPersonaArchetypesController,
     AdminKnowledgeSourcesController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
@@ -403,6 +408,10 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
       provide: PROMPT_TEMPLATE_REPOSITORY,
       useClass: PrismaPromptTemplateRepository
     },
+    {
+      provide: PERSONA_ARCHETYPE_REPOSITORY,
+      useClass: PrismaPersonaArchetypeRepository
+    },
     ManageChatMediaService,
     MediaPreprocessorService,
     NativeMediaTranscriptionService,
@@ -419,6 +428,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
       inject: [WebMediaAdapter, TelegramMediaAdapter]
     },
     ManagePromptTemplatesService,
+    ManagePersonaArchetypesService,
     SeedToolCatalogService,
     BumpConfigGenerationService,
     ForceReapplyAllService,

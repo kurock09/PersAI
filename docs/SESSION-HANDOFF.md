@@ -1,5 +1,80 @@
 # SESSION-HANDOFF
 
+## 2026-04-21 - ADR-074 Slice V1 — Voice DNA scaffold (code-landed, awaiting live smoke)
+
+### What changed
+
+1. The assistant's "voice" is no longer a free-form trait list interpolated into an opaque `soul` template. There is now an explicit, editable Voice DNA layer composed of (a) bilingual archetypes stored in Postgres, (b) a pure modulator that nudges the archetype with the user's slider traits, and (c) a richer `soul` template that consumes structured Voice DNA placeholders.
+2. Four founder-co-authored archetypes (`warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`) ship as compiled defaults in `apps/api/prisma/persona-archetype-data.ts` with both `ru` and `en` copy for label, description, openings (allowed and forbidden), per-emotion behaviors, silence rule, and 2 micro-examples each. The defaults are seeded via insert-only upsert (`ManagePersonaArchetypesService.ensureDefaults`), so admin edits are preserved across deploys; a per-archetype "Reset to default" admin action restores the compiled baseline on demand.
+3. The runtime resolves Voice DNA per turn through `modulateVoiceDna({ archetype, traits, locale })`. Trait sliders act as conservative nudges around the archetype baseline (verbosity → sentence length, initiative → pace, playfulness/warmth → irony floor and ceiling, capped at 90). A universal forbidden-openings list (`UNIVERSAL_FORBIDDEN_OPENINGS`) is dedup-merged with archetype-specific bans before being injected into the prompt.
+4. Snapshotting at publish time captures both `snapshotArchetypeKey` and a raw locale-agnostic `snapshotVoiceDna` JSON on `assistant_published_versions`. At materialization, the live archetype is preferred (so admin edits propagate to existing assistants on the next config bump); if the source archetype is later deleted, the snapshot is the deterministic fallback.
+5. The setup wizard and assistant settings now persist `archetypeKey` on the draft; the 9 existing front-end personality presets are mapped to one of the 4 backend archetypes via `PRESET_KEY_TO_ARCHETYPE` in `apps/web/app/app/_components/assistant-persona.ts`. The dedicated 4-archetype picker UI is intentionally deferred to a follow-up V1.x slice — current goal is "no hardcode in the prompt path, editable end to end."
+6. Admin UI: `/admin/presets` gains a new "Voice DNA Archetypes" section that lists every archetype, lets the operator edit the full bilingual JSON in place, and includes per-archetype "Save" and "Reset to default" controls. Saves go through `PATCH /api/v1/admin/persona-archetypes/:key`, resets through `POST /api/v1/admin/persona-archetypes/:key/reset`. Both bump config generation so the next ordinary turn picks up the new Voice DNA on materialize.
+
+### Verification gate (local)
+
+- `corepack pnpm -r --if-present run lint` — clean across all 14 workspace projects.
+- `corepack pnpm run format:check` — clean (one Prettier pass on already-formatted generated contracts files brought everything into sync, no manual edits required).
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm -r --if-present run test` — all suites green; `apps/api` `voice-dna-modulator.test.ts` is the new file with 45 tests covering: locale resolution (ru/en/null/unknown), neutral 50-trait baseline preservation across all 4 archetypes × 2 locales, archetype `defaultTraits` flow-through, slider nudge directions and clamps (verbosity ↑/↓, initiative pace, playfulness irony cap at 90, warmth floor), forbidden-openings invariants per archetype × locale (universal + archetype-specific present, no duplicates), and en-fallback when ru localization is missing on a partial archetype.
+
+### Out of scope for V1 (deferred)
+
+- Dedicated 4-archetype picker UI in the setup wizard and assistant settings — current pragmatic mapping is `PRESET_KEY_TO_ARCHETYPE`.
+- Auto-evolution of USER.md and automatic style-mirroring of the user (Q13-C, deferred per ADR).
+- Per-archetype WYSIWYG admin editor with structured form fields — V1 admin UI is JSON-textarea-per-archetype to land "editable" without committing UI design to early.
+
+### Pending live validation
+
+- Push to `main`, let `dev-image-publish` build the new image and pin `infra/helm/values-dev.yaml#global.images.tag`, let Argo CD auto-sync, watch the `api-migrate` PreSync job apply `20260421120000_adr074_v1_persona_archetypes_foundation/migration.sql` (creates `persona_archetypes`, adds `assistants.draft_archetype_key`, adds `assistant_published_versions.snapshot_archetype_key` + `snapshot_voice_dna`).
+- After rollout, run `pnpm smoke:run --scenario emotional-long --scenario chitchat-short` against `persai-dev` (per `docs/LIVE-TEST-HYBRID.md`). Acceptance: `emotional-long` shows shorter average assistant reply length vs the pre-V1 baseline and zero hits against the `UNIVERSAL_FORBIDDEN_OPENINGS` list; `chitchat-short` shows no token-cost regression vs the existing P1 baseline (the larger SOUL is offset by stable-prefix caching from P1).
+- Once the smoke acceptance numbers are captured, append a follow-up SESSION-HANDOFF entry mirroring the V1 acceptance numbers and flip the ADR-074 V1 status from "code-landed locally" to "landed".
+
+### Files touched (source of truth)
+
+- `apps/api/prisma/persona-archetype-data.ts` — 4 bilingual archetypes + universal forbidden openings + `DEFAULT_ARCHETYPE_KEY`.
+- `apps/api/prisma/migrations/20260421120000_adr074_v1_persona_archetypes_foundation/migration.sql` — creates `persona_archetypes`, adds `draft_archetype_key`, `snapshot_archetype_key`, `snapshot_voice_dna`.
+- `apps/api/prisma/schema.prisma` — Prisma model definitions for the same.
+- `apps/api/prisma/bootstrap-preset-data.ts` — new `soul` template consumes structured Voice DNA placeholders; `preview_bootstrap` and `welcome_bootstrap` swap `traits_summary_line` for `voice_summary_line`.
+- `apps/api/src/modules/workspace-management/domain/persona-archetype.entity.ts`, `persona-archetype.repository.ts`, `assistant.entity.ts`, `assistant.repository.ts`, `assistant-published-version.entity.ts`, `assistant-published-version.repository.ts` — new domain types and repository contracts for archetypes, draft archetype key, and published-version snapshot.
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-persona-archetype.repository.ts`, `prisma-assistant.repository.ts`, `prisma-assistant-published-version.repository.ts` — Prisma implementations.
+- `apps/api/src/modules/workspace-management/application/voice-dna-modulator.ts` — pure modulator function and `resolveVoiceDnaLocale`.
+- `apps/api/src/modules/workspace-management/application/manage-persona-archetypes.service.ts` — admin CRUD, lazy seeding, config-generation bump on edits.
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` — interpolates Voice DNA into `soul`, `preview_bootstrap`, `welcome_bootstrap` when present; legacy traits/instructions path preserved as fallback.
+- `apps/api/src/modules/workspace-management/application/publish-assistant-draft.service.ts` — captures `snapshotArchetypeKey` + `snapshotVoiceDna` on publish using the live archetype at the moment of publish.
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — resolves Voice DNA from live archetype (preferred) or snapshot (fallback) and modulates with `snapshotTraits` + user locale.
+- `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts`, `reset-assistant.service.ts`, `assistant-lifecycle.types.ts`, `assistant-lifecycle.mapper.ts` — wire `archetypeKey` through draft updates, draft reset, and lifecycle DTOs.
+- `apps/api/src/modules/workspace-management/interface/http/admin-persona-archetypes.controller.ts` — `GET / PATCH /:key / POST /:key/reset` admin endpoints.
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` — public `GET /api/v1/assistant/persona-archetypes` for the UI.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — DI wiring.
+- `packages/contracts/openapi.yaml` + regenerated `packages/contracts/src/generated/**` — `archetypeKey` on draft state / draft update / published snapshot, plus the new public archetypes-list endpoint and schemas.
+- `apps/web/app/app/_components/assistant-persona.ts` — `VoiceDnaArchetypeKey`, `DEFAULT_VOICE_DNA_ARCHETYPE_KEY`, `PRESET_KEY_TO_ARCHETYPE`, `resolveArchetypeKeyForPresetKey`.
+- `apps/web/app/app/setup/page.tsx` — sends resolved `archetypeKey` on every `patchAssistantDraft`.
+- `apps/web/app/app/_components/assistant-settings.tsx` — preserves the existing draft `archetypeKey` on save.
+- `apps/web/app/app/setup/page.test.tsx` — fixture updated with `archetypeKey: "warm-quiet"`.
+- `apps/web/app/admin/presets/page.tsx` — new "Voice DNA Archetypes" section with per-archetype JSON editor, save, and reset.
+- `apps/api/test/voice-dna-modulator.test.ts` — 45 unit tests as listed above.
+- `apps/api/test/publish-assistant-draft.service.test.ts` — `ManagePersonaArchetypesService.findByKey` mock added.
+- `docs/ADR/074-humanity-and-cost-polish-program.md` — Slice V1 status block + final implementation deviations from the original plan.
+- `docs/CHANGELOG.md` — Unreleased entry for ADR-074 V1.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### Risks / residuals
+
+- The `persona_archetypes` table is created and seeded by the next `api-migrate` PreSync job; until that job runs on `persai-dev`, the new admin endpoints will fail with a Prisma "table does not exist" error. This is intentional — the migration is part of the same deploy.
+- Live Voice DNA is only consumed when `voiceDna` is non-null at compile time. Older published versions that have `snapshotArchetypeKey=null` continue to use the legacy traits/instructions soul path; there is no behavioural regression for those assistants until they are republished.
+- The `defaultArchetypeKey` for legacy assistants without a draft `archetypeKey` is currently `null` (not auto-defaulted to `warm-quiet`). Materialize falls back to the legacy soul path in that case; this is the safe default and preserves byte-stability of the cached system prompt.
+- The /admin/presets Voice DNA editor is JSON-textarea-per-archetype for V1. A WYSIWYG editor with structured form fields is a follow-up; the current UI is enough to satisfy "editable without redeploy" as agreed with the founder.
+
+### Current active slice
+
+- `ADR-074 Slice V1 — Voice DNA scaffold (awaiting live-dev smoke validation against image built from this commit)`
+
+### Current active step
+
+- `Push commit, watch dev-image-publish + Argo CD sync + api-migrate PreSync, then run pnpm smoke:run --scenario emotional-long --scenario chitchat-short against persai-dev and append a follow-up SESSION-HANDOFF entry with V1 acceptance numbers.`
+
 ## 2026-04-20 - ADR-074 Slice P1 — live-dev acceptance (image `e01bb5d`)
 
 ### What changed

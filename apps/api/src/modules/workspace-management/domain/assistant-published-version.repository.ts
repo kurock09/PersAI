@@ -1,4 +1,7 @@
-import type { AssistantPublishedVersion } from "./assistant-published-version.entity";
+import type {
+  AssistantPublishedVersion,
+  AssistantPublishedVersionSnapshotVoiceDna
+} from "./assistant-published-version.entity";
 import type { RuntimeAssistantVoiceProfile } from "@persai/runtime-contract";
 
 export const ASSISTANT_PUBLISHED_VERSION_REPOSITORY = Symbol(
@@ -15,6 +18,8 @@ export interface CreateAssistantPublishedVersionInput {
   snapshotAvatarUrl?: string | null;
   snapshotAssistantGender?: string | null;
   snapshotVoiceProfile?: RuntimeAssistantVoiceProfile | null;
+  snapshotArchetypeKey?: string | null;
+  snapshotVoiceDna?: AssistantPublishedVersionSnapshotVoiceDna | null;
 }
 
 export interface AssistantPublishedVersionRepository {

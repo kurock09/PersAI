@@ -6,7 +6,10 @@ import type {
   AssistantPublishedVersionRepository,
   CreateAssistantPublishedVersionInput
 } from "../../domain/assistant-published-version.repository";
-import type { AssistantPublishedVersion } from "../../domain/assistant-published-version.entity";
+import type {
+  AssistantPublishedVersion,
+  AssistantPublishedVersionSnapshotVoiceDna
+} from "../../domain/assistant-published-version.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
 @Injectable()
@@ -71,6 +74,14 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
                     input.snapshotVoiceProfile as unknown as Prisma.InputJsonValue
                 }
               : {}),
+            ...(input.snapshotArchetypeKey != null
+              ? { snapshotArchetypeKey: input.snapshotArchetypeKey }
+              : {}),
+            ...(input.snapshotVoiceDna != null
+              ? {
+                  snapshotVoiceDna: input.snapshotVoiceDna as unknown as Prisma.InputJsonValue
+                }
+              : {}),
             publishedByUserId: input.publishedByUserId
           }
         });
@@ -101,6 +112,9 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
       snapshotAssistantGender: publishedVersion.snapshotAssistantGender,
       snapshotVoiceProfile:
         publishedVersion.snapshotVoiceProfile as RuntimeAssistantVoiceProfile | null,
+      snapshotArchetypeKey: publishedVersion.snapshotArchetypeKey,
+      snapshotVoiceDna:
+        publishedVersion.snapshotVoiceDna as AssistantPublishedVersionSnapshotVoiceDna | null,
       publishedByUserId: publishedVersion.publishedByUserId,
       createdAt: publishedVersion.createdAt
     };

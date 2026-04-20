@@ -169,6 +169,11 @@ describe("PublishAssistantDraftService", () => {
             contentType: "image/png"
           };
         }
+      } as never,
+      {
+        async findByKey() {
+          return null;
+        }
       } as never
     );
 

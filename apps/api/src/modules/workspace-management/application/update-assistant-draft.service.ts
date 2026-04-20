@@ -39,13 +39,15 @@ export interface UpdateAssistantDraftRequest {
   avatarUrl?: string | null;
   assistantGender?: string | null;
   voiceProfile?: RuntimeAssistantVoiceProfile | null;
+  archetypeKey?: string | null;
 }
 
 const DRAFT_FIELD_MAX_LENGTHS: Record<string, number> = {
   displayName: 100,
   instructions: 50_000,
   avatarUrl: 2048,
-  avatarEmoji: 8
+  avatarEmoji: 8,
+  archetypeKey: 64
 };
 
 function normalizeOptionalDraftField(value: unknown, fieldName: string): string | null | undefined {
@@ -113,6 +115,7 @@ export class UpdateAssistantDraftService {
     const assistantGender = this.parseOptionalAssistantGender(body.assistantGender);
     const voiceProfile = this.parseOptionalVoiceProfile(body.voiceProfile);
     const traits = this.parseOptionalTraits(body.traits);
+    const archetypeKey = normalizeOptionalDraftField(body.archetypeKey, "archetypeKey");
 
     if (
       displayName === undefined &&
@@ -121,7 +124,8 @@ export class UpdateAssistantDraftService {
       avatarEmoji === undefined &&
       avatarUrl === undefined &&
       assistantGender === undefined &&
-      voiceProfile === undefined
+      voiceProfile === undefined &&
+      archetypeKey === undefined
     ) {
       throw new BadRequestException("At least one draft field must be provided.");
     }
@@ -133,7 +137,8 @@ export class UpdateAssistantDraftService {
       ...(avatarEmoji !== undefined ? { avatarEmoji } : {}),
       ...(avatarUrl !== undefined ? { avatarUrl } : {}),
       ...(assistantGender !== undefined ? { assistantGender } : {}),
-      ...(voiceProfile !== undefined ? { voiceProfile } : {})
+      ...(voiceProfile !== undefined ? { voiceProfile } : {}),
+      ...(archetypeKey !== undefined ? { archetypeKey } : {})
     };
   }
 
@@ -178,7 +183,8 @@ export class UpdateAssistantDraftService {
       ...(request.assistantGender !== undefined
         ? { draftAssistantGender: request.assistantGender }
         : {}),
-      ...(nextVoiceProfile !== undefined ? { draftVoiceProfile: nextVoiceProfile } : {})
+      ...(nextVoiceProfile !== undefined ? { draftVoiceProfile: nextVoiceProfile } : {}),
+      ...(request.archetypeKey !== undefined ? { draftArchetypeKey: request.archetypeKey } : {})
     };
 
     const updatedAssistant = await this.assistantRepository.updateDraft(userId, nextDraft);

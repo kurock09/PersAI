@@ -68,6 +68,14 @@ import {
   CompilePromptConstructorService,
   type PromptTemplateMap
 } from "./compile-prompt-constructor.service";
+import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
+import {
+  modulateVoiceDna,
+  resolveVoiceDnaLocale,
+  type VoiceDnaResolved
+} from "./voice-dna-modulator";
+import type { PersonaArchetype } from "../domain/persona-archetype.entity";
+import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
 import {
   isPersaiRuntimeVideoGenerateModelKey,
@@ -179,7 +187,8 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly compilePromptConstructorService: CompilePromptConstructorService
+    private readonly compilePromptConstructorService: CompilePromptConstructorService,
+    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService
   ) {}
 
   async execute(
@@ -462,11 +471,16 @@ export class MaterializeAssistantPublishedVersionService {
 
     const userContext = await this.resolveUserContext(assistant.userId, assistant.workspaceId);
     const promptTemplates = this.toPromptTemplateMap(promptTemplateRows);
+    const voiceDna = await this.resolveVoiceDnaForPublishedVersion(
+      publishedVersion,
+      userContext.locale
+    );
     const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
       userContext,
       toolPolicies,
-      promptTemplates
+      promptTemplates,
+      voiceDna
     });
     const onboardingDocuments = {
       soulDocument: compiledPromptConstructor.promptDocuments.soul,
@@ -954,6 +968,54 @@ export class MaterializeAssistantPublishedVersionService {
       this.logger.warn("Failed to load prompt templates from DB, using hardcoded fallbacks", err);
       return [];
     }
+  }
+
+  private async resolveVoiceDnaForPublishedVersion(
+    publishedVersion: AssistantPublishedVersion,
+    rawLocale: string
+  ): Promise<VoiceDnaResolved | null> {
+    const archetypeKey = publishedVersion.snapshotArchetypeKey;
+    if (archetypeKey === null && publishedVersion.snapshotVoiceDna === null) {
+      return null;
+    }
+
+    const locale = resolveVoiceDnaLocale(rawLocale);
+    let archetype: PersonaArchetype | null = null;
+    if (archetypeKey !== null) {
+      archetype = await this.managePersonaArchetypesService.findByKey(archetypeKey);
+    }
+    if (archetype === null && publishedVersion.snapshotVoiceDna !== null) {
+      archetype = this.toArchetypeFromSnapshot(publishedVersion.snapshotVoiceDna);
+    }
+    if (archetype === null) {
+      return null;
+    }
+
+    return modulateVoiceDna({
+      archetype,
+      traits: (publishedVersion.snapshotTraits ?? null) as Record<string, number> | null,
+      locale
+    });
+  }
+
+  private toArchetypeFromSnapshot(
+    snapshot: AssistantPublishedVersionSnapshotVoiceDna
+  ): PersonaArchetype {
+    return {
+      key: snapshot.key,
+      displayOrder: snapshot.displayOrder,
+      label: snapshot.label,
+      description: snapshot.description,
+      voice: snapshot.voice,
+      openingsAllowed: snapshot.openingsAllowed,
+      openingsForbidden: snapshot.openingsForbidden,
+      behaviors: snapshot.behaviors,
+      silenceRule: snapshot.silenceRule,
+      examples: snapshot.examples,
+      defaultTraits: snapshot.defaultTraits as PersonaArchetype["defaultTraits"],
+      createdAt: new Date(0),
+      updatedAt: new Date(0)
+    };
   }
 
   private toPromptTemplateMap(presets: Array<{ id: string; template: string }>): PromptTemplateMap {

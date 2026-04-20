@@ -146,6 +146,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/persona-archetypes:
+    get:
+      operationId: getAssistantPersonaArchetypes
+      summary: List Voice DNA archetypes available for assistant setup
+      description: |
+        ADR-074 V1. Returns the catalogue of Voice DNA archetypes the
+        assistant can pick from in onboarding and settings. Records are
+        editable by admins via `/admin/persona-archetypes`; clients should
+        always call this endpoint instead of hard-coding archetype rosters.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Available persona archetypes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantPersonaArchetypesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/setup/preview:
     post:
       operationId: postAssistantSetupPreview
@@ -3046,6 +3076,7 @@ components:
         - displayName
         - instructions
         - voiceProfile
+        - archetypeKey
         - updatedAt
       properties:
         displayName:
@@ -3071,6 +3102,10 @@ components:
           nullable: true
         voiceProfile:
           $ref: "#/components/schemas/AssistantVoiceProfileState"
+        archetypeKey:
+          type: string
+          nullable: true
+          description: ADR-074 V1 — selected Voice DNA archetype key.
         updatedAt:
           type: string
           format: date-time
@@ -3179,6 +3214,7 @@ components:
         - displayName
         - instructions
         - voiceProfile
+        - archetypeKey
       properties:
         displayName:
           type: string
@@ -3203,6 +3239,10 @@ components:
           nullable: true
         voiceProfile:
           $ref: "#/components/schemas/AssistantVoiceProfileState"
+        archetypeKey:
+          type: string
+          nullable: true
+          description: ADR-074 V1 — frozen archetype key snapshot at publish time.
     AssistantPublishedVersionState:
       type: object
       required:
@@ -4816,12 +4856,79 @@ components:
           allOf:
             - $ref: "#/components/schemas/AssistantVoiceProfileState"
           nullable: true
+        archetypeKey:
+          type: string
+          nullable: true
+          description: ADR-074 V1 — Voice DNA archetype key (e.g. "warm-quiet").
     AssistantIdentityGender:
       type: string
       enum:
         - male
         - female
         - neutral
+    PersonaArchetypeLocalizedString:
+      type: object
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: string
+        en:
+          type: string
+    PersonaArchetypeVoiceParams:
+      type: object
+      required:
+        - sentenceLength
+        - pace
+        - irony
+      properties:
+        sentenceLength:
+          type: string
+          enum: [short, medium, long]
+        pace:
+          type: string
+          enum: [slow, normal, quick]
+        irony:
+          type: number
+          minimum: 0
+          maximum: 100
+    PersonaArchetypeRuntimeState:
+      type: object
+      required:
+        - key
+        - displayOrder
+        - label
+        - description
+        - voice
+        - defaultTraits
+      properties:
+        key:
+          type: string
+        displayOrder:
+          type: integer
+        label:
+          $ref: "#/components/schemas/PersonaArchetypeLocalizedString"
+        description:
+          $ref: "#/components/schemas/PersonaArchetypeLocalizedString"
+        voice:
+          $ref: "#/components/schemas/PersonaArchetypeVoiceParams"
+        defaultTraits:
+          type: object
+          additionalProperties:
+            type: number
+    GetAssistantPersonaArchetypesResponse:
+      type: object
+      required:
+        - archetypes
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        archetypes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PersonaArchetypeRuntimeState"
     AssistantSetupPreviewState:
       type: object
       required:

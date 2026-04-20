@@ -8,6 +8,8 @@ export interface AssistantDraftState {
   avatarUrl: string | null;
   assistantGender: string | null;
   voiceProfile: RuntimeAssistantVoiceProfile;
+  /** ADR-074 V1 — selected Voice DNA archetype key (e.g. "warm-quiet"). */
+  archetypeKey: string | null;
   updatedAt: string | null;
 }
 
@@ -19,6 +21,8 @@ export interface AssistantPublishedVersionSnapshotState {
   avatarUrl: string | null;
   assistantGender: string | null;
   voiceProfile: RuntimeAssistantVoiceProfile;
+  /** ADR-074 V1 — archetype key snapshot (locale-agnostic key). */
+  archetypeKey: string | null;
 }
 
 export interface AssistantPublishedVersionState {

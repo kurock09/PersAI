@@ -196,8 +196,17 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 ### Slice V1 — Voice DNA scaffold (biggest human-likeness win)
 
+- **Status (2026-04-21):** Code-landed locally; awaiting `dev-image-publish` + Argo CD sync against `persai-dev` and live `emotional-long` / `chitchat-short` smoke run before this slice can be marked closed. See SESSION-HANDOFF for the post-deploy validation step.
 - **Goal:** Replace placeholder SOUL/USER/IDENTITY templates with structured "voice DNA" cards (tone, pacing, opening phrases, anti-phrases, behavior under emotion, silence heuristics, 2–3 micro-examples) so the assistant sounds like a specific person, not a generic LLM.
 - **Founder anchor:** From Q13-B. Directly serves the product UTP "feels like a friend, not a chatbot".
+
+**Final V1 implementation deviations from the original plan:**
+
+1. Archetypes are stored in a dedicated `persona_archetypes` Postgres table, not in flat `docs/persona-archetypes/*.md` cards. The seed data lives in `apps/api/prisma/persona-archetype-data.ts` and is upserted insert-only by `ManagePersonaArchetypesService.ensureDefaults`, so admin edits via `/admin/persona-archetypes` (and the new "Voice DNA Archetypes" section in `/admin/presets`) are never overwritten by subsequent deploys. A "Reset to default" admin action restores a single archetype back to the compiled baseline on demand.
+2. Both Russian and English copy are stored together on each archetype as `{ ru, en }` localized fields. The runtime selects locale at compile time from the user's resolved locale, with `en` as fallback.
+3. Trait sliders (formality / verbosity / playfulness / initiative / warmth) are kept and now act as conservative *modulators* of the chosen archetype rather than the entire personality source: `verbosity > 70` lengthens sentences one step, `initiative > 70` raises pace one step, `playfulness` scales irony around the archetype's baseline (capped at 90), and so on. This is the `voice-dna-modulator.ts` pure function; defaults are gender-neutral.
+4. Snapshotting at publish time captures both `snapshotArchetypeKey` and a raw locale-agnostic `snapshotVoiceDna` blob on `assistant_published_versions`. At materialization time, the live archetype is preferred (so admin edits propagate to existing assistants on the next config bump) and the snapshot is the deletion-fallback.
+5. The 9 legacy front-end persona presets remain visible in the setup wizard for V1; `apps/web/app/app/_components/assistant-persona.ts` carries a `PRESET_KEY_TO_ARCHETYPE` mapping that translates a chosen preset to one of the 4 archetype keys (`warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`) before persisting. A dedicated 4-archetype picker in the setup wizard is intentionally deferred to a follow-up V1.x slice.
 
 **Touch points:**
 

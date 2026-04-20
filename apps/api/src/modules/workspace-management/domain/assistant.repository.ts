@@ -11,6 +11,7 @@ export interface UpdateAssistantDraftInput {
   draftAvatarUrl?: string | null;
   draftAssistantGender?: string | null;
   draftVoiceProfile?: RuntimeAssistantVoiceProfile | null;
+  draftArchetypeKey?: string | null;
 }
 
 export interface AssistantRepository {

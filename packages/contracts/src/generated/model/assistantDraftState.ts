@@ -22,6 +22,11 @@ export interface AssistantDraftState {
   /** @nullable */
   assistantGender?: AssistantDraftStateAssistantGender;
   voiceProfile: AssistantVoiceProfileState;
+  /**
+   * ADR-074 V1 — selected Voice DNA archetype key.
+   * @nullable
+   */
+  archetypeKey: string | null;
   /** @nullable */
   updatedAt: string | null;
 }

@@ -96,6 +96,7 @@ function makeAssistantState(): AssistantLifecycleState {
         initiative: 50,
         warmth: 50
       },
+      archetypeKey: "warm-quiet",
       avatarEmoji: null,
       avatarUrl: null,
       assistantGender: "female",

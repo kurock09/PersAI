@@ -762,7 +762,8 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
             voice: draftVoiceProfile.yandex.voice,
             role: null
           }
-        }
+        },
+        archetypeKey: assistant?.draft.archetypeKey ?? null
       });
       await postAssistantPublish(token);
       setSaveFb({ type: "ok", text: t("saved") });

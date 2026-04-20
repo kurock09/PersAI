@@ -22,4 +22,9 @@ export interface AssistantPublishedVersionSnapshotState {
   /** @nullable */
   assistantGender?: AssistantPublishedVersionSnapshotStateAssistantGender;
   voiceProfile: AssistantVoiceProfileState;
+  /**
+   * ADR-074 V1 — frozen archetype key snapshot at publish time.
+   * @nullable
+   */
+  archetypeKey: string | null;
 }

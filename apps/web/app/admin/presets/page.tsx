@@ -2,12 +2,50 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Check, CheckCircle, Copy, Eye, FileText, Loader2, Save, Wrench } from "lucide-react";
+import {
+  Check,
+  CheckCircle,
+  Copy,
+  Eye,
+  FileText,
+  Loader2,
+  RotateCcw,
+  Save,
+  Sparkles,
+  Wrench
+} from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
 interface PromptTemplateState {
   id: string;
   template: string;
+  updatedAt: string;
+}
+
+interface PersonaArchetypeAdminState {
+  key: string;
+  displayOrder: number;
+  label: { ru: string; en: string };
+  description: { ru: string; en: string };
+  voice: {
+    sentenceLength: "short" | "medium" | "long";
+    pace: "slow" | "normal" | "quick";
+    irony: number;
+  };
+  openingsAllowed: { ru: string[]; en: string[] };
+  openingsForbidden: { ru: string[]; en: string[] };
+  behaviors: {
+    whenUserUpset: { ru: string; en: string };
+    whenUserExcited: { ru: string; en: string };
+    whenUserTired: { ru: string; en: string };
+    whenUserAngry: { ru: string; en: string };
+  };
+  silenceRule: { ru: string; en: string };
+  examples: Array<{
+    context: { ru: string; en: string };
+    reply: { ru: string; en: string };
+  }>;
+  defaultTraits: Record<string, number>;
   updatedAt: string;
 }
 
@@ -597,10 +635,165 @@ function ToolPromptEditor({
   );
 }
 
+type PersonaArchetypePatchPayload = Omit<
+  PersonaArchetypeAdminState,
+  "key" | "updatedAt" | "displayOrder"
+> & { displayOrder?: number };
+
+function toEditablePayload(archetype: PersonaArchetypeAdminState): PersonaArchetypePatchPayload {
+  return {
+    label: archetype.label,
+    description: archetype.description,
+    voice: archetype.voice,
+    openingsAllowed: archetype.openingsAllowed,
+    openingsForbidden: archetype.openingsForbidden,
+    behaviors: archetype.behaviors,
+    silenceRule: archetype.silenceRule,
+    examples: archetype.examples,
+    defaultTraits: archetype.defaultTraits,
+    displayOrder: archetype.displayOrder
+  };
+}
+
+function PersonaArchetypeEditor({
+  archetype,
+  onSave,
+  onReset
+}: {
+  archetype: PersonaArchetypeAdminState;
+  onSave: (key: string, patch: PersonaArchetypePatchPayload) => Promise<void>;
+  onReset: (key: string) => Promise<void>;
+}) {
+  const initialJson = useMemo(
+    () => JSON.stringify(toEditablePayload(archetype), null, 2),
+    [archetype]
+  );
+  const [value, setValue] = useState(initialJson);
+  const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setValue(initialJson);
+  }, [initialJson]);
+
+  const dirty = value !== initialJson;
+
+  const handleSave = async () => {
+    setParseError(null);
+    let parsed: PersonaArchetypePatchPayload;
+    try {
+      parsed = JSON.parse(value) as PersonaArchetypePatchPayload;
+    } catch (cause) {
+      setParseError(cause instanceof Error ? cause.message : "Invalid JSON");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(archetype.key, parsed);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (cause) {
+      setParseError(cause instanceof Error ? cause.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (
+      !window.confirm(
+        `Reset archetype "${archetype.key}" to factory default? Your manual edits will be discarded.`
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await onReset(archetype.key);
+    } catch (cause) {
+      setParseError(cause instanceof Error ? cause.message : "Reset failed");
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-text">
+            {archetype.label.en} <span className="text-text-muted">/ {archetype.label.ru}</span>
+          </h3>
+          <p className="text-[11px] text-text-muted">
+            <span className="font-mono">{archetype.key}</span> · order {archetype.displayOrder} ·
+            voice {archetype.voice.sentenceLength}/{archetype.voice.pace}/irony{" "}
+            {archetype.voice.irony}
+          </p>
+          <p className="mt-1 text-[11px] text-text-muted">{archetype.description.en}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleReset()}
+            disabled={resetting || saving}
+            className="flex cursor-pointer items-center gap-1 rounded border border-border px-2.5 py-1 text-[10px] font-medium text-text-muted transition-colors hover:border-yellow-500/40 hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {resetting ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3 w-3" />
+            )}
+            Reset to default
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!dirty || saving}
+            className={cn(
+              "flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
+              dirty
+                ? "bg-accent text-white hover:bg-accent/90"
+                : "cursor-not-allowed bg-surface-hover text-text-subtle"
+            )}
+          >
+            {saving ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : saved ? (
+              <CheckCircle className="h-3 w-3 text-green-400" />
+            ) : (
+              <Save className="h-3 w-3" />
+            )}
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
+      </div>
+
+      <textarea
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        spellCheck={false}
+        className="min-h-[360px] w-full rounded border border-border bg-bg p-3 font-mono text-[11px] text-text outline-none focus:border-accent/50"
+      />
+      {parseError ? (
+        <p className="mt-2 text-[11px] text-red-400">{parseError}</p>
+      ) : (
+        <p className="mt-2 text-[11px] text-text-subtle">
+          Edit JSON directly. Fields: label/description/silenceRule/behaviors are bilingual (
+          {"{ ru, en }"}). voice.irony is 0–100. defaultTraits are 0–100 sliders that bias
+          modulation.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPresetsPage() {
   const { getToken } = useAuth();
   const [templates, setTemplates] = useState<PromptTemplateState[]>([]);
   const [tools, setTools] = useState<ToolPromptState[]>([]);
+  const [archetypes, setArchetypes] = useState<PersonaArchetypeAdminState[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"ordinary" | "preview" | "welcome">("ordinary");
@@ -611,22 +804,33 @@ export default function AdminPresetsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [templateRes, toolRes] = await Promise.all([
+      const [templateRes, toolRes, archetypeRes] = await Promise.all([
         fetch("/api/v1/admin/prompt-templates", {
           headers: { Authorization: `Bearer ${token}` }
         }),
         fetch("/api/v1/admin/tools/metadata", {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch("/api/v1/admin/persona-archetypes", {
           headers: { Authorization: `Bearer ${token}` }
         })
       ]);
       if (!templateRes.ok)
         throw new Error(`Failed to load prompt templates: ${templateRes.status}`);
       if (!toolRes.ok) throw new Error(`Failed to load tool metadata: ${toolRes.status}`);
+      if (!archetypeRes.ok)
+        throw new Error(`Failed to load persona archetypes: ${archetypeRes.status}`);
       const templateData = (await templateRes.json()) as { presets: PromptTemplateState[] };
       const toolData = (await toolRes.json()) as { tools: ToolPromptState[] };
+      const archetypeData = (await archetypeRes.json()) as {
+        archetypes: PersonaArchetypeAdminState[];
+      };
       setTemplates(templateData.presets);
       setTools(
         toolData.tools.filter((tool) => PROMPT_CONSTRUCTOR_MODEL_TOOL_SET.has(tool.toolCode))
+      );
+      setArchetypes(
+        [...archetypeData.archetypes].sort((left, right) => left.displayOrder - right.displayOrder)
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to load prompt constructor.");
@@ -676,6 +880,47 @@ export default function AdminPresetsPage() {
       const data = (await response.json()) as { tool: ToolPromptState };
       setTools((current) =>
         current.map((entry) => (entry.toolCode === toolCode ? data.tool : entry))
+      );
+    },
+    [getToken]
+  );
+
+  const handleSaveArchetype = useCallback(
+    async (key: string, patch: PersonaArchetypePatchPayload) => {
+      const token = await getToken();
+      if (!token) return;
+      const response = await fetch(`/api/v1/admin/persona-archetypes/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(patch)
+      });
+      if (!response.ok) throw new Error(`Save failed: ${response.status}`);
+      const data = (await response.json()) as { archetype: PersonaArchetypeAdminState };
+      setArchetypes((current) =>
+        current.map((entry) => (entry.key === key ? data.archetype : entry))
+      );
+    },
+    [getToken]
+  );
+
+  const handleResetArchetype = useCallback(
+    async (key: string) => {
+      const token = await getToken();
+      if (!token) return;
+      const response = await fetch(
+        `/api/v1/admin/persona-archetypes/${encodeURIComponent(key)}/reset`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      if (!response.ok) throw new Error(`Reset failed: ${response.status}`);
+      const data = (await response.json()) as { archetype: PersonaArchetypeAdminState };
+      setArchetypes((current) =>
+        current.map((entry) => (entry.key === key ? data.archetype : entry))
       );
     },
     [getToken]
@@ -814,6 +1059,28 @@ export default function AdminPresetsPage() {
               />
             );
           })}
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-accent" />
+          <h2 className="text-sm font-semibold text-text">Voice DNA Archetypes</h2>
+        </div>
+        <p className="text-xs text-text-muted">
+          Bilingual persona archetypes (en/ru) injected into the soul prompt. Trait sliders modulate
+          sentence length, pace, irony, and openings. Editing these values takes effect for new
+          ordinary turns after the next config bump.
+        </p>
+        <div className="grid gap-4">
+          {archetypes.map((archetype) => (
+            <PersonaArchetypeEditor
+              key={archetype.key}
+              archetype={archetype}
+              onSave={handleSaveArchetype}
+              onReset={handleResetArchetype}
+            />
+          ))}
         </div>
       </section>
 

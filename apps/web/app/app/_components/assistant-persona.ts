@@ -194,3 +194,46 @@ export function traitPreviewLabel(key: TraitKey, value: number): string {
   if (key === "initiative") return value < 40 ? "reactive" : value > 60 ? "proactive" : "balanced";
   return value < 40 ? "neutral" : value > 60 ? "warm" : "balanced";
 }
+
+/* ------------------------------------------------------------------ */
+/*  ADR-074 V1 — preset → Voice DNA archetype bridge                  */
+/* ------------------------------------------------------------------ */
+/*                                                                    */
+/*  Until the wizard/settings UI is rebuilt around 4 archetypes, we   */
+/*  keep the existing 9 preset cards in the UI but quietly map each   */
+/*  one to its closest Voice DNA archetype on the backend so the      */
+/*  runtime can render the new soul prompt.                           */
+/*                                                                    */
+/*  Source archetype keys come from                                   */
+/*    apps/api/prisma/persona-archetype-data.ts                       */
+/*                                                                    */
+/* ------------------------------------------------------------------ */
+
+export type VoiceDnaArchetypeKey = "warm-quiet" | "playful-sharp" | "calm-deep" | "dry-witty";
+
+export const DEFAULT_VOICE_DNA_ARCHETYPE_KEY: VoiceDnaArchetypeKey = "warm-quiet";
+
+const PRESET_KEY_TO_ARCHETYPE: Record<string, VoiceDnaArchetypeKey> = {
+  clear: "calm-deep",
+  warm: "warm-quiet",
+  lively: "playful-sharp",
+  business: "dry-witty",
+  reliable: "calm-deep",
+  dynamic: "playful-sharp",
+  professional: "dry-witty",
+  caring: "warm-quiet",
+  vibrant: "playful-sharp"
+};
+
+/**
+ * Map a legacy persona preset key ("warm", "business", …) to the closest
+ * Voice DNA archetype key. Returns `null` for "custom" (free-form notes,
+ * no archetype) and any unknown key.
+ */
+export function resolveArchetypeKeyForPresetKey(
+  presetKey: string | null | undefined
+): VoiceDnaArchetypeKey | null {
+  if (presetKey === null || presetKey === undefined) return null;
+  if (presetKey === "custom") return null;
+  return PRESET_KEY_TO_ARCHETYPE[presetKey] ?? null;
+}

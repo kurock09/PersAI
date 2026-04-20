@@ -387,6 +387,7 @@ model Assistant {
   draftAvatarUrl               String?                               @map("draft_avatar_url")
   draftAssistantGender         String?                               @map("draft_assistant_gender") @db.VarChar(32)
   draftVoiceProfile            Json?                                 @map("draft_voice_profile") @db.JsonB
+  draftArchetypeKey            String?                               @map("draft_archetype_key") @db.VarChar(64)
   draftUpdatedAt               DateTime?                             @map("draft_updated_at") @db.Timestamptz(6)
   applyStatus                  AssistantApplyStatus                  @default(not_requested) @map("apply_status")
   applyTargetVersionId         String?                               @map("apply_target_version_id") @db.Uuid
@@ -468,6 +469,8 @@ model AssistantPublishedVersion {
   snapshotAvatarUrl      String?                    @map("snapshot_avatar_url")
   snapshotAssistantGender String?                   @map("snapshot_assistant_gender") @db.VarChar(32)
   snapshotVoiceProfile   Json?                      @map("snapshot_voice_profile") @db.JsonB
+  snapshotArchetypeKey   String?                    @map("snapshot_archetype_key") @db.VarChar(64)
+  snapshotVoiceDna       Json?                      @map("snapshot_voice_dna") @db.JsonB
   publishedByUserId      String                     @map("published_by_user_id") @db.Uuid
   createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant              Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -1407,4 +1410,29 @@ model PromptTemplate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@map("bootstrap_document_presets")
+}
+
+/// ADR-074 V1 — editable Voice DNA archetypes. Seeded from
+/// `apps/api/prisma/persona-archetype-data.ts` (insert-only upsert), then
+/// edited through the admin UI without redeploys. Runtime always reads from
+/// this table; published versions snapshot the resolved Voice DNA into
+/// `assistant_published_versions.snapshot_voice_dna` so already-published
+/// assistants stay stable when admins later edit the source archetype.
+model PersonaArchetype {
+  key               String   @id @db.VarChar(64)
+  displayOrder      Int      @default(100) @map("display_order")
+  label             Json     @db.JsonB
+  description       Json     @db.JsonB
+  voice             Json     @db.JsonB
+  openingsAllowed   Json     @map("openings_allowed") @db.JsonB
+  openingsForbidden Json     @map("openings_forbidden") @db.JsonB
+  behaviors         Json     @db.JsonB
+  silenceRule       Json     @map("silence_rule") @db.JsonB
+  examples          Json     @db.JsonB
+  defaultTraits     Json     @map("default_traits") @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([displayOrder])
+  @@map("persona_archetypes")
 }

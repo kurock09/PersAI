@@ -36,7 +36,8 @@ export function toAssistantPublishedVersionState(
       voiceProfile: applyAssistantGenderVoiceDefaults({
         assistantGender,
         voiceProfile: normalizeAssistantVoiceProfile(publishedVersion.snapshotVoiceProfile)
-      })
+      }),
+      archetypeKey: publishedVersion.snapshotArchetypeKey
     }
   };
 }
@@ -79,6 +80,7 @@ export function toAssistantLifecycleState(
         assistantGender,
         voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
       }),
+      archetypeKey: assistant.draftArchetypeKey,
       updatedAt: assistant.draftUpdatedAt?.toISOString() ?? null
     },
     latestPublishedVersion:

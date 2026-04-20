@@ -1,4 +1,8 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { DEFAULT_ARCHETYPE_KEY } from "../../../../prisma/persona-archetype-data";
+import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
+import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
+import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
@@ -48,7 +52,8 @@ export class PublishAssistantDraftService {
     private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly telegramBotClientService: TelegramBotClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -62,6 +67,11 @@ export class PublishAssistantDraftService {
       assistantGender,
       voiceProfile: normalizeAssistantVoiceProfile(assistant.draftVoiceProfile)
     });
+
+    const archetypeKey = assistant.draftArchetypeKey ?? DEFAULT_ARCHETYPE_KEY;
+    const liveArchetype = await this.managePersonaArchetypesService.findByKey(archetypeKey);
+    const snapshotVoiceDna = liveArchetype ? this.toSnapshotVoiceDna(liveArchetype) : null;
+
     const publishedVersion = await this.assistantPublishedVersionRepository.create({
       assistantId: assistant.id,
       publishedByUserId: userId,
@@ -71,7 +81,9 @@ export class PublishAssistantDraftService {
       snapshotAvatarEmoji: assistant.draftAvatarEmoji,
       snapshotAvatarUrl: assistant.draftAvatarUrl,
       snapshotAssistantGender: assistantGender,
-      snapshotVoiceProfile: draftVoiceProfile
+      snapshotVoiceProfile: draftVoiceProfile,
+      snapshotArchetypeKey: liveArchetype ? archetypeKey : null,
+      snapshotVoiceDna
     });
     await this.appendAssistantAuditEventService.execute({
       workspaceId: assistant.workspaceId,
@@ -178,6 +190,24 @@ export class PublishAssistantDraftService {
     } catch (err) {
       console.warn("[publish] Non-fatal: failed to sync Telegram binding metadata:", err);
     }
+  }
+
+  private toSnapshotVoiceDna(
+    archetype: PersonaArchetype
+  ): AssistantPublishedVersionSnapshotVoiceDna {
+    return {
+      key: archetype.key,
+      displayOrder: archetype.displayOrder,
+      label: archetype.label,
+      description: archetype.description,
+      voice: archetype.voice,
+      openingsAllowed: archetype.openingsAllowed,
+      openingsForbidden: archetype.openingsForbidden,
+      behaviors: archetype.behaviors,
+      silenceRule: archetype.silenceRule,
+      examples: archetype.examples,
+      defaultTraits: archetype.defaultTraits
+    };
   }
 
   private resolveTelegramAvatarFilename(contentType: string): string {

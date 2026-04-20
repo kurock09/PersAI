@@ -19,6 +19,8 @@ export type Assistant = {
   draftAvatarUrl: string | null;
   draftAssistantGender: string | null;
   draftVoiceProfile: RuntimeAssistantVoiceProfile | null;
+  /** ADR-074 V1 — selected Voice DNA archetype key (e.g. "warm-quiet"). */
+  draftArchetypeKey: string | null;
   draftUpdatedAt: Date | null;
   applyStatus: AssistantApplyStatus;
   applyTargetVersionId: string | null;

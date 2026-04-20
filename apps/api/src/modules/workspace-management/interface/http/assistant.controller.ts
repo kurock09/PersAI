@@ -67,6 +67,7 @@ import {
   ManageAssistantWorkspaceMemoryService,
   type WorkspaceMemoryItemState
 } from "../../application/manage-assistant-workspace-memory.service";
+import { ManagePersonaArchetypesService } from "../../application/manage-persona-archetypes.service";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 import { createStreamWriterInstrumentation } from "./stream-writer-instrumentation";
 
@@ -105,6 +106,7 @@ export class AssistantController {
     private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
     private readonly manageAssistantAvatarService: ManageAssistantAvatarService,
     private readonly manageAssistantWorkspaceMemoryService: ManageAssistantWorkspaceMemoryService,
+    private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -149,6 +151,37 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       settings
+    };
+  }
+
+  @Get("assistant/persona-archetypes")
+  async listPersonaArchetypes(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    archetypes: Array<{
+      key: string;
+      displayOrder: number;
+      label: { ru: string; en: string };
+      description: { ru: string; en: string };
+      voice: {
+        sentenceLength: "short" | "medium" | "long";
+        pace: "slow" | "normal" | "quick";
+        irony: number;
+      };
+      defaultTraits: Record<string, number>;
+    }>;
+  }> {
+    this.resolveRequestUserId(req);
+    const archetypes = await this.managePersonaArchetypesService.listForRuntime();
+    return {
+      requestId: req.requestId ?? null,
+      archetypes: archetypes.map((archetype) => ({
+        key: archetype.key,
+        displayOrder: archetype.displayOrder,
+        label: archetype.label,
+        description: archetype.description,
+        voice: archetype.voice,
+        defaultTraits: archetype.defaultTraits
+      }))
     };
   }
 

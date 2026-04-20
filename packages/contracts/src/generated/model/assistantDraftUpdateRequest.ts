@@ -23,4 +23,9 @@ export interface AssistantDraftUpdateRequest {
   assistantGender?: AssistantDraftUpdateRequestAssistantGender;
   /** @nullable */
   voiceProfile?: AssistantDraftUpdateRequestVoiceProfile;
+  /**
+   * ADR-074 V1 — Voice DNA archetype key (e.g. "warm-quiet").
+   * @nullable
+   */
+  archetypeKey?: string | null;
 }

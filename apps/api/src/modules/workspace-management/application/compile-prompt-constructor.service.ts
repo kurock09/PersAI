@@ -9,6 +9,7 @@ import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { normalizeAssistantGender } from "./assistant-gender";
 import { buildRuntimeToolPoliciesMarkdown } from "./runtime-tool-policy";
+import type { VoiceDnaResolved } from "./voice-dna-modulator";
 
 export interface PromptTemplateMap {
   system?: string | null;
@@ -37,12 +38,23 @@ export class CompilePromptConstructorService {
     };
     toolPolicies: RuntimeToolPolicy[];
     promptTemplates: PromptTemplateMap;
+    /**
+     * Resolved Voice DNA (archetype × traits × locale → ready-to-render).
+     * `null` when the published version has no archetype snapshot (legacy
+     * assistants pre-V1, or fresh assistants before first archetype pick).
+     */
+    voiceDna?: VoiceDnaResolved | null;
   }): {
     promptDocuments: AssistantRuntimePromptDocuments;
     promptConstructor: AssistantRuntimePromptConstructor;
   } {
+    const voiceDna = params.voiceDna ?? null;
     const promptDocuments: AssistantRuntimePromptDocuments = {
-      soul: this.generateSoulPrompt(params.publishedVersion, params.promptTemplates.soul ?? null),
+      soul: this.generateSoulPrompt(
+        params.publishedVersion,
+        params.promptTemplates.soul ?? null,
+        voiceDna
+      ),
       user: this.generateUserPrompt(params.userContext, params.promptTemplates.user ?? null),
       identity: this.generateIdentityPrompt(
         params.publishedVersion,
@@ -56,12 +68,14 @@ export class CompilePromptConstructorService {
       preview: this.generatePreviewPrompt(
         params.publishedVersion,
         params.userContext,
-        params.promptTemplates.preview_bootstrap ?? null
+        params.promptTemplates.preview_bootstrap ?? null,
+        voiceDna
       ),
       welcome: this.generateWelcomePrompt(
         params.publishedVersion,
         params.userContext,
-        params.promptTemplates.welcome_bootstrap ?? params.promptTemplates.bootstrap ?? null
+        params.promptTemplates.welcome_bootstrap ?? params.promptTemplates.bootstrap ?? null,
+        voiceDna
       )
     };
 
@@ -133,7 +147,11 @@ export class CompilePromptConstructorService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private generateSoulPrompt(pv: AssistantPublishedVersion, template: string | null): string {
+  private generateSoulPrompt(
+    pv: AssistantPublishedVersion,
+    template: string | null,
+    voiceDna: VoiceDnaResolved | null
+  ): string {
     const assistantGender = normalizeAssistantGender(pv.snapshotAssistantGender);
     const traitsBlock = this.renderTraitsBlock(pv.snapshotTraits);
     const instructionsBlock = pv.snapshotInstructions
@@ -141,9 +159,40 @@ export class CompilePromptConstructorService {
       : "";
 
     if (template) {
+      const voiceVars: Record<string, string | null> = voiceDna
+        ? {
+            archetype_label_line: `- **Archetype**: ${voiceDna.archetypeLabel}`,
+            voice_sentence_length: voiceDna.voice.sentenceLength,
+            voice_pace: voiceDna.voice.pace,
+            voice_irony: String(voiceDna.voice.irony),
+            voice_openings_allowed: this.formatPhraseList(voiceDna.openingsAllowed),
+            voice_openings_forbidden: this.formatPhraseList(voiceDna.openingsForbidden),
+            voice_when_user_upset: voiceDna.behaviors.whenUserUpset,
+            voice_when_user_excited: voiceDna.behaviors.whenUserExcited,
+            voice_when_user_tired: voiceDna.behaviors.whenUserTired,
+            voice_when_user_angry: voiceDna.behaviors.whenUserAngry,
+            voice_silence_rule: voiceDna.silenceRule,
+            voice_examples_block: this.renderVoiceExamplesBlock(voiceDna.examples)
+          }
+        : {
+            archetype_label_line: null,
+            voice_sentence_length: null,
+            voice_pace: null,
+            voice_irony: null,
+            voice_openings_allowed: null,
+            voice_openings_forbidden: null,
+            voice_when_user_upset: null,
+            voice_when_user_excited: null,
+            voice_when_user_tired: null,
+            voice_when_user_angry: null,
+            voice_silence_rule: null,
+            voice_examples_block: null
+          };
+
       return this.interpolateTemplate(template, {
         assistant_name: pv.snapshotDisplayName ?? "an assistant",
         assistant_gender_line: assistantGender ? `- **Gender**: ${assistantGender}` : null,
+        ...voiceVars,
         traits_block: traitsBlock,
         instructions_block: instructionsBlock
       });
@@ -153,6 +202,31 @@ export class CompilePromptConstructorService {
     lines.push(`You are **${pv.snapshotDisplayName ?? "an assistant"}**.`);
     if (assistantGender) {
       lines.push(`- **Gender**: ${assistantGender}`);
+    }
+    if (voiceDna) {
+      lines.push(`- **Archetype**: ${voiceDna.archetypeLabel}`);
+      lines.push("");
+      lines.push("## Voice");
+      lines.push(`- Sentence length: ${voiceDna.voice.sentenceLength}`);
+      lines.push(`- Pace: ${voiceDna.voice.pace}`);
+      lines.push(`- Irony: ${String(voiceDna.voice.irony)}/100`);
+      lines.push("");
+      lines.push("## How you may open");
+      lines.push(`Allowed: ${this.formatPhraseList(voiceDna.openingsAllowed)}.`);
+      lines.push(`Forbidden: ${this.formatPhraseList(voiceDna.openingsForbidden)}.`);
+      lines.push("");
+      lines.push("## Behavior under emotion");
+      lines.push(`- When the user is upset: ${voiceDna.behaviors.whenUserUpset}`);
+      lines.push(`- When the user is excited: ${voiceDna.behaviors.whenUserExcited}`);
+      lines.push(`- When the user is tired: ${voiceDna.behaviors.whenUserTired}`);
+      lines.push(`- When the user is angry: ${voiceDna.behaviors.whenUserAngry}`);
+      lines.push("");
+      lines.push("## Silence");
+      lines.push(voiceDna.silenceRule);
+      lines.push("");
+      lines.push("## How you actually sound");
+      lines.push(this.renderVoiceExamplesBlock(voiceDna.examples));
+      lines.push("");
     }
     lines.push("");
     if (traitsBlock) {
@@ -164,6 +238,20 @@ export class CompilePromptConstructorService {
       lines.push("");
     }
     return lines.join("\n").trimEnd();
+  }
+
+  private formatPhraseList(items: string[]): string {
+    return items
+      .filter((item) => item.trim().length > 0)
+      .map((item) => `"${item.replace(/"/g, '\\"')}"`)
+      .join(", ");
+  }
+
+  private renderVoiceExamplesBlock(examples: Array<{ context: string; reply: string }>): string {
+    if (examples.length === 0) return "";
+    return examples
+      .map((ex, idx) => `Example ${idx + 1}:\n- ${ex.context}\n- You: ${ex.reply}`)
+      .join("\n\n");
   }
 
   private renderTraitsBlock(traits: Record<string, number> | null): string {
@@ -301,19 +389,32 @@ export class CompilePromptConstructorService {
       : null;
   }
 
+  private renderVoiceSummaryLine(
+    voiceDna: VoiceDnaResolved | null,
+    fallbackTraits: Record<string, number> | null
+  ): string | null {
+    if (voiceDna) {
+      return `Your voice is **${voiceDna.archetypeLabel}** — ${voiceDna.archetypeDescription} (sentence length: ${voiceDna.voice.sentenceLength}, pace: ${voiceDna.voice.pace}, irony: ${String(voiceDna.voice.irony)}/100).`;
+    }
+    return this.renderTraitsSummaryLine(fallbackTraits);
+  }
+
   private generatePreviewPrompt(
     pv: AssistantPublishedVersion,
     userCtx: { displayName: string | null },
-    template: string | null
+    template: string | null,
+    voiceDna: VoiceDnaResolved | null
   ): string {
     const assistantName = pv.snapshotDisplayName ?? "Assistant";
     const humanName = userCtx.displayName ?? "your human";
+    const voiceSummaryLine = this.renderVoiceSummaryLine(voiceDna, pv.snapshotTraits);
     const traitSummaryLine = this.renderTraitsSummaryLine(pv.snapshotTraits);
 
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: assistantName,
         human_name: humanName,
+        voice_summary_line: voiceSummaryLine,
         traits_summary_line: traitSummaryLine
       });
     }
@@ -324,7 +425,7 @@ export class CompilePromptConstructorService {
       `You are testing how **${assistantName}** should sound before launch.`,
       "",
       `You are talking to **${humanName}** in a setup preview, not in a real first conversation.`,
-      traitSummaryLine,
+      voiceSummaryLine,
       "",
       "Reply with one short natural sample message that clearly shows the assistant's tone, warmth, initiative, and style.",
       "Do not say that you just came online, were created, or are meeting for the first time."
@@ -337,16 +438,19 @@ export class CompilePromptConstructorService {
   private generateWelcomePrompt(
     pv: AssistantPublishedVersion,
     userCtx: { displayName: string | null },
-    template: string | null
+    template: string | null,
+    voiceDna: VoiceDnaResolved | null
   ): string {
     const assistantName = pv.snapshotDisplayName ?? "Assistant";
     const humanName = userCtx.displayName ?? "your human";
+    const voiceSummaryLine = this.renderVoiceSummaryLine(voiceDna, pv.snapshotTraits);
     const traitSummaryLine = this.renderTraitsSummaryLine(pv.snapshotTraits);
 
     if (template) {
       return this.interpolateTemplate(template, {
         assistant_name: assistantName,
         human_name: humanName,
+        voice_summary_line: voiceSummaryLine,
         traits_summary_line: traitSummaryLine
       });
     }
@@ -357,7 +461,7 @@ export class CompilePromptConstructorService {
       "You just came online for the first time.",
       "",
       `Your name is **${assistantName}**. Your human's name is **${humanName}**.`,
-      traitSummaryLine,
+      voiceSummaryLine,
       "",
       "Introduce yourself naturally. Don't interrogate - just talk."
     ]
