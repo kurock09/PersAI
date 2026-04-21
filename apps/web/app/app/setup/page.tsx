@@ -114,6 +114,11 @@ function normalizeBirthdayForDateInput(value: string | null | undefined): string
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : value.slice(0, 10);
 }
 
+function trimToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
 function resolveLocalizedString(value: LocalizedString, locale: string): string {
   if (locale.toLowerCase().startsWith("ru")) {
     return value.ru || value.en;
@@ -466,7 +471,7 @@ export default function SetupWizardPage() {
 
     await patchAssistantDraft(await resolveSetupToken(true), {
       displayName: assistantName.trim(),
-      instructions: assistantNotes.trim(),
+      instructions: trimToNull(assistantNotes),
       traits,
       avatarEmoji: customAvatarFile ? null : (avatarObj?.emoji ?? null),
       avatarUrl: customAvatarFile ? null : avatarObj?.emoji ? null : persistedAvatarUrl,
@@ -611,23 +616,6 @@ export default function SetupWizardPage() {
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {showSetupModeNotice && setupMode !== "create" ? (
-          <motion.div
-            className="pointer-events-none absolute left-1/2 top-20 z-[70] w-full max-w-4xl -translate-x-1/2 px-6"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
-          >
-            <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
-              <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between px-6 py-4">
         <span className="text-lg font-bold tracking-tight text-text">
@@ -656,6 +644,22 @@ export default function SetupWizardPage() {
       {/* Content — scrollable only inside */}
       <div className="flex flex-1 items-start justify-center overflow-y-auto px-6 py-8">
         <div className="w-full max-w-5xl">
+          <AnimatePresence initial={false}>
+            {showSetupModeNotice && setupMode !== "create" ? (
+              <motion.div
+                className="mx-auto mb-6 w-full max-w-4xl"
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+                  <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
           <AnimatePresence mode="wait">
             {/* ===== Step 0: About you ===== */}
             {step === 0 && (
@@ -844,10 +848,10 @@ export default function SetupWizardPage() {
             {step === 2 && (
               <StepContainer key="step-2" className="max-w-5xl">
                 <div className="w-full">
-                  <div className="rounded-[28px] border border-border bg-surface/70 p-6 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-7">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="rounded-[28px] border border-border bg-surface/70 p-5 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-6">
+                    <div className="flex items-start gap-4 sm:gap-5">
                       <div className="relative shrink-0">
-                        <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl border border-border bg-surface text-5xl shadow-[0_0_48px_rgba(102,187,106,0.16)]">
+                        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-border bg-surface text-4xl shadow-[0_0_32px_rgba(102,187,106,0.12)] sm:h-[72px] sm:w-[72px] sm:text-5xl">
                           {currentAvatarPreviewUrl ? (
                             <img
                               src={currentAvatarPreviewUrl}
@@ -858,22 +862,27 @@ export default function SetupWizardPage() {
                             <span>{avatarObj?.emoji ?? "🤖"}</span>
                           )}
                         </div>
-                        <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-bg bg-accent">
-                          <span className="h-2 w-2 rounded-full bg-white" />
+                        <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-bg bg-accent sm:h-5 sm:w-5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-white sm:h-2 sm:w-2" />
                         </span>
                       </div>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 self-center">
                         {assistantName ? (
-                          <p className="truncate text-sm font-medium text-accent">
+                          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-accent/90 sm:text-xs">
                             {assistantName}
                           </p>
                         ) : null}
-                        <h1 className="mt-1 text-3xl font-bold text-text sm:text-4xl">
+                        <h1 className="mt-1 text-3xl font-bold leading-none text-text sm:text-4xl">
                           {t("step2Title")}
                         </h1>
-                        <p className="mt-2 max-w-2xl text-base leading-relaxed text-text-muted">
-                          {t("step2Subtitle", { name: assistantName })}
-                        </p>
+                        <div className="mt-3 flex items-center gap-2 text-sm leading-relaxed text-text-muted sm:text-base">
+                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/15">
+                            <span className="h-2 w-2 rounded-full bg-accent" />
+                          </span>
+                          <p className="min-w-0">
+                            {t("step2Subtitle", { name: assistantName })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>

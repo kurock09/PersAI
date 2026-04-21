@@ -414,6 +414,7 @@ describe("SetupWizardPage", () => {
       "token-patch-preview",
       expect.objectContaining({
         displayName: "Nova",
+        instructions: null,
         assistantGender: "female",
         avatarEmoji: null,
         avatarUrl: null,
