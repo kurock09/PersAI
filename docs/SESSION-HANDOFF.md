@@ -1,5 +1,58 @@
 # SESSION-HANDOFF
 
+## 2026-04-22 (evening) - ADR-074 Slice M2 — closeout / live-accepted on `persai-dev`
+
+### What changed
+
+This is the closeout entry for ADR-074 Slice M2. The earlier "behavioral implementation landed" entry below is preserved as the prior state of the slice for traceability. Three things landed in this evening session on top of the behavioral commit:
+
+1. **DI hotfix (`baaa15e`).** After the behavioral commit was published and pinned by the bot, the runtime pod entered `CrashLoopBackOff` with `UnknownDependenciesException` for `AutoExtractToMemoryService`. Root cause: `apps/runtime/src/modules/turns/auto-extract-to-memory.service.ts` was importing `ProviderGatewayClientService` and `PersaiInternalApiClientService` via TypeScript `import type`, which is erased at emit time, so Nest's reflective DI could not resolve those constructor parameters at runtime. Fix switched both back to value imports; `InternalMemoryWriteOutcome` stays `import type` because it is a pure type alias. The runtime ReplicaSet then rolled to `2/2 Running` cleanly under image `baaa15e218abbb32ed40c73ffe556523f71c7300`, pinned via `infra/helm/values-dev.yaml` by the bot (`4a145ee`). This is the standard "TS type-only import vs Nest DI" footgun and the only place in the M2 wiring it was triggered.
+2. **Live smoke acceptance.** Three M2-relevant scenarios were run end-to-end against `https://api.persai.dev` (public ingress) plus `kubectl port-forward svc/api-internal 13002:3002` (internal listener for receipts polling) on assistant `b635d40d-ced6-428d-a68b-7395463b2db9` under the founder's `Custom` plan (`compactionTriggerThreshold = 8000`, `targetContextBudget = 70000`, `keepRecentMinimum = 4`, `autoCompactionWeb = true`). Deltas vs. the pre-M1 baselines under `scripts/smoke/baselines/`:
+   - `chitchat-short` — 8/8 OK, total tokens **−22.96 %** (43 776 vs 56 821), p95 latency `−1041ms`, no auto-compaction expected (well below 8 k threshold).
+   - `multi-session-continuity` — 12/12 OK across both sessions, total tokens **−30.63 %** (113 218 vs 163 201), p95 latency `−1776ms`, session-2 used `knowledge_search ×6` for cross-session recall — the M1 relevance-retrieval path is wired into the post-M2 hydration shape correctly.
+   - `long-session-200` — 29/29 OK, total tokens **−41.29 %** (246 011 vs 419 021), p95 latency `−5933ms`. **This is the headline M2 acceptance signal**: no p95 regression despite compaction now firing, because compaction has moved off the request path.
+   - **Auto-compaction triggers: 0** in every smoke `summary.json` is **expected by design**, NOT a regression. The harness reads `RuntimeTurnReceipt.autoCompaction`, which is the in-band path the cutover deliberately removed. The off-band proof is direct durable-memory inspection: a `GET /api/v1/assistant/memory/items` against the test assistant after the smoke runs returned rows with `sourceType: "memory_write"` + `kind: fact | preference | open_loop` + `memoryClass: core | contextual` written by `AutoExtractToMemoryService` through the M1 internal `writeMemory` path, plus the `assistant.memory_write_duplicate` audit firing for dedup hits on later runs.
+3. **UI pressure-banner fix (`b20d0ef`).** Founder reported that the "Автосжатие включено · Давление на контекст растёт · Сжать сейчас" banner was still showing while auto-compaction was on, which is product-incoherent: in auto mode the user has nothing to do — the off-band scheduler handles it. `apps/web/app/app/_components/chat-area.tsx` now adds a `compactionPressureSuppressedByAutoMode` guard so the pressure-shape banner is hidden when `chat.compaction?.autoCompactionEnabled === true`. The post-compaction success banner (`compactionBannerMode === "auto_compacted"`) is preserved in both auto and manual modes, so the founder still sees "контекст сжат с N до M токенов" after the off-band job finishes. The dead i18n keys (`compactionPressureAutoTitle`, `compactionHintAuto`, `compactionHintAutoDetail`) were intentionally kept in `apps/web/messages/{en,ru}.json` for cheap reversibility if a softer "система сожмёт сразу после ответа" hint is desired in a later slice.
+
+### Two acceptance regressions discovered during smoke (deferred to a follow-up slice — NOT blockers for closing M2)
+
+The cutover mechanics, replace-not-concatenate synopsis, off-band scheduler, auto-extract pipeline, and dedup hardening are all correct and measurably better. The two issues below are content-quality regressions in the auto-extract output, not architectural problems with M2:
+
+1. **Hallucinated identity persisted as a fact.** On `long-session-200` turn 22 ("как меня зовут?") the assistant answered "Тебя зовут **General**" instead of the planted "Алекс" from turn 1, and `AutoExtractToMemoryService` then persisted that as a `fact / core` durable-memory row ("Пользователь называется General"). Hypothesis: the test assistant's own display name is "General"; the rolling synopsis lost the user's name early; the model substituted the assistant identity in its reply; the auto-extract LLM took the conversation at face value and turned the assistant's own statement into a "user fact". Fix is in M2.1 (or folded into M3): tighten the auto-extract system prompt to forbid extracting identity facts unless the user asserted them in their own message in the compacted slice, not in the assistant's reply. Tracked via the open-todo `tighten-auto-extract` from this session's todo list.
+2. **Cross-scenario bleed-through within a single shared `assistantId`.** On `long-session-200` turn 24 ("над какой продуктовой задачей я работаю?") the assistant answered with "Atlas / Helio / Retention" — those facts are from the `multi-session-continuity` scenario's "Маша" persona which ran 5 minutes earlier on the same assistant. This is technically expected M1+M3 behavior on a single shared `assistantId` (one assistant per user is the production assumption), but it pollutes acceptance for smoke runs that share an assistant id across scenarios. Fix surfaces as either (a) one assistant per smoke scenario, or (b) a `forget all` warmup step in the harness; both options are deferred as a smoke-harness improvement, not an M2 production bug. Tracked via `forget-warmup` and `reproduce-general` open todos.
+
+### Why this session, why now
+
+The morning session landed the behavioral half of M2; the afternoon/evening session was the live-acceptance half (the M1 closeout precedent again — code-landed → live-accepted in two adjacent sessions). The DI hotfix had to happen first because the runtime would not start. Once the cluster was healthy, the three smoke scenarios were run sequentially against the same assistant, and the founder caught the UI banner regression by direct inspection of the chat header — this turned out to be a single guard in `chat-area.tsx`, no contract or i18n changes needed.
+
+### Verification gate (this session, live)
+
+- `kubectl get pods -n persai-dev` showed `runtime` ReplicaSet at `2/2 Running` after the `baaa15e` rollout (was `0/2 CrashLoopBackOff` before the hotfix).
+- `pnpm --filter @persai/web typecheck` and `pnpm --filter @persai/web lint` both clean for the `chat-area.tsx` change.
+- All three smoke scenarios returned `failed=0` against the live API; durable-memory listing on the test assistant returned both `kind=fact / memory_class=core` rows (auto-extract output) and `kind=null / memory_class=contextual` rows (older web-chat memory), confirming the M1 classification is preserved by the M2 write path.
+
+### Files touched this session
+
+- `apps/runtime/src/modules/turns/auto-extract-to-memory.service.ts` — DI hotfix: `import type` → `import` for `ProviderGatewayClientService` and `PersaiInternalApiClientService`.
+- `apps/web/app/app/_components/chat-area.tsx` — added `compactionPressureSuppressedByAutoMode` guard and folded it into the `showCompactionBanner` expression.
+- `infra/helm/values-dev.yaml` — image pinned to `baaa15e218abbb32ed40c73ffe556523f71c7300` by the bot (`4a145ee`); a follow-up bot pin will land for the `b20d0ef` web image.
+- `docs/CHANGELOG.md` — new "Unreleased" closeout entry for M2 (this entry).
+- `docs/ADR/074-humanity-and-cost-polish-program.md` — Slice M2 status block flipped from "behavioral implementation landed in code (2026-04-22), awaiting live acceptance" to "closed / live-accepted on `persai-dev` (2026-04-22 evening)" with the smoke deltas, DI hotfix, banner fix, and the two deferred regressions documented inline.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### Risks / residuals
+
+- The two content-quality regressions above are tracked but not yet fixed. Recommended next-session order: (a) tighten the auto-extract prompt against assistant-voice identity (the General/Алекс case), (b) add a `forget all` warmup or per-scenario assistant id to the smoke harness (the Маша/Atlas bleed-through), then re-run all three M2 smoke scenarios as a follow-up regression check.
+- Baselines under `scripts/smoke/baselines/` were intentionally NOT rewritten — they remain the pre-M1/pre-M2 reference point for downstream slices (M3 will compare against the same shared baseline so the M1+M2+M3 cumulative deltas are honest).
+- The dead i18n keys (`compactionPressureAutoTitle`, `compactionHintAuto`, `compactionHintAutoDetail`) are now unreferenced from `chat-area.tsx`; we kept them on purpose. If they survive two more sessions without being re-wired they should be deleted in a small follow-up to keep `messages/{en,ru}.json` honest.
+
+### Next recommended steps (M3 prerequisites + M2 quality cleanup)
+
+- M3 prerequisites are now in place: M2 persists the rolling synopsis on the existing session compaction row (M1's storage was already replace-style; M2 only changed the prompt instruction), and `RuntimeCompactionResult.autoExtract` is live so M3's cross-channel carry-over has both the synopsis text and the durable-memory rows to read from.
+- Before starting M3, fold the two M2 quality fixes (auto-extract prompt + smoke harness assistant id) into a small M2.1 commit so the durable memory the founder sees on `persai-dev` is clean — otherwise the M3 cross-channel "magic" demo could surface "you are General" or "Atlas/Helio retention" out of the wrong context.
+
+---
+
 ## 2026-04-22 - ADR-074 Slice M2 — behavioral implementation landed (live `persai-dev` smoke acceptance still pending)
 
 ### What changed
