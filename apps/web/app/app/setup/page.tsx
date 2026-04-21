@@ -879,9 +879,7 @@ export default function SetupWizardPage() {
                           <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/15">
                             <span className="h-2 w-2 rounded-full bg-accent" />
                           </span>
-                          <p className="min-w-0">
-                            {t("step2Subtitle", { name: assistantName })}
-                          </p>
+                          <p className="min-w-0">{t("step2Subtitle", { name: assistantName })}</p>
                         </div>
                       </div>
                     </div>
