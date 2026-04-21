@@ -253,8 +253,11 @@ export function ChatArea({
         : t("compactionHintManualDetail");
   const compactionPressureSnoozed =
     compactionBannerMode === "pressure" && chat.messages.length < compactionBannerSnoozedUntilCount;
+  const compactionPressureSuppressedByAutoMode =
+    compactionBannerMode === "pressure" && chat.compaction?.autoCompactionEnabled === true;
   const showCompactionBanner =
     !compactionPressureSnoozed &&
+    !compactionPressureSuppressedByAutoMode &&
     (chat.compaction?.suggested === true || recentAutoCompaction !== null);
 
   useEffect(() => {
