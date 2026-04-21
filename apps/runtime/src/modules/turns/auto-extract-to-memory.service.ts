@@ -7,11 +7,9 @@ import type {
   RuntimeCompactionAutoExtractResult,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
-import type { ProviderGatewayClientService } from "./provider-gateway.client.service";
-import type {
-  InternalMemoryWriteOutcome,
-  PersaiInternalApiClientService
-} from "./persai-internal-api.client.service";
+import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import type { InternalMemoryWriteOutcome } from "./persai-internal-api.client.service";
 
 const AUTO_EXTRACT_SOFT_CAP = 8;
 const AUTO_EXTRACT_MAX_OUTPUT_TOKENS = 700;
