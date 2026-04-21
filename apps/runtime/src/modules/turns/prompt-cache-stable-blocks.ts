@@ -4,25 +4,26 @@ import type { ProviderGatewayTextMessage } from "@persai/runtime-contract";
 export type PromptCacheStableBlockFamily =
   | "ordinary_prompt"
   | "durable_memory_core"
-  | "shared_compaction_summary";
+  | "rolling_session_synopsis";
 
+// ADR-074 Slice M2 — `rolling_session_synopsis` replaces the old
+// `shared_compaction_summary` family. The wire-level header text and the
+// version were both bumped in lockstep so any cached prefix from the old
+// family naturally invalidates on first turn after rollout.
 const PROMPT_CACHE_STABLE_BLOCK_VERSIONS: Record<PromptCacheStableBlockFamily, number> = {
   ordinary_prompt: 1,
   durable_memory_core: 1,
-  shared_compaction_summary: 1
+  rolling_session_synopsis: 2
 };
 
 const DURABLE_MEMORY_CORE_PREFIX_HEADER = "[Durable user context retained across conversations]";
 const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
   "[Relevant memories retrieved for this turn — may vary between turns]";
-const SHARED_COMPACTION_PREFIX_HEADER =
-  "[Earlier conversation summary retained by shared compaction]";
+const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
+  "[Rolling session synopsis — what we have established so far in this conversation]";
 
 const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
-  family: Extract<
-    PromptCacheStableBlockFamily,
-    "durable_memory_core" | "shared_compaction_summary"
-  >;
+  family: Extract<PromptCacheStableBlockFamily, "durable_memory_core" | "rolling_session_synopsis">;
   header: string;
 }> = [
   {
@@ -30,8 +31,8 @@ const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
     header: DURABLE_MEMORY_CORE_PREFIX_HEADER
   },
   {
-    family: "shared_compaction_summary",
-    header: SHARED_COMPACTION_PREFIX_HEADER
+    family: "rolling_session_synopsis",
+    header: ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER
   }
 ];
 
@@ -53,7 +54,7 @@ export function formatDurableMemoryContextualBlock(lines: string[]): string {
 }
 
 export function formatSharedCompactionStableBlock(summaryText: string): string {
-  return `${SHARED_COMPACTION_PREFIX_HEADER}\n${summaryText}`;
+  return `${ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER}\n${summaryText}`;
 }
 
 export function isDurableMemoryContextualMessage(message: ProviderGatewayTextMessage): boolean {

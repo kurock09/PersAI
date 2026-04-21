@@ -75,4 +75,16 @@ export interface AssistantMemoryRegistryRepository {
    * coupling the hydration path to repository internals.
    */
   bumpLastUsedAt(assistantId: string, ids: readonly string[]): Promise<number>;
+  /**
+   * ADR-074 M2 — server-side dedup lookup for the memory write path. Returns
+   * the most recent active entry for `(assistantId)` whose `summary` matches
+   * the supplied normalized summary text using a case-insensitive equality
+   * comparison. Callers must pre-normalize whitespace exactly as
+   * `WriteAssistantMemoryService.normalizeSummary` does so the equality is
+   * meaningful. Returns `null` when no match exists.
+   */
+  findActiveByNormalizedSummaryAndAssistantId(
+    assistantId: string,
+    normalizedSummary: string
+  ): Promise<AssistantMemoryRegistryItem | null>;
 }

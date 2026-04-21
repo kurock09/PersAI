@@ -24,6 +24,7 @@ import { InternalRuntimeProviderSecretsController } from "./interface/http/inter
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
+import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
@@ -120,6 +121,9 @@ import { HandleInternalCronFireService } from "./application/handle-internal-cro
 import { DeliverReminderNotificationService } from "./application/deliver-reminder-notification.service";
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
+import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
+import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-background-compaction-job.service";
+import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
@@ -223,6 +227,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeKnowledgeController,
     InternalRuntimeMemoryController,
     InternalRuntimeMemoryHydrationController,
+    InternalRuntimeCompactionEnqueueController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeToolQuotaController,
     InternalSmokeReceiptsController,
@@ -272,6 +277,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     DeliverReminderNotificationService,
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
+    PersaiBackgroundCompactionSchedulerService,
+    EnqueueBackgroundCompactionJobService,
+    InternalRuntimeCompactionClientService,
     RunScheduledAssistantActionService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,

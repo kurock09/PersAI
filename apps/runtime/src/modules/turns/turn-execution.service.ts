@@ -25,7 +25,6 @@ import {
   type ProviderGatewayTextGenerateRequest,
   type ProviderGatewayTextGenerateResult,
   type PersaiRuntimeWebFetchExtractMode,
-  type RuntimeCompactionRequest,
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
   type RuntimeMemoryWriteToolResult,
@@ -44,7 +43,6 @@ import {
   type RuntimeToolPolicy,
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
-  type RuntimeTurnAutoCompactionState,
   type RuntimeTextDeltaSource,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
@@ -129,11 +127,6 @@ type TurnExecutionState = {
   fileRefs: RuntimeFileRef[];
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
-};
-
-type AutoCompactionRequest = RuntimeCompactionRequest & {
-  trigger: "auto_compaction";
-  runtimeRequestId: string;
 };
 
 type ToolExecutionOutcome = {
@@ -878,15 +871,52 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle;
     turnState: TurnExecutionState;
   }): Promise<RuntimeTurnResult> {
-    const autoCompaction = await this.executePostTurnAutoCompaction(
-      input.input,
-      input.bundle,
-      input.turnState
-    );
-    const finalizedResult =
-      autoCompaction === null ? input.result : { ...input.result, autoCompaction };
-    await this.turnFinalizationService.completeAcceptedTurn(input.acceptedTurn, finalizedResult);
-    return finalizedResult;
+    // ADR-074 Slice M2 — auto-compaction is now off-band: we hand it to the
+    // API-side scheduler and complete the user turn immediately. The next
+    // turn will see the rolling synopsis the scheduler produced. We never
+    // block on the enqueue itself; failures are logged inside the client.
+    this.fireBackgroundCompactionEnqueue(input.input, input.bundle, input.turnState);
+    await this.turnFinalizationService.completeAcceptedTurn(input.acceptedTurn, input.result);
+    return input.result;
+  }
+
+  private fireBackgroundCompactionEnqueue(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle,
+    turnState: TurnExecutionState
+  ): void {
+    if (turnState.sharedCompaction.durableStatePersisted) {
+      return;
+    }
+    const channel = input.conversation.channel;
+    const contextHydration = resolveRuntimeContextHydrationConfig(bundle);
+    const enabled =
+      channel === "telegram"
+        ? contextHydration.autoCompactionTelegram
+        : channel === "web"
+          ? contextHydration.autoCompactionWeb
+          : false;
+    if (!enabled) {
+      return;
+    }
+    void this.persaiInternalApiClientService
+      .enqueueBackgroundCompaction({
+        assistantId: input.conversation.assistantId,
+        workspaceId: input.conversation.workspaceId,
+        channel,
+        externalThreadKey: input.conversation.externalThreadKey,
+        externalUserKey: input.conversation.externalUserKey,
+        runtimeTier: input.runtimeTier,
+        trigger: "post_turn",
+        enqueuedRequestId: input.requestId
+      })
+      .catch((error) => {
+        this.logger.warn(
+          `[bg-compaction] Fire-and-forget enqueue rejected for ${channel}:${input.conversation.externalThreadKey}: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
   }
 
   private resolveReplayResult(receipt: RuntimeTurnReceiptSummary): RuntimeTurnResult {
@@ -2558,83 +2588,10 @@ export class TurnExecutionService {
     return value === null || value.trim().length === 0 ? null : value.trim();
   }
 
-  private async executePostTurnAutoCompaction(
-    input: RuntimeTurnRequest,
-    bundle: AssistantRuntimeBundle,
-    turnState: TurnExecutionState
-  ): Promise<RuntimeTurnAutoCompactionState | null> {
-    if (turnState.sharedCompaction.durableStatePersisted) {
-      return null;
-    }
-
-    const request = this.buildAutoCompactionRequest(input, bundle);
-    if (request === null) {
-      return null;
-    }
-
-    try {
-      const result = await this.sessionCompactionService.compactSession(request);
-      if (result.toolResult.usage !== null) {
-        this.recordUsageEntry(turnState, {
-          stepType: "auto_compaction",
-          modelRole: "system_tool",
-          usage: result.toolResult.usage,
-          toolCode: result.toolResult.toolCode
-        });
-      }
-      if (result.compacted) {
-        turnState.sharedCompaction.invoked = true;
-        turnState.sharedCompaction.durableStatePersisted = true;
-        return {
-          tokensBefore: result.tokensBefore,
-          tokensAfter: result.tokensAfter
-        };
-      }
-      if (
-        result.reason !== "threshold_not_reached" &&
-        result.reason !== "nothing_to_compact" &&
-        result.reason !== "session_busy"
-      ) {
-        this.logger.warn(
-          `[auto-compaction] Non-terminal skip for ${request.conversation.channel}:${request.conversation.externalThreadKey} (${String(
-            result.reason ?? "unknown"
-          )})`
-        );
-      }
-    } catch (error) {
-      this.logger.warn(
-        `[auto-compaction] Failed for ${request.conversation.channel}:${request.conversation.externalThreadKey}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-    return null;
-  }
-
-  private buildAutoCompactionRequest(
-    input: RuntimeTurnRequest,
-    bundle: AssistantRuntimeBundle
-  ): AutoCompactionRequest | null {
-    const contextHydration = resolveRuntimeContextHydrationConfig(bundle);
-    const channel = input.conversation.channel;
-    const enabled =
-      channel === "telegram"
-        ? contextHydration.autoCompactionTelegram
-        : channel === "web"
-          ? contextHydration.autoCompactionWeb
-          : false;
-    if (!enabled) {
-      return null;
-    }
-
-    return {
-      runtimeTier: input.runtimeTier,
-      conversation: input.conversation,
-      instructions: null,
-      trigger: "auto_compaction",
-      runtimeRequestId: input.requestId
-    };
-  }
+  // ADR-074 Slice M2 — `executePostTurnAutoCompaction` and
+  // `buildAutoCompactionRequest` were removed: auto-compaction is now
+  // off-band via `fireBackgroundCompactionEnqueue` above and runs through
+  // the API-side scheduler, never blocking the user-perceived turn.
 
   private asObject(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === "object" && !Array.isArray(value)

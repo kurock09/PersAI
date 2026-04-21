@@ -147,6 +147,52 @@ export class WriteAssistantMemoryService {
       };
     }
 
+    // ADR-074 M2 — server-side dedup. Look up an existing active entry whose
+    // normalized summary matches; if found, do NOT insert a duplicate. Bump
+    // `last_used_at` on the existing row so relevance scoring still rewards it
+    // and report the existing item back to the caller. This keeps both the
+    // model-driven `memory_write` tool and the M2 auto-extract path
+    // idempotent without forcing every caller to do its own pre-check.
+    const existingDuplicate =
+      await this.assistantMemoryRegistryRepository.findActiveByNormalizedSummaryAndAssistantId(
+        assistant.id,
+        input.summary
+      );
+    if (existingDuplicate !== null) {
+      await this.assistantMemoryRegistryRepository.bumpLastUsedAt(assistant.id, [
+        existingDuplicate.id
+      ]);
+      await this.appendAssistantAuditEventService.execute({
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+        actorUserId: assistant.userId,
+        eventCategory: "memory_registry",
+        eventCode: "assistant.memory_write_duplicate",
+        summary: "Durable memory write skipped because an equivalent entry already exists.",
+        details: {
+          existingItemId: existingDuplicate.id,
+          kind: input.kind,
+          transportSurface: input.transportSurface,
+          sourceTrust: input.sourceTrust,
+          relatedUserMessageId: input.relatedUserMessageId,
+          requestId: input.requestId
+        }
+      });
+      return {
+        written: false,
+        code: "duplicate",
+        message: "Memory already exists.",
+        item: {
+          id: existingDuplicate.id,
+          summary: existingDuplicate.summary,
+          kind: this.resolveItemKind(existingDuplicate.kind, input.kind),
+          sourceLabel: existingDuplicate.sourceLabel,
+          createdAt: existingDuplicate.createdAt.toISOString(),
+          chatId: existingDuplicate.chatId
+        }
+      };
+    }
+
     let chatId: string | null = null;
     if (input.relatedUserMessageId !== null) {
       const relatedMessage = await this.assistantChatRepository.findMessageByIdForAssistant(
@@ -258,6 +304,13 @@ export class WriteAssistantMemoryService {
       return null;
     }
     return this.asNonEmptyString(value);
+  }
+
+  private resolveItemKind(
+    storedKind: PersaiRuntimeMemoryWriteKind | null,
+    fallback: PersaiRuntimeMemoryWriteKind
+  ): PersaiRuntimeMemoryWriteKind {
+    return storedKind ?? fallback;
   }
 
   private buildSourceLabel(kind: PersaiRuntimeMemoryWriteKind): string {

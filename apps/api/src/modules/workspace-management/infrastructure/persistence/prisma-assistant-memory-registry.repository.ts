@@ -192,6 +192,24 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return result.count;
   }
 
+  async findActiveByNormalizedSummaryAndAssistantId(
+    assistantId: string,
+    normalizedSummary: string
+  ): Promise<AssistantMemoryRegistryItem | null> {
+    if (normalizedSummary.length === 0) {
+      return null;
+    }
+    const row = await this.prisma.assistantMemoryRegistryItem.findFirst({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        summary: { equals: normalizedSummary, mode: "insensitive" }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+    });
+    return row ? this.mapToDomain(row) : null;
+  }
+
   async bumpLastUsedAt(assistantId: string, ids: readonly string[]): Promise<number> {
     if (ids.length === 0) {
       return 0;

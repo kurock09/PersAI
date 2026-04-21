@@ -40,4 +40,26 @@ export class BumpConfigGenerationService {
     });
     return row?.reminderSchedulerEpoch ?? 1;
   }
+
+  // ADR-074 Slice M2 — dedicated epoch for the background compaction scheduler
+  // so a deploy/restart can invalidate stale claims without touching the
+  // reminder scheduler's epoch. Mirrors the reminder pair above.
+  async bumpBackgroundCompactionSchedulerEpoch(): Promise<number> {
+    const result = await this.prisma.$queryRaw<{ background_compaction_scheduler_epoch: number }[]>`
+      UPDATE platform_config_generations
+      SET background_compaction_scheduler_epoch = background_compaction_scheduler_epoch + 1,
+          updated_at = NOW()
+      WHERE id = 'global'
+      RETURNING background_compaction_scheduler_epoch
+    `;
+    return result[0]?.background_compaction_scheduler_epoch ?? 1;
+  }
+
+  async currentBackgroundCompactionSchedulerEpoch(): Promise<number> {
+    const row = await this.prisma.platformConfigGeneration.findUnique({
+      where: { id: "global" },
+      select: { backgroundCompactionSchedulerEpoch: true }
+    });
+    return row?.backgroundCompactionSchedulerEpoch ?? 1;
+  }
 }

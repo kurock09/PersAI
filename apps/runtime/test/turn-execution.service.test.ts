@@ -1190,6 +1190,12 @@ class FakePersaiInternalApiClientService {
     }
     return this.memoryWriteOutcome;
   }
+
+  enqueueBackgroundCompactionCalls: Array<Record<string, unknown>> = [];
+
+  async enqueueBackgroundCompaction(input: Record<string, unknown>): Promise<void> {
+    this.enqueueBackgroundCompactionCalls.push(input);
+  }
 }
 
 class FakePersaiMediaObjectStorageService {
@@ -1633,7 +1639,11 @@ function computeHydratedStableBlockTokens(
       );
       continue;
     }
-    if (normalized.startsWith("[Earlier conversation summary retained by shared compaction]")) {
+    if (
+      normalized.startsWith(
+        "[Rolling session synopsis — what we have established so far in this conversation]"
+      )
+    ) {
       tokens.push(
         `shared_compaction_summary.v1.${createHash("sha256").update(normalized).digest("hex")}`
       );
@@ -2949,12 +2959,21 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     request.bundle.bundleHash;
   const webAutoCompactionCompleted = await service.createTurn(request);
   assert.equal(webAutoCompactionCompleted.assistantText, "override reply");
-  assert.deepEqual(sessionCompactionService.calls.at(-1), {
+  await flushTaskQueue();
+  // ADR-074 M2 — auto-compaction is now enqueued off-band against the
+  // API-side scheduler instead of running inline. The runtime never calls
+  // `SessionCompactionService` from the post-turn path; it fires
+  // `enqueueBackgroundCompaction` and returns immediately.
+  assert.equal(sessionCompactionService.calls.length, 0);
+  assert.deepEqual(persaiInternalApiClientService.enqueueBackgroundCompactionCalls.at(-1), {
+    assistantId: request.conversation.assistantId,
+    workspaceId: request.conversation.workspaceId,
+    channel: "web",
+    externalThreadKey: request.conversation.externalThreadKey,
+    externalUserKey: request.conversation.externalUserKey,
     runtimeTier: "paid_shared_restricted",
-    conversation: request.conversation,
-    instructions: null,
-    trigger: "auto_compaction",
-    runtimeRequestId: "request-1"
+    trigger: "post_turn",
+    enqueuedRequestId: "request-1"
   });
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionWeb = false;
@@ -2978,12 +2997,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const telegramCompleted = await service.createTurn(telegramRequest);
   assert.equal(telegramCompleted.assistantText, "override reply");
   await flushTaskQueue();
-  assert.deepEqual(sessionCompactionService.calls.at(-1), {
+  assert.equal(sessionCompactionService.calls.length, 0);
+  assert.deepEqual(persaiInternalApiClientService.enqueueBackgroundCompactionCalls.at(-1), {
+    assistantId: telegramRequest.conversation.assistantId,
+    workspaceId: telegramRequest.conversation.workspaceId,
+    channel: "telegram",
+    externalThreadKey: telegramRequest.conversation.externalThreadKey,
+    externalUserKey: telegramRequest.conversation.externalUserKey,
     runtimeTier: "paid_shared_restricted",
-    conversation: telegramRequest.conversation,
-    instructions: null,
-    trigger: "auto_compaction",
-    runtimeRequestId: "request-1"
+    trigger: "post_turn",
+    enqueuedRequestId: "request-1"
   });
 
   if (bundleRegistry.entry !== null) {
@@ -2995,9 +3018,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
     ...telegramRequest.conversation
   };
+  const enqueueCallsBeforeTelegramOff =
+    persaiInternalApiClientService.enqueueBackgroundCompactionCalls.length;
   await service.createTurn(telegramRequest);
   await flushTaskQueue();
-  assert.equal(sessionCompactionService.calls.length, 2);
+  assert.equal(sessionCompactionService.calls.length, 0);
+  assert.equal(
+    persaiInternalApiClientService.enqueueBackgroundCompactionCalls.length,
+    enqueueCallsBeforeTelegramOff
+  );
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.runtime.contextHydration.autoCompactionTelegram = true;
   }
@@ -3013,7 +3042,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       role: "assistant",
       content:
-        "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable compacted context."
+        "[Rolling session synopsis — what we have established so far in this conversation]\nStable facts:\n- Durable compacted context."
     },
     {
       role: "user",

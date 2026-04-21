@@ -18,7 +18,7 @@ function buildExpectedCoreToken(content: string): string {
 
 function buildExpectedSharedSummaryToken(content: string): string {
   return buildPromptCacheStableBlockToken({
-    family: "shared_compaction_summary",
+    family: "rolling_session_synopsis",
     hash: createHash("sha256").update(content.trim()).digest("hex")
   });
 }

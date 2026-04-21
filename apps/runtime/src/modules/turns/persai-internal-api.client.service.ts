@@ -3,12 +3,15 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
 import type {
+  PersaiRuntimeChannel,
   PersaiRuntimeMemoryWriteKind,
   PersaiRuntimeKnowledgeSource,
+  PersaiRuntimeTier,
   RuntimeKnowledgeDocument,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
@@ -145,14 +148,64 @@ export type InternalFreshRuntimeSpec = {
   bundleDocument: string;
 };
 
+export type InternalEnqueueBackgroundCompactionInput = {
+  assistantId: string;
+  workspaceId: string;
+  channel: PersaiRuntimeChannel;
+  externalThreadKey: string;
+  externalUserKey: string | null;
+  runtimeTier: PersaiRuntimeTier;
+  trigger: "post_turn" | "manual";
+  enqueuedRequestId: string | null;
+};
+
 @Injectable()
 export class PersaiInternalApiClientService {
+  private readonly logger = new Logger(PersaiInternalApiClientService.name);
+
   constructor(@Inject(RUNTIME_CONFIG) private readonly config: RuntimeConfig) {}
 
   isConfigured(): boolean {
     return Boolean(
       this.config.PERSAI_API_BASE_URL?.trim() && this.config.PERSAI_INTERNAL_API_TOKEN
     );
+  }
+
+  // ADR-074 Slice M2 — fire-and-forget enqueue from the runtime to apps/api's
+  // background-compaction scheduler. Failures are LOGGED, never thrown: the
+  // user-perceived turn must remain successful even if the queue is down.
+  // The API endpoint is idempotent on (assistantId, channel, externalThreadKey)
+  // via a partial unique index on `pending_dedupe_key`, so rapid follow-up
+  // turns coalesce into a single pending job.
+  async enqueueBackgroundCompaction(
+    input: InternalEnqueueBackgroundCompactionInput
+  ): Promise<void> {
+    if (!this.isConfigured()) {
+      this.logger.warn(
+        "[bg-compaction] Skipping enqueue: PERSAI_API_BASE_URL or PERSAI_INTERNAL_API_TOKEN is not configured."
+      );
+      return;
+    }
+    try {
+      const response = await this.fetchJson("/api/v1/internal/runtime/compaction/enqueue", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+      if (!response.ok) {
+        const error = this.extractError(response.body);
+        this.logger.warn(
+          `[bg-compaction] Enqueue failed for ${input.channel}:${input.externalThreadKey}: HTTP ${response.status} ${error.message ?? ""}`
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `[bg-compaction] Enqueue threw for ${input.channel}:${input.externalThreadKey}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   async consumeToolDailyLimit(input: {

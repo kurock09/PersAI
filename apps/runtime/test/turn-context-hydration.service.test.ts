@@ -771,7 +771,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   assert.deepEqual(reusedSummary.at(1), {
     role: "assistant",
     content:
-      "[Earlier conversation summary retained by shared compaction]\nStable facts:\n- Durable summary of older context."
+      "[Rolling session synopsis — what we have established so far in this conversation]\nStable facts:\n- Durable summary of older context."
   });
   assert.deepEqual(reusedSummary.at(2), {
     role: "assistant",

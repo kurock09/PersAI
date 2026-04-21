@@ -3,6 +3,8 @@ import { BundlesModule } from "../bundles/bundles.module";
 import { SessionsModule } from "../sessions/sessions.module";
 import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
+import { InternalRuntimeSessionsController } from "./interface/http/internal-runtime-sessions.controller";
+import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 import { IdempotencyService } from "./idempotency.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
@@ -31,7 +33,7 @@ import { TurnRoutingService } from "./turn-routing.service";
 
 @Module({
   imports: [BundlesModule, RuntimeStateModule, SessionsModule],
-  controllers: [TurnsController],
+  controllers: [TurnsController, InternalRuntimeSessionsController],
   providers: [
     PersaiInternalApiClientService,
     ProviderGatewayClientService,
@@ -52,6 +54,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,
+    AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
     TurnRoutingService,
@@ -79,6 +82,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     IdempotencyService,
     PersaiMediaObjectStorageService,
     TurnContextHydrationService,
+    AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
     TurnRoutingService,

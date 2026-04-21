@@ -529,6 +529,7 @@ class FakeSessionLeaseService {
 
 class FakeRuntimeStatePostgresService {
   appendCalls: unknown[] = [];
+  latestCompaction: { summaryPayload: unknown } | null = null;
 
   async findSessionById() {
     return {
@@ -541,12 +542,22 @@ class FakeRuntimeStatePostgresService {
     };
   }
 
+  // ADR-074 M2 — SessionCompactionService consults the latest persisted
+  // compaction so it can REPLACE (not concatenate) the prior synopsis.
+  async findLatestSessionCompaction() {
+    return this.latestCompaction;
+  }
+
   async appendSessionCompaction(input: unknown) {
     this.appendCalls.push(input);
-    return {
+    const record = {
       id: `compaction-${String(this.appendCalls.length)}`,
       ...((input ?? {}) as Record<string, unknown>)
     };
+    this.latestCompaction = {
+      summaryPayload: (input as { summaryPayload?: unknown } | null)?.summaryPayload ?? null
+    };
+    return record;
   }
 }
 
@@ -571,7 +582,26 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
     hydration as unknown as TurnContextHydrationService,
     sessionStore as unknown as SessionStoreService,
     leaseService as unknown as SessionLeaseService,
-    postgres as unknown as RuntimeStatePostgresService
+    postgres as unknown as RuntimeStatePostgresService,
+    {
+      // ADR-074 M2 — auto-extract is exercised in dedicated tests; here we
+      // only need the no-op stub so SessionCompactionService construction
+      // type-checks under the new constructor signature.
+      async execute() {
+        return {
+          attempted: false,
+          written: 0,
+          dedupSkipped: 0,
+          policySkipped: 0,
+          invalidSkipped: 0,
+          kindCounts: { fact: 0, preference: 0, open_loop: 0 },
+          entries: [],
+          durationMs: 0,
+          reason: "test_stub",
+          usage: null
+        };
+      }
+    } as unknown as import("../src/modules/turns/auto-extract-to-memory.service").AutoExtractToMemoryService
   );
 
   sessionStore.resolvedSession = createResolvedSession(7000);
@@ -872,4 +902,29 @@ export async function runSessionCompactionServiceTest(): Promise<void> {
   assert.equal(summarizedWithHeldLease.reason, "summarized");
   assert.equal(leaseService.acquireCalls.length, acquireCallsBeforeHeldLease);
   assert.equal(leaseService.released.length, releasedBeforeHeldLease);
+
+  // ADR-074 M2 — when a prior compaction synopsis exists for this session,
+  // the system prompt must explicitly tell the model to REPLACE it with the
+  // updated synopsis covering prior + this slice (never concatenate).
+  const previousSynopsisRequestCountBefore = providerGateway.requests.length;
+  postgres.latestCompaction = {
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v2",
+      toolCode: "compact_context",
+      sections: VALID_COMPACTION_SECTIONS,
+      summarizedMessageCount: 4,
+      preservedRecentMessageCount: 8
+    }
+  };
+  providerGateway.queuedTextOutputs = [VALID_COMPACTION_OUTPUT];
+  sessionStore.resolvedSession = createResolvedSession(30000);
+  const replaceSynopsis = await service.compactSession(
+    createCompactionRequest({ instructions: "Refresh the rolling synopsis." })
+  );
+  assert.equal(replaceSynopsis.compacted, true);
+  assert.equal(providerGateway.requests.length, previousSynopsisRequestCountBefore + 1);
+  const replaceSystemPrompt = providerGateway.requests.at(-1)?.systemPrompt ?? "";
+  assert.match(replaceSystemPrompt, /Previous rolling synopsis/);
+  assert.match(replaceSystemPrompt, /REPLACE this whole synopsis/);
+  assert.match(replaceSystemPrompt, /User is working on the PersAI runtime/);
 }

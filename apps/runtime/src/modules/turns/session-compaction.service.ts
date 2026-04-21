@@ -27,7 +27,8 @@ import {
   MAX_REUSABLE_COMPACTION_TOTAL_ITEMS,
   REUSABLE_SHARED_COMPACTION_OUTPUT_SCHEMA,
   type ReusableSharedCompactionOutputRejectionReason,
-  normalizeReusableCompactionStateFromModelOutput
+  normalizeReusableCompactionStateFromModelOutput,
+  parseStoredReusableCompactionState
 } from "./shared-compaction-state";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import {
@@ -35,6 +36,7 @@ import {
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
+import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 
@@ -71,6 +73,12 @@ type SharedCompactionRequest = RuntimeCompactionRequest & {
   heldLease?: RuntimeSessionLease;
   trigger?: SharedCompactionTrigger;
   runtimeRequestId?: string | null;
+  // ADR-074 Slice M2 — when `true`, after a successful auto-compaction we
+  // also run the durable-memory auto-extract pass over the same compacted
+  // slice. Manual triggers (compact_context / summarize_context tool calls
+  // by the model) leave this `false`/`undefined` because the model already
+  // owns memory writing in that flow.
+  autoExtract?: boolean;
 };
 
 const MIN_SUMMARIZED_MESSAGE_COUNT = 2;
@@ -91,7 +99,8 @@ export class SessionCompactionService {
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly sessionStoreService: SessionStoreService,
     private readonly sessionLeaseService: SessionLeaseService,
-    private readonly runtimeStatePostgresService: RuntimeStatePostgresService
+    private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
+    private readonly autoExtractToMemoryService: AutoExtractToMemoryService
   ) {}
 
   async compactSession(input: SharedCompactionRequest): Promise<RuntimeCompactionResult> {
@@ -99,7 +108,8 @@ export class SessionCompactionService {
       input,
       toolCode: "compact_context",
       persistSummary: true,
-      trigger: input.trigger ?? "manual_compaction"
+      trigger: input.trigger ?? "manual_compaction",
+      autoExtract: input.autoExtract ?? false
     });
   }
 
@@ -108,7 +118,8 @@ export class SessionCompactionService {
       input,
       toolCode: "summarize_context",
       persistSummary: false,
-      trigger: "manual_compaction"
+      trigger: "manual_compaction",
+      autoExtract: false
     });
   }
 
@@ -117,6 +128,7 @@ export class SessionCompactionService {
     toolCode: PersaiRuntimeSharedCompactionToolCode;
     persistSummary: boolean;
     trigger: SharedCompactionTrigger;
+    autoExtract: boolean;
   }): Promise<RuntimeCompactionResult> {
     const instructions = this.normalizeOptionalText(input.input.instructions);
     const manualTrigger = input.trigger === "manual_compaction";
@@ -324,6 +336,14 @@ export class SessionCompactionService {
       }
 
       const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle);
+      // ADR-074 Slice M2 — load the prior rolling synopsis text so the
+      // provider can REPLACE rather than CONCATENATE: every subsequent
+      // round we hand the model what it already wrote and ask for the
+      // updated single-string synopsis covering everything to date.
+      const previousSynopsisText = await this.loadPreviousSynopsisText(
+        persistedSession.id,
+        summaryCharBudget
+      );
       const validatedOutput = await this.generateValidatedSharedCompactionOutput({
         bundle: bundleEntry.parsedBundle,
         providerSelection,
@@ -336,7 +356,8 @@ export class SessionCompactionService {
         summarizedMessageCount: compactionSource.summarizedMessageCount,
         preservedRecentMessageCount: compactionSource.preservedRecentMessageCount,
         messages: compactionSource.messages,
-        summaryCharBudget
+        summaryCharBudget,
+        previousSynopsisText
       });
       if (validatedOutput.normalizedSummary === null) {
         return this.buildCompactionResult({
@@ -391,7 +412,7 @@ export class SessionCompactionService {
         });
       }
 
-      return this.buildCompactionResult({
+      const compactionResult = this.buildCompactionResult({
         toolCode: input.toolCode,
         action: input.persistSummary ? "compacted" : "summarized",
         reason: input.persistSummary ? "compacted" : "summarized",
@@ -415,6 +436,35 @@ export class SessionCompactionService {
         reusableInLaterTurns: input.persistSummary,
         usage: validatedOutput.usage
       });
+
+      // ADR-074 Slice M2 — second LLM pass: extract durable items into
+      // memory using the human-friend voice. Runs ONLY when (a) we just
+      // persisted a synopsis, (b) the caller asked for auto-extract, and
+      // (c) we have at least one compacted message. All failures are
+      // treated as soft skips so the visible compaction event still
+      // succeeds for the user.
+      if (input.persistSummary && input.autoExtract) {
+        try {
+          const autoExtract = await this.autoExtractToMemoryService.execute({
+            bundle: bundleEntry.parsedBundle,
+            channel: input.input.conversation.channel,
+            conversationMode: input.input.conversation.mode,
+            compactedMessages: compactionSource.messages,
+            rollingSynopsisText: normalizedSummary.summaryText,
+            runtimeRequestId: input.input.runtimeRequestId ?? null,
+            runtimeSessionId: resolvedSession.session.sessionId,
+            providerSelection
+          });
+          compactionResult.autoExtract = autoExtract;
+        } catch (error) {
+          this.logger.warn(
+            `[auto-extract] Soft-skipped after compaction for session ${resolvedSession.session.sessionId}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          compactionResult.autoExtract = null;
+        }
+      }
+
+      return compactionResult;
     } finally {
       if (input.input.heldLease === undefined) {
         await this.releaseLeaseQuietly(lease);
@@ -434,6 +484,7 @@ export class SessionCompactionService {
     summarizedMessageCount: number;
     preservedRecentMessageCount: number;
     messages: ProviderGatewayTextGenerateRequest["messages"];
+    previousSynopsisText: string | null;
     retryReason?: ReusableSharedCompactionOutputRejectionReason | null;
   }): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig(input.bundle, input.providerSelection.provider);
@@ -464,6 +515,9 @@ export class SessionCompactionService {
         : `User display name: ${input.bundle.userContext.displayName}`,
       `User locale: ${input.bundle.userContext.locale}`,
       `User timezone: ${input.bundle.userContext.timezone}`,
+      input.previousSynopsisText === null || input.previousSynopsisText.length === 0
+        ? "There is no prior rolling synopsis yet — this is the first compaction round for this conversation."
+        : `Previous rolling synopsis already covering everything before this slice (do not re-list facts already here, instead REPLACE this whole synopsis with the updated one that covers prior + this slice):\n${input.previousSynopsisText}`,
       input.instructions === null ? null : `Additional operator instructions: ${input.instructions}`
     ].filter((section): section is string => section !== null);
 
@@ -497,6 +551,7 @@ export class SessionCompactionService {
     preservedRecentMessageCount: number;
     messages: ProviderGatewayTextGenerateRequest["messages"];
     summaryCharBudget: number;
+    previousSynopsisText: string | null;
   }): Promise<{
     normalizedSummary: NonNullable<
       ReturnType<typeof normalizeReusableCompactionStateFromModelOutput>["parsed"]
@@ -553,6 +608,30 @@ export class SessionCompactionService {
       normalizedSummary: null,
       usage
     };
+  }
+
+  private async loadPreviousSynopsisText(
+    runtimeSessionId: string,
+    summaryCharBudget: number
+  ): Promise<string | null> {
+    try {
+      const latest =
+        await this.runtimeStatePostgresService.findLatestSessionCompaction(runtimeSessionId);
+      if (latest === null || latest === undefined) {
+        return null;
+      }
+      const parsed = parseStoredReusableCompactionState(latest.summaryPayload, summaryCharBudget);
+      if (parsed === null) {
+        return null;
+      }
+      const trimmed = parsed.summaryText.trim();
+      return trimmed.length === 0 ? null : trimmed;
+    } catch (error) {
+      this.logger.warn(
+        `[shared-compaction] Could not load previous synopsis for session ${runtimeSessionId}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return null;
+    }
   }
 
   private buildPromptCacheConfig(

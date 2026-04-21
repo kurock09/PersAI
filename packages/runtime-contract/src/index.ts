@@ -401,7 +401,11 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     compactionTriggerThreshold: 8_000,
     keepRecentMinimum: 4,
     knowledgeHydrationBudget: 2_400,
-    autoCompactionWeb: false,
+    // ADR-074 Slice M2: web auto-compaction is now default-on. Compaction has
+    // moved off the user-perceived request path into a durable background job
+    // (apps/api PersaiBackgroundCompactionSchedulerService), so the latency
+    // cost that previously argued for keeping this `false` no longer applies.
+    autoCompactionWeb: true,
     autoCompactionTelegram: true
   },
   rich: {
@@ -409,7 +413,10 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     compactionTriggerThreshold: 12_000,
     keepRecentMinimum: 6,
     knowledgeHydrationBudget: 3_600,
-    autoCompactionWeb: false,
+    // ADR-074 Slice M2: see `balanced.autoCompactionWeb` rationale above.
+    // The richer context budget benefits even more from a rolling background
+    // synopsis once total tokens approach `compactionTriggerThreshold`.
+    autoCompactionWeb: true,
     autoCompactionTelegram: true
   }
 };
@@ -1304,7 +1311,11 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   "main_turn",
   "tool_loop_followup",
   "manual_compaction",
-  "auto_compaction"
+  "auto_compaction",
+  // ADR-074 Slice M2 — second LLM pass following an auto-compaction event
+  // that asks the model to extract durable human-voiced notes from the
+  // compacted slice and writes them through the M1 memory_write path.
+  "auto_extract_to_memory"
 ] as const;
 
 export type ProviderGatewayRequestClassification =
@@ -1749,6 +1760,28 @@ export interface RuntimeSharedCompactionToolResult {
   usage: RuntimeUsageSnapshot | null;
 }
 
+/**
+ * ADR-074 Slice M2 — outcome of the human-voiced auto-extract pass that runs
+ * immediately after each background compaction event. Surfaced in the runtime
+ * compaction result so smoke harness traces can attribute "compaction wrote
+ * N memories" without correlating timestamps by hand.
+ */
+export interface RuntimeCompactionAutoExtractResult {
+  attempted: boolean;
+  written: number;
+  dedupSkipped: number;
+  policySkipped: number;
+  invalidSkipped: number;
+  kindCounts: Record<PersaiRuntimeMemoryWriteKind, number>;
+  entries: Array<{
+    kind: PersaiRuntimeMemoryWriteKind;
+    summary: string;
+  }>;
+  durationMs: number | null;
+  reason: string | null;
+  usage: RuntimeUsageSnapshot | null;
+}
+
 export interface RuntimeCompactionResult {
   compacted: boolean;
   reason: string | null;
@@ -1756,6 +1789,12 @@ export interface RuntimeCompactionResult {
   tokensAfter: number | null;
   session: RuntimeSessionSummary | null;
   toolResult: RuntimeSharedCompactionToolResult;
+  /**
+   * ADR-074 Slice M2 — present whenever a compaction event ran (regardless of
+   * whether auto-extract itself wrote anything). `null` when no compaction was
+   * performed (manual `summarize_context` for example).
+   */
+  autoExtract?: RuntimeCompactionAutoExtractResult | null;
   trace?: RuntimeTrace;
 }
 

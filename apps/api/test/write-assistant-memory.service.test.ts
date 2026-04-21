@@ -12,6 +12,7 @@ import type { AppendAssistantAuditEventService } from "../src/modules/workspace-
 function createHarness(options?: {
   memoryControl?: Record<string, unknown> | null;
   relatedMessage?: { id: string; author: "user" | "assistant" | "system"; chatId: string } | null;
+  existingDuplicate?: AssistantMemoryRegistryItem | null;
 }) {
   const createdInputs: Array<Record<string, unknown>> = [];
   const auditCalls: Array<Record<string, unknown>> = [];
@@ -71,9 +72,15 @@ function createHarness(options?: {
   };
 
   const demoteCalls: Array<{ assistantId: string; demoteCount: number }> = [];
+  const bumpCalls: Array<{ assistantId: string; ids: readonly string[] }> = [];
+  const existingDuplicate = options?.existingDuplicate ?? null;
   const memoryRepository: Pick<
     AssistantMemoryRegistryRepository,
-    "create" | "countActiveCoreByAssistantId" | "demoteOldestCoreByAssistantId"
+    | "create"
+    | "countActiveCoreByAssistantId"
+    | "demoteOldestCoreByAssistantId"
+    | "findActiveByNormalizedSummaryAndAssistantId"
+    | "bumpLastUsedAt"
   > = {
     async create(input) {
       createdInputs.push(input as Record<string, unknown>);
@@ -100,6 +107,14 @@ function createHarness(options?: {
     },
     async demoteOldestCoreByAssistantId(assistantId, demoteCount) {
       demoteCalls.push({ assistantId, demoteCount });
+      return demoteCount;
+    },
+    async findActiveByNormalizedSummaryAndAssistantId() {
+      return existingDuplicate;
+    },
+    async bumpLastUsedAt(assistantId, ids) {
+      bumpCalls.push({ assistantId, ids });
+      return ids.length;
     }
   };
 
@@ -138,7 +153,8 @@ function createHarness(options?: {
     ),
     createdInputs,
     auditCalls,
-    demoteCalls
+    demoteCalls,
+    bumpCalls
   };
 }
 
@@ -228,6 +244,53 @@ async function run(): Promise<void> {
       error instanceof BadRequestException &&
       error.message.includes("Memory write payload is invalid")
   );
+
+  // ADR-074 M2 server-side dedup: an active entry with identical normalized
+  // summary should short-circuit the write, bump `last_used_at` on the
+  // existing row, and return the existing item without creating a new one.
+  const existingItem: AssistantMemoryRegistryItem = {
+    id: "memory-existing",
+    assistantId: "assistant-1",
+    userId: "user-1",
+    workspaceId: "workspace-1",
+    chatId: "chat-1",
+    relatedUserMessageId: "message-1",
+    relatedAssistantMessageId: null,
+    summary: "User prefers concise answers.",
+    sourceType: "memory_write",
+    sourceLabel: "Memory write: preference",
+    memoryClass: "core",
+    kind: "preference",
+    lastUsedAt: null,
+    forgottenAt: null,
+    createdAt: new Date("2026-04-12T00:00:00.000Z")
+  };
+  const dup = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope(),
+    relatedMessage: {
+      id: "message-1",
+      author: "user",
+      chatId: "chat-1"
+    },
+    existingDuplicate: existingItem
+  });
+  const dupResult = await dup.service.execute({
+    assistantId: "assistant-1",
+    kind: "preference",
+    summary: "User prefers concise answers.",
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: "message-1",
+    requestId: "request-dup"
+  });
+  assert.equal(dupResult.written, false);
+  assert.equal(dupResult.code, "duplicate");
+  assert.equal(dupResult.item?.id, "memory-existing");
+  assert.equal(dup.createdInputs.length, 0);
+  assert.equal(dup.bumpCalls.length, 1);
+  assert.deepEqual(dup.bumpCalls[0]?.ids, ["memory-existing"]);
+  assert.equal(dup.auditCalls.length, 1);
+  assert.equal(dup.auditCalls[0]?.eventCode, "assistant.memory_write_duplicate");
 }
 
 void run();

@@ -363,6 +363,7 @@ model Workspace {
   sandboxJobs                 SandboxJob[]
   assistantWorkspaceLeases    AssistantWorkspaceLease[]
   assistantFiles              AssistantFile[]
+  assistantBackgroundCompactionJobs AssistantBackgroundCompactionJob[]
 
   @@map("workspaces")
 }
@@ -441,6 +442,7 @@ model Assistant {
   sandboxJobs                  SandboxJob[]
   assistantWorkspaceLeases     AssistantWorkspaceLease[]
   assistantFiles               AssistantFile[]
+  backgroundCompactionJobs     AssistantBackgroundCompactionJob[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -589,10 +591,11 @@ model AdminNotificationDelivery {
 }
 
 model PlatformConfigGeneration {
-  id                     String   @id @default("global") @db.VarChar(32)
-  generation             Int      @default(1)
-  reminderSchedulerEpoch Int      @default(1) @map("reminder_scheduler_epoch")
-  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                                  String   @id @default("global") @db.VarChar(32)
+  generation                          Int      @default(1)
+  reminderSchedulerEpoch              Int      @default(1) @map("reminder_scheduler_epoch")
+  backgroundCompactionSchedulerEpoch  Int      @default(1) @map("background_compaction_scheduler_epoch")
+  updatedAt                           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_config_generations")
 }
@@ -1434,6 +1437,63 @@ model PromptTemplate {
 /// this table; published versions snapshot the resolved Voice DNA into
 /// `assistant_published_versions.snapshot_voice_dna` so already-published
 /// assistants stay stable when admins later edit the source archetype.
+/// ADR-074 Slice M2 — durable background queue for off-band session
+/// compaction. The user-perceived turn ends at `completeAcceptedTurn`;
+/// `apps/api`'s `PersaiBackgroundCompactionSchedulerService` polls this table,
+/// claims pending jobs with a TTL lease, and POSTs them to the runtime's
+/// internal `/api/v1/internal/runtime/sessions/compact-and-extract` endpoint.
+///
+/// One pending job per `(assistantId, channel, externalThreadKey)` triple is
+/// enforced via `pendingDedupeKey`, so multiple "please compact" enqueues for
+/// the same conversation collapse into a single durable job (supersede-on-
+/// enqueue). Once the job is claimed the dedupe key is cleared so the next
+/// enqueue can re-create a fresh row.
+model AssistantBackgroundCompactionJob {
+  id                       String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId              String                                @map("assistant_id") @db.Uuid
+  workspaceId              String                                @map("workspace_id") @db.Uuid
+  channel                  RuntimeConversationChannel
+  externalThreadKey        String                                @map("external_thread_key") @db.VarChar(255)
+  externalUserKey          String?                               @map("external_user_key") @db.VarChar(255)
+  runtimeTier              RuntimeTier                           @map("runtime_tier")
+  trigger                  AssistantBackgroundCompactionJobTrigger @default(post_turn)
+  status                   AssistantBackgroundCompactionJobStatus  @default(pending)
+  pendingDedupeKey         String?                               @map("pending_dedupe_key") @db.VarChar(512)
+  attemptCount             Int                                   @default(0) @map("attempt_count")
+  enqueuedRequestId        String?                               @map("enqueued_request_id") @db.VarChar(128)
+  schedulerClaimToken      String?                               @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch      Int?                                  @map("scheduler_claim_epoch")
+  schedulerClaimedAt       DateTime?                             @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt  DateTime?                             @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  retryAfterAt             DateTime?                             @map("retry_after_at") @db.Timestamptz(6)
+  lastErrorCode            String?                               @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage         String?                               @map("last_error_message") @db.Text
+  lastResultPayload        Json?                                 @map("last_result_payload") @db.JsonB
+  completedAt              DateTime?                             @map("completed_at") @db.Timestamptz(6)
+  createdAt                DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                Assistant                             @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace                Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([pendingDedupeKey])
+  @@index([status, retryAfterAt, createdAt])
+  @@index([assistantId, channel, externalThreadKey, createdAt(sort: Desc)])
+  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@map("assistant_background_compaction_jobs")
+}
+
+enum AssistantBackgroundCompactionJobStatus {
+  pending
+  in_progress
+  completed
+  failed
+}
+
+enum AssistantBackgroundCompactionJobTrigger {
+  post_turn
+  manual
+}
+
 model PersonaArchetype {
   key               String   @id @db.VarChar(64)
   displayOrder      Int      @default(100) @map("display_order")
