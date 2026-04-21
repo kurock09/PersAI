@@ -86,6 +86,160 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
 ] as const;
 const PROMPT_CONSTRUCTOR_MODEL_TOOL_SET = new Set<string>(PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER);
 
+const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
+  system: `{{assistant_identity_block}}
+
+{{user_identity_block}}
+
+{{locale_block}}
+
+{{timezone_block}}
+
+{{persona_instructions_block}}
+
+{{soul_block}}
+
+{{user_block}}
+
+{{identity_block}}
+
+{{tools_block}}
+
+{{agents_block}}`,
+
+  soul: `# Core Persona
+
+You are **{{assistant_name}}**.
+{{assistant_gender_line}}
+{{archetype_label_line}}
+
+# Voice
+- Sentence length: {{voice_sentence_length}}
+- Pace: {{voice_pace}}
+- Irony: {{voice_irony}}/100
+
+# How you may open
+You may open with phrasings like: {{voice_openings_allowed}}.
+Never open with phrasings like: {{voice_openings_forbidden}}.
+
+# How you behave under emotion
+- When the user is upset: {{voice_when_user_upset}}
+- When the user is excited: {{voice_when_user_excited}}
+- When the user is tired: {{voice_when_user_tired}}
+- When the user is angry: {{voice_when_user_angry}}
+
+# Silence
+{{voice_silence_rule}}
+
+# How you actually sound
+{{voice_examples_block}}
+
+{{traits_block}}
+{{instructions_block}}`,
+
+  user: `# User Context
+
+{{user_name_line}}
+{{user_birthday_line}}
+{{user_gender_line}}
+- **Locale**: {{user_locale}}
+- **Timezone**: {{user_timezone}}
+
+Use this information to personalize your communication.
+Greet on birthdays. Respect timezone for scheduling.`,
+
+  identity: `# Identity
+
+- **Name**: {{assistant_name}}
+{{assistant_gender_line}}
+{{assistant_avatar_emoji_line}}
+{{assistant_avatar_url_line}}`,
+
+  agents: `# Memory and Task Governance
+
+## Memory Policy
+
+- Use \`memory_write\` only for stable user facts, preferences, or open loops that will matter later.
+- Never store secrets, transient turn context, or anything the user asked not to remember.
+
+## Tasks Policy
+
+- Use \`scheduled_action\` for reminders or delayed follow-through.
+- Respect explicit "don't remind me", pause, and cancel signals.
+- Keep reminders low-pressure, non-spammy, and easy to ignore.`,
+
+  tools: `Native tool runtime:
+
+Use only the machine-readable tools declared for this turn.
+Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
+
+  heartbeat: `# Task Heartbeat
+
+- Check the requested condition first before creating any user-visible follow-up.
+- If no user-visible follow-up is needed, stay quiet.
+- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
+- Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
+
+  router_classifier: `You are the hidden PersAI early router.
+
+Choose the cheapest execution mode that should still preserve answer quality.
+
+- \`normal\` for ordinary chat, simple help, brief rewrites, low-risk replies, and short direct requests.
+- \`premium\` for polished wording, better tone, and more careful user-facing writing when quality matters but deep reasoning is not necessary.
+- \`reasoning\` for debugging, architecture, contracts, trade-offs, science, multi-step analysis, and higher-stakes correctness.
+
+Set \`retrievalHint=true\` when the system should likely retrieve assistant knowledge or prior stored facts before answering.
+Set \`toolHints\` only as hints when browser, web, knowledge, or media tools are likely needed.
+Do not execute tools. Do not answer the user. Return only the requested structured result.`,
+
+  preview_bootstrap: `# Character Preview
+
+You are testing how **{{assistant_name}}** should sound before launch.
+
+You are talking to **{{human_name}}** in a setup preview, not in a real first conversation.
+{{voice_summary_line}}
+
+Reply with one short natural sample message that clearly shows the assistant's tone, warmth, initiative, and style.
+Do not say that you just came online, were created, or are meeting for the first time.`,
+
+  welcome_bootstrap: `# First Conversation
+
+You just came online for the first time.
+
+Your name is **{{assistant_name}}**. Your human's name is **{{human_name}}**.
+{{voice_summary_line}}
+
+Introduce yourself naturally. Don't interrogate — just talk.
+
+After your first conversation:
+- Update the core persona prompt with what you learned about yourself.
+- Update the user context prompt with what you learned about your human.
+- Then delete this bootstrap greeting context when it is no longer needed.`
+};
+
+const SOUL_VOICE_DNA_BLOCK = `{{archetype_label_line}}
+
+# Voice
+- Sentence length: {{voice_sentence_length}}
+- Pace: {{voice_pace}}
+- Irony: {{voice_irony}}/100
+
+# How you may open
+You may open with phrasings like: {{voice_openings_allowed}}.
+Never open with phrasings like: {{voice_openings_forbidden}}.
+
+# How you behave under emotion
+- When the user is upset: {{voice_when_user_upset}}
+- When the user is excited: {{voice_when_user_excited}}
+- When the user is tired: {{voice_when_user_tired}}
+- When the user is angry: {{voice_when_user_angry}}
+
+# Silence
+{{voice_silence_rule}}
+
+# How you actually sound
+{{voice_examples_block}}`;
+
 const PRESET_META: Record<
   string,
   {
@@ -118,6 +272,18 @@ const PRESET_META: Record<
     variables: [
       { key: "assistant_name", hint: "Assistant display name" },
       { key: "assistant_gender_line", hint: "Optional assistant gender line" },
+      { key: "archetype_label_line", hint: "Resolved Voice DNA archetype label line" },
+      { key: "voice_sentence_length", hint: "Resolved sentence-length style" },
+      { key: "voice_pace", hint: "Resolved pace style" },
+      { key: "voice_irony", hint: "Resolved irony score 0-100" },
+      { key: "voice_openings_allowed", hint: "Allowed opening phrase list" },
+      { key: "voice_openings_forbidden", hint: "Forbidden opening phrase list" },
+      { key: "voice_when_user_upset", hint: "Behavior when user is upset" },
+      { key: "voice_when_user_excited", hint: "Behavior when user is excited" },
+      { key: "voice_when_user_tired", hint: "Behavior when user is tired" },
+      { key: "voice_when_user_angry", hint: "Behavior when user is angry" },
+      { key: "voice_silence_rule", hint: "Silence / restraint rule" },
+      { key: "voice_examples_block", hint: "Rendered Voice DNA examples block" },
       { key: "traits_block", hint: "Generated personality traits summary" },
       { key: "instructions_block", hint: "Explicit user-owned instructions block" }
     ]
@@ -478,14 +644,17 @@ function TemplateEditor({
 function PromptTemplateEditor({
   template,
   meta,
-  onSave
+  onSave,
+  onReset
 }: {
   template: PromptTemplateState;
   meta: (typeof PRESET_META)[string];
   onSave: (id: string, template: string) => Promise<void>;
+  onReset: (id: string) => Promise<void>;
 }) {
   const [value, setValue] = useState(template.template);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
   const editorHandleRef = useRef<TemplateEditorHandle | null>(null);
 
@@ -503,6 +672,32 @@ function PromptTemplateEditor({
     setTimeout(() => setSaved(false), 1500);
   };
 
+  const handleReset = async () => {
+    if (
+      !window.confirm(
+        `Reset prompt template "${template.id}" to factory default? Your manual edits will be discarded.`
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await onReset(template.id);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const handleInsertSoulVoiceDnaBlock = () => {
+    setValue((current) => {
+      const trimmed = current.trimEnd();
+      if (trimmed.includes("{{voice_examples_block}}")) {
+        return current;
+      }
+      return trimmed.length === 0 ? SOUL_VOICE_DNA_BLOCK : `${trimmed}\n\n${SOUL_VOICE_DNA_BLOCK}`;
+    });
+  };
+
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
       <div className="mb-3 flex items-center justify-between">
@@ -510,26 +705,41 @@ function PromptTemplateEditor({
           <h3 className="text-sm font-semibold text-text">{meta.label}</h3>
           <p className="text-[11px] text-text-muted">{meta.description}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={!dirty || saving}
-          className={cn(
-            "flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
-            dirty
-              ? "bg-accent text-white hover:bg-accent/90"
-              : "cursor-not-allowed bg-surface-hover text-text-subtle"
-          )}
-        >
-          {saving ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : saved ? (
-            <CheckCircle className="h-3 w-3 text-green-400" />
-          ) : (
-            <Save className="h-3 w-3" />
-          )}
-          {saved ? "Saved" : "Save"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleReset()}
+            disabled={resetting || saving}
+            className="flex cursor-pointer items-center gap-1 rounded border border-border px-2.5 py-1 text-[10px] font-medium text-text-muted transition-colors hover:border-yellow-500/40 hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {resetting ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3 w-3" />
+            )}
+            Reset to default
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!dirty || saving}
+            className={cn(
+              "flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
+              dirty
+                ? "bg-accent text-white hover:bg-accent/90"
+                : "cursor-not-allowed bg-surface-hover text-text-subtle"
+            )}
+          >
+            {saving ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : saved ? (
+              <CheckCircle className="h-3 w-3 text-green-400" />
+            ) : (
+              <Save className="h-3 w-3" />
+            )}
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
       </div>
 
       <div className="mb-2 flex flex-wrap gap-1.5">
@@ -540,6 +750,17 @@ function PromptTemplateEditor({
             onInsert={(key) => editorHandleRef.current?.insertVariable(key)}
           />
         ))}
+        {template.id === "soul" ? (
+          <button
+            type="button"
+            onClick={handleInsertSoulVoiceDnaBlock}
+            title="Append the full Voice DNA section to this Soul template"
+            className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/15"
+          >
+            <Sparkles className="h-2.5 w-2.5" />
+            Insert Voice DNA block
+          </button>
+        ) : null}
       </div>
 
       <TemplateEditor
@@ -861,6 +1082,17 @@ export default function AdminPresetsPage() {
     [getToken]
   );
 
+  const handleResetTemplate = useCallback(
+    async (id: string) => {
+      const template = VISIBLE_PROMPT_TEMPLATE_DEFAULTS[id];
+      if (typeof template !== "string") {
+        throw new Error(`Factory default missing for prompt template "${id}".`);
+      }
+      await handleSaveTemplate(id, template);
+    },
+    [handleSaveTemplate]
+  );
+
   const handleSaveTool = useCallback(
     async (toolCode: string, patch: { modelDescription: string; modelUsageGuidance: string }) => {
       const token = await getToken();
@@ -982,6 +1214,7 @@ export default function AdminPresetsPage() {
                 template={template}
                 meta={meta}
                 onSave={handleSaveTemplate}
+                onReset={handleResetTemplate}
               />
             );
           })}
@@ -1004,6 +1237,7 @@ export default function AdminPresetsPage() {
                 template={template}
                 meta={meta}
                 onSave={handleSaveTemplate}
+                onReset={handleResetTemplate}
               />
             );
           })}
@@ -1030,6 +1264,7 @@ export default function AdminPresetsPage() {
                 template={template}
                 meta={meta}
                 onSave={handleSaveTemplate}
+                onReset={handleResetTemplate}
               />
             );
           })}
@@ -1056,6 +1291,7 @@ export default function AdminPresetsPage() {
                 template={template}
                 meta={meta}
                 onSave={handleSaveTemplate}
+                onReset={handleResetTemplate}
               />
             );
           })}

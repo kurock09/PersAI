@@ -28,6 +28,7 @@ export interface CadenceWatchdogOptions {
   avgWindow: number;
   avgThresholdMs: number;
   avgMinSamples: number;
+  warmupDeltas?: number;
   /** Optional clock for tests. Defaults to `Date.now`. */
   now?: () => number;
   /** Optional timer factory for tests. Defaults to `setTimeout`. */
@@ -93,11 +94,13 @@ export function createCadenceWatchdog(
   const avgWindow = options.avgWindow;
   const avgThresholdMs = options.avgThresholdMs;
   const avgMinSamples = options.avgMinSamples;
+  const warmupDeltas = Math.max(0, options.warmupDeltas ?? 0);
 
   let lastDeltaAtMs: number | null = null;
   let timerHandle: unknown = null;
   let fired = false;
   let disposed = false;
+  let observedDeltaCount = 0;
   const recentGapsMs: number[] = [];
 
   function clearSilentTimer(): void {
@@ -146,22 +149,25 @@ export function createCadenceWatchdog(
       const ts = now();
       if (lastDeltaAtMs !== null) {
         const gap = ts - lastDeltaAtMs;
-        recentGapsMs.push(gap);
-        if (recentGapsMs.length > avgWindow) {
-          recentGapsMs.shift();
-        }
-        if (recentGapsMs.length >= avgMinSamples) {
-          let sum = 0;
-          for (const g of recentGapsMs) sum += g;
-          const avg = sum / recentGapsMs.length;
-          if (avg > avgThresholdMs) {
-            trigger({
-              reason: "slow_avg",
-              rollingAvgMs: Math.round(avg),
-              rollingWindow: recentGapsMs.length,
-              observedGaps: recentGapsMs.length
-            });
-            return;
+        observedDeltaCount += 1;
+        if (observedDeltaCount > warmupDeltas) {
+          recentGapsMs.push(gap);
+          if (recentGapsMs.length > avgWindow) {
+            recentGapsMs.shift();
+          }
+          if (recentGapsMs.length >= avgMinSamples) {
+            let sum = 0;
+            for (const g of recentGapsMs) sum += g;
+            const avg = sum / recentGapsMs.length;
+            if (avg > avgThresholdMs) {
+              trigger({
+                reason: "slow_avg",
+                rollingAvgMs: Math.round(avg),
+                rollingWindow: recentGapsMs.length,
+                observedGaps: recentGapsMs.length
+              });
+              return;
+            }
           }
         }
       }
@@ -194,15 +200,21 @@ export interface CadenceThresholds {
   avgWindow: number;
   avgThresholdMs: number;
   avgMinSamples: number;
+  warmupDeltas: number;
 }
 
 /**
- * Default thresholds tuned for OpenAI gpt-5.x web chat streaming.
- * Normal cadence: 30-50ms inter-delta. Pathological: 200-300ms+.
+ * Default thresholds for web chat slow-motion recovery.
+ *
+ * The cold-start / first-token wait is handled by the normal stream timeout.
+ * Once text streaming has actually started, we ignore the first 20 text gaps,
+ * then evaluate only text-delta cadence. If at least 20 measured gaps average
+ * above 200ms, the caller may retry the same request as a slow-mo recovery.
  */
 export const DEFAULT_CADENCE_THRESHOLDS: CadenceThresholds = {
   silentMs: 8000,
-  avgWindow: 12,
-  avgThresholdMs: 220,
-  avgMinSamples: 8
+  avgWindow: 20,
+  avgThresholdMs: 200,
+  avgMinSamples: 20,
+  warmupDeltas: 20
 };

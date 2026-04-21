@@ -643,23 +643,7 @@ export default function SetupWizardPage() {
 
       {/* Content — scrollable only inside */}
       <div className="flex flex-1 items-start justify-center overflow-y-auto px-6 py-8">
-        <div className="w-full max-w-5xl">
-          <AnimatePresence initial={false}>
-            {showSetupModeNotice && setupMode !== "create" ? (
-              <motion.div
-                className="mx-auto mb-6 w-full max-w-4xl"
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
-                  <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
-                </div>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+        <div className="flex min-h-full w-full max-w-5xl flex-col">
           <AnimatePresence mode="wait">
             {/* ===== Step 0: About you ===== */}
             {step === 0 && (
@@ -876,9 +860,6 @@ export default function SetupWizardPage() {
                           {t("step2Title")}
                         </h1>
                         <div className="mt-3 flex items-center gap-2 text-sm leading-relaxed text-text-muted sm:text-base">
-                          <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent/15">
-                            <span className="h-2 w-2 rounded-full bg-accent" />
-                          </span>
                           <p className="min-w-0">{t("step2Subtitle", { name: assistantName })}</p>
                         </div>
                       </div>
@@ -1064,6 +1045,22 @@ export default function SetupWizardPage() {
                 <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
               </StepContainer>
             )}
+          </AnimatePresence>
+          <AnimatePresence initial={false}>
+            {showSetupModeNotice && setupMode !== "create" ? (
+              <motion.div
+                className="mx-auto mt-8 w-full max-w-4xl"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                <div className="rounded-2xl border border-accent/25 bg-accent/8 px-4 py-3 text-left shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+                  <p className="text-sm font-semibold text-text">{setupModeTitle}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-text-muted">{setupModeBody}</p>
+                </div>
+              </motion.div>
+            ) : null}
           </AnimatePresence>
         </div>
       </div>

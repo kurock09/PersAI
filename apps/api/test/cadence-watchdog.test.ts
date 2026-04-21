@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
   createCadenceWatchdog,
+  DEFAULT_CADENCE_THRESHOLDS,
   type CadenceWatchdogStallReport
 } from "../src/modules/workspace-management/application/cadence-watchdog";
 
@@ -255,6 +256,80 @@ describe("CadenceWatchdog", () => {
     }
     assert.equal(reports.length, 0);
     assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
+  test("production defaults ignore the first 20 text gaps before evaluating slow_avg", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        ...DEFAULT_CADENCE_THRESHOLDS,
+        silentMs: 60_000,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    for (let i = 0; i < 20; i++) {
+      clock.advance(1_500);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
+  test("production defaults tolerate sustained sub-threshold text cadence", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        ...DEFAULT_CADENCE_THRESHOLDS,
+        silentMs: 60_000,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    for (let i = 0; i < 40; i++) {
+      clock.advance(120);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
+  test("production defaults still fire on sustained near-stall dribble after warmup", () => {
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        ...DEFAULT_CADENCE_THRESHOLDS,
+        silentMs: 60_000,
+        warmupDeltas: 20,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    for (let i = 0; i < 40; i++) {
+      clock.advance(1_500);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "slow_avg");
+    assert.ok((reports[0]?.rollingAvgMs ?? 0) >= 1_450);
     wd.dispose();
   });
 

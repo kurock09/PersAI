@@ -719,6 +719,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 };
                 assistantMessage?: {
                   id?: string;
+                  content?: string;
                   attachments?: ChatAttachment[];
                 };
                 runtime?: RuntimeTransportMeta;
@@ -727,6 +728,10 @@ export function useChat(threadKey: string): UseChatReturn {
                 typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               const assistantAttachments =
                 Array.isArray(t?.assistantMessage?.attachments) &&
                 t.assistantMessage.attachments.length > 0
@@ -737,10 +742,13 @@ export function useChat(threadKey: string): UseChatReturn {
                 : undefined;
               setMessages((prev) =>
                 prev.map((m) => {
-                  if (m.id === assistantMsgId && newAssistantId) {
+                  if (m.id === assistantMsgId) {
                     return {
                       ...m,
-                      id: newAssistantId,
+                      ...(newAssistantId ? { id: newAssistantId } : {}),
+                      ...(authoritativeAssistantContent !== null
+                        ? { content: authoritativeAssistantContent }
+                        : {}),
                       status: "committed" as const,
                       attachments: assistantAttachments
                     };
@@ -840,20 +848,39 @@ export function useChat(threadKey: string): UseChatReturn {
 
               // Files are already staged before the stream — no post-stream upload needed
             },
-            onInterrupted: () => {
+            onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
               const interruptedAt = new Date().toISOString();
+              const t = transport as {
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                };
+              } | null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        status: m.content.trim().length > 0 ? "partial" : "streaming",
-                        thoughtFinishedAt:
-                          m.thought && !m.thoughtFinishedAt
-                            ? interruptedAt
-                            : (m.thoughtFinishedAt ?? null)
-                      }
+                    ? (() => {
+                        const nextContent = authoritativeAssistantContent ?? m.content;
+                        return {
+                          ...m,
+                          ...(newAssistantId ? { id: newAssistantId } : {}),
+                          ...(authoritativeAssistantContent !== null
+                            ? { content: authoritativeAssistantContent }
+                            : {}),
+                          status: nextContent.trim().length > 0 ? "partial" : "streaming",
+                          thoughtFinishedAt:
+                            m.thought && !m.thoughtFinishedAt
+                              ? interruptedAt
+                              : (m.thoughtFinishedAt ?? null)
+                        };
+                      })()
                     : m
                 )
               );
@@ -862,11 +889,27 @@ export function useChat(threadKey: string): UseChatReturn {
               flushBufferedAssistantState();
               setIssue(toWebChatUxIssue(payload));
               const failedAt = new Date().toISOString();
+              const t = payload.transport as {
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                };
+              } | null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? {
                         ...m,
+                        ...(newAssistantId ? { id: newAssistantId } : {}),
+                        ...(authoritativeAssistantContent !== null
+                          ? { content: authoritativeAssistantContent }
+                          : {}),
                         status: "partial" as const,
                         thoughtFinishedAt:
                           m.thought && !m.thoughtFinishedAt
@@ -1006,30 +1049,39 @@ export function useChat(threadKey: string): UseChatReturn {
             onCompleted: ({ transport }) => {
               flushBufferedAssistantState(true);
               const t = transport as {
-                assistantMessage?: { id?: string; attachments?: ChatAttachment[] };
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                  attachments?: ChatAttachment[];
+                };
                 runtime?: RuntimeTransportMeta;
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               const assistantAttachments =
                 Array.isArray(t?.assistantMessage?.attachments) &&
                 t.assistantMessage.attachments.length > 0
                   ? (t.assistantMessage.attachments as ChatAttachment[])
                   : undefined;
-              if (newAssistantId) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? {
-                          ...m,
-                          id: newAssistantId,
-                          status: "committed" as const,
-                          attachments: assistantAttachments
-                        }
-                      : m
-                  )
-                );
-              }
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        ...(newAssistantId ? { id: newAssistantId } : {}),
+                        ...(authoritativeAssistantContent !== null
+                          ? { content: authoritativeAssistantContent }
+                          : {}),
+                        status: "committed" as const,
+                        attachments: assistantAttachments
+                      }
+                    : m
+                )
+              );
               const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
               if (t?.runtime?.turnRouting?.mode === "shadow") {
                 const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
@@ -1045,12 +1097,34 @@ export function useChat(threadKey: string): UseChatReturn {
                 assistantMessageId: resolvedAssistantMessageId
               });
             },
-            onInterrupted: () => {
+            onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
+              const t = transport as {
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                };
+              } | null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, status: m.content.trim().length > 0 ? "partial" : "streaming" }
+                    ? (() => {
+                        const nextContent = authoritativeAssistantContent ?? m.content;
+                        return {
+                          ...m,
+                          ...(newAssistantId ? { id: newAssistantId } : {}),
+                          ...(authoritativeAssistantContent !== null
+                            ? { content: authoritativeAssistantContent }
+                            : {}),
+                          status: nextContent.trim().length > 0 ? "partial" : "streaming"
+                        };
+                      })()
                     : m
                 )
               );
@@ -1058,9 +1132,30 @@ export function useChat(threadKey: string): UseChatReturn {
             onFailed: (payload) => {
               flushBufferedAssistantState();
               setIssue(toWebChatUxIssue(payload));
+              const t = payload.transport as {
+                assistantMessage?: {
+                  id?: string;
+                  content?: string;
+                };
+              } | null;
+              const newAssistantId =
+                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+              const authoritativeAssistantContent =
+                typeof t?.assistantMessage?.content === "string"
+                  ? t.assistantMessage.content
+                  : null;
               setMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMsgId ? { ...m, status: "partial" as const } : m
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        ...(newAssistantId ? { id: newAssistantId } : {}),
+                        ...(authoritativeAssistantContent !== null
+                          ? { content: authoritativeAssistantContent }
+                          : {}),
+                        status: "partial" as const
+                      }
+                    : m
                 )
               );
             }

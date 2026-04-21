@@ -186,6 +186,99 @@ describe("useChat", () => {
     });
   });
 
+  it("reconciles the final assistant text from terminal completed transport", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "Hello" });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "Hello, full final answer",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Hello");
+    });
+
+    const assistantEntry = result.current.entries.find(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+        entry.kind === "message" && entry.message.role === "assistant"
+    );
+
+    expect(assistantEntry?.message.content).toBe("Hello, full final answer");
+    expect(assistantEntry?.message.status).toBe("committed");
+    expect(assistantEntry?.message.id).toBe("assistant-msg-1");
+  });
+
+  it("keeps authoritative interrupted partial text instead of the shorter streamed prefix", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onInterrupted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "Hel" });
+        handlers.onInterrupted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-partial-1",
+              content: "Hello, saved partial answer"
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Hello");
+    });
+
+    const assistantEntry = result.current.entries.find(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+        entry.kind === "message" && entry.message.role === "assistant"
+    );
+
+    expect(assistantEntry?.message.content).toBe("Hello, saved partial answer");
+    expect(assistantEntry?.message.status).toBe("partial");
+    expect(assistantEntry?.message.id).toBe("assistant-msg-partial-1");
+  });
+
   it("keeps only the last live status for tool-driven turns", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
