@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantMemoryRegistrySourceType } from "./assistantMemoryRegistrySourceType";
+import type { AssistantMemoryRegistryClass } from "./assistantMemoryRegistryClass";
+import type { AssistantMemoryRegistryItemStateKind } from "./assistantMemoryRegistryItemStateKind";
 
 export interface AssistantMemoryRegistryItemState {
   id: string;
@@ -12,6 +14,9 @@ export interface AssistantMemoryRegistryItemState {
   sourceType: AssistantMemoryRegistrySourceType;
   /** @nullable */
   sourceLabel: string | null;
+  memoryClass: AssistantMemoryRegistryClass;
+  /** @nullable */
+  kind: AssistantMemoryRegistryItemStateKind;
   createdAt: string;
   /** @nullable */
   chatId: string | null;

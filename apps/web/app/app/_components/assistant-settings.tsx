@@ -1422,9 +1422,31 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                       key={item.id}
                       className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
                     >
-                      <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted">
-                        {item.summary}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-relaxed text-text-muted">{item.summary}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                          <span
+                            className={
+                              item.memoryClass === "core"
+                                ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                            }
+                          >
+                            {item.memoryClass === "core"
+                              ? t("memoryClassCore")
+                              : t("memoryClassContextual")}
+                          </span>
+                          {item.kind !== null && (
+                            <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                              {item.kind === "fact"
+                                ? t("memoryKindFact")
+                                : item.kind === "preference"
+                                  ? t("memoryKindPreference")
+                                  : t("memoryKindOpenLoop")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       <button
                         type="button"
                         disabled={forgettingId === item.id}

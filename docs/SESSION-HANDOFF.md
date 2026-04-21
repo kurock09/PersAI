@@ -1,6 +1,135 @@
 # SESSION-HANDOFF
 
-## 2026-04-21 - ADR-074 Slice V1 — Voice DNA scaffold (code-landed, awaiting live smoke)
+## 2026-04-21 - ADR-074 Slice M1 — durable memory: core + relevance-retrieved tail (code-landed, awaiting `persai-dev` smoke)
+
+### What changed
+
+1. Durable memory is now split at write-time into two real classes — `core` (always-on identity-defining facts and preferences) and `contextual` (everything else: open loops, web-chat auto-extracts, etc.) — and rendered as two distinct prompt blocks at hydrate-time. This is the core M1 product change: the assistant stops paying input tokens for the long memory tail on every turn while still keeping identity-defining facts always present.
+2. New Postgres truth: `apps/api/prisma/migrations/20260421140000_adr074_m1_durable_memory_class/migration.sql` adds `AssistantMemoryRegistryClass` (`core` | `contextual`), `AssistantMemoryRegistryKind` (`fact` | `preference` | `open_loop`), a nullable `last_used_at` for staleness scoring, plus indexes for the two new read patterns ("list active core for this assistant", "search active contextual for this assistant"), with a one-shot in-place backfill from existing `sourceType` / `sourceLabel` rows so live `persai-dev` data is migrated without manual fixup. `apps/api/prisma/schema.prisma` mirrors the new shape.
+3. New domain policy: `apps/api/src/modules/workspace-management/domain/memory-class-policy.ts` is the single source of truth for classification (`fact` / `preference` → `core`; `open_loop` → `contextual`; web-chat memory → `contextual`; Workspace Memory → `core`) and for the hard cap `MEMORY_CORE_HARD_CAP = 15` per assistant–user pair, with oldest-demoted overflow when a new core write would push past the cap. The cap is a coded constant — it is intentionally not exposed as a user setting (founder principle 1: magic, not user-controlled).
+4. Write-path: `WriteAssistantMemoryService` now classifies every new entry via the policy, sets `memoryClass` + `kind` on the row, and consults the new repository methods `countActiveCoreByAssistantId` / `demoteOldestCoreByAssistantId` to keep the core block bounded. `ManageAssistantWorkspaceMemoryService` writes Workspace Memory entries as `core` + `kind: "fact"`. `RecordWebChatMemoryTurnService` writes web-chat auto-extracts as `contextual` + `kind: null`.
+5. Read-path: `ReadAssistantKnowledgeService.searchMemory` now accepts a `memoryClass` filter and returns `summary` / `memoryClass` / `kind` in the result metadata. New service `HydrateMemoryForTurnService` composes (a) the active core entries (always all of them, ordered oldest-first to preserve the original "earliest known facts win" intuition) and (b) the relevance-retrieved contextual tail (lexical search over `summary`, capped by a runtime-controlled `contextualLimit` defaulting to 8), then bumps `last_used_at` on every hydrated entry in one batch so the demote-on-overflow rule prefers truly stale entries.
+6. Internal HTTP boundary: `InternalRuntimeMemoryHydrationController` exposes `POST /api/v1/internal/runtime/memory/hydrate-for-turn` on the existing `API_INTERNAL_PORT=3002` listener (same pattern as the smoke-receipts and bundle endpoints). The runtime calls this instead of reading durable memory directly, so memory hydration reuses the existing `ReadAssistantKnowledgeService` pipeline + observability rather than duplicating SQL in the runtime, in line with the M1 acceptance constraint "reuse ADR-073 hybrid retrieval; do not invent a new vector pipeline".
+7. Runtime: `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` gained typed `InternalHydratedDurableMemoryItem`, `InternalHydrateMemoryForTurnInput`, `InternalHydrateMemoryForTurnOutcome`, and a `hydrateMemoryForTurn` method. `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` was refactored to call that method and compose the prompt as **two separate assistant messages**: `durable_memory_core` (always present when the assistant has any core entries — bounded, byte-stable across turns) and `durable_memory_contextual` (per-turn relevance, omitted entirely when no contextual hits).
+8. Cache discipline (M1 vs P1): `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts` was refactored so `durable_memory_core` is registered in `STABLE_BLOCK_FAMILIES` (and therefore contributes to `prompt_cache_key`), while the new `formatDurableMemoryContextualBlock` + `isDurableMemoryContextualMessage` helpers are deliberately **not** in `STABLE_BLOCK_FAMILIES`. The contextual block is still rendered as a normal assistant message in the conversation, but it does NOT contribute to the cached prefix family — so contextual rotation per turn does not invalidate P1's cached system + core memory + shared compaction summary prefix.
+9. Prompt guidance: `apps/api/prisma/bootstrap-preset-data.ts` `memory_write` `usage_guidance` was rephrased from "remember when the user says 'remember'" to a proactive "this is your continuous notebook — write whenever you learn something stable about the user, even if they did not explicitly ask" framing. The previous text contained a misleading instruction to call a non-existent `memory_forget` tool; that line was removed and replaced with guidance to capture corrective notes and let the user manage memories through the Memory Center UI.
+10. Memory Center UI: `apps/web/app/app/_components/assistant-settings.tsx` now shows two badges per memory entry — `memoryClass` (`core` / `contextual`) and `memoryKind` (`fact` / `preference` / `open loop`). Promote/demote controls were intentionally NOT added: classification is a coded outcome of the write path, not a user setting (founder principle 1). The labels are pure transparency.
+11. Contracts + i18n: `packages/contracts/openapi.yaml` adds `AssistantMemoryRegistryClass` + `AssistantMemoryRegistryKind` enums and extends `AssistantMemoryRegistryItemState` with `memoryClass` + `kind`; the generated client under `packages/contracts/src/generated/` was regenerated. New keys `memoryClassCore`, `memoryClassContextual`, `memoryKindFact`, `memoryKindPreference`, `memoryKindOpenLoop` were added in `apps/web/messages/{en,ru}.json`.
+12. New tests + updates: `apps/api/test/hydrate-memory-for-turn.service.test.ts` (new) covers input validation, core/contextual composition, dedupe of contextual hits against core ids, `last_used_at` bump batching, and the empty-query short-circuit. `apps/runtime/test/prompt-cache-stable-blocks.test.ts` (new) locks the cache invariant: rotating contextual content does not change the stable token sequence emitted for `durable_memory_core` + `shared_compaction_summary`. `apps/api/test/write-assistant-memory.service.test.ts` was updated to mock the new repository methods and assert classification + demote-on-overflow. `apps/runtime/test/turn-context-hydration.service.test.ts` was updated to inject a fake internal API client and assert two-block hydration. `apps/runtime/test/turn-execution.service.test.ts` was updated so `computeHydratedStableBlockTokens` accounts for `durable_memory_core` and explicitly excludes `durable_memory_contextual` from the stable prefix.
+
+### Verification gate (local, this session)
+
+- `corepack pnpm -r --if-present run lint` — clean across all 14 workspace projects.
+- `corepack pnpm run format:check` — clean (one Prettier pass on the new files + regenerated `packages/contracts/src/generated/**` brought everything into sync; no manual edits required).
+- `corepack pnpm --filter @persai/api run typecheck` — clean (Prisma client regenerated as part of the `pretypecheck` hook).
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/runtime run typecheck` — clean.
+- `corepack pnpm --filter @persai/api test` — all suites green, including the new `hydrate-memory-for-turn.service.test.ts` and the updated `write-assistant-memory.service.test.ts`.
+- `corepack pnpm --filter @persai/runtime test` — all suites green, including the new `prompt-cache-stable-blocks.test.ts` and the updated `turn-context-hydration.service.test.ts` + `turn-execution.service.test.ts`.
+
+### Out of scope for M1 (deferred)
+
+- Vector embeddings for memory retrieval. Lexical search over `summary` is enough for the founder-reviewed scenarios at this size; a vector pipeline can be added later as a non-breaking change to `findRelevantMemoryByQuery` + `searchMemory` if and only if smoke measurements show lexical retrieval missing important hits.
+- User-facing promote/demote between `core` and `contextual`. Founder principle 1 wins: classification is coded, not a setting. The Memory Center UI labels are transparency only.
+- Cross-assistant memory sharing. Each assistant–user pair stays isolated, as today.
+- M2 / M3 (multi-level compaction with auto-extract; cross-session continuity with TTL). They build on top of M1 and remain in the program ADR.
+
+### Pending live validation
+
+- Run `pnpm smoke:run --scenario multi-session-continuity --scenario chitchat-short` against `persai-dev` once `SMOKE_USER_BEARER` and `PERSAI_INTERNAL_API_TOKEN` are exported in the shell. Acceptance: at scale the memory block on `multi-session-continuity` should fit within ~1500 tokens regardless of total entries (instead of growing linearly), `chitchat-short` should still recall the user's name correctly (proving the always-on core path works for trivial turns), and the prompt-cache hit rate on the stable prefix should remain within ±2 percentage points of the post-P1 numbers committed under `scripts/smoke/baselines/`.
+- Once the smoke acceptance numbers are captured, append a follow-up SESSION-HANDOFF entry with those numbers and flip the ADR-074 M1 status in `docs/ADR/074-humanity-and-cost-polish-program.md` from "code-landed, awaiting smoke" to fully closed.
+
+### Files touched (source of truth)
+
+- `apps/api/prisma/schema.prisma` — adds `AssistantMemoryRegistryClass` + `AssistantMemoryRegistryKind` enums and `memoryClass` / `kind` / `lastUsedAt` columns + indexes.
+- `apps/api/prisma/migrations/20260421140000_adr074_m1_durable_memory_class/migration.sql` — schema migration + backfill.
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry-item.entity.ts` — entity now exposes `memoryClass` + `kind` + `lastUsedAt`.
+- `apps/api/src/modules/workspace-management/domain/assistant-memory-registry.repository.ts` — extended `CreateAssistantMemoryRegistryItemInput`; added `listActiveCoreByAssistantId`, `countActiveCoreByAssistantId`, `demoteOldestCoreByAssistantId`, `bumpLastUsedAt`.
+- `apps/api/src/modules/workspace-management/domain/memory-class-policy.ts` — new file: `MEMORY_CORE_HARD_CAP` + `classifyDurableMemoryWriteClass`.
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-memory-registry.repository.ts` — implements the new repository methods + serializer updates.
+- `apps/api/src/modules/workspace-management/application/write-assistant-memory.service.ts` — write-time classification + core overflow handling.
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts` — Workspace Memory writes are core+fact.
+- `apps/api/src/modules/workspace-management/application/record-web-chat-memory-turn.service.ts` — web-chat memory writes are contextual.
+- `apps/api/src/modules/workspace-management/application/read-assistant-knowledge.service.ts` — `searchMemory` now accepts `memoryClass` filter and returns extended metadata.
+- `apps/api/src/modules/workspace-management/application/hydrate-memory-for-turn.service.ts` — new service.
+- `apps/api/src/modules/workspace-management/application/assistant-memory.types.ts` — `AssistantMemoryRegistryItemState` extended.
+- `apps/api/src/modules/workspace-management/application/list-assistant-memory-items.service.ts` — UI mapping includes new fields.
+- `apps/api/src/modules/workspace-management/interface/http/internal-runtime-memory-hydration.controller.ts` — new internal endpoint.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — wires the new controller + service.
+- `apps/api/prisma/bootstrap-preset-data.ts` — `memory_write` `usage_guidance` rephrased proactively; misleading `memory_forget` reference removed.
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts` — typed `hydrateMemoryForTurn` client.
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` — switched to internal API client; composes two memory blocks.
+- `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts` — `durable_memory_core` is stable; `durable_memory_contextual` helpers are non-stable.
+- `apps/web/app/app/_components/assistant-settings.tsx` — Memory Center shows class + kind labels.
+- `apps/web/messages/en.json`, `apps/web/messages/ru.json` — bilingual labels for the new fields.
+- `packages/contracts/openapi.yaml` + regenerated `packages/contracts/src/generated/**` — public API surface for the new fields.
+- `apps/api/test/hydrate-memory-for-turn.service.test.ts` — new tests.
+- `apps/api/test/write-assistant-memory.service.test.ts` — updated for classification + overflow assertions.
+- `apps/runtime/test/prompt-cache-stable-blocks.test.ts` — new tests; registered in `apps/runtime/test/run-suite.ts`.
+- `apps/runtime/test/turn-context-hydration.service.test.ts` — fake internal API client + new assertions.
+- `apps/runtime/test/turn-execution.service.test.ts` — `computeHydratedStableBlockTokens` updated.
+- `docs/ADR/074-humanity-and-cost-polish-program.md` — M1 slice now has a "Status (2026-04-21)" block.
+- `docs/CHANGELOG.md` — Unreleased entry for M1 code-landing.
+- `docs/SESSION-HANDOFF.md` — this entry.
+- `docs/DATA-MODEL.md` — durable memory section updated (see next entry block).
+
+### Risks / residuals
+
+- The smoke acceptance is the only remaining gate before M1 can be flipped from "code-landed" to "closed". The local `pnpm test` suite covers the new logic, but the token-budget claim ("≤ ~1500 tokens for the memory block at 100 entries on `multi-session-continuity`") is intrinsically a live-stack claim and must be measured on `persai-dev`.
+- Lexical retrieval is good enough at the current size; if smoke measurements later show poor recall on contextual hits, the right next step is to add vector retrieval inside `findRelevantMemoryByQuery` (still inside the API), not to push memory hydration back into the runtime.
+- The `memory_write` guidance change is a behavioral nudge, not a hard contract. If smoke runs show the model writing too aggressively (e.g. duplicate facts), the guidance text is the next tuning surface, not the schema.
+
+### Current active slice
+
+- `ADR-074 Slice M1 — code-landed, awaiting persai-dev smoke acceptance`
+
+### Current active step
+
+- `Commit + push the M1 changes; watch GitHub Actions; once persai-dev rollout completes, run pnpm smoke:run --scenario multi-session-continuity --scenario chitchat-short and append a closeout entry with the numbers.`
+
+## 2026-04-21 - ADR-074 Slice V1 — live acceptance closeout (founder UI validation on `persai-dev`)
+
+### What changed
+
+1. ADR-074 Slice V1 is now marked fully closed/live-accepted rather than "repo-landed, pending smoke". The founder explicitly confirmed live validation in the real UI on `persai-dev`, which is now the recorded operational acceptance source for the slice.
+2. The closeout docs were aligned to that final truth: `docs/ADR/074-humanity-and-cost-polish-program.md` status now says closed/live-accepted, and `docs/CHANGELOG.md` now records the same closure rather than an unresolved live-smoke gate.
+3. As a lightweight live confidence check in this closeout session, `GET /api/v1/assistant/runtime/preflight` returned `live=true` and `ready=true`, and `GET /api/v1/assistant/persona-archetypes` returned the expected four archetypes (`warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`) from the live dev API via fresh `kubectl port-forward` listeners.
+
+### Verification gate (closeout session)
+
+- `corepack pnpm -r --if-present run lint` — clean across all 14 workspace projects.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `curl.exe -sS http://127.0.0.1:3001/health` — returned `{"status":"ok",...}` through live `persai-dev` port-forward.
+- `curl.exe -sS -H "Authorization: Bearer <founder-clerk-token>" http://127.0.0.1:3001/api/v1/assistant/runtime/preflight` — returned `live=true`, `ready=true`.
+- `curl.exe -sS -H "Authorization: Bearer <founder-clerk-token>" http://127.0.0.1:3001/api/v1/assistant/persona-archetypes` — returned the 4 shipped archetypes from the live environment.
+
+### Acceptance note
+
+- Final V1 acceptance was completed manually by the founder in the live UI on `persai-dev`.
+- No fresh `pnpm smoke:run --scenario emotional-long --scenario chitchat-short` artifact pair was captured in this exact closeout shell session.
+- This is an explicit founder acceptance decision, not a hidden assumption or fabricated harness result.
+
+### Files touched (closeout)
+
+- `docs/ADR/074-humanity-and-cost-polish-program.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Risks / residuals
+
+- The slice is accepted and closed. The only remaining optional follow-up is to capture fresh harness artifacts later if the founder wants quantitative archival numbers alongside the already-completed live UI validation.
+
+### Current active slice
+
+- `ADR-074 Slice V1 — closed / live-accepted`
+
+### Current active step
+
+- `Pick the next ADR-074 slice explicitly; V1 no longer has an open acceptance gate.`
+
+## 2026-04-21 - ADR-074 Slice V1 — Voice DNA scaffold (repo-landed, live smoke still pending)
 
 ### What changed
 
@@ -8,8 +137,8 @@
 2. Four founder-co-authored archetypes (`warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`) ship as compiled defaults in `apps/api/prisma/persona-archetype-data.ts` with both `ru` and `en` copy for label, description, openings (allowed and forbidden), per-emotion behaviors, silence rule, and 2 micro-examples each. The defaults are seeded via insert-only upsert (`ManagePersonaArchetypesService.ensureDefaults`), so admin edits are preserved across deploys; a per-archetype "Reset to default" admin action restores the compiled baseline on demand.
 3. The runtime resolves Voice DNA per turn through `modulateVoiceDna({ archetype, traits, locale })`. Trait sliders act as conservative nudges around the archetype baseline (verbosity → sentence length, initiative → pace, playfulness/warmth → irony floor and ceiling, capped at 90). A universal forbidden-openings list (`UNIVERSAL_FORBIDDEN_OPENINGS`) is dedup-merged with archetype-specific bans before being injected into the prompt.
 4. Snapshotting at publish time captures both `snapshotArchetypeKey` and a raw locale-agnostic `snapshotVoiceDna` JSON on `assistant_published_versions`. At materialization, the live archetype is preferred (so admin edits propagate to existing assistants on the next config bump); if the source archetype is later deleted, the snapshot is the deterministic fallback.
-5. The setup wizard and assistant settings now persist `archetypeKey` on the draft; the 9 existing front-end personality presets are mapped to one of the 4 backend archetypes via `PRESET_KEY_TO_ARCHETYPE` in `apps/web/app/app/_components/assistant-persona.ts`. The dedicated 4-archetype picker UI is intentionally deferred to a follow-up V1.x slice — current goal is "no hardcode in the prompt path, editable end to end."
-6. Admin UI: `/admin/presets` gains a new "Voice DNA Archetypes" section that lists every archetype, lets the operator edit the full bilingual JSON in place, and includes per-archetype "Save" and "Reset to default" controls. Saves go through `PATCH /api/v1/admin/persona-archetypes/:key`, resets through `POST /api/v1/admin/persona-archetypes/:key/reset`. Both bump config generation so the next ordinary turn picks up the new Voice DNA on materialize.
+5. The setup wizard now shows a dedicated 4-archetype picker backed by `GET /api/v1/assistant/persona-archetypes`, and the draft persists the real chosen `archetypeKey`. `apps/web/app/app/_components/assistant-persona.ts` still keeps `PRESET_KEY_TO_ARCHETYPE` as a compatibility helper for any older preset-key callers, but it is no longer the primary V1 setup flow.
+6. Admin UI: `/admin/presets` gains a new "Voice DNA Archetypes" section that lists every archetype, lets the operator edit the full bilingual JSON in place, and includes per-archetype "Save" and "Reset to default" controls. Saves go through `PATCH /api/v1/admin/persona-archetypes/:key`, resets through `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`. The same screen also now exposes `Insert Voice DNA block` on the `soul` template plus per-template `Reset to default`, so older prompt-template rows can be repaired to the V1 shape without redeploying.
 
 ### Verification gate (local)
 
@@ -21,15 +150,14 @@
 
 ### Out of scope for V1 (deferred)
 
-- Dedicated 4-archetype picker UI in the setup wizard and assistant settings — current pragmatic mapping is `PRESET_KEY_TO_ARCHETYPE`.
 - Auto-evolution of USER.md and automatic style-mirroring of the user (Q13-C, deferred per ADR).
-- Per-archetype WYSIWYG admin editor with structured form fields — V1 admin UI is JSON-textarea-per-archetype to land "editable" without committing UI design to early.
+- Per-archetype WYSIWYG admin editor with structured form fields — V1 admin UI is JSON-textarea-per-archetype to land "editable" without committing UI design too early.
+- Final operational closeout via live `persai-dev` smoke numbers; this entry documents repo truth, not the final live acceptance evidence.
 
 ### Pending live validation
 
-- Push to `main`, let `dev-image-publish` build the new image and pin `infra/helm/values-dev.yaml#global.images.tag`, let Argo CD auto-sync, watch the `api-migrate` PreSync job apply `20260421120000_adr074_v1_persona_archetypes_foundation/migration.sql` (creates `persona_archetypes`, adds `assistants.draft_archetype_key`, adds `assistant_published_versions.snapshot_archetype_key` + `snapshot_voice_dna`).
-- After rollout, run `pnpm smoke:run --scenario emotional-long --scenario chitchat-short` against `persai-dev` (per `docs/LIVE-TEST-HYBRID.md`). Acceptance: `emotional-long` shows shorter average assistant reply length vs the pre-V1 baseline and zero hits against the `UNIVERSAL_FORBIDDEN_OPENINGS` list; `chitchat-short` shows no token-cost regression vs the existing P1 baseline (the larger SOUL is offset by stable-prefix caching from P1).
-- Once the smoke acceptance numbers are captured, append a follow-up SESSION-HANDOFF entry mirroring the V1 acceptance numbers and flip the ADR-074 V1 status from "code-landed locally" to "landed".
+- Run `pnpm smoke:run --scenario emotional-long --scenario chitchat-short` against `persai-dev` (per `docs/LIVE-TEST-HYBRID.md`) once `SMOKE_USER_BEARER` and `PERSAI_INTERNAL_API_TOKEN` are available in the shell environment. Acceptance: `emotional-long` shows shorter average assistant reply length vs the pre-V1 baseline and zero hits against the `UNIVERSAL_FORBIDDEN_OPENINGS` list; `chitchat-short` shows no token-cost regression vs the existing P1 baseline (the larger SOUL is offset by stable-prefix caching from P1).
+- Once the smoke acceptance numbers are captured, append a follow-up SESSION-HANDOFF entry with those numbers and then flip the ADR-074 V1 status from "repo-landed" to fully closed/live-accepted.
 
 ### Files touched (source of truth)
 
@@ -53,7 +181,7 @@
 - `apps/web/app/app/setup/page.tsx` — sends resolved `archetypeKey` on every `patchAssistantDraft`.
 - `apps/web/app/app/_components/assistant-settings.tsx` — preserves the existing draft `archetypeKey` on save.
 - `apps/web/app/app/setup/page.test.tsx` — fixture updated with `archetypeKey: "warm-quiet"`.
-- `apps/web/app/admin/presets/page.tsx` — new "Voice DNA Archetypes" section with per-archetype JSON editor, save, and reset.
+- `apps/web/app/admin/presets/page.tsx` — new "Voice DNA Archetypes" section with per-archetype JSON editor, save, reset-to-default, and template-level V1 recovery actions (`Insert Voice DNA block`, `Reset to default`).
 - `apps/api/test/voice-dna-modulator.test.ts` — 45 unit tests as listed above.
 - `apps/api/test/publish-assistant-draft.service.test.ts` — `ManagePersonaArchetypesService.findByKey` mock added.
 - `docs/ADR/074-humanity-and-cost-polish-program.md` — Slice V1 status block + final implementation deviations from the original plan.
@@ -66,14 +194,15 @@
 - Live Voice DNA is only consumed when `voiceDna` is non-null at compile time. Older published versions that have `snapshotArchetypeKey=null` continue to use the legacy traits/instructions soul path; there is no behavioural regression for those assistants until they are republished.
 - The `defaultArchetypeKey` for legacy assistants without a draft `archetypeKey` is currently `null` (not auto-defaulted to `warm-quiet`). Materialize falls back to the legacy soul path in that case; this is the safe default and preserves byte-stability of the cached system prompt.
 - The /admin/presets Voice DNA editor is JSON-textarea-per-archetype for V1. A WYSIWYG editor with structured form fields is a follow-up; the current UI is enough to satisfy "editable without redeploy" as agreed with the founder.
+- The final V1 smoke acceptance numbers were not reproducible in this documentation session because `SMOKE_USER_BEARER` and `PERSAI_INTERNAL_API_TOKEN` were absent from the shell environment.
 
 ### Current active slice
 
-- `ADR-074 Slice V1 — Voice DNA scaffold (awaiting live-dev smoke validation against image built from this commit)`
+- `ADR-074 Slice V1 — Voice DNA scaffold (repo truth landed; live-dev smoke validation still pending)`
 
 ### Current active step
 
-- `Push commit, watch dev-image-publish + Argo CD sync + api-migrate PreSync, then run pnpm smoke:run --scenario emotional-long --scenario chitchat-short against persai-dev and append a follow-up SESSION-HANDOFF entry with V1 acceptance numbers.`
+- `Provide smoke credentials, run pnpm smoke:run --scenario emotional-long --scenario chitchat-short against persai-dev, then append a follow-up SESSION-HANDOFF entry with V1 acceptance numbers.`
 
 ## 2026-04-20 - ADR-074 Slice P1 — live-dev acceptance (image `e01bb5d`)
 

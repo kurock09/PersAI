@@ -49,6 +49,8 @@ export class ListAssistantMemoryItemsService {
       summary: item.summary,
       sourceType: item.sourceType,
       sourceLabel: item.sourceLabel,
+      memoryClass: item.memoryClass,
+      kind: item.kind,
       createdAt: item.createdAt.toISOString(),
       chatId: item.chatId
     }));

@@ -55,6 +55,17 @@ enum AssistantMemoryRegistrySourceType {
   memory_write
 }
 
+enum AssistantMemoryRegistryClass {
+  core
+  contextual
+}
+
+enum AssistantMemoryRegistryKind {
+  fact
+  preference
+  open_loop
+}
+
 enum AssistantTaskRegistrySourceSurface {
   web
 }
@@ -1171,12 +1182,17 @@ model AssistantMemoryRegistryItem {
   summary                   String                            @db.VarChar(500)
   sourceType                AssistantMemoryRegistrySourceType @map("source_type")
   sourceLabel               String?                           @map("source_label") @db.VarChar(64)
+  memoryClass               AssistantMemoryRegistryClass      @default(contextual) @map("memory_class")
+  kind                      AssistantMemoryRegistryKind?      @map("kind")
+  lastUsedAt                DateTime?                         @map("last_used_at") @db.Timestamptz(6)
   forgottenAt               DateTime?                         @map("forgotten_at") @db.Timestamptz(6)
   createdAt                 DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant                 Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
   workspaceMember           WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([assistantId, createdAt(sort: Desc)])
+  @@index([assistantId, memoryClass, createdAt(sort: Desc)], map: "assistant_memory_registry_items_assistant_class_created_idx")
+  @@index([assistantId, lastUsedAt(sort: Desc)], map: "assistant_memory_registry_items_assistant_lastused_idx")
   @@map("assistant_memory_registry_items")
 }
 

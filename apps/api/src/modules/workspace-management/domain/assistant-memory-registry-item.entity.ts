@@ -1,5 +1,9 @@
 export type AssistantMemoryRegistrySourceType = "web_chat" | "memory_write";
 
+export type AssistantMemoryRegistryClass = "core" | "contextual";
+
+export type AssistantMemoryRegistryKind = "fact" | "preference" | "open_loop";
+
 export type AssistantMemoryRegistryItem = {
   id: string;
   assistantId: string;
@@ -11,6 +15,9 @@ export type AssistantMemoryRegistryItem = {
   summary: string;
   sourceType: AssistantMemoryRegistrySourceType;
   sourceLabel: string | null;
+  memoryClass: AssistantMemoryRegistryClass;
+  kind: AssistantMemoryRegistryKind | null;
+  lastUsedAt: Date | null;
   forgottenAt: Date | null;
   createdAt: Date;
 };

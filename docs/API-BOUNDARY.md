@@ -12,7 +12,9 @@ Primary public API surface:
 
 - web and admin routes through `apps/api`
 - authenticated assistant routes under `/api/v1/assistant/*`
+- Voice DNA assistant read route: `GET /api/v1/assistant/persona-archetypes`
 - admin routes under `/api/v1/admin/*`
+- Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
 - Telegram webhook under `/telegram-webhook/*`
 
@@ -67,6 +69,15 @@ Current active internal service endpoints are served by `apps/runtime`:
 - `POST /api/v1/turns/stream`
 
 These are internal runtime-service boundaries, not a public legacy gateway surface.
+
+### Internal runtime → API back-channel
+
+Current active internal `runtime → api` endpoints (served by `apps/api` on the dedicated `API_INTERNAL_PORT=3002` listener, gated by `PERSAI_INTERNAL_API_TOKEN`):
+
+- `POST /api/v1/internal/runtime/memory/hydrate-for-turn` — returns the always-on `core` durable memory plus a relevance-retrieved `contextual` tail for the current turn (ADR-074 M1) and bumps `last_used_at` on every hydrated entry.
+- `GET /api/v1/internal/smoke/turn-receipts` — read-only smoke harness receipt query (ADR-074 S0).
+
+Other internal `runtime ↔ api` boundaries (bundle resolution, attachment hydration, etc.) are separate runtime-bundle endpoints and are not part of this back-channel.
 
 ### Sandbox
 

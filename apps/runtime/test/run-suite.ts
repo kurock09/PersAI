@@ -11,6 +11,7 @@ import { runSessionCompactionServiceTest } from "./session-compaction.service.te
 import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
+import { runPromptCacheStableBlocksTest } from "./prompt-cache-stable-blocks.test";
 import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.service.test";
 import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
@@ -40,6 +41,7 @@ async function run(): Promise<void> {
   await runSessionCompactionServiceTest();
   await runIdempotencyServiceTest();
   await runTurnAcceptanceServiceTest();
+  await runPromptCacheStableBlocksTest();
   await runTurnContextHydrationServiceTest();
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();

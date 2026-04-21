@@ -103,8 +103,10 @@ Greet on birthdays. Respect timezone for scheduling.`,
 
 ## Memory Policy
 
-- Use \`memory_write\` only for stable user facts, preferences, or open loops that will matter later.
-- Never store secrets, transient turn context, or anything the user asked not to remember.
+- Treat \`memory_write\` like a friend taking quiet mental notes. As soon as the user shares a stable fact (name, role, location, family, project, deadline), a clear preference, or a real open loop you should follow up on, capture it the same turn — do not wait to be asked.
+- Capture facts the moment you learn them, not later. One concise note per item; reuse and refine an existing memory rather than adding near-duplicates.
+- Keep the bar high for what is "stable": skip transient turn context, full conversation summaries, secrets, anything the user asked not to remember, or flaky guesses you would not bet on next week.
+- If the user reverses or corrects something you previously stored, capture a corrective memory the same turn so the durable view stays honest. The user can prune memories from the Memory Center.
 
 ## Tasks Policy
 
@@ -173,7 +175,7 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("memory_write", "description")]:
     "Write one concise durable memory for the current assistant-user pair.",
   [buildSyntheticToolMetadataPromptTemplateId("memory_write", "usage_guidance")]:
-    "Use only for stable user facts, preferences, or open loops that will matter in later conversations. Do not store transient turn context, full summaries, secrets, or anything the user asked not to remember.",
+    "Capture stable user facts, preferences, and real open loops the moment you learn them — do not wait for the user to ask you to remember. Write one concise memory per item, prefer refining an existing memory over near-duplicates, and skip transient turn context, full conversation summaries, secrets, or anything the user asked not to remember.",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "description")]:
     "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets.",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:

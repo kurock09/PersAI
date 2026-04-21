@@ -24,7 +24,9 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
         relatedAssistantMessageId: input.relatedAssistantMessageId,
         summary: input.summary,
         sourceType: input.sourceType,
-        sourceLabel: input.sourceLabel
+        sourceLabel: input.sourceLabel,
+        memoryClass: input.memoryClass,
+        kind: input.kind
       }
     });
 
@@ -135,6 +137,76 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return result.count;
   }
 
+  async listActiveCoreByAssistantId(
+    assistantId: string,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        memoryClass: "core"
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
+  async countActiveCoreByAssistantId(assistantId: string): Promise<number> {
+    return this.prisma.assistantMemoryRegistryItem.count({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        memoryClass: "core"
+      }
+    });
+  }
+
+  async demoteOldestCoreByAssistantId(assistantId: string, count: number): Promise<number> {
+    if (count <= 0) {
+      return 0;
+    }
+    const candidates = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        memoryClass: "core"
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: count,
+      select: { id: true }
+    });
+    if (candidates.length === 0) {
+      return 0;
+    }
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        id: { in: candidates.map((row) => row.id) },
+        memoryClass: "core",
+        forgottenAt: null
+      },
+      data: { memoryClass: "contextual" }
+    });
+    return result.count;
+  }
+
+  async bumpLastUsedAt(assistantId: string, ids: readonly string[]): Promise<number> {
+    if (ids.length === 0) {
+      return 0;
+    }
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        assistantId,
+        forgottenAt: null,
+        id: { in: [...ids] }
+      },
+      data: { lastUsedAt: new Date() }
+    });
+    return result.count;
+  }
+
   private mapToDomain(row: PrismaItem): AssistantMemoryRegistryItem {
     return {
       id: row.id,
@@ -147,6 +219,9 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       summary: row.summary,
       sourceType: row.sourceType,
       sourceLabel: row.sourceLabel,
+      memoryClass: row.memoryClass,
+      kind: row.kind,
+      lastUsedAt: row.lastUsedAt,
       forgottenAt: row.forgottenAt,
       createdAt: row.createdAt
     };

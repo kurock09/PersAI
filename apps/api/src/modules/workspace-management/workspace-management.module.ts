@@ -24,6 +24,7 @@ import { InternalRuntimeProviderSecretsController } from "./interface/http/inter
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
+import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
@@ -94,6 +95,7 @@ import { ManageAssistantAvatarService } from "./application/manage-assistant-ava
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
+import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
@@ -220,6 +222,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeConfigGenerationController,
     InternalRuntimeKnowledgeController,
     InternalRuntimeMemoryController,
+    InternalRuntimeMemoryHydrationController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeToolQuotaController,
     InternalSmokeReceiptsController,
@@ -284,6 +287,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
     WriteAssistantMemoryService,
+    HydrateMemoryForTurnService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,

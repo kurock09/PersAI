@@ -80,7 +80,9 @@ export class ManageAssistantWorkspaceMemoryService {
       relatedAssistantMessageId: null,
       summary: content,
       sourceType: "memory_write",
-      sourceLabel: WORKSPACE_MEMORY_SOURCE_LABEL
+      sourceLabel: WORKSPACE_MEMORY_SOURCE_LABEL,
+      memoryClass: "core",
+      kind: "fact"
     });
     return this.toWorkspaceMemoryItem(created);
   }

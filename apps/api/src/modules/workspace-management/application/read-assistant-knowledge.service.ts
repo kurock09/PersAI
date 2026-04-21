@@ -72,6 +72,8 @@ type MemoryRegistryRow = {
   summary: string;
   sourceType: "web_chat" | "memory_write";
   sourceLabel: string | null;
+  memoryClass: "core" | "contextual";
+  kind: "fact" | "preference" | "open_loop" | null;
   createdAt: Date;
 };
 
@@ -1376,6 +1378,7 @@ export class ReadAssistantKnowledgeService {
     assistantId: string;
     query: string;
     maxResults: number | null;
+    memoryClass?: "core" | "contextual" | null;
   }): Promise<RuntimeKnowledgeSearchHit[]> {
     const startedAt = Date.now();
     const normalizedQuery = input.query.trim();
@@ -1388,10 +1391,12 @@ export class ReadAssistantKnowledgeService {
     let lexicalCandidateCount = 0;
     try {
       const queryInfo = buildSearchQueryInfo(normalizedQuery);
+      const memoryClassFilter = input.memoryClass ?? null;
       const rows = (await this.prisma.assistantMemoryRegistryItem.findMany({
         where: {
           assistantId: input.assistantId,
           forgottenAt: null,
+          ...(memoryClassFilter === null ? {} : { memoryClass: memoryClassFilter }),
           OR: queryInfo.searchTerms.flatMap((term) => [
             {
               summary: {
@@ -1475,6 +1480,10 @@ export class ReadAssistantKnowledgeService {
         metadata: {
           memoryItemId: row.id,
           sourceType: row.sourceType,
+          sourceLabel: row.sourceLabel,
+          memoryClass: row.memoryClass,
+          kind: row.kind,
+          summary: row.summary,
           chatId: row.chatId,
           relatedUserMessageId: row.relatedUserMessageId,
           relatedAssistantMessageId: row.relatedAssistantMessageId,

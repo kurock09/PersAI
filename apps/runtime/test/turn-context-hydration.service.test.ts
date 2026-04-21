@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { RuntimeTurnRequest } from "@persai/runtime-contract";
 import type { RuntimeStatePrismaService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service";
+import {
+  PersaiInternalApiClientService,
+  type InternalHydrateMemoryForTurnInput,
+  type InternalHydrateMemoryForTurnOutcome
+} from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
 
@@ -9,6 +14,47 @@ const HYDRATED_MEMORY_CONTEXT =
   "[Durable user context retained across conversations]\n" +
   "- [Memory write: preference] User prefers concise answers and short bullet lists.\n" +
   "- [Web chat memory] Customer previously asked about annual billing and quota separation.";
+
+class FakePersaiInternalApiClientService {
+  configured = true;
+  lastInputs: InternalHydrateMemoryForTurnInput[] = [];
+  outcome: InternalHydrateMemoryForTurnOutcome = {
+    core: [
+      {
+        id: "memory-core-1",
+        summary: "User prefers concise answers and short bullet lists.",
+        sourceType: "memory_write",
+        sourceLabel: "Memory write: preference",
+        memoryClass: "core",
+        kind: "preference",
+        createdAt: "2026-04-14T11:00:00.000Z",
+        score: null
+      },
+      {
+        id: "memory-core-2",
+        summary: "Customer previously asked about annual billing and quota separation.",
+        sourceType: "web_chat",
+        sourceLabel: "Web chat memory",
+        memoryClass: "contextual",
+        kind: null,
+        createdAt: "2026-04-14T10:30:00.000Z",
+        score: null
+      }
+    ],
+    contextual: []
+  };
+
+  isConfigured(): boolean {
+    return this.configured;
+  }
+
+  async hydrateMemoryForTurn(
+    input: InternalHydrateMemoryForTurnInput
+  ): Promise<InternalHydrateMemoryForTurnOutcome> {
+    this.lastInputs.push(input);
+    return this.outcome;
+  }
+}
 
 function createRuntimeBundle(
   overrides?: Partial<AssistantRuntimeBundle["runtime"]["contextHydration"]>
@@ -289,6 +335,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       return null;
     }
   };
+  const persaiInternalApiClient = new FakePersaiInternalApiClientService();
   const service = new TurnContextHydrationService(
     prisma as unknown as RuntimeStatePrismaService,
     runtimeStatePostgres as never,
@@ -297,7 +344,8 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     new RuntimeAssistantFileRegistryService(
       prisma as unknown as RuntimeStatePrismaService,
       mediaObjectStorage as never
-    )
+    ),
+    persaiInternalApiClient as unknown as PersaiInternalApiClientService
   );
   const request = createRuntimeTurnRequest();
   const runtimeBundle = createRuntimeBundle();

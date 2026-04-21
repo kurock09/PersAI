@@ -70,7 +70,11 @@ function createHarness(options?: {
     }
   };
 
-  const memoryRepository: Pick<AssistantMemoryRegistryRepository, "create"> = {
+  const demoteCalls: Array<{ assistantId: string; demoteCount: number }> = [];
+  const memoryRepository: Pick<
+    AssistantMemoryRegistryRepository,
+    "create" | "countActiveCoreByAssistantId" | "demoteOldestCoreByAssistantId"
+  > = {
     async create(input) {
       createdInputs.push(input as Record<string, unknown>);
       return {
@@ -84,9 +88,18 @@ function createHarness(options?: {
         summary: input.summary,
         sourceType: input.sourceType,
         sourceLabel: input.sourceLabel,
+        memoryClass: input.memoryClass,
+        kind: input.kind,
+        lastUsedAt: null,
         forgottenAt: null,
         createdAt
       } satisfies AssistantMemoryRegistryItem;
+    },
+    async countActiveCoreByAssistantId() {
+      return 0;
+    },
+    async demoteOldestCoreByAssistantId(assistantId, demoteCount) {
+      demoteCalls.push({ assistantId, demoteCount });
     }
   };
 
@@ -124,7 +137,8 @@ function createHarness(options?: {
       appendAssistantAuditEventService as AppendAssistantAuditEventService
     ),
     createdInputs,
-    auditCalls
+    auditCalls,
+    demoteCalls
   };
 }
 
@@ -160,8 +174,11 @@ async function run(): Promise<void> {
     relatedAssistantMessageId: null,
     summary: "User prefers concise answers.",
     sourceType: "memory_write",
-    sourceLabel: "Memory write: preference"
+    sourceLabel: "Memory write: preference",
+    memoryClass: "core",
+    kind: "preference"
   });
+  assert.equal(happy.demoteCalls.length, 0);
   assert.equal(happy.auditCalls.length, 1);
   assert.equal(happy.auditCalls[0]?.eventCode, "assistant.memory_written");
 

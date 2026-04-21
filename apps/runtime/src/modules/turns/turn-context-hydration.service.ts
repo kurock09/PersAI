@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayImageContentBlock,
@@ -14,12 +14,17 @@ import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persi
 import { RuntimeStateKeyspaceService } from "../runtime-state/runtime-state-keyspace.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import {
+  PersaiInternalApiClientService,
+  type InternalHydratedDurableMemoryItem
+} from "./persai-internal-api.client.service";
+import {
   estimateProviderGatewayMessageTokens,
   resolveRuntimeContextHydrationConfig,
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
 import {
-  formatDurableMemoryStableBlock,
+  formatDurableMemoryContextualBlock,
+  formatDurableMemoryCoreStableBlock,
   formatSharedCompactionStableBlock
 } from "./prompt-cache-stable-blocks";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
@@ -84,11 +89,9 @@ type ReusableCompactionSummary = {
   summarizedMessageCount: number;
 };
 
-type HydratedMemoryRow = {
-  summary: string;
-  sourceType: "web_chat" | "memory_write";
-  sourceLabel: string | null;
-  createdAt: Date;
+type DurableMemoryHydration = {
+  coreMessage: ProviderGatewayTextMessage | null;
+  contextualMessage: ProviderGatewayTextMessage | null;
 };
 
 export interface RuntimeCompactionMessageSource {
@@ -99,12 +102,15 @@ export interface RuntimeCompactionMessageSource {
 
 @Injectable()
 export class TurnContextHydrationService {
+  private readonly logger = new Logger(TurnContextHydrationService.name);
+
   constructor(
     private readonly prisma: RuntimeStatePrismaService,
     private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
     private readonly runtimeStateKeyspaceService: RuntimeStateKeyspaceService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
+    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService,
+    private readonly persaiInternalApiClient: PersaiInternalApiClientService
   ) {}
 
   async buildMessages(
@@ -118,34 +124,62 @@ export class TurnContextHydrationService {
     }
 
     const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
-    const durableMemoryMessage = await this.loadDurableMemoryContextMessage(
+    const durableMemory = await this.loadDurableMemoryHydration(
       input.conversation.assistantId,
+      input.message.text,
       contextHydration
     );
     if (storedMessages === null) {
       const currentUserMessage = await this.createCurrentUserMessage(input);
-      return durableMemoryMessage === null
-        ? [currentUserMessage]
-        : this.limitHydratedMessages([durableMemoryMessage, currentUserMessage], contextHydration, {
-            preserveLeadingMessageCount: 1
-          });
+      return this.composeWithDurableMemoryAndConversation(
+        durableMemory,
+        [currentUserMessage],
+        contextHydration
+      );
     }
 
     const hydrated = await this.hydrateCanonicalWebMessages(
       storedMessages,
       input,
-      durableMemoryMessage,
+      durableMemory,
       contextHydration
     );
     if (hydrated.length > 0) {
       return hydrated;
     }
     const currentUserMessage = await this.createCurrentUserMessage(input);
-    return durableMemoryMessage === null
-      ? [currentUserMessage]
-      : this.limitHydratedMessages([durableMemoryMessage, currentUserMessage], contextHydration, {
-          preserveLeadingMessageCount: 1
-        });
+    return this.composeWithDurableMemoryAndConversation(
+      durableMemory,
+      [currentUserMessage],
+      contextHydration
+    );
+  }
+
+  private composeWithDurableMemoryAndConversation(
+    durableMemory: DurableMemoryHydration,
+    conversationMessages: ProviderGatewayTextMessage[],
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+  ): ProviderGatewayTextMessage[] {
+    const prefix = this.buildDurableMemoryPrefix(durableMemory);
+    if (prefix.length === 0) {
+      return conversationMessages;
+    }
+    return this.limitHydratedMessages([...prefix, ...conversationMessages], contextHydration, {
+      preserveLeadingMessageCount: prefix.length
+    });
+  }
+
+  private buildDurableMemoryPrefix(
+    durableMemory: DurableMemoryHydration
+  ): ProviderGatewayTextMessage[] {
+    const prefix: ProviderGatewayTextMessage[] = [];
+    if (durableMemory.coreMessage !== null) {
+      prefix.push(durableMemory.coreMessage);
+    }
+    if (durableMemory.contextualMessage !== null) {
+      prefix.push(durableMemory.contextualMessage);
+    }
+    return prefix;
   }
 
   async buildCompactionMessages(input: {
@@ -195,7 +229,7 @@ export class TurnContextHydrationService {
   private async hydrateCanonicalWebMessages(
     storedMessages: CanonicalChatMessageRow[],
     input: RuntimeTurnRequest,
-    durableMemoryMessage: ProviderGatewayTextMessage | null,
+    durableMemory: DurableMemoryHydration,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydratableMessages = storedMessages.filter((message) =>
@@ -211,15 +245,10 @@ export class TurnContextHydrationService {
         input,
         contextHydration
       );
-      if (durableMemoryMessage === null) {
-        return hydratedMessages;
-      }
-      return this.limitHydratedMessages(
-        [durableMemoryMessage, ...hydratedMessages],
-        contextHydration,
-        {
-          preserveLeadingMessageCount: 1
-        }
+      return this.composeWithDurableMemoryAndConversation(
+        durableMemory,
+        hydratedMessages,
+        contextHydration
       );
     }
 
@@ -233,15 +262,10 @@ export class TurnContextHydrationService {
         input,
         contextHydration
       );
-      if (durableMemoryMessage === null) {
-        return hydratedMessages;
-      }
-      return this.limitHydratedMessages(
-        [durableMemoryMessage, ...hydratedMessages],
-        contextHydration,
-        {
-          preserveLeadingMessageCount: 1
-        }
+      return this.composeWithDurableMemoryAndConversation(
+        durableMemory,
+        hydratedMessages,
+        contextHydration
       );
     }
 
@@ -251,14 +275,22 @@ export class TurnContextHydrationService {
       input,
       contextHydration
     );
+    // Stable prefix order is: durable_memory_core (stable) -> shared_compaction_summary
+    // (stable) -> durable_memory_contextual (non-stable, per-turn). The contextual block
+    // is intentionally placed AFTER the summary so the contiguous stable prefix walked by
+    // `resolveLeadingHydratedPromptCacheStableBlockTokens` keeps the cache key stable
+    // across turns even when the contextual relevance set rotates.
     const prefixMessages: ProviderGatewayTextMessage[] = [];
-    if (durableMemoryMessage !== null) {
-      prefixMessages.push(durableMemoryMessage);
+    if (durableMemory.coreMessage !== null) {
+      prefixMessages.push(durableMemory.coreMessage);
     }
     prefixMessages.push({
       role: "assistant",
       content: this.formatReusableCompactionSummary(reusableSummary.summaryText)
     });
+    if (durableMemory.contextualMessage !== null) {
+      prefixMessages.push(durableMemory.contextualMessage);
+    }
     return this.limitHydratedMessages(
       [...prefixMessages, ...hydratedRecentMessages],
       contextHydration,
@@ -428,87 +460,167 @@ export class TurnContextHydrationService {
     );
   }
 
-  private async loadDurableMemoryContextMessage(
+  private async loadDurableMemoryHydration(
     assistantId: string,
+    userQuery: string,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
-  ): Promise<ProviderGatewayTextMessage | null> {
+  ): Promise<DurableMemoryHydration> {
     if (contextHydration.knowledgeHydrationBudget <= 0) {
-      return null;
+      return { coreMessage: null, contextualMessage: null };
     }
+    if (!this.persaiInternalApiClient.isConfigured()) {
+      this.logger.warn(
+        "PersAI internal API is not configured; durable memory hydration is disabled for this turn."
+      );
+      return { coreMessage: null, contextualMessage: null };
+    }
+
     const maxHydratedMemoryItems = this.resolveHydratedMemoryItemLimit(
       contextHydration.knowledgeHydrationBudget
     );
     const maxHydratedMemoryTotalChars = this.resolveHydratedMemoryCharBudget(
       contextHydration.knowledgeHydrationBudget
     );
-    const rows = (await this.prisma.assistantMemoryRegistryItem.findMany({
-      where: {
-        assistantId,
-        forgottenAt: null
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      select: {
-        summary: true,
-        sourceType: true,
-        sourceLabel: true,
-        createdAt: true
-      },
-      take: maxHydratedMemoryItems * 2
-    })) as HydratedMemoryRow[];
+    // Reserve roughly half of the per-turn memory item budget for contextual
+    // (relevance-retrieved) entries; the remainder is implicitly available for
+    // the always-on core block that is hashed into the stable cache prefix.
+    const contextualLimit = Math.max(0, Math.floor(maxHydratedMemoryItems / 2));
 
-    if (rows.length === 0) {
-      return null;
+    let outcome;
+    try {
+      outcome = await this.persaiInternalApiClient.hydrateMemoryForTurn({
+        assistantId,
+        userQuery,
+        contextualLimit
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Memory hydration request failed; continuing without durable memory. error=${this.describeError(error)}`
+      );
+      return { coreMessage: null, contextualMessage: null };
     }
 
-    const dedupedRows = [...rows]
-      .sort((left, right) => {
-        if (left.sourceType !== right.sourceType) {
-          return left.sourceType === "memory_write" ? -1 : 1;
-        }
-        return right.createdAt.getTime() - left.createdAt.getTime();
-      })
-      .filter((row, index, collection) => {
-        const normalized = row.summary.trim().toLowerCase();
-        if (normalized.length === 0) {
-          return false;
-        }
-        return (
-          collection.findIndex(
-            (candidate) => candidate.summary.trim().toLowerCase() === normalized
-          ) === index
-        );
-      });
+    const coreItems = this.dedupeHydratedItems(outcome.core);
+    const contextualItems = this.dedupeHydratedItems(outcome.contextual).filter(
+      (item) => !coreItems.some((coreItem) => coreItem.id === item.id)
+    );
 
-    let totalChars = 0;
+    const coreMessage = this.buildCoreMemoryMessage(coreItems, {
+      itemBudget: maxHydratedMemoryItems,
+      charBudget: maxHydratedMemoryTotalChars
+    });
+    const remainingCharBudget = Math.max(
+      0,
+      maxHydratedMemoryTotalChars - this.estimateBlockCharCost(coreMessage)
+    );
+    const contextualMessage = this.buildContextualMemoryMessage(contextualItems, {
+      itemBudget: Math.max(0, maxHydratedMemoryItems - (coreMessage === null ? 0 : 1)),
+      charBudget: remainingCharBudget
+    });
+
+    return { coreMessage, contextualMessage };
+  }
+
+  private dedupeHydratedItems(
+    items: InternalHydratedDurableMemoryItem[]
+  ): InternalHydratedDurableMemoryItem[] {
+    const seen = new Set<string>();
+    const result: InternalHydratedDurableMemoryItem[] = [];
+    for (const item of items) {
+      const normalized = item.summary.trim().toLowerCase();
+      if (normalized.length === 0) {
+        continue;
+      }
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      result.push(item);
+    }
+    return result;
+  }
+
+  private buildCoreMemoryMessage(
+    items: InternalHydratedDurableMemoryItem[],
+    budget: { itemBudget: number; charBudget: number }
+  ): ProviderGatewayTextMessage | null {
+    const lines = this.takeMemoryLines(items, budget);
+    if (lines.length === 0) {
+      return null;
+    }
+    return {
+      role: "assistant",
+      content: formatDurableMemoryCoreStableBlock(lines)
+    };
+  }
+
+  private buildContextualMemoryMessage(
+    items: InternalHydratedDurableMemoryItem[],
+    budget: { itemBudget: number; charBudget: number }
+  ): ProviderGatewayTextMessage | null {
+    if (budget.itemBudget <= 0 || budget.charBudget <= 0) {
+      return null;
+    }
+    const lines = this.takeMemoryLines(items, budget);
+    if (lines.length === 0) {
+      return null;
+    }
+    return {
+      role: "assistant",
+      content: formatDurableMemoryContextualBlock(lines)
+    };
+  }
+
+  private takeMemoryLines(
+    items: InternalHydratedDurableMemoryItem[],
+    budget: { itemBudget: number; charBudget: number }
+  ): string[] {
     const lines: string[] = [];
-    for (const row of dedupedRows) {
-      const label = row.sourceLabel?.trim().length
-        ? row.sourceLabel.trim()
-        : row.sourceType === "memory_write"
-          ? "Durable memory"
-          : "Conversation memory";
-      const line = `- [${label}] ${row.summary.trim()}`;
+    let totalChars = 0;
+    for (const item of items) {
+      const label = this.resolveMemoryLabel(item);
+      const line = `- [${label}] ${item.summary.trim()}`;
       if (line.length === 0) {
         continue;
       }
-      if (
-        lines.length >= maxHydratedMemoryItems ||
-        totalChars + line.length > maxHydratedMemoryTotalChars
-      ) {
+      if (lines.length >= budget.itemBudget || totalChars + line.length > budget.charBudget) {
         break;
       }
       lines.push(line);
       totalChars += line.length;
     }
+    return lines;
+  }
 
-    if (lines.length === 0) {
-      return null;
+  private resolveMemoryLabel(item: InternalHydratedDurableMemoryItem): string {
+    if (item.sourceLabel && item.sourceLabel.trim().length > 0) {
+      return item.sourceLabel.trim();
     }
+    if (item.sourceType === "memory_write") {
+      return item.kind === null ? "Durable memory" : `Durable memory: ${item.kind}`;
+    }
+    return "Conversation memory";
+  }
 
-    return {
-      role: "assistant",
-      content: formatDurableMemoryStableBlock(lines)
-    };
+  private estimateBlockCharCost(message: ProviderGatewayTextMessage | null): number {
+    if (message === null || typeof message.content !== "string") {
+      return 0;
+    }
+    return message.content.length;
+  }
+
+  private describeError(error: unknown): string {
+    if (error instanceof Error) {
+      return `${error.name}: ${error.message}`;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "unknown_error";
+    }
   }
 
   private toProviderRole(author: CanonicalChatMessageRow["author"]): "user" | "assistant" {

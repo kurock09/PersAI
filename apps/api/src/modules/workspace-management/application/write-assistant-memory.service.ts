@@ -19,6 +19,10 @@ import {
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { resolveEffectiveMemoryControlFromGovernance } from "../domain/memory-control-resolve";
 import {
+  MEMORY_CORE_HARD_CAP,
+  classifyDurableMemoryWriteClass
+} from "../domain/memory-class-policy";
+import {
   evaluateGlobalMemoryWritePolicy,
   type MemorySourceTrustClass,
   type MemoryTransportSurface
@@ -160,6 +164,19 @@ export class WriteAssistantMemoryService {
       chatId = relatedMessage.chatId;
     }
 
+    const memoryClass = classifyDurableMemoryWriteClass(input.kind);
+    if (memoryClass === "core") {
+      const currentCoreCount =
+        await this.assistantMemoryRegistryRepository.countActiveCoreByAssistantId(assistant.id);
+      const overflow = currentCoreCount + 1 - MEMORY_CORE_HARD_CAP;
+      if (overflow > 0) {
+        await this.assistantMemoryRegistryRepository.demoteOldestCoreByAssistantId(
+          assistant.id,
+          overflow
+        );
+      }
+    }
+
     const created = await this.assistantMemoryRegistryRepository.create({
       assistantId: assistant.id,
       userId: assistant.userId,
@@ -169,7 +186,9 @@ export class WriteAssistantMemoryService {
       relatedAssistantMessageId: null,
       summary: input.summary,
       sourceType: "memory_write",
-      sourceLabel: this.buildSourceLabel(input.kind)
+      sourceLabel: this.buildSourceLabel(input.kind),
+      memoryClass,
+      kind: input.kind
     });
 
     await this.appendAssistantAuditEventService.execute({

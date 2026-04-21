@@ -9,6 +9,7 @@ ADR-072 remains the historical migration record through the Step 18 native-path 
 PersAI is the source of truth for:
 
 - assistants and published versions
+- persona archetypes plus draft/published Voice DNA selection and snapshot state
 - runtime bundle materialization
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
@@ -48,6 +49,28 @@ Current active knowledge/retrieval persistence includes:
 - workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
 
 The active retrieval-policy contract is plan-managed rather than hard-coded. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior.
+
+## Durable assistant memory (ADR-074 M1)
+
+Active durable memory persistence lives in `assistant_memory_registry_items` and is split into two real classes at write-time. Each row carries:
+
+- `memoryClass`: `core` | `contextual` — the prompt-hydration class. Controlled by `classifyDurableMemoryWriteClass` (`apps/api/src/modules/workspace-management/domain/memory-class-policy.ts`); not user-tunable.
+- `kind`: `fact` | `preference` | `open_loop` | `null` — the model-visible kind label. Promoted from `sourceLabel` text into a real enum column so downstream slices (M2/M3 ranking, future analytics) do not need to scrape prompt strings.
+- `lastUsedAt`: `Timestamp(ms) | null` — bumped every time the row is hydrated into a turn; oldest core entries are demoted first when a new core write would push past `MEMORY_CORE_HARD_CAP = 15` entries per assistant–user pair.
+
+Per-turn hydration runs through `POST /api/v1/internal/runtime/memory/hydrate-for-turn` on the `API_INTERNAL_PORT=3002` listener (`HydrateMemoryForTurnService`). The service returns the active `core` block (always all of it, ordered oldest-first, hard-capped at 15) plus a relevance-retrieved `contextual` tail (lexical search over `summary`, default top-8). The runtime renders these as two distinct prompt blocks (`durable_memory_core`, `durable_memory_contextual`); only the `core` block participates in the cached prompt prefix family registered in `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts`, so contextual rotation per turn does not invalidate ADR-074 P1's cached prefix.
+
+Memory Center surfaces both `memoryClass` and `kind` as read-only badges through `AssistantMemoryRegistryItemState` (`packages/contracts/openapi.yaml`); promote/demote between classes is intentionally not exposed to users (founder principle 1: classification is a coded outcome, not a setting).
+
+## Persona / Voice DNA state
+
+Current active Voice DNA persistence includes:
+
+- `persona_archetypes` as the editable canonical store for the 4 shipped archetypes
+- `assistants.draft_archetype_key` as the user's current draft-time voice selection
+- `assistant_published_versions.snapshot_archetype_key` plus `snapshot_voice_dna` as the publish-time fallback snapshot
+
+Materialization prefers the live `persona_archetypes` row when it exists, and only falls back to `snapshot_voice_dna` if the referenced archetype is no longer present.
 
 ## Secret ownership
 

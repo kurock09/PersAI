@@ -23,6 +23,26 @@ For production slices that touch API contracts, runtime behavior, or shared cont
 corepack pnpm run test
 ```
 
+## Voice DNA / persona-archetype focused checks
+
+When a change touches Voice DNA archetypes, prompt-template V1 placeholders, setup/admin archetype selection, or published Voice DNA snapshotting, add the focused pack below before calling the slice clean:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/voice-dna-modulator.test.ts
+corepack pnpm --filter @persai/api exec tsx test/publish-assistant-draft.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. verify archetype localization resolves deterministically (`ru` when present, `en` fallback otherwise) and slider modulation stays conservative rather than rewriting the whole persona
+2. verify forbidden openings are deduped and survive both archetype defaults and prompt-template interpolation
+3. if setup/admin UI changes, verify the user-facing flow persists the real `archetypeKey` and the admin surface can still repair older `soul` templates to the V1 placeholder shape
+4. if publish/materialize logic changes, verify live archetype rows are preferred and `snapshot_voice_dna` remains the deletion fallback instead of becoming a silent primary source
+5. final V1 closure still requires the ADR-074 live smoke pair on `persai-dev` (`emotional-long` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone
+
 ## Step 20 files/sandbox/media focused checks
 
 When a change touches the public `files` tool, sandbox execution, `AssistantFile` handling, admin prompt-tool vocabulary, `files.send` / `files.write_and_send` / internal media delivery, or shared channel media delivery, add the focused pack below before calling the slice clean:
@@ -94,6 +114,30 @@ Interpretation rules:
 2. verify completed/failed/interrupted runtime stream results can carry structured `trace` stages such as `prepare.*`, `provider_headers_received`, `first_provider_event`, and `first_text_delta`
 3. verify provider-gateway stream logs include elapsed time to response headers or `failed-before-headers`, so live slow cases can be split between upstream-connect delay and token-generation delay
 4. for any live slow-stream investigation, correlate `web_stream_timing` / `web_stream_timing_failed` from `api` with `[provider-gateway-stream]` lines from `runtime` by `requestId` before making claims about where the delay lives
+
+## Durable memory M1 focused checks
+
+When a change touches durable assistant memory classification, the `core` / `contextual` split, the internal `runtime → api` memory hydration endpoint, the prompt-cache stable-block split between `durable_memory_core` and `durable_memory_contextual`, or the Memory Center class/kind labels, add the focused pack below before calling the slice clean:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/hydrate-memory-for-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/write-assistant-memory.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/prompt-cache-stable-blocks.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. verify write-time classification matches the documented policy: `fact` / `preference` → `core`, `open_loop` → `contextual`, web-chat memory → `contextual`, Workspace Memory → `core`. Surprising rewrites of this policy must be justified in the slice handoff.
+2. verify `MEMORY_CORE_HARD_CAP = 15` is enforced on the write path with oldest-demoted overflow, and that the cap is NOT exposed as a user-tunable setting (founder principle 1).
+3. verify `HydrateMemoryForTurnService` returns the always-on core block plus a relevance-retrieved contextual tail in one call, deduplicates contextual hits against core ids, and bumps `last_used_at` on every hydrated entry — not only on contextual or only on core.
+4. verify the runtime composes two distinct prompt blocks: `durable_memory_core` (always present when any core entries exist, byte-stable across turns) and `durable_memory_contextual` (per-turn relevance, omitted entirely when empty). Folding both back into one block silently breaks the cache invariant.
+5. verify the prompt-cache invariant explicitly: rotating the contextual block content per turn must NOT change the stable token sequence emitted for `durable_memory_core` + `shared_compaction_summary`. This is the M1-vs-P1 contract.
+6. final M1 closure still requires the ADR-074 live smoke pair on `persai-dev` (`multi-session-continuity` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone.
 
 ## Knowledge/admin focused checks
 

@@ -1628,13 +1628,20 @@ function computeHydratedStableBlockTokens(
     }
     const normalized = message.content.trim();
     if (normalized.startsWith("[Durable user context retained across conversations]")) {
-      tokens.push(`durable_memory.v1.${createHash("sha256").update(normalized).digest("hex")}`);
+      tokens.push(
+        `durable_memory_core.v1.${createHash("sha256").update(normalized).digest("hex")}`
+      );
       continue;
     }
     if (normalized.startsWith("[Earlier conversation summary retained by shared compaction]")) {
       tokens.push(
         `shared_compaction_summary.v1.${createHash("sha256").update(normalized).digest("hex")}`
       );
+      continue;
+    }
+    if (normalized.startsWith("[Relevant memories retrieved for this turn")) {
+      // Contextual durable memory is intentionally excluded from the stable
+      // prefix cache key family even when it appears in the prefix walk.
       continue;
     }
     break;

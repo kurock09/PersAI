@@ -113,6 +113,28 @@ export type InternalMemoryWriteOutcome = {
   item: RuntimeMemoryWriteItem | null;
 };
 
+export type InternalHydratedDurableMemoryItem = {
+  id: string;
+  summary: string;
+  sourceType: "web_chat" | "memory_write";
+  sourceLabel: string | null;
+  memoryClass: "core" | "contextual";
+  kind: "fact" | "preference" | "open_loop" | null;
+  createdAt: string;
+  score: number | null;
+};
+
+export type InternalHydrateMemoryForTurnInput = {
+  assistantId: string;
+  userQuery: string;
+  contextualLimit: number | null;
+};
+
+export type InternalHydrateMemoryForTurnOutcome = {
+  core: InternalHydratedDurableMemoryItem[];
+  contextual: InternalHydratedDurableMemoryItem[];
+};
+
 export type InternalFreshRuntimeSpec = {
   generation: number;
   assistantId: string;
@@ -457,6 +479,59 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async hydrateMemoryForTurn(
+    input: InternalHydrateMemoryForTurnInput
+  ): Promise<InternalHydrateMemoryForTurnOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/memory/hydrate-for-turn", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        assistantId: input.assistantId,
+        userQuery: input.userQuery,
+        contextualLimit: input.contextualLimit
+      })
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const core = payload?.core;
+      const contextual = payload?.contextual;
+      if (
+        payload?.ok === true &&
+        Array.isArray(core) &&
+        core.every((item) => this.isHydratedDurableMemoryItem(item)) &&
+        Array.isArray(contextual) &&
+        contextual.every((item) => this.isHydratedDurableMemoryItem(item))
+      ) {
+        return {
+          core: core as InternalHydratedDurableMemoryItem[],
+          contextual: contextual as InternalHydratedDurableMemoryItem[]
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid memory hydrate-for-turn response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API memory hydrate-for-turn request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the memory hydrate-for-turn request."
+    );
+  }
+
   async ensureFreshSpec(input: {
     assistantId: string;
     currentConfigGeneration: number;
@@ -604,6 +679,24 @@ export class PersaiInternalApiClientService {
       typeof row.content === "string" &&
       (row.snippet === null || typeof row.snippet === "string") &&
       (row.metadata === null || this.asObject(row.metadata) !== null)
+    );
+  }
+
+  private isHydratedDurableMemoryItem(value: unknown): value is InternalHydratedDurableMemoryItem {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      typeof row.summary === "string" &&
+      (row.sourceType === "web_chat" || row.sourceType === "memory_write") &&
+      (row.sourceLabel === null || typeof row.sourceLabel === "string") &&
+      (row.memoryClass === "core" || row.memoryClass === "contextual") &&
+      (row.kind === null ||
+        row.kind === "fact" ||
+        row.kind === "preference" ||
+        row.kind === "open_loop") &&
+      typeof row.createdAt === "string" &&
+      (row.score === null || typeof row.score === "number")
     );
   }
 

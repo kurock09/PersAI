@@ -21,6 +21,7 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 `apps/api` owns:
 
 - assistants, publish/apply lifecycle, and runtime bundle materialization
+- Voice DNA archetype seed/edit flows, prompt-template defaults, and published Voice DNA snapshot materialization
 - canonical chat/message persistence
 - assistant/global knowledge indexing, retrieval policy, and admin knowledge governance
 - durable retrieval observability and workspace-scoped operator surfaces for knowledge quality
@@ -58,10 +59,11 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 
 1. Browser calls `apps/api`
 2. `apps/api` persists canonical state and forwards request-time execution to `apps/runtime`
-3. `apps/runtime` calls `apps/provider-gateway`
-4. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
-5. result returns through `apps/api`
-6. `apps/api` finalizes canonical message/media/quota state
+3. `apps/runtime` calls back into `apps/api` over the dedicated internal listener for turn-time data hydration (e.g. ADR-074 M1 durable memory hydration through `POST /api/v1/internal/runtime/memory/hydrate-for-turn`)
+4. `apps/runtime` calls `apps/provider-gateway`
+5. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
+6. result returns through `apps/api`
+7. `apps/api` finalizes canonical message/media/quota state
 
 ### Telegram
 

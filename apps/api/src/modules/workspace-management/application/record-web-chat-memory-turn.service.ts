@@ -54,7 +54,9 @@ export class RecordWebChatMemoryTurnService {
       relatedAssistantMessageId: params.assistantMessageId,
       summary,
       sourceType: "web_chat",
-      sourceLabel: "Web chat"
+      sourceLabel: "Web chat",
+      memoryClass: "contextual",
+      kind: null
     });
   }
 }

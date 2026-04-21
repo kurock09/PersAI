@@ -196,7 +196,7 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 ### Slice V1 — Voice DNA scaffold (biggest human-likeness win)
 
-- **Status (2026-04-21):** Code-landed locally; awaiting `dev-image-publish` + Argo CD sync against `persai-dev` and live `emotional-long` / `chitchat-short` smoke run before this slice can be marked closed. See SESSION-HANDOFF for the post-deploy validation step.
+- **Status (2026-04-21):** Closed / live-accepted. The founder completed live `persai-dev` UI validation for V1 and accepted the slice operationally. In the final closeout session, supporting live checks also confirmed `GET /api/v1/assistant/runtime/preflight -> live=true, ready=true` and `GET /api/v1/assistant/persona-archetypes` returning the four shipped archetypes. No new CLI smoke artifact was captured in this exact closeout session; founder live validation is the recorded final acceptance source.
 - **Goal:** Replace placeholder SOUL/USER/IDENTITY templates with structured "voice DNA" cards (tone, pacing, opening phrases, anti-phrases, behavior under emotion, silence heuristics, 2–3 micro-examples) so the assistant sounds like a specific person, not a generic LLM.
 - **Founder anchor:** From Q13-B. Directly serves the product UTP "feels like a friend, not a chatbot".
 
@@ -206,15 +206,17 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 2. Both Russian and English copy are stored together on each archetype as `{ ru, en }` localized fields. The runtime selects locale at compile time from the user's resolved locale, with `en` as fallback.
 3. Trait sliders (formality / verbosity / playfulness / initiative / warmth) are kept and now act as conservative *modulators* of the chosen archetype rather than the entire personality source: `verbosity > 70` lengthens sentences one step, `initiative > 70` raises pace one step, `playfulness` scales irony around the archetype's baseline (capped at 90), and so on. This is the `voice-dna-modulator.ts` pure function; defaults are gender-neutral.
 4. Snapshotting at publish time captures both `snapshotArchetypeKey` and a raw locale-agnostic `snapshotVoiceDna` blob on `assistant_published_versions`. At materialization time, the live archetype is preferred (so admin edits propagate to existing assistants on the next config bump) and the snapshot is the deletion-fallback.
-5. The 9 legacy front-end persona presets remain visible in the setup wizard for V1; `apps/web/app/app/_components/assistant-persona.ts` carries a `PRESET_KEY_TO_ARCHETYPE` mapping that translates a chosen preset to one of the 4 archetype keys (`warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`) before persisting. A dedicated 4-archetype picker in the setup wizard is intentionally deferred to a follow-up V1.x slice.
+5. The user-facing setup wizard now exposes a dedicated 4-archetype picker backed by live `GET /api/v1/assistant/persona-archetypes`, not the earlier "keep 9 presets and map them" fallback described in the original plan. `apps/web/app/app/_components/assistant-persona.ts` still keeps `PRESET_KEY_TO_ARCHETYPE` as a compatibility helper for older preset-key consumers, but the primary V1 setup flow now persists the actual archetype key chosen by the user.
+6. `/admin/presets` grew two follow-through tools needed to migrate older prompt-template rows safely: an `Insert Voice DNA block` button on the `soul` template editor and a per-template `Reset to default` action. This lets operators bring older `soul` rows up to the V1 shape without redeploying code or hand-copying placeholders.
 
 **Touch points:**
 
-- `apps/api/prisma/bootstrap-preset-data.ts` (`VISIBLE_PROMPT_TEMPLATE_DEFAULTS.soul`, `.user`, `.identity` templates).
-- New: `docs/persona-archetypes/{warm-quiet,playful-sharp,calm-deep,dry-witty}.md` — 3–4 founder-co-authored archetype cards.
-- `apps/api/prisma/migrations/<timestamp>_voice_dna_v1_templates/migration.sql` — seed migration that replaces existing template rows for `soul`, `user`, `identity`.
-- `apps/web/app/admin/presets/page.tsx` (admin preset editor — verify it can show/edit the new longer templates).
-- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` — only if new placeholders are introduced (`{{voice_block}}`, etc.).
+- `apps/api/prisma/persona-archetype-data.ts` — compiled founder-approved defaults for `warm-quiet`, `playful-sharp`, `calm-deep`, `dry-witty`.
+- `apps/api/prisma/bootstrap-preset-data.ts` (`VISIBLE_PROMPT_TEMPLATE_DEFAULTS.soul`, `.user`, `.identity`, preview/welcome summaries).
+- `apps/api/prisma/migrations/20260421120000_adr074_v1_persona_archetypes_foundation/migration.sql` — creates `persona_archetypes`, adds draft/published snapshot columns, and seeds the V1 data model.
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` — interpolates Voice DNA placeholders into materialized prompts.
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` + `admin-persona-archetypes.controller.ts` — public archetype read route plus admin edit/reset routes.
+- `apps/web/app/app/setup/page.tsx` + `apps/web/app/admin/presets/page.tsx` — user-facing archetype picker plus admin preset/archetype editing.
 
 **Voice DNA schema (target SOUL.md template):**
 
@@ -243,18 +245,19 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 **Implementation outline:**
 
-1. Co-author 3–4 archetype Markdown cards with the founder (warm-quiet / playful-sharp / calm-deep / dry-witty) in `docs/persona-archetypes/`. Each card fills the schema above with concrete copy. Estimate ~30 minutes of founder time per card.
-2. Rewrite `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.soul` to consume the new placeholders. Add fallback values per placeholder so missing fields render as empty without breaking the prompt.
-3. Rewrite `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.user` to include three subsections: `# What we know` (facts), `# How they communicate` (durable observations from memory if present), `# Open threads` (open_loop entries).
-4. Rewrite `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.identity` minimally — only what the assistant says about itself when asked.
-5. Add a Prisma migration that updates the three `prompt_template` rows.
-6. Update unit tests for `compile-prompt-constructor.service.ts` to assert new placeholders are interpolated and missing fields render empty (not literal `{{voice_pace}}`).
-7. Wire `assistant_archetype` (string field) onto the assistant draft / published version — admin chooses one of the 4 archetypes when creating an assistant. If no archetype is set, default to `warm-quiet`.
+1. Capture founder-approved copy for the four archetypes directly in `apps/api/prisma/persona-archetype-data.ts`, with bilingual `{ ru, en }` fields and stable keys.
+2. Rewrite `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.soul` to consume structured Voice DNA placeholders, and update preview/welcome bootstrap summaries to surface voice-level output instead of the old generic traits summary.
+3. Keep `user` / `identity` compatible with the new prompt constructor, but do not force V1-only complexity into those templates beyond what the shipped code actually materializes.
+4. Add the Prisma foundation for `persona_archetypes`, `assistants.draft_archetype_key`, and `assistant_published_versions.snapshot_archetype_key` + `snapshot_voice_dna`.
+5. Wire archetype selection through draft update, publish snapshotting, and materialization so the runtime can prefer the live archetype and fall back to the publish-time snapshot if needed.
+6. Expose archetypes end to end: `GET /api/v1/assistant/persona-archetypes` for the setup UI, and authenticated admin edit/reset endpoints for live operator tuning.
+7. Add admin preset-editor recovery tools (`Insert Voice DNA block`, `Reset to default`) so older `soul` template rows can be brought to the V1 shape safely.
 
 **Acceptance criteria:**
 
-- 4 archetype cards exist in `docs/persona-archetypes/` and are reviewed by the founder.
-- Prisma migration applied; seeded `prompt_template` rows include new template bodies.
+- 4 founder-approved archetypes exist in compiled seed data (`apps/api/prisma/persona-archetype-data.ts`) and are editable at runtime through the admin surface.
+- Prisma migration applied; `persona_archetypes`, draft archetype selection, and published Voice DNA snapshots are live schema truth.
+- The setup wizard persists a real archetype key chosen from the 4 live archetypes, and `/admin/presets` can repair older `soul` rows via `Insert Voice DNA block` / `Reset to default`.
 - S0 scenario `emotional-long` shows: average assistant reply length is **shorter** than baseline, none of the forbidden phrases appear in any reply, voice stays consistent (manual check with founder + later LLM-judge in Q11-C).
 - S0 scenario `chitchat-short` shows no regression in token cost vs P1 baseline (the larger SOUL is offset by stable-prefix caching from P1).
 
@@ -266,12 +269,20 @@ Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the
 
 **Slice V1 handoff prompt:**
 
-> You are implementing ADR-074 Slice V1 (Voice DNA scaffold). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice V1 section in full. Slices S0 and P1 must be landed. The 4 persona archetype cards are co-authored input — if `docs/persona-archetypes/*.md` does not exist yet, stop and request founder input before changing templates. Do not introduce auto-evolution of USER.md. Do not invent voice fields not present in the schema above. Acceptance: migration applied, snapshot tests pass, S0 emotional-long shows shorter average replies and zero forbidden-phrase hits. When done, append a SESSION-HANDOFF entry, paste before/after harness output, and update `docs/CHANGELOG.md`.
+> You are implementing ADR-074 Slice V1 (Voice DNA scaffold). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice V1 section in full. Slices S0 and P1 must be landed. The founder-approved archetype copy lives in `apps/api/prisma/persona-archetype-data.ts`; do not invent extra archetypes or extra Voice DNA fields beyond the schema above. Do not introduce auto-evolution of USER.md. Acceptance: migration applied, snapshot tests pass, setup/admin surfaces expose the live archetypes correctly, and S0 `emotional-long` shows shorter average replies with zero forbidden-phrase hits. When done, append a SESSION-HANDOFF entry, paste any available smoke-harness output, and update `docs/CHANGELOG.md`.
 
 ---
 
 ### Slice M1 — Durable memory: core + relevance-retrieved tail
 
+- **Status (2026-04-21):** Code-landed on `main`, awaiting `persai-dev` rollout + smoke validation. Durable memory is now split at write-time into `core` (identity-bearing facts and preferences) and `contextual` (open loops, web-chat auto-extracts, everything else). Per-turn hydration always sends the core block (hard-capped at `MEMORY_CORE_HARD_CAP=15`, oldest-demoted on overflow) and a relevance-retrieved contextual tail (≤ `runtime.context.memory.contextualLimit`, default 8) selected via lexical search over `assistant_memory_registry_items.summary`. The contextual tail is bumped via `last_used_at` whenever it is hydrated, so the demote-on-overflow rule prefers truly stale entries. The split is reflected in the prompt-cache stable-block families: `durable_memory_core` is part of the cached prefix, while the new `durable_memory_contextual` family is explicitly **not stable** (each turn rewrites it), so M1 does not regress P1's cache hit rate.
+  - **Implementation deviations from the original plan worth carrying forward:**
+    1. **No vector embeddings.** Lexical retrieval over `summary` is enough for the founder-reviewed scenarios; vector indexing is deferred (still flagged in "Out of scope" below for posterity, but the deferral is now an actual decision, not a TBD).
+    2. **`kind` is a real Postgres enum column** (`fact` | `preference` | `open_loop` | `null`), not derived from `sourceLabel` text. The migration backfills existing rows from `sourceType`/`sourceLabel`. This makes future M2/M3 ranking trivial without prompt-text scraping.
+    3. **Memory-Center UI shows class + kind labels but does NOT expose promote/demote.** Founder principle 1 (magic, not user-controlled) won the tradeoff: class is a coded outcome of the write path, not a user setting. The UI labels only exist for transparency.
+    4. **Runtime hydrates via an internal HTTP endpoint** (`POST /api/v1/internal/runtime/memory/hydrate-for-turn` on `API_INTERNAL_PORT=3002`), not by reading Postgres directly. This reuses the existing `ReadAssistantKnowledgeService.searchMemory` pipeline (and its observability) instead of duplicating SQL in the runtime, in line with the M1 spec's "reuse ADR-073 hybrid retrieval; do not invent a new vector pipeline" constraint.
+    5. **`memory_write` tool guidance was rephrased toward proactive use.** The previous wording read as "only write when the user says 'remember'", which produced too few writes in practice. The new guidance frames `memory_write` as the model's continuous notebook, with an explicit reminder that the user manages memories through the Memory Center UI (the misleading reference to a non-existent `memory_forget` tool was removed in the same edit).
+- **Smoke acceptance:** TBD — to be filled in after the next post-rollout `multi-session-continuity` + `chitchat-short` runs against `persai-dev`. The M1 baseline targets the M1 acceptance criteria below: ≤ ~1500 tokens for the memory block at 100 entries on `multi-session-continuity`, no name-recall regression on `chitchat-short`, and durable cache-hit ratio on the stable prefix preserved within ±2 pp of P1's recorded warm-cache numbers.
 - **Goal:** Stop sending all durable memory entries on every turn. Always inject a small core (~10–15 most identity-defining entries), retrieve the rest by relevance to the current user message.
 - **Founder anchor:** Principle 1 (magic — user does not curate). From Q4-B.
 

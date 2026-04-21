@@ -3477,6 +3477,17 @@ components:
       enum:
         - web_chat
         - memory_write
+    AssistantMemoryRegistryClass:
+      type: string
+      enum:
+        - core
+        - contextual
+    AssistantMemoryRegistryKind:
+      type: string
+      enum:
+        - fact
+        - preference
+        - open_loop
     AssistantTaskRegistrySourceSurface:
       type: string
       enum:
@@ -3592,6 +3603,8 @@ components:
         - summary
         - sourceType
         - sourceLabel
+        - memoryClass
+        - kind
         - createdAt
         - chatId
       properties:
@@ -3604,6 +3617,12 @@ components:
           $ref: "#/components/schemas/AssistantMemoryRegistrySourceType"
         sourceLabel:
           type: string
+          nullable: true
+        memoryClass:
+          $ref: "#/components/schemas/AssistantMemoryRegistryClass"
+        kind:
+          allOf:
+            - $ref: "#/components/schemas/AssistantMemoryRegistryKind"
           nullable: true
         createdAt:
           type: string
