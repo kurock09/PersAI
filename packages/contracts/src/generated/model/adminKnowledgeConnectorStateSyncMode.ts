@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeConnectorStateSyncMode = typeof AdminKnowledgeConnectorStateSyncMode[keyof typeof AdminKnowledgeConnectorStateSyncMode];
-
+export type AdminKnowledgeConnectorStateSyncMode =
+  (typeof AdminKnowledgeConnectorStateSyncMode)[keyof typeof AdminKnowledgeConnectorStateSyncMode];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeConnectorStateSyncMode = {
-  pull_snapshot_then_index: 'pull_snapshot_then_index',
+  pull_snapshot_then_index: "pull_snapshot_then_index"
 } as const;

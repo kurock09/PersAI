@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeRetrievalSourceSummaryAllOfSource = typeof AdminKnowledgeRetrievalSourceSummaryAllOfSource[keyof typeof AdminKnowledgeRetrievalSourceSummaryAllOfSource];
-
+export type AdminKnowledgeRetrievalSourceSummaryAllOfSource =
+  (typeof AdminKnowledgeRetrievalSourceSummaryAllOfSource)[keyof typeof AdminKnowledgeRetrievalSourceSummaryAllOfSource];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeRetrievalSourceSummaryAllOfSource = {
-  document: 'document',
-  global: 'global',
-  memory: 'memory',
-  chat: 'chat',
-  preset: 'preset',
-  subscription: 'subscription',
+  document: "document",
+  global: "global",
+  memory: "memory",
+  chat: "chat",
+  preset: "preset",
+  subscription: "subscription"
 } as const;

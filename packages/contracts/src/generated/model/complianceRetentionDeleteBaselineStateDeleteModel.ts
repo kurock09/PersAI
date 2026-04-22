@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateDeleteModel = typeof ComplianceRetentionDeleteBaselineStateDeleteModel[keyof typeof ComplianceRetentionDeleteBaselineStateDeleteModel];
-
+export type ComplianceRetentionDeleteBaselineStateDeleteModel =
+  (typeof ComplianceRetentionDeleteBaselineStateDeleteModel)[keyof typeof ComplianceRetentionDeleteBaselineStateDeleteModel];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateDeleteModel = {
-  explicit_action_only: 'explicit_action_only',
+  explicit_action_only: "explicit_action_only"
 } as const;

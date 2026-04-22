@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateChatRetention = typeof ComplianceRetentionDeleteBaselineStateChatRetention[keyof typeof ComplianceRetentionDeleteBaselineStateChatRetention];
-
+export type ComplianceRetentionDeleteBaselineStateChatRetention =
+  (typeof ComplianceRetentionDeleteBaselineStateChatRetention)[keyof typeof ComplianceRetentionDeleteBaselineStateChatRetention];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateChatRetention = {
-  retained_until_archive_or_hard_delete: 'retained_until_archive_or_hard_delete',
+  retained_until_archive_or_hard_delete: "retained_until_archive_or_hard_delete"
 } as const;

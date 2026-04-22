@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeRetrievalRecentSearchOutcome = typeof AdminKnowledgeRetrievalRecentSearchOutcome[keyof typeof AdminKnowledgeRetrievalRecentSearchOutcome];
-
+export type AdminKnowledgeRetrievalRecentSearchOutcome =
+  (typeof AdminKnowledgeRetrievalRecentSearchOutcome)[keyof typeof AdminKnowledgeRetrievalRecentSearchOutcome];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeRetrievalRecentSearchOutcome = {
-  success: 'success',
-  empty: 'empty',
-  error: 'error',
+  success: "success",
+  empty: "empty",
+  error: "error"
 } as const;

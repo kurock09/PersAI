@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { RuntimeProviderSelection } from './runtimeProviderSelection';
-import type { AdminRuntimeProviderSettingsRequestFallback } from './adminRuntimeProviderSettingsRequestFallback';
-import type { AdminRuntimeProviderSettingsRequestRouterPolicy } from './adminRuntimeProviderSettingsRequestRouterPolicy';
-import type { RuntimeProviderAvailableModelsByProviderState } from './runtimeProviderAvailableModelsByProviderState';
-import type { AdminRuntimeProviderSettingsProviderKeysInput } from './adminRuntimeProviderSettingsProviderKeysInput';
+import type { RuntimeProviderSelection } from "./runtimeProviderSelection";
+import type { AdminRuntimeProviderSettingsRequestFallback } from "./adminRuntimeProviderSettingsRequestFallback";
+import type { AdminRuntimeProviderSettingsRequestRouterPolicy } from "./adminRuntimeProviderSettingsRequestRouterPolicy";
+import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
+import type { AdminRuntimeProviderSettingsProviderKeysInput } from "./adminRuntimeProviderSettingsProviderKeysInput";
 
 export interface AdminRuntimeProviderSettingsRequest {
   primary: RuntimeProviderSelection;

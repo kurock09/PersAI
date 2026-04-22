@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { ComplianceLegalAcceptanceState } from './complianceLegalAcceptanceState';
-import type { ComplianceRetentionDeleteBaselineState } from './complianceRetentionDeleteBaselineState';
+import type { ComplianceLegalAcceptanceState } from "./complianceLegalAcceptanceState";
+import type { ComplianceRetentionDeleteBaselineState } from "./complianceRetentionDeleteBaselineState";
 
 export interface ComplianceState {
   termsOfService: ComplianceLegalAcceptanceState;

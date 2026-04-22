@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminNotificationChannelStatus = typeof AdminNotificationChannelStatus[keyof typeof AdminNotificationChannelStatus];
-
+export type AdminNotificationChannelStatus =
+  (typeof AdminNotificationChannelStatus)[keyof typeof AdminNotificationChannelStatus];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminNotificationChannelStatus = {
-  active: 'active',
-  inactive: 'inactive',
+  active: "active",
+  inactive: "inactive"
 } as const;

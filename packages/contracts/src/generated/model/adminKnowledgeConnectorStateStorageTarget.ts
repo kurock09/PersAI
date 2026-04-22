@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeConnectorStateStorageTarget = typeof AdminKnowledgeConnectorStateStorageTarget[keyof typeof AdminKnowledgeConnectorStateStorageTarget];
-
+export type AdminKnowledgeConnectorStateStorageTarget =
+  (typeof AdminKnowledgeConnectorStateStorageTarget)[keyof typeof AdminKnowledgeConnectorStateStorageTarget];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeConnectorStateStorageTarget = {
-  persai_owned_object_storage: 'persai_owned_object_storage',
+  persai_owned_object_storage: "persai_owned_object_storage"
 } as const;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantTelegramConfigUpdateRequestDefaultParseMode } from './assistantTelegramConfigUpdateRequestDefaultParseMode';
-import type { AssistantTelegramConfigUpdateRequestGroupReplyMode } from './assistantTelegramConfigUpdateRequestGroupReplyMode';
+import type { AssistantTelegramConfigUpdateRequestDefaultParseMode } from "./assistantTelegramConfigUpdateRequestDefaultParseMode";
+import type { AssistantTelegramConfigUpdateRequestGroupReplyMode } from "./assistantTelegramConfigUpdateRequestGroupReplyMode";
 
 export interface AssistantTelegramConfigUpdateRequest {
   autoCompactionEnabled?: boolean;

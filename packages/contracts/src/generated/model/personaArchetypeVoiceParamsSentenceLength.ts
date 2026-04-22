@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type PersonaArchetypeVoiceParamsSentenceLength = typeof PersonaArchetypeVoiceParamsSentenceLength[keyof typeof PersonaArchetypeVoiceParamsSentenceLength];
-
+export type PersonaArchetypeVoiceParamsSentenceLength =
+  (typeof PersonaArchetypeVoiceParamsSentenceLength)[keyof typeof PersonaArchetypeVoiceParamsSentenceLength];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const PersonaArchetypeVoiceParamsSentenceLength = {
-  short: 'short',
-  medium: 'medium',
-  long: 'long',
+  short: "short",
+  medium: "medium",
+  long: "long"
 } as const;

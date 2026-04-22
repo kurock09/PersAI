@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantRuntimeApplyStatus } from './assistantRuntimeApplyStatus';
-import type { AssistantRuntimeApplyStateError } from './assistantRuntimeApplyStateError';
+import type { AssistantRuntimeApplyStatus } from "./assistantRuntimeApplyStatus";
+import type { AssistantRuntimeApplyStateError } from "./assistantRuntimeApplyStateError";
 
 export interface AssistantRuntimeApplyState {
   status: AssistantRuntimeApplyStatus;

@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSecurityUserPlanToolsPolicy = typeof RuntimeTierSecurityUserPlanToolsPolicy[keyof typeof RuntimeTierSecurityUserPlanToolsPolicy];
-
+export type RuntimeTierSecurityUserPlanToolsPolicy =
+  (typeof RuntimeTierSecurityUserPlanToolsPolicy)[keyof typeof RuntimeTierSecurityUserPlanToolsPolicy];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSecurityUserPlanToolsPolicy = {
-  plan_managed_only: 'plan_managed_only',
+  plan_managed_only: "plan_managed_only"
 } as const;

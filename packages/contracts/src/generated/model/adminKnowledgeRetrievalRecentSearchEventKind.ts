@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminKnowledgeRetrievalRecentSearchEventKind = typeof AdminKnowledgeRetrievalRecentSearchEventKind[keyof typeof AdminKnowledgeRetrievalRecentSearchEventKind];
-
+export type AdminKnowledgeRetrievalRecentSearchEventKind =
+  (typeof AdminKnowledgeRetrievalRecentSearchEventKind)[keyof typeof AdminKnowledgeRetrievalRecentSearchEventKind];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminKnowledgeRetrievalRecentSearchEventKind = {
-  search: 'search',
-  fetch: 'fetch',
+  search: "search",
+  fetch: "fetch"
 } as const;

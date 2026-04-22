@@ -5,15 +5,15 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantVoiceProfileYandexRole = typeof AssistantVoiceProfileYandexRole[keyof typeof AssistantVoiceProfileYandexRole];
-
+export type AssistantVoiceProfileYandexRole =
+  (typeof AssistantVoiceProfileYandexRole)[keyof typeof AssistantVoiceProfileYandexRole];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantVoiceProfileYandexRole = {
-  neutral: 'neutral',
-  good: 'good',
-  friendly: 'friendly',
-  strict: 'strict',
-  whisper: 'whisper',
-  evil: 'evil',
+  neutral: "neutral",
+  good: "good",
+  friendly: "friendly",
+  strict: "strict",
+  whisper: "whisper",
+  evil: "evil"
 } as const;

@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanVisibilityEffectiveEntitlementsToolClasses } from './adminPlanVisibilityEffectiveEntitlementsToolClasses';
-import type { AdminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces } from './adminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces';
+import type { AdminPlanVisibilityEffectiveEntitlementsToolClasses } from "./adminPlanVisibilityEffectiveEntitlementsToolClasses";
+import type { AdminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces } from "./adminPlanVisibilityEffectiveEntitlementsChannelsAndSurfaces";
 
 export interface AdminPlanVisibilityEffectiveEntitlements {
   toolClasses: AdminPlanVisibilityEffectiveEntitlementsToolClasses;

@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminKnowledgeRetrievalRecentSearchEventKind } from './adminKnowledgeRetrievalRecentSearchEventKind';
-import type { AdminKnowledgeRetrievalRecentSearchSource } from './adminKnowledgeRetrievalRecentSearchSource';
-import type { AdminKnowledgeRetrievalRecentSearchRetrievalMode } from './adminKnowledgeRetrievalRecentSearchRetrievalMode';
-import type { AdminKnowledgeRetrievalRecentSearchOutcome } from './adminKnowledgeRetrievalRecentSearchOutcome';
+import type { AdminKnowledgeRetrievalRecentSearchEventKind } from "./adminKnowledgeRetrievalRecentSearchEventKind";
+import type { AdminKnowledgeRetrievalRecentSearchSource } from "./adminKnowledgeRetrievalRecentSearchSource";
+import type { AdminKnowledgeRetrievalRecentSearchRetrievalMode } from "./adminKnowledgeRetrievalRecentSearchRetrievalMode";
+import type { AdminKnowledgeRetrievalRecentSearchOutcome } from "./adminKnowledgeRetrievalRecentSearchOutcome";
 
 export interface AdminKnowledgeRetrievalRecentSearch {
   at: string;

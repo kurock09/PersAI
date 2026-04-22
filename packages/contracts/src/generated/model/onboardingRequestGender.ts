@@ -8,12 +8,13 @@
 /**
  * @nullable
  */
-export type OnboardingRequestGender = typeof OnboardingRequestGender[keyof typeof OnboardingRequestGender] | null;
-
+export type OnboardingRequestGender =
+  | (typeof OnboardingRequestGender)[keyof typeof OnboardingRequestGender]
+  | null;
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const OnboardingRequestGender = {
-  male: 'male',
-  female: 'female',
-  other: 'other',
+  male: "male",
+  female: "female",
+  other: "other"
 } as const;

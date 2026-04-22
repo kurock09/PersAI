@@ -4,7 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminKnowledgeRetrievalMetricSummary } from './adminKnowledgeRetrievalMetricSummary';
-import type { AdminKnowledgeRetrievalSourceSummaryAllOf } from './adminKnowledgeRetrievalSourceSummaryAllOf';
+import type { AdminKnowledgeRetrievalMetricSummary } from "./adminKnowledgeRetrievalMetricSummary";
+import type { AdminKnowledgeRetrievalSourceSummaryAllOf } from "./adminKnowledgeRetrievalSourceSummaryAllOf";
 
-export type AdminKnowledgeRetrievalSourceSummary = AdminKnowledgeRetrievalMetricSummary & AdminKnowledgeRetrievalSourceSummaryAllOf;
+export type AdminKnowledgeRetrievalSourceSummary = AdminKnowledgeRetrievalMetricSummary &
+  AdminKnowledgeRetrievalSourceSummaryAllOf;
