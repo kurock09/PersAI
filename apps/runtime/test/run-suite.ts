@@ -13,6 +13,8 @@ import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
 import { runPromptCacheStableBlocksTest } from "./prompt-cache-stable-blocks.test";
 import { runCrossSessionCarryOverRendererTest } from "./cross-session-carry-over-renderer.test";
+import { runPresenceRendererTest } from "./presence-renderer.test";
+import { runRelativeTimeFormatterTest } from "./relative-time-formatter.test";
 import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.service.test";
 import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
@@ -46,6 +48,8 @@ async function run(): Promise<void> {
   await runTurnAcceptanceServiceTest();
   await runPromptCacheStableBlocksTest();
   await runCrossSessionCarryOverRendererTest();
+  await runRelativeTimeFormatterTest();
+  await runPresenceRendererTest();
   await runTurnContextHydrationServiceTest();
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();

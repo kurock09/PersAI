@@ -109,6 +109,11 @@ type PreparedTurnExecution = {
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
+  // ADR-074 Slice T1: rendered presence developer-tail block, computed once
+  // per `prepareTurnExecution`. `null` when the bundle has no presence
+  // template (legacy bundle compiled before T1) or the channel doesn't have
+  // a canonical chat row to ground the in-thread baseline.
+  presenceBlock: string | null;
 };
 
 type RuntimeStreamTraceCollector = {
@@ -363,6 +368,11 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle
     );
     options?.trace?.stage("prepare.context_hydrated");
+    const presenceBlock = await this.turnContextHydrationService.computePresenceBlock(
+      input,
+      bundleEntry.parsedBundle
+    );
+    options?.trace?.stage("prepare.presence_computed");
     const baselineProjectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
       allowModelToolExposure: options?.allowModelToolExposure ?? true
     });
@@ -386,7 +396,8 @@ export class TurnExecutionService {
       hydratedMessages,
       baselineProjectedTools,
       input.deepMode === true,
-      executionPlan.routeDecision
+      executionPlan.routeDecision,
+      presenceBlock
     );
     options?.trace?.stage("prepare.provider_request_built");
     return {
@@ -398,7 +409,8 @@ export class TurnExecutionService {
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
       preludeUsageEntries: executionPlan.usageEntries,
-      providerRequest
+      providerRequest,
+      presenceBlock
     };
   }
 
@@ -949,7 +961,8 @@ export class TurnExecutionService {
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
     deepModeEnabled: boolean,
-    routeDecision: TurnRouteDecision
+    routeDecision: TurnRouteDecision,
+    presenceBlock: string | null
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -963,7 +976,8 @@ export class TurnExecutionService {
       bundle,
       projectedTools,
       deepModeEnabled,
-      routeDecision
+      routeDecision,
+      presenceBlock
     );
     return {
       provider: providerSelection.provider,
@@ -992,7 +1006,8 @@ export class TurnExecutionService {
     bundle: AssistantRuntimeBundle,
     projectedTools: RuntimeNativeToolProjection | undefined,
     deepModeEnabled: boolean,
-    routeDecision: TurnRouteDecision | undefined
+    routeDecision: TurnRouteDecision | undefined,
+    presenceBlock: string | null
   ): string | null {
     const heartbeatBlock = this.normalizeOptionalText(bundle.promptDocuments.heartbeat ?? null);
     const routingGuidance = this.buildTurnRoutingPrompt(
@@ -1000,7 +1015,14 @@ export class TurnExecutionService {
       routeDecision,
       deepModeEnabled
     );
-    const sections = [routingGuidance, heartbeatBlock]
+    // ADR-074 Slice T1: developer-tail order is fixed —
+    // routingGuidance → presence → heartbeat. Presence sits AFTER routing
+    // (so the model first knows which mode to operate in) and BEFORE
+    // heartbeat (so the heartbeat's "create a follow-up scheduled_action"
+    // guidance can react to the freshly-rendered "time since last user
+    // message" signal).
+    const presenceSection = this.normalizeOptionalText(presenceBlock);
+    const sections = [routingGuidance, presenceSection, heartbeatBlock]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;
@@ -2228,6 +2250,14 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest
   ): Promise<ProviderGatewayTextGenerateRequest> {
     const messages = await this.turnContextHydrationService.buildMessages(input, execution.bundle);
+    // ADR-074 Slice T1: presence is per-turn but, because durable compaction
+    // can land mid-turn and trigger a context refresh, we also re-render the
+    // presence block here so the developer-tail keeps a fresh local time and
+    // weekday across the (typically sub-second) refresh window.
+    const presenceBlock = await this.turnContextHydrationService.computePresenceBlock(
+      input,
+      execution.bundle
+    );
     return this.buildProviderRequest(
       execution.bundle,
       {
@@ -2237,7 +2267,8 @@ export class TurnExecutionService {
       messages,
       execution.projectedTools,
       execution.deepModeEnabled,
-      execution.routeDecision
+      execution.routeDecision,
+      presenceBlock
     );
   }
 

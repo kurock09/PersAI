@@ -130,6 +130,7 @@ import { DeliverReminderNotificationService } from "./application/deliver-remind
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
+import { ProactivePushPolicyService } from "./application/proactive-push-policy.service";
 import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-background-compaction-job.service";
 import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
@@ -290,6 +291,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
+    ProactivePushPolicyService,
     EnqueueBackgroundCompactionJobService,
     InternalRuntimeCompactionClientService,
     RunScheduledAssistantActionService,

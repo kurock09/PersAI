@@ -10,6 +10,7 @@ import {
   parseReminderSchedule,
   type ReminderSchedule
 } from "./reminder-schedule";
+import { ProactivePushPolicyService } from "./proactive-push-policy.service";
 
 const SCHEDULED_ACTION_POLL_INTERVAL_MS = 5_000;
 const SCHEDULED_ACTION_BATCH_SIZE = 8;
@@ -21,6 +22,8 @@ const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 type ClaimedScheduledAction = {
   id: string;
   assistantId: string;
+  userId: string;
+  workspaceId: string;
   externalRef: string;
   title: string;
   audience: "user" | "assistant";
@@ -31,6 +34,11 @@ type ClaimedScheduledAction = {
   schedule: ReminderSchedule;
   claimToken: string;
   claimEpoch: number;
+  // ADR-074 Slice T1 frequency-safeguard bookkeeping (audience="user" only).
+  lastFiredAt: Date | null;
+  lastAnsweredCheckAt: Date | null;
+  consecutiveUnanswered: number;
+  workspaceTimezone: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -48,7 +56,12 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly handleInternalCronFireService: HandleInternalCronFireService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly runScheduledAssistantActionService: RunScheduledAssistantActionService
+    private readonly runScheduledAssistantActionService: RunScheduledAssistantActionService,
+    // ADR-074 Slice T1: VALUE import (not `import type`) — Nest needs the
+    // class symbol at runtime for DI. M2 precedent: `import type` for an
+    // injectable is the known DI footgun that throws
+    // `UnknownDependenciesException` at boot.
+    private readonly proactivePushPolicyService: ProactivePushPolicyService
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -123,6 +136,8 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         Array<{
           id: string;
           assistantId: string;
+          userId: string;
+          workspaceId: string;
           externalRef: string;
           title: string;
           audience: "user" | "assistant";
@@ -131,34 +146,45 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           nextRunAt: Date;
           payloadText: string;
           scheduleJson: Prisma.JsonValue;
+          lastFiredAt: Date | null;
+          lastAnsweredCheckAt: Date | null;
+          consecutiveUnanswered: number;
+          workspaceTimezone: string | null;
         }>
       >(Prisma.sql`
         SELECT
-          "id",
-          "assistant_id" AS "assistantId",
-          "external_ref" AS "externalRef",
-          "title",
-          "audience",
-          "action_type" AS "actionType",
-          "action_payload_json" AS "actionPayloadJson",
-          "next_run_at" AS "nextRunAt",
-          "reminder_payload_text" AS "payloadText",
-          "schedule_json" AS "scheduleJson"
-        FROM "assistant_task_registry_items"
-        WHERE "control_status" = CAST('active' AS "AssistantTaskRegistryControlStatus")
-          AND "external_ref" IS NOT NULL
-          AND "next_run_at" IS NOT NULL
-          AND "reminder_payload_text" IS NOT NULL
-          AND "schedule_json" IS NOT NULL
-          AND "next_run_at" <= NOW()
-          AND ("retry_after_at" IS NULL OR "retry_after_at" <= NOW())
+          t."id",
+          t."assistant_id" AS "assistantId",
+          t."user_id" AS "userId",
+          t."workspace_id" AS "workspaceId",
+          t."external_ref" AS "externalRef",
+          t."title",
+          t."audience",
+          t."action_type" AS "actionType",
+          t."action_payload_json" AS "actionPayloadJson",
+          t."next_run_at" AS "nextRunAt",
+          t."reminder_payload_text" AS "payloadText",
+          t."schedule_json" AS "scheduleJson",
+          t."last_fired_at" AS "lastFiredAt",
+          t."last_answered_check_at" AS "lastAnsweredCheckAt",
+          t."consecutive_unanswered" AS "consecutiveUnanswered",
+          w."timezone" AS "workspaceTimezone"
+        FROM "assistant_task_registry_items" t
+        LEFT JOIN "workspaces" w ON w."id" = t."workspace_id"
+        WHERE t."control_status" = CAST('active' AS "AssistantTaskRegistryControlStatus")
+          AND t."external_ref" IS NOT NULL
+          AND t."next_run_at" IS NOT NULL
+          AND t."reminder_payload_text" IS NOT NULL
+          AND t."schedule_json" IS NOT NULL
+          AND t."next_run_at" <= NOW()
+          AND (t."retry_after_at" IS NULL OR t."retry_after_at" <= NOW())
           AND (
-            "scheduler_claim_expires_at" IS NULL
-            OR "scheduler_claim_expires_at" <= NOW()
-            OR COALESCE("scheduler_claim_epoch", 0) < ${currentEpoch}
+            t."scheduler_claim_expires_at" IS NULL
+            OR t."scheduler_claim_expires_at" <= NOW()
+            OR COALESCE(t."scheduler_claim_epoch", 0) < ${currentEpoch}
           )
-        ORDER BY "next_run_at" ASC, "created_at" ASC
-        FOR UPDATE SKIP LOCKED
+        ORDER BY t."next_run_at" ASC, t."created_at" ASC
+        FOR UPDATE OF t SKIP LOCKED
         LIMIT ${Math.max(1, Math.floor(limit))}
       `);
 
@@ -181,6 +207,8 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         claimed.push({
           id: row.id,
           assistantId: row.assistantId,
+          userId: row.userId,
+          workspaceId: row.workspaceId,
           externalRef: row.externalRef,
           title: row.title,
           audience: row.audience,
@@ -190,7 +218,11 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           payloadText: row.payloadText,
           schedule,
           claimToken,
-          claimEpoch: currentEpoch
+          claimEpoch: currentEpoch,
+          lastFiredAt: row.lastFiredAt,
+          lastAnsweredCheckAt: row.lastAnsweredCheckAt,
+          consecutiveUnanswered: row.consecutiveUnanswered,
+          workspaceTimezone: row.workspaceTimezone
         });
       }
       return claimed;
@@ -210,6 +242,10 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         if (!task.actionType) {
           throw new Error("Assistant scheduled action is missing actionType.");
         }
+        // ADR-074 Slice T1 hard constraint #11: assistant-side actions are
+        // unrestricted. The proactive-push policy gate is NOT consulted here;
+        // an explicit scheduler-integration test asserts the policy mock is
+        // never invoked on this path.
         await this.runScheduledAssistantActionService.execute({
           assistantId: task.assistantId,
           externalRef: task.externalRef,
@@ -232,6 +268,20 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         );
         return;
       }
+      // ADR-074 Slice T1 hard constraint #11: gate fires only on
+      // `audience="user"` tasks.
+      const policyDecision = await this.evaluateProactivePushForUserTask(task);
+      if (policyDecision.action === "defer") {
+        this.logger.log(
+          `Scheduled action ${task.id} deferred by proactive-push policy (reason=${policyDecision.reason}, until=${policyDecision.deferUntil.toISOString()}).`
+        );
+        await this.deferUserTaskByPolicy(task.id, task.claimToken, task.claimEpoch, {
+          deferUntil: policyDecision.deferUntil,
+          consecutiveUnansweredAfter: policyDecision.consecutiveUnansweredAfter,
+          lastAnsweredCheckAtAfter: policyDecision.lastAnsweredCheckAtAfter
+        });
+        return;
+      }
       await this.handleInternalCronFireService.execute({
         assistantId: task.assistantId,
         jobId: task.externalRef,
@@ -241,7 +291,16 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         runAtMs: dueAtMs,
         ...(nextRunAtMs === undefined ? {} : { nextRunAtMs })
       });
-      await this.completeAssistantActionRun(task.id, task.claimToken, task.claimEpoch, nextRunAtMs);
+      // ADR-074 Slice T1 hard constraint #12: bump `lastFiredAt` atomically
+      // with the existing claim release, only after the user-visible
+      // dispatch succeeds. The unanswered counter and answered-check
+      // timestamp follow the policy decision so a task whose previous
+      // window just elapsed transitions cleanly.
+      await this.completeUserActionRun(task.id, task.claimToken, task.claimEpoch, nextRunAtMs, {
+        firedAt: new Date(),
+        consecutiveUnansweredAfter: policyDecision.consecutiveUnansweredAfter,
+        lastAnsweredCheckAtAfter: policyDecision.lastAnsweredCheckAtAfter
+      });
     } catch (error) {
       if (task.audience === "assistant") {
         const failedReceipts = await this.countFailedAssistantActionReceipts(task.externalRef);
@@ -366,6 +425,98 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       typeof error.message === "string" &&
       error.message.toLowerCase().includes("still processing")
     );
+  }
+
+  private async evaluateProactivePushForUserTask(
+    task: ClaimedScheduledAction
+  ): Promise<ReturnType<ProactivePushPolicyService["evaluateProactivePush"]>> {
+    // Reuse the existing M3.2 cross-thread `lastUserMessageAt` data path
+    // (hard constraint #6): direct read against `assistant_chat_messages`
+    // for the most recent message authored by `user` for this assistant.
+    // `Assistant` is owned by a single user (the relation is keyed on
+    // `(id, userId)`), so filtering by `assistantId` alone already scopes
+    // the lookup to `task.userId`'s messages. NO new repository method,
+    // mirrors the runtime presence renderer's "anywhere" query exactly.
+    const latest = await this.prisma.assistantChatMessage.findFirst({
+      where: {
+        assistantId: task.assistantId,
+        author: "user"
+      },
+      select: { createdAt: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+    });
+    return this.proactivePushPolicyService.evaluateProactivePush({
+      now: new Date(),
+      audience: "user",
+      timezone: task.workspaceTimezone,
+      lastFiredAt: task.lastFiredAt,
+      lastAnsweredCheckAt: task.lastAnsweredCheckAt,
+      consecutiveUnanswered: task.consecutiveUnanswered,
+      latestUserMessageAt: latest?.createdAt ?? null
+    });
+  }
+
+  private async deferUserTaskByPolicy(
+    id: string,
+    claimToken: string,
+    claimEpoch: number,
+    update: {
+      deferUntil: Date;
+      consecutiveUnansweredAfter: number;
+      lastAnsweredCheckAtAfter: Date | null;
+    }
+  ): Promise<void> {
+    await this.prisma.assistantTaskRegistryItem.updateMany({
+      where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
+      data: {
+        nextRunAt: update.deferUntil,
+        retryAfterAt: null,
+        consecutiveUnanswered: update.consecutiveUnansweredAfter,
+        lastAnsweredCheckAt: update.lastAnsweredCheckAtAfter,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      }
+    });
+  }
+
+  private async completeUserActionRun(
+    id: string,
+    claimToken: string,
+    claimEpoch: number,
+    nextRunAtMs: number | undefined,
+    update: {
+      firedAt: Date;
+      consecutiveUnansweredAfter: number;
+      lastAnsweredCheckAtAfter: Date | null;
+    }
+  ): Promise<void> {
+    if (nextRunAtMs === undefined) {
+      // One-shot user push completed: delete the row, mirroring the
+      // assistant-side path. `lastFiredAt` is irrelevant for a deleted row.
+      await this.prisma.assistantTaskRegistryItem.deleteMany({
+        where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch }
+      });
+      return;
+    }
+    await this.prisma.assistantTaskRegistryItem.updateMany({
+      where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
+      data: {
+        controlStatus: "active",
+        nextRunAt: new Date(nextRunAtMs),
+        disabledAt: null,
+        cancelledAt: null,
+        retryAfterAt: null,
+        lastFiredAt: update.firedAt,
+        consecutiveUnanswered: update.consecutiveUnansweredAfter,
+        lastAnsweredCheckAt: update.lastAnsweredCheckAtAfter,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      }
+    });
   }
 
   private async completeAssistantActionRun(

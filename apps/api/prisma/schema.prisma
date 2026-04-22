@@ -1224,6 +1224,24 @@ model AssistantTaskRegistryItem {
   schedulerClaimEpoch Int?                           @map("scheduler_claim_epoch")
   schedulerClaimedAt DateTime?                       @map("scheduler_claimed_at") @db.Timestamptz(6)
   schedulerClaimExpiresAt DateTime?                  @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  // ADR-074 Slice T1: proactive-push frequency safeguards (additive only).
+  //   * `lastFiredAt`            — last time this task ran with `audience="user"`
+  //                                and was successfully dispatched. Used by
+  //                                the policy gate to enforce the 1-per-48h
+  //                                rule and to anchor the 14-day auto-mute.
+  //   * `lastAnsweredCheckAt`    — last time the policy evaluator looked at
+  //                                whether the user replied within
+  //                                ANSWERED_WINDOW_HOURS of the previous push;
+  //                                kept so the unanswered counter is bumped
+  //                                exactly once per push.
+  //   * `consecutiveUnanswered`  — running count of pushes with no user reply
+  //                                inside ANSWERED_WINDOW_HOURS; reset to 0
+  //                                on ANY user-initiated message.
+  // No new index — scheduler claim path filters on existing indexes; the
+  // policy lookup happens per-claim (already O(1) by primary key).
+  lastFiredAt          DateTime? @map("last_fired_at") @db.Timestamptz(6)
+  lastAnsweredCheckAt  DateTime? @map("last_answered_check_at") @db.Timestamptz(6)
+  consecutiveUnanswered Int      @default(0) @map("consecutive_unanswered")
   createdAt       DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant       Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)

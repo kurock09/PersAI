@@ -62,7 +62,15 @@ interface ToolPromptState {
 }
 
 const SYSTEM_TEMPLATE_IDS = ["system"] as const;
-const ORDINARY_TEMPLATE_IDS = ["soul", "user", "identity", "tools", "agents", "heartbeat"] as const;
+const ORDINARY_TEMPLATE_IDS = [
+  "soul",
+  "user",
+  "identity",
+  "tools",
+  "agents",
+  "heartbeat",
+  "presence"
+] as const;
 const ROUTER_TEMPLATE_IDS = ["router_classifier"] as const;
 const ONBOARDING_TEMPLATE_IDS = ["preview_bootstrap", "welcome_bootstrap"] as const;
 const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
@@ -179,6 +187,16 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
 - If no user-visible follow-up is needed, stay quiet.
 - If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
 - Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
+
+  presence: `# Sense of Time
+
+- Time since this user last messaged in this thread: {{time_since_last_user_message_in_thread}}
+- Time since this user last messaged anywhere: {{time_since_last_user_message_anywhere}}
+- Current local time (user's timezone): {{current_local_time}}
+- Current local weekday (user's timezone): {{current_local_weekday}}
+
+This block is for your awareness only. Use it to colour your tone (warmer after a long gap, lighter on a Friday evening, more grounded on a Monday morning) and to avoid awkward openings (no "good morning" at 23:00 local).
+Do NOT recite these timestamps back to the user. Do NOT announce the gap or the local time unless the user explicitly asks. Behave like a friend who quietly notices the time, not like a clock that reports it.`,
 
   router_classifier: `You are the hidden PersAI early router.
 
@@ -330,6 +348,29 @@ const PRESET_META: Record<
     description: "Directly editable follow-through instructions for reminders and delayed checks.",
     variables: []
   },
+  presence: {
+    label: "Sense of Time",
+    description:
+      "Per-turn developer-tail block injecting time-since-last-user-message (in-thread + cross-thread), current local HH:MM, and current local weekday so the model can quietly colour its tone. Lives only in developerInstructions; never enters the cached system prompt.",
+    variables: [
+      {
+        key: "time_since_last_user_message_in_thread",
+        hint: "Bilingual relative time-ago of the last user message in this thread"
+      },
+      {
+        key: "time_since_last_user_message_anywhere",
+        hint: "Bilingual relative time-ago of the last user message across any thread for this user/assistant"
+      },
+      {
+        key: "current_local_time",
+        hint: "Current wall clock in the user's timezone, formatted HH:MM"
+      },
+      {
+        key: "current_local_weekday",
+        hint: "Current local weekday in the user's locale (e.g. Monday / понедельник)"
+      }
+    ]
+  },
   router_classifier: {
     label: "Routing Classifier Prompt",
     description:
@@ -378,7 +419,11 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   assistant_avatar_emoji_line: "- **Avatar**: 🌟",
   assistant_avatar_url_line: "",
   human_name: "Alex",
-  traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100."
+  traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100.",
+  time_since_last_user_message_in_thread: "earlier today",
+  time_since_last_user_message_anywhere: "yesterday",
+  current_local_time: "21:47",
+  current_local_weekday: "Thursday"
 };
 
 const PLACEHOLDER_RE = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;

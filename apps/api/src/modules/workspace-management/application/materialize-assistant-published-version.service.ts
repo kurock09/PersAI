@@ -489,6 +489,7 @@ export class MaterializeAssistantPublishedVersionService {
       toolsDocument: compiledPromptConstructor.promptDocuments.tools,
       agentsDocument: compiledPromptConstructor.promptDocuments.agents,
       heartbeatDocument: compiledPromptConstructor.promptDocuments.heartbeat,
+      presenceDocument: compiledPromptConstructor.promptDocuments.presence,
       previewDocument: compiledPromptConstructor.promptDocuments.preview,
       welcomeDocument: compiledPromptConstructor.promptDocuments.welcome,
       bootstrapDocument: compiledPromptConstructor.promptDocuments.welcome
@@ -595,6 +596,7 @@ export class MaterializeAssistantPublishedVersionService {
         tools: onboardingDocuments.toolsDocument,
         agents: onboardingDocuments.agentsDocument,
         heartbeat: onboardingDocuments.heartbeatDocument,
+        presence: onboardingDocuments.presenceDocument ?? "",
         routerClassifier: promptTemplates.router_classifier ?? "",
         preview: onboardingDocuments.previewDocument,
         welcome: onboardingDocuments.welcomeDocument,
@@ -1027,6 +1029,7 @@ export class MaterializeAssistantPublishedVersionService {
       agents: null,
       tools: null,
       heartbeat: null,
+      presence: null,
       router_classifier: null,
       preview_bootstrap: null,
       welcome_bootstrap: null,

@@ -6,6 +6,14 @@ import type {
   InternalCrossSessionCarryOverOpenLoop,
   InternalCrossSessionCarryOverSynopsis
 } from "./persai-internal-api.client.service";
+import { humanizeAge } from "./relative-time-formatter";
+
+// ADR-074 Slice T1 — re-export the shared bilingual relative-time formatter
+// so M3 callers can keep importing `humanizeAge` from this module while T1's
+// new presence renderer consumes the same helper directly. M3 intentionally
+// does NOT pass a locale, so its English-only behaviour is preserved
+// byte-for-byte.
+export { humanizeAge } from "./relative-time-formatter";
 
 // ADR-074 Slice M3 — render the cross-session continuity carry-over block
 // that prepends the very first turn of a brand-new thread. The block has
@@ -183,24 +191,6 @@ function parseDate(value: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function humanizeAge(synopsisAt: Date, now: Date): string {
-  const deltaMs = Math.max(0, now.getTime() - synopsisAt.getTime());
-  const minutes = Math.floor(deltaMs / 60_000);
-  if (minutes < 60) {
-    return "less than an hour ago";
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24 && isSameCalendarDay(synopsisAt, now)) {
-    return "earlier today";
-  }
-  const yesterday = subtractDays(now, 1);
-  if (isSameCalendarDay(synopsisAt, yesterday)) {
-    return "yesterday";
-  }
-  const days = Math.max(2, Math.floor(deltaMs / (24 * 3_600_000)));
-  return `${String(days)} days ago`;
-}
-
 function humanizeChannel(channel: string): string {
   switch (channel) {
     case "web":
@@ -212,18 +202,4 @@ function humanizeChannel(channel: string): string {
     default:
       return channel;
   }
-}
-
-function isSameCalendarDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-
-function subtractDays(date: Date, days: number): Date {
-  const next = new Date(date.getTime());
-  next.setDate(next.getDate() - days);
-  return next;
 }

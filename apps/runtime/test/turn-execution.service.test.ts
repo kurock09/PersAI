@@ -1038,11 +1038,23 @@ class FakeTurnContextHydrationService {
     }
   ];
 
+  // ADR-074 Slice T1: TurnExecutionService now asks the hydration service
+  // to compute the per-turn `presence` developer-tail block. Tests can
+  // override this string to assert the developer-tail order
+  // (routingGuidance → presence → heartbeat); default is `null` which
+  // mirrors a bundle without a presence template (the legacy path).
+  presenceBlock: string | null = null;
+
   async buildMessages(
     ..._args: unknown[]
   ): Promise<ProviderGatewayTextGenerateRequest["messages"]> {
     void _args.length;
     return this.messages;
+  }
+
+  async computePresenceBlock(..._args: unknown[]): Promise<string | null> {
+    void _args.length;
+    return this.presenceBlock;
   }
 }
 

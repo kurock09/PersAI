@@ -1,5 +1,106 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 - ADR-074 Slice T1 — sense of time (presence) + frequency safeguards (proactive-push policy) — code-landed in code; verification gate green, awaiting `persai-dev` deploy + 4 founder live gates
+
+### What changed
+
+This session shipped **ADR-074 Slice T1 in a single commit**, both products together as the founder mandated (hard constraint #1: "Two products, one slice. Both ship together."). Slice T1 is the first "humanity polish" slice in the T-track of ADR-074 and lands two parallel sub-products:
+
+**(A) Sense of time (presence).** A NEW `presence` prompt template (parallel sibling of `heartbeat`, NOT an extension of it — hard constraint #2) renders four always-present per-turn fields into the developer-tail:
+
+- `time_since_last_user_message_in_thread` — bilingual relative time-ago of the last user message in this thread
+- `time_since_last_user_message_anywhere` — bilingual relative time-ago of the last user message across any thread for this `(assistantId, userId)` pair (reuses the M3.2 cross-thread `lastUserMessageAt` data path; no new repository method per hard constraint #6)
+- `current_local_time` — current `HH:MM` in the user's timezone
+- `current_local_weekday` — current local weekday in the user's locale (e.g. `Monday` / `понедельник`)
+
+The block carries a usage-rule paragraph telling the model NOT to recite timestamps back to the user — "behave like a friend who quietly notices the time, not like a clock that reports it." The presence text lives entirely in `developerInstructions`, never in `systemPrompt` / `stablePrefix.hash` (P1 invariant — hard constraint #3, locked by a new test extension on `apps/api/test/compile-prompt-constructor.service.test.ts`). Developer-tail order is fixed at `routingGuidance → presence → heartbeat`.
+
+The bilingual relative time-ago formatter required by hard constraint #5 was extracted into a new shared module `apps/runtime/src/modules/turns/relative-time-formatter.ts` (English + Russian with proper Russian pluralization rules) and re-exported from `cross-session-carry-over-renderer.ts` so M3 carry-over keeps using the same helper byte-for-byte (M3 omits the locale arg and stays English-only — its existing test surface is preserved). The new presence renderer (`apps/runtime/src/modules/turns/presence-renderer.ts`) is the only new caller that passes the `userContext.locale` explicitly to opt into bilingual output.
+
+**Important contract reconciliation surfaced this session.** The ADR-074 Slice T1 handoff prompt and the M3 closeout entries both stated the M3 time-ago formatter was already bilingual; reading the actual `cross-session-carry-over-renderer.ts` revealed it was English-only. The reconciliation extracted the existing English helper, added a `locale` parameter defaulting to English (so M3 keeps its byte-for-byte behaviour), and wired the new presence renderer to pass the workspace locale explicitly. This satisfies BOTH the reuse constraint AND the bilingual requirement without a parallel formatter. No silent deviation from the spec — the reconciliation is documented inline in `relative-time-formatter.ts` and `cross-session-carry-over-renderer.ts`.
+
+**(B) Frequency safeguards (proactive-push policy).** A new `ProactivePushPolicyService` enforces three rules on `audience="user"` scheduled actions:
+
+1. **Interval (`MIN_INTERVAL_HOURS = 48`)** — at most one user-visible push per 48h per task row. Blocked pushes DEFER to `lastFiredAt + 48h` (never silently dropped — hard constraint #9).
+2. **Quiet hours (`QUIET_HOURS_START_LOCAL = 22`, `QUIET_HOURS_END_LOCAL = 9`)** — pushes that would fire inside `[22:00, 24:00) ∪ [00:00, 09:00)` local DEFER to the next 09:00 local. The local-wall-clock math uses `Intl.DateTimeFormat` with a 2-pass timezone-offset solver to handle DST transitions correctly.
+3. **Auto-mute (`AUTO_MUTE_AFTER_UNANSWERED = 2`, `AUTO_MUTE_DURATION_DAYS = 14`, `ANSWERED_WINDOW_HOURS = 24`)** — after 2 consecutive pushes that the user did not answer within 24h, the task auto-mutes for 14d. Mute releases on **any user-initiated message** (broader than "answered the specific push" — hard constraint #10), implemented by checking the most recent user message timestamp at policy evaluation time and resetting the unanswered counter if it is strictly newer than `lastFiredAt`.
+
+The five constants live in code (`apps/api/src/modules/workspace-management/application/proactive-push-policy.constants.ts`); NO admin surface, NO plan-policy fields, NO per-workspace overrides — Principle 1 (hard constraint #8). The policy gate fires only on `audience="user"` (hard constraint #11; locked by an explicit test that asserts the policy mock is NOT invoked on the assistant-side path). `lastFiredAt` is bumped atomically with the existing claim release in `PersaiScheduledActionSchedulerService`, only after the user-visible dispatch succeeds (hard constraint #12).
+
+**Schema.** Three additive columns on `AssistantTaskRegistryItem` — `lastFiredAt`, `lastAnsweredCheckAt`, `consecutiveUnanswered Int @default(0)` — via a single reversible additive migration `apps/api/prisma/migrations/20260423000000_adr074_t1_proactive_push_safeguards/migration.sql`. NO new `proactive_push_log` table, NO new index — the scheduler already filters on the existing partial index, and the per-claim policy lookup is O(1) by primary key (hard constraint #7).
+
+### Files touched (grouped by area)
+
+**Presence side**
+- `apps/runtime/src/modules/turns/relative-time-formatter.ts` (NEW) — shared bilingual `humanizeAge` + `resolveRelativeTimeLocale`.
+- `apps/runtime/src/modules/turns/cross-session-carry-over-renderer.ts` — extract + re-export `humanizeAge`; M3 keeps using the helper without a locale arg.
+- `apps/runtime/src/modules/turns/presence-renderer.ts` (NEW) — pure `renderPresenceBlock` interpolating the four placeholders, with graceful fallbacks for null timestamps ("never" / "никогда"), bad timezones (UTC fallback), and unknown placeholders (left untouched).
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` — new `computePresenceBlock(input, bundle)` method; reuses M3.2 cross-thread query path via direct Prisma reads on `assistantChatMessage.findFirst`.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — `presenceBlock` plumbed through `prepareTurnExecution` and `refreshProviderRequestMessages`; `buildDeveloperInstructions` orders sections as `routingGuidance → presence → heartbeat`.
+- `packages/runtime-bundle/src/index.ts` — `presence?: string` added to `AssistantRuntimePromptDocuments` (optional for backward-compat with pre-T1 bundle JSON).
+- `apps/api/src/modules/workspace-management/application/compile-prompt-constructor.service.ts` — `presence` template wired into `PromptTemplateMap` + `promptDocuments` via new `generatePresencePrompt`; raw template text emitted (placeholders unresolved — runtime renderer owns interpolation).
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` — `presenceDocument` persisted alongside the other prompt documents.
+- `apps/api/prisma/bootstrap-preset-data.ts` — default `presence` template seeded.
+- `apps/web/app/admin/presets/page.tsx` — `presence` added to `ORDINARY_TEMPLATE_IDS`, `PRESET_META`, and `SAMPLE_VARIABLES` so it shows up in the admin Prompts presets editor with a meaningful preview.
+
+**Safeguards side**
+- `apps/api/prisma/schema.prisma` — three additive columns on `AssistantTaskRegistryItem`.
+- `apps/api/prisma/migrations/20260423000000_adr074_t1_proactive_push_safeguards/migration.sql` (NEW) — additive `ALTER TABLE` for the three columns.
+- `apps/api/src/modules/workspace-management/application/proactive-push-policy.constants.ts` (NEW) — the five (six counting `ANSWERED_WINDOW_HOURS`) policy constants.
+- `apps/api/src/modules/workspace-management/application/proactive-push-policy.service.ts` (NEW) — pure `evaluateProactivePush` returning `allow` or `defer{ deferUntil, reason, consecutiveUnansweredAfter, lastAnsweredCheckAtAfter }`.
+- `apps/api/src/modules/workspace-management/application/persai-scheduled-action-scheduler.service.ts` — claim SQL extended to fetch `userId`, `workspaceId`, the three new columns, and the workspace timezone via a `LEFT JOIN`; new `evaluateProactivePushForUserTask` reads the latest user message via existing `assistantChatMessage` API; new `deferUserTaskByPolicy` and `completeUserActionRun` helpers atomically release the claim + bump `lastFiredAt` on success or push out `nextRunAt` on defer; assistant audience path explicitly skips the gate.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — `ProactivePushPolicyService` provider registration (value `import`, not `import type` — M2 DI footgun precedent).
+
+**Tests**
+- `apps/api/test/compile-prompt-constructor.service.test.ts` — new `runPresenceCachedPrefixInvariant` locks the P1 invariant for the new template (system prompt byte-stable when only `presence` changes; placeholders never leak into the system prompt; the per-turn `presence` document still varies and stays unresolved).
+- `apps/runtime/test/relative-time-formatter.test.ts` (NEW) — English + Russian + locale-resolution + edge-case coverage.
+- `apps/runtime/test/presence-renderer.test.ts` (NEW) — English + Russian rendering, "never" fallback for null timestamps, blank-template returns null, bad-timezone falls back to UTC, unknown placeholders left alone.
+- `apps/runtime/test/run-suite.ts` — wires the two new test files into the runtime suite.
+- `apps/api/test/proactive-push-policy.service.test.ts` (NEW) — 13 tests covering every branch (assistant-allow, first-ever push, interval defer, quiet-hours defer in three sub-cases, auto-mute defer, auto-mute release on user message, unanswered-counter idempotent bump, all-clear allow, constants ship-values, bad-tz fallback, interval beats quiet hours).
+- `apps/api/test/persai-scheduled-action-scheduler.service.test.ts` — extended with 4 new ADR-074 T1 scheduler-integration tests: assistant-audience-skips-policy-gate, user-audience-deferred-by-policy (writes `nextRunAt = deferUntil` + clears claim + does NOT bump `lastFiredAt`), user-audience-allowed-bumps-`lastFiredAt`-atomically, user-audience-failed-dispatch-skips-`lastFiredAt`-bump. Existing 12 tests updated to construct the scheduler with the new policy fake and to populate the new row fields via a `defaultRowFields()` helper.
+- `apps/runtime/test/turn-execution.service.test.ts` — `FakeTurnContextHydrationService` extended with a `computePresenceBlock` stub returning `null` by default (mirrors a bundle without a presence template).
+
+**Docs**
+- `docs/SESSION-HANDOFF.md` — this entry.
+- `docs/CHANGELOG.md` — new "Unreleased" bullet.
+- `docs/ADR/074-humanity-and-cost-polish-program.md` — Slice T1 status flipped to `code-landed in code (2026-04-23), awaiting persai-dev deploy + founder live UI gates`.
+
+### Verification gate
+
+| # | Command | Result |
+|---|---------|--------|
+| 1 | `corepack pnpm --filter @persai/api prisma:generate` | ✅ pass |
+| 2 | `corepack pnpm --filter @persai/contracts build` | n/a — T1 does not regenerate any contract |
+| 3 | `corepack pnpm -r --if-present run lint` | ✅ pass (0 warnings on touched files) |
+| 4 | `corepack pnpm run format:check` | ✅ pass (4 newly-touched files were prettier-written before the check) |
+| 5 | `corepack pnpm --filter @persai/api run typecheck` | ✅ pass |
+| 6 | `corepack pnpm --filter @persai/web run typecheck` | ✅ pass |
+| 7 | `corepack pnpm --filter @persai/runtime run typecheck` | ✅ pass |
+| 8 | `corepack pnpm --filter @persai/runtime-contract run typecheck` | ✅ pass |
+| 9 | `corepack pnpm --filter @persai/api test` | ✅ pass (full suite, including the 13 new policy tests + 4 new scheduler-integration tests + 1 new compile-prompt-constructor invariant test) |
+| 10 | `corepack pnpm --filter @persai/runtime test` | ✅ pass (full suite, including the 2 new presence test files; existing turn-execution suite extended with the `computePresenceBlock` stub) |
+
+### Risks / residuals
+
+- **Workspace timezone fallback** — if a workspace row has an empty or bogus `timezone` value, the policy logs a single warn and falls back to UTC for quiet-hours math. This matches the runtime presence renderer's behaviour (also UTC-fallback). No production rows are expected to hit this branch (the workspace bootstrap requires a TZ string), but the fallback is observable in `kubectl logs api` if it does. Same fallback applies to a row with `workspaceTimezone IS NULL` (the new `LEFT JOIN` allows it explicitly).
+- **DST around 2026 EU spring/autumn transitions** — the 2-pass timezone-offset solver was sanity-tested with `Europe/Moscow` (no DST since 2014) and against UTC. EU/US zones with DST will be exercised by the founder's live test in EU/Moscow + EU/Berlin profiles after Argo CD rollout. If a DST corner emits an off-by-one hour the `computeNextLocalNineAm` solver is the place to look (the 2-pass converges in 1 iteration outside DST gaps; gaps land you on the +1h side which is the safe direction for "defer to next 09:00").
+- **Unanswered counter idempotency** — verified via the `runUnansweredWindowBumpsCounterExactlyOnce` policy test: a second call with the new `lastAnsweredCheckAt` does NOT double-bump. If a future change to `recomputeCounter` regresses this, the unit test trips.
+- **`proactive_push_log` table NOT added** — by design (hard constraint #7). If the founder later wants per-push observability (which push fired, which deferred), the right move is a structured log line in `processClaimedTask` or a dedicated counter via the existing platform-http-metrics surface — NOT a new table.
+- **No new smoke scenario** (M3.2 precedent — hard constraint #13). Acceptance is unit + scheduler-integration + 4 manual founder UI gates listed in the ADR T1 Acceptance section.
+
+### Founder live gates (all PENDING — founder runs them on `persai-dev` after Argo CD rolls)
+
+1. **Presence visible in dev tools** — open a chat, send a message, inspect the runtime turn → confirm the developer-tail contains a `# Sense of Time` block with the four interpolated values (in-thread time-ago, anywhere time-ago, current local `HH:MM`, current local weekday). Confirm the block is bilingual when locale is `ru`.
+2. **No clock-recital in model output** — over the next several conversations, confirm the model does NOT recite the time-ago / local-time numbers back to the user verbatim. The block is "for awareness only" — it should colour tone but not surface as text.
+3. **Quiet-hours defer** — schedule a `audience="user"` reminder for 23:30 local; confirm it is NOT delivered at 23:30 and IS delivered at the next 09:00 local. (Defer record in API logs: `proactive-push policy (reason=quiet_hours, until=…)`.)
+4. **Interval + auto-mute** — fire a `audience="user"` push, do NOT respond, wait 48h+, confirm the next push is allowed. Then do NOT respond to two consecutive pushes within their 24h windows; confirm the third push is muted for 14 days. Send a chat message; confirm the mute is released and a fresh push fires on the next interval-allowed slot.
+
+### Next recommended step
+
+Push this commit, watch CI + Dev Image Publish + bot pin, then watch Argo CD rollout — same precedent as M3.2 / M3.3. After deploy, the founder runs the 4 live gates above and (assuming green) flips Slice T1 to `Code-landed + deployed + live-verified` in this file, the CHANGELOG, and the ADR T1 status block. The next ADR-074 slice (T2 — assistant-initiated proactive nudges, OR S1 — system-message guardrails) opens after T1 is fully closed.
+
+---
+
 ## 2026-04-22 (night, late+) - ADR-074 Slice M3.3 live verification + admin/presets editor save-spinner hotfix
 
 ### What was verified live on `persai-dev` (M3.3 — commit `1d5c7ba`)

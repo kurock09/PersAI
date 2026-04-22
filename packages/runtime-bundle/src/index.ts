@@ -116,6 +116,18 @@ export interface AssistantRuntimePromptDocuments {
   tools: string;
   agents: string;
   heartbeat: string;
+  /**
+   * ADR-074 Slice T1: presence is a NEW per-turn developer-tail block (sibling
+   * of `heartbeat`). The compiled text is the raw template string with the
+   * four `{{...}}` placeholders unresolved; the runtime presence renderer
+   * interpolates them at turn-construction time and inserts the result into
+   * `developerInstructions` between `routingGuidance` and `heartbeat`.
+   *
+   * Optional on the wire so legacy bundle JSON without `presence` (compiled
+   * before T1 landed, or by a fallback synthesizer) keeps deserializing; the
+   * runtime renderer treats absence as "skip block".
+   */
+  presence?: string;
   routerClassifier?: string;
   preview: string;
   welcome: string;

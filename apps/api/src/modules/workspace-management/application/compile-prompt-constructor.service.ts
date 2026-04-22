@@ -19,6 +19,7 @@ export interface PromptTemplateMap {
   tools?: string | null;
   agents?: string | null;
   heartbeat?: string | null;
+  presence?: string | null;
   router_classifier?: string | null;
   preview_bootstrap?: string | null;
   welcome_bootstrap?: string | null;
@@ -63,6 +64,7 @@ export class CompilePromptConstructorService {
       tools: this.generateToolsPrompt(params.toolPolicies, params.promptTemplates.tools ?? null),
       agents: this.generateAgentsPrompt(params.promptTemplates.agents ?? null),
       heartbeat: this.generateHeartbeatPrompt(params.promptTemplates.heartbeat ?? null),
+      presence: this.generatePresencePrompt(params.promptTemplates.presence ?? null),
       routerClassifier:
         this.normalizeOptionalText(params.promptTemplates.router_classifier ?? null) ?? "",
       preview: this.generatePreviewPrompt(
@@ -335,6 +337,17 @@ export class CompilePromptConstructorService {
   }
 
   private generateHeartbeatPrompt(template: string | null): string {
+    return this.normalizeOptionalText(template) ?? "";
+  }
+
+  // ADR-074 Slice T1: presence is a NEW sibling of heartbeat. Like heartbeat it lives entirely
+  // in the per-turn developer-tail (never in `systemPrompt` / `stablePrefix`), so this method
+  // simply returns the raw template text. The four `{{...}}` placeholders inside the template
+  // (`time_since_last_user_message_in_thread`, `time_since_last_user_message_anywhere`,
+  // `current_local_time`, `current_local_weekday`) are interpolated downstream by the runtime
+  // presence renderer with per-turn values; we deliberately do NOT pre-interpolate any of them
+  // here so the cached compile artefact stays time-invariant.
+  private generatePresencePrompt(template: string | null): string {
     return this.normalizeOptionalText(template) ?? "";
   }
 

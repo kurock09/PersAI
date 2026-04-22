@@ -176,6 +176,75 @@ async function runCachedPrefixInvariant(): Promise<void> {
   );
 }
 
+// ADR-074 Slice T1: presence is a NEW per-turn developer-tail block. It MUST
+// behave like heartbeat with respect to the cached system prefix:
+//   * the rendered presence text must NEVER appear in `systemPrompt`
+//   * mutating the presence template MUST NOT change `systemPrompt` /
+//     `stablePrefix.hash`
+//   * the compiled presence document IS the (updated) per-turn template text
+async function runPresenceCachedPrefixInvariant(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+  const input = baseInput();
+  const templates = {
+    system: `{{assistant_identity_block}}
+
+{{tools_block}}
+
+{{soul_block}}
+
+{{agents_block}}
+
+{{heartbeat_block}}`,
+    soul: "# Core Persona\n\n{{instructions_block}}",
+    tools: "Native tool runtime placeholder.",
+    agents: "# Governance",
+    heartbeat: "Heartbeat A",
+    presence: "# Sense of Time A\n\n- placeholder: {{current_local_time}}",
+    preview_bootstrap: "preview",
+    welcome_bootstrap: "welcome"
+  };
+  const a = service.compile({ ...input, promptTemplates: { ...templates } });
+  const b = service.compile({
+    ...input,
+    promptTemplates: {
+      ...templates,
+      presence: "# Sense of Time B — TOTALLY different per-turn payload {{current_local_weekday}}"
+    }
+  });
+
+  assert.equal(
+    a.promptConstructor.ordinary.systemPrompt,
+    b.promptConstructor.ordinary.systemPrompt,
+    "system prompt must be byte-stable when only the presence template changes"
+  );
+  assert.equal(
+    a.promptConstructor.ordinary.stablePrefix?.hash,
+    b.promptConstructor.ordinary.stablePrefix?.hash,
+    "stable prefix hash must be identical when only the presence template changes"
+  );
+  const systemPrompt = a.promptConstructor.ordinary.systemPrompt ?? "";
+  assert.doesNotMatch(
+    systemPrompt,
+    /Sense of Time/,
+    "presence text must NOT leak into systemPrompt"
+  );
+  assert.doesNotMatch(
+    systemPrompt,
+    /current_local_time|current_local_weekday/,
+    "presence placeholders must NOT leak into systemPrompt"
+  );
+  assert.notEqual(
+    a.promptDocuments.presence,
+    b.promptDocuments.presence,
+    "presence document still varies per template (it is the per-turn payload, with placeholders unresolved)"
+  );
+  assert.match(
+    a.promptDocuments.presence,
+    /\{\{current_local_time\}\}/,
+    "compile path must NOT pre-interpolate presence placeholders; runtime renderer owns that"
+  );
+}
+
 async function runFallbackCompile(): Promise<void> {
   // Without any custom prompt template the legacy concatenation path runs.
   // ADR-074 P1: heartbeat must still be excluded from the fallback systemPrompt, but the legacy
@@ -198,6 +267,7 @@ async function runFallbackCompile(): Promise<void> {
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
+  await runPresenceCachedPrefixInvariant();
   await runFallbackCompile();
 }
 

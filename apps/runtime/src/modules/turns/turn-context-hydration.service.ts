@@ -29,6 +29,7 @@ import {
   formatSharedCompactionStableBlock
 } from "./prompt-cache-stable-blocks";
 import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
+import { renderPresenceBlock } from "./presence-renderer";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
@@ -461,6 +462,85 @@ export class TurnContextHydrationService {
           `Cross-session carry-over cooldown bookkeeping failed; continuing. assistantChatId=${input.assistantChatId} error=${this.describeError(error)}`
         );
       });
+  }
+
+  // ADR-074 Slice T1 — compute the per-turn "presence" developer-tail block.
+  //
+  // Returns the rendered text to be inserted between `routingGuidance` and
+  // `heartbeat` in `developerInstructions`, or `null` when the bundle has no
+  // presence template (e.g. legacy bundle compiled before T1) or the channel
+  // does not have a canonical chat row (no in-thread baseline available).
+  //
+  // Hard constraint #6: reuse the M3.2 cross-thread `lastUserMessageAt` data
+  // path. We do NOT add a new repository method; we compose two direct Prisma
+  // reads against `AssistantChatMessage` (in-thread + cross-thread for this
+  // assistant) using the runtime's existing `RuntimeStatePrismaService`.
+  async computePresenceBlock(
+    input: RuntimeTurnRequest,
+    bundle: AssistantRuntimeBundle
+  ): Promise<string | null> {
+    const template = bundle.promptDocuments.presence;
+    if (typeof template !== "string" || template.trim().length === 0) {
+      return null;
+    }
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
+    if (canonicalSurface === null) {
+      // Non-canonical channels (e.g. preview) don't carry a thread-aware
+      // baseline; presence requires the four fields to render together, so
+      // we skip the block rather than half-render it.
+      return null;
+    }
+    let lastUserMessageInThreadAt: Date | null = null;
+    let lastUserMessageAnywhereAt: Date | null = null;
+    try {
+      const chat = await this.prisma.assistantChat.findFirst({
+        where: {
+          assistantId: input.conversation.assistantId,
+          surface: canonicalSurface,
+          surfaceThreadKey: input.conversation.externalThreadKey
+        },
+        select: { id: true }
+      });
+      if (chat !== null) {
+        const inThread = await this.prisma.assistantChatMessage.findFirst({
+          where: {
+            chatId: chat.id,
+            assistantId: input.conversation.assistantId,
+            author: "user",
+            id: { not: input.idempotencyKey }
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { createdAt: true }
+        });
+        lastUserMessageInThreadAt = inThread?.createdAt ?? null;
+      }
+      const anywhere = await this.prisma.assistantChatMessage.findFirst({
+        where: {
+          assistantId: input.conversation.assistantId,
+          author: "user",
+          id: { not: input.idempotencyKey }
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { createdAt: true }
+      });
+      lastUserMessageAnywhereAt = anywhere?.createdAt ?? null;
+    } catch (error) {
+      // Presence is a soft awareness signal; if the lookup fails for a
+      // transient reason we still render the time/weekday fields rather
+      // than dropping the entire block, mirroring the cross-session
+      // carry-over fail-soft pattern.
+      this.logger.warn(
+        `Presence baseline lookup failed; rendering with null timestamps. error=${this.describeError(error)}`
+      );
+    }
+    return renderPresenceBlock({
+      template,
+      now: new Date(),
+      timezone: bundle.userContext.timezone,
+      locale: bundle.userContext.locale,
+      lastUserMessageInThreadAt,
+      lastUserMessageAnywhereAt
+    });
   }
 
   // ADR-074 Slice M3.2 — fetch the per-thread cooldown bookkeeping row.
