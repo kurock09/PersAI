@@ -310,6 +310,94 @@ function trimToNull(value: string | null): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+// ADR-074 Slice M3.3 — Memory Center merge: normalize a memory line so a
+// workspace-row that says e.g. "PERSAI в реале для user." collapses with a
+// registry-row that emits the same fact as "PERSAI в реале для user". The
+// rule is intentionally conservative (no stemming, no language-aware
+// punctuation): lowercase, trim, collapse internal whitespace, strip a
+// single trailing dot. Reused by `mergedWorkspaceMemoryView` and the test.
+function normalizeMemoryText(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ").replace(/\.+$/u, "");
+}
+
+// ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
+// renders both registry rows (structured `kind ∈ {fact, preference,
+// open_loop}`) and workspace rows; deduplicated by normalized text with
+// registry rows winning collisions because they carry status badges +
+// action buttons. The History tab only renders registry rows with
+// `kind === null` (turn-derived echoes), so it is a single source.
+type MergedMemoryRow =
+  | {
+      readonly source: "registry";
+      readonly key: string;
+      readonly normalizedText: string;
+      readonly item: AssistantMemoryRegistryItemState;
+    }
+  | {
+      readonly source: "workspace";
+      readonly key: string;
+      readonly normalizedText: string;
+      readonly item: WorkspaceMemoryItem;
+    };
+
+// ADR-074 Slice M3.3 — kinds that count as "structured / curated" and
+// therefore belong on the merged Workspace tab. Anything else
+// (`kind === null` in particular) belongs on the History tab.
+const STRUCTURED_REGISTRY_KINDS = new Set<NonNullable<AssistantMemoryRegistryItemState["kind"]>>([
+  "fact",
+  "preference",
+  "open_loop"
+]);
+
+export function mergeMemoryViews(
+  registryItems: readonly AssistantMemoryRegistryItemState[],
+  workspaceItems: readonly WorkspaceMemoryItem[]
+): { workspace: MergedMemoryRow[]; history: MergedMemoryRow[] } {
+  const workspace: MergedMemoryRow[] = [];
+  const history: MergedMemoryRow[] = [];
+  const workspaceTabKeys = new Set<string>();
+
+  for (const item of registryItems) {
+    const normalizedText = normalizeMemoryText(item.summary);
+    if (item.kind !== null && STRUCTURED_REGISTRY_KINDS.has(item.kind)) {
+      workspace.push({
+        source: "registry",
+        key: `registry:${item.id}`,
+        normalizedText,
+        item
+      });
+      if (normalizedText.length > 0) {
+        workspaceTabKeys.add(normalizedText);
+      }
+    } else if (item.kind === null) {
+      history.push({
+        source: "registry",
+        key: `registry:${item.id}`,
+        normalizedText,
+        item
+      });
+    }
+  }
+
+  for (const item of workspaceItems) {
+    const normalizedText = normalizeMemoryText(item.content);
+    if (normalizedText.length > 0 && workspaceTabKeys.has(normalizedText)) {
+      // Registry row already covers this fact with `kind` + close/forget
+      // buttons; skip the workspace echo so we don't render the same line
+      // twice.
+      continue;
+    }
+    workspace.push({
+      source: "workspace",
+      key: `workspace:${item.id}`,
+      normalizedText,
+      item
+    });
+  }
+
+  return { workspace, history };
+}
+
 export function AssistantSettings({ data, initialSection }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -388,6 +476,11 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [forgettingId, setForgettingId] = useState<string | null>(null);
   const [closingOpenLoopId, setClosingOpenLoopId] = useState<string | null>(null);
   const [memoryVisibleCount, setMemoryVisibleCount] = useState(5);
+  // ADR-074 Slice M3.3 — Memory Center inline-error feedback. Replaces
+  // the silent `catch { /* non-critical */ }` blocks that previously
+  // swallowed close/forget/load errors and made the "Mark as closed"
+  // button look broken to the user.
+  const [memoryFb, setMemoryFb] = useState<ActionFeedback>(null);
 
   const [wsMemoryItems, setWsMemoryItems] = useState<WorkspaceMemoryItem[]>([]);
   const [wsMemoryLoading, setWsMemoryLoading] = useState(false);
@@ -396,11 +489,13 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [wsNewMemory, setWsNewMemory] = useState("");
   const [wsForgettingId, setWsForgettingId] = useState<string | null>(null);
   const [wsMemoryVisibleCount, setWsMemoryVisibleCount] = useState(5);
-  const [memoryTab, setMemoryTab] = useState<"workspace" | "registry">("workspace");
+  const [wsMemoryFb, setWsMemoryFb] = useState<ActionFeedback>(null);
+  const [memoryTab, setMemoryTab] = useState<"workspace" | "history">("workspace");
 
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
+  const [tasksFb, setTasksFb] = useState<ActionFeedback>(null);
   const [showUserTasks, setShowUserTasks] = useState(false);
   const [showAssistantActions, setShowAssistantActions] = useState(false);
   const [notificationChannel, setNotificationChannel] =
@@ -518,6 +613,18 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const activeTaskItems = taskItems.filter((item) => item.controlStatus === "active");
   const userTaskItems = activeTaskItems.filter((item) => item.audience === "user");
   const assistantTaskItems = activeTaskItems.filter((item) => item.audience === "assistant");
+  // ADR-074 Slice M3.3 — Memory Center UX merge. The Workspace tab shows
+  // workspace_memory_items + structured registry rows (kind ∈ {fact,
+  // preference, open_loop}) deduplicated by normalized text; the History
+  // tab shows only `kind === null` registry rows (turn-derived echoes).
+  // Dedup is UI-side because the spec explicitly forbids a backend
+  // migration for this slice.
+  const mergedMemoryViews = useMemo(
+    () => mergeMemoryViews(memoryItems, wsMemoryItems),
+    [memoryItems, wsMemoryItems]
+  );
+  const mergedWorkspaceMemoryView = mergedMemoryViews.workspace;
+  const mergedHistoryMemoryView = mergedMemoryViews.history;
   const elevenLabsSelectOptions = useMemo(
     () =>
       selectedElevenLabsVoiceOption !== null && selectedElevenLabsVoiceAllowed === null
@@ -666,25 +773,35 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     if (!token) return;
     setMemoryLoading(true);
     setMemoryVisibleCount(5);
+    setMemoryFb(null);
     try {
       setMemoryItems(await getAssistantMemoryItems(token));
-    } catch {
-      /* non-critical */
+    } catch (error) {
+      console.error("[memory-center] loadMemory failed", error);
+      setMemoryFb({
+        type: "err",
+        text: error instanceof Error ? error.message : t("memoryLoadFailed")
+      });
     }
     setMemoryLoading(false);
-  }, [getToken]);
+  }, [getToken, t]);
 
   const loadTasks = useCallback(async () => {
     const token = await getToken();
     if (!token) return;
     setTaskLoading(true);
+    setTasksFb(null);
     try {
       setTaskItems(await getAssistantTaskItems(token));
-    } catch {
-      /* non-critical */
+    } catch (error) {
+      console.error("[memory-center] loadTasks failed", error);
+      setTasksFb({
+        type: "err",
+        text: error instanceof Error ? error.message : t("tasksLoadFailed")
+      });
     }
     setTaskLoading(false);
-  }, [getToken]);
+  }, [getToken, t]);
 
   const loadWsMemory = useCallback(
     async (query?: string) => {
@@ -692,47 +809,62 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       if (!token) return;
       setWsMemoryLoading(true);
       setWsMemoryVisibleCount(5);
+      setWsMemoryFb(null);
       try {
         const items = query
           ? await searchWorkspaceMemory(token, query)
           : await getWorkspaceMemoryItems(token);
         setWsMemoryItems(items);
-      } catch {
-        /* non-critical */
+      } catch (error) {
+        console.error("[memory-center] loadWsMemory failed", error);
+        setWsMemoryFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("wsMemoryLoadFailed")
+        });
       }
       setWsMemoryLoading(false);
     },
-    [getToken]
+    [getToken, t]
   );
 
   const handleAddWsMemory = useCallback(async () => {
     const token = await getToken();
     if (!token || !wsNewMemory.trim()) return;
     setWsMemoryAdding(true);
+    setWsMemoryFb(null);
     try {
       const item = await addWorkspaceMemoryItem(token, wsNewMemory.trim());
       setWsMemoryItems((prev) => [...prev, item]);
       setWsNewMemory("");
-    } catch {
-      /* non-critical */
+    } catch (error) {
+      console.error("[memory-center] handleAddWsMemory failed", error);
+      setWsMemoryFb({
+        type: "err",
+        text: error instanceof Error ? error.message : t("wsMemoryAddFailed")
+      });
     }
     setWsMemoryAdding(false);
-  }, [getToken, wsNewMemory]);
+  }, [getToken, wsNewMemory, t]);
 
   const handleForgetWsMemory = useCallback(
     async (itemId: string) => {
       const token = await getToken();
       if (!token) return;
       setWsForgettingId(itemId);
+      setWsMemoryFb(null);
       try {
         await forgetWorkspaceMemoryItem(token, itemId);
         setWsMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
-      } catch {
-        /* non-critical */
+      } catch (error) {
+        console.error("[memory-center] handleForgetWsMemory failed", error);
+        setWsMemoryFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("wsMemoryForgetFailed")
+        });
       }
       setWsForgettingId(null);
     },
-    [getToken]
+    [getToken, t]
   );
 
   useEffect(() => {
@@ -824,36 +956,48 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       const token = await getToken();
       if (!token) return;
       setForgettingId(itemId);
+      setMemoryFb(null);
       try {
         await postAssistantMemoryItemForget(token, itemId);
         setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
-      } catch {
-        /* non-critical */
+      } catch (error) {
+        console.error("[memory-center] handleForget failed", error);
+        setMemoryFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("memoryForgetFailed")
+        });
       }
       setForgettingId(null);
     },
-    [getToken]
+    [getToken, t]
   );
 
-  // ADR-074 Slice M3.1 — Memory Center "Mark as closed" button. Closes one
-  // open-loop registry item by id and drops it from the active list. The
-  // server treats `closed` and `already_closed` as success, so we just
-  // optimistically remove the row on success and let the next refetch
-  // reconcile if the call failed.
+  // ADR-074 Slice M3.1 + M3.3 — Memory Center "Mark as closed" button.
+  // Closes one open-loop registry item by id and drops it from the active
+  // list. The server treats `closed` and `already_closed` as success.
+  // Slice M3.3 hotfix: surface failures inline instead of swallowing
+  // them — the previous silent-catch made the button look unresponsive
+  // when the call failed for any reason (404 assistant mismatch / 400
+  // kind != open_loop / 409 envelope / 500 backend).
   const handleCloseOpenLoop = useCallback(
     async (itemId: string) => {
       const token = await getToken();
       if (!token) return;
       setClosingOpenLoopId(itemId);
+      setMemoryFb(null);
       try {
         await postAssistantMemoryItemCloseOpenLoop(token, itemId);
         setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
-      } catch {
-        /* non-critical */
+      } catch (error) {
+        console.error("[memory-center] handleCloseOpenLoop failed", error);
+        setMemoryFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("memoryCloseOpenLoopFailed")
+        });
       }
       setClosingOpenLoopId(null);
     },
-    [getToken]
+    [getToken, t]
   );
 
   const handleTaskAction = useCallback(
@@ -861,16 +1005,21 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
       const token = await getToken();
       if (!token) return;
       setTaskActionId(itemId);
+      setTasksFb(null);
       try {
         if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
         else await postAssistantTaskItemCancel(token, itemId);
         await loadTasks();
-      } catch {
-        /* non-critical */
+      } catch (error) {
+        console.error("[memory-center] handleTaskAction failed", error);
+        setTasksFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("tasksActionFailed")
+        });
       }
       setTaskActionId(null);
     },
-    [getToken, loadTasks]
+    [getToken, loadTasks, t]
   );
 
   const handleNotificationPreferenceChange = useCallback(
@@ -1322,8 +1471,17 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         open={openSection === "memory"}
         onToggle={() => setOpenSection((current) => (current === "memory" ? null : "memory"))}
       >
+        {/* ADR-074 Slice M3.3 — UX merge:
+              - "Workspace" tab = curated structured memory: every
+                workspace_memory_items row + every registry row whose
+                kind ∈ {fact, preference, open_loop}, deduplicated by
+                normalized text (registry rows win collisions because
+                they carry kind/memoryClass/resolvedAt + close/forget
+                buttons; the workspace echo is dropped on collision).
+              - "History" tab = turn-derived echoes: registry rows where
+                kind === null. No "Mark as closed" buttons here. */}
         <div className="mb-3 flex gap-1 rounded-lg bg-surface p-0.5">
-          {(["workspace", "registry"] as const).map((tab) => (
+          {(["workspace", "history"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -1383,46 +1541,142 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
               </button>
             </div>
 
-            {wsMemoryLoading ? (
+            <FeedbackLine fb={wsMemoryFb} />
+            <FeedbackLine fb={memoryFb} />
+
+            {wsMemoryLoading || memoryLoading ? (
               <div className="flex justify-center py-4">
                 <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
               </div>
-            ) : wsMemoryItems.length === 0 ? (
+            ) : mergedWorkspaceMemoryView.length === 0 ? (
               <p className="text-xs text-text-subtle">{t("noWorkspaceMemories")}</p>
             ) : (
               <>
-                <ul className="space-y-2">
-                  {wsMemoryItems.slice(0, wsMemoryVisibleCount).map((item) => (
+                <ul
+                  className="space-y-2"
+                  data-testid="memory-center-workspace-list"
+                  aria-label={t("workspace")}
+                >
+                  {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => (
                     <li
-                      key={item.id}
+                      key={row.key}
+                      data-testid={`memory-row-${row.source}`}
                       className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
                     >
-                      <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
-                        {item.content}
-                      </p>
-                      <button
-                        type="button"
-                        disabled={wsForgettingId === item.id}
-                        onClick={() => void handleForgetWsMemory(item.id)}
-                        className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                        title={t("forget")}
-                      >
-                        {wsForgettingId === item.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3 w-3" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                          {row.source === "registry" ? row.item.summary : row.item.content}
+                        </p>
+                        {row.source === "registry" && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                            <span
+                              className={
+                                row.item.memoryClass === "core"
+                                  ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                  : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                              }
+                            >
+                              {row.item.memoryClass === "core"
+                                ? t("memoryClassCore")
+                                : t("memoryClassContextual")}
+                            </span>
+                            {/* ADR-074 Slice M3.3 — strict per-kind
+                                badges. The previous ternary fell back
+                                to "Open loop" for any non-null kind,
+                                which made the close-loop button appear
+                                next to facts/preferences and confused
+                                users. Render exactly one badge per
+                                known kind, render nothing for an
+                                unknown kind, and gate the close-loop
+                                button on the same `=== "open_loop"`
+                                check. */}
+                            {row.item.kind === "fact" && (
+                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindFact")}
+                              </span>
+                            )}
+                            {row.item.kind === "preference" && (
+                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindPreference")}
+                              </span>
+                            )}
+                            {row.item.kind === "open_loop" && (
+                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                {t("memoryKindOpenLoop")}
+                              </span>
+                            )}
+                            {row.item.resolvedAt !== null && (
+                              <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
+                                {t("memoryResolved")}
+                              </span>
+                            )}
+                          </div>
                         )}
-                      </button>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {row.source === "registry" &&
+                          row.item.kind === "open_loop" &&
+                          row.item.resolvedAt === null && (
+                            <button
+                              type="button"
+                              disabled={closingOpenLoopId === row.item.id}
+                              onClick={() => void handleCloseOpenLoop(row.item.id)}
+                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
+                              title={t("markAsClosed")}
+                              aria-label={t("markAsClosed")}
+                              data-testid={`close-open-loop-${row.item.id}`}
+                            >
+                              {closingOpenLoopId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                        {row.source === "registry" ? (
+                          <button
+                            type="button"
+                            disabled={forgettingId === row.item.id}
+                            onClick={() => void handleForget(row.item.id)}
+                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-registry-${row.item.id}`}
+                          >
+                            {forgettingId === row.item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={wsForgettingId === row.item.id}
+                            onClick={() => void handleForgetWsMemory(row.item.id)}
+                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-workspace-${row.item.id}`}
+                          >
+                            {wsForgettingId === row.item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3 w-3" />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
-                {wsMemoryVisibleCount < wsMemoryItems.length && (
+                {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
                   <button
                     type="button"
                     onClick={() => setWsMemoryVisibleCount((count) => count + 5)}
                     className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
                   >
-                    {t("loadMore")} ({wsMemoryItems.length - wsMemoryVisibleCount})
+                    {t("loadMore")} ({mergedWorkspaceMemoryView.length - wsMemoryVisibleCount})
                   </button>
                 )}
               </>
@@ -1430,88 +1684,75 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
           </>
         )}
 
-        {memoryTab === "registry" && (
+        {memoryTab === "history" && (
           <>
+            <FeedbackLine fb={memoryFb} />
             {memoryLoading ? (
               <div className="flex justify-center py-4">
                 <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
               </div>
-            ) : memoryItems.length === 0 ? (
+            ) : mergedHistoryMemoryView.length === 0 ? (
               <p className="text-xs text-text-subtle">{t("noMemoriesStored")}</p>
             ) : (
               <>
-                <ul className="space-y-2">
-                  {memoryItems.slice(0, memoryVisibleCount).map((item) => (
-                    <li
-                      key={item.id}
-                      className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs leading-relaxed text-text-muted">{item.summary}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                          <span
-                            className={
-                              item.memoryClass === "core"
-                                ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                            }
-                          >
-                            {item.memoryClass === "core"
-                              ? t("memoryClassCore")
-                              : t("memoryClassContextual")}
-                          </span>
-                          {item.kind !== null && (
-                            <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                              {item.kind === "fact"
-                                ? t("memoryKindFact")
-                                : item.kind === "preference"
-                                  ? t("memoryKindPreference")
-                                  : t("memoryKindOpenLoop")}
+                <ul
+                  className="space-y-2"
+                  data-testid="memory-center-history-list"
+                  aria-label={t("history")}
+                >
+                  {mergedHistoryMemoryView.slice(0, memoryVisibleCount).map((row) => {
+                    if (row.source !== "registry") return null;
+                    const item = row.item;
+                    return (
+                      <li
+                        key={row.key}
+                        data-testid="memory-row-history"
+                        className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs leading-relaxed text-text-muted">{item.summary}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                            <span
+                              className={
+                                item.memoryClass === "core"
+                                  ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                  : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                              }
+                            >
+                              {item.memoryClass === "core"
+                                ? t("memoryClassCore")
+                                : t("memoryClassContextual")}
                             </span>
-                          )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {item.kind === "open_loop" && (
+                        <div className="flex shrink-0 items-center gap-1">
                           <button
                             type="button"
-                            disabled={closingOpenLoopId === item.id}
-                            onClick={() => void handleCloseOpenLoop(item.id)}
-                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
-                            title={t("markAsClosed")}
-                            aria-label={t("markAsClosed")}
+                            disabled={forgettingId === item.id}
+                            onClick={() => void handleForget(item.id)}
+                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                            title={t("forget")}
+                            aria-label={t("forget")}
+                            data-testid={`forget-history-${item.id}`}
                           >
-                            {closingOpenLoopId === item.id ? (
+                            {forgettingId === item.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
-                              <CheckCircle2 className="h-3 w-3" />
+                              <Trash2 className="h-3 w-3" />
                             )}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={forgettingId === item.id}
-                          onClick={() => void handleForget(item.id)}
-                          className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                          title={t("forget")}
-                        >
-                          {forgettingId === item.id ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                        </button>
-                      </div>
-                    </li>
-                  ))}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
-                {memoryVisibleCount < memoryItems.length && (
+                {memoryVisibleCount < mergedHistoryMemoryView.length && (
                   <button
                     type="button"
                     onClick={() => setMemoryVisibleCount((count) => count + 5)}
                     className="mt-3 w-full cursor-pointer rounded-lg border border-border py-2 text-xs font-medium text-text-muted transition-colors hover:bg-surface-raised hover:text-text"
                   >
-                    {t("loadMore")} ({memoryItems.length - memoryVisibleCount})
+                    {t("loadMore")} ({mergedHistoryMemoryView.length - memoryVisibleCount})
                   </button>
                 )}
               </>
@@ -1533,6 +1774,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         open={openSection === "tasks"}
         onToggle={() => setOpenSection((current) => (current === "tasks" ? null : "tasks"))}
       >
+        <FeedbackLine fb={tasksFb} />
         {taskLoading ? (
           <div className="flex justify-center py-4">
             <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />

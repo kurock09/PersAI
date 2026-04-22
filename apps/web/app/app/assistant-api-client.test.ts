@@ -333,6 +333,27 @@ describe("memory center close-open-loop client (ADR-074 M3.1)", () => {
     await expect(postAssistantMemoryItemCloseOpenLoop("token-1", "loop-missing")).rejects.toThrow();
   });
 
+  // ADR-074 Slice M3.3 — the Memory Center "Mark as closed" hotfix
+  // depends on these errors actually surfacing through the API client so
+  // the frontend can render the inline error instead of swallowing it.
+  it("propagates 400 (kind != open_loop) so the UI can render an inline error", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 400,
+      data: { message: "Memory item is not an open_loop." }
+    });
+
+    await expect(postAssistantMemoryItemCloseOpenLoop("token-1", "loop-fact")).rejects.toThrow();
+  });
+
+  it("propagates 409 (envelope conflict) so the UI can render an inline error", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 409,
+      data: { message: "Capability not allowed by current envelope." }
+    });
+
+    await expect(postAssistantMemoryItemCloseOpenLoop("token-1", "loop-1")).rejects.toThrow();
+  });
+
   it("rejects on a malformed body that is missing `closed`", async () => {
     contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
       status: 200,
