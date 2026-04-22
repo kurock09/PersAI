@@ -656,6 +656,7 @@ function PromptTemplateEditor({
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const editorHandleRef = useRef<TemplateEditorHandle | null>(null);
 
   const dirty = value !== template.template;
@@ -665,11 +666,18 @@ function PromptTemplateEditor({
   );
 
   const handleSave = async () => {
+    setSaveError(null);
     setSaving(true);
-    await onSave(template.id, value);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    try {
+      await onSave(template.id, value);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (cause) {
+      console.error("[admin-presets] handleSaveTemplate failed", cause);
+      setSaveError(cause instanceof Error ? cause.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleReset = async () => {
@@ -680,9 +688,13 @@ function PromptTemplateEditor({
     ) {
       return;
     }
+    setSaveError(null);
     setResetting(true);
     try {
       await onReset(template.id);
+    } catch (cause) {
+      console.error("[admin-presets] handleResetTemplate failed", cause);
+      setSaveError(cause instanceof Error ? cause.message : "Reset failed");
     } finally {
       setResetting(false);
     }
@@ -769,6 +781,12 @@ function PromptTemplateEditor({
         knownKeys={knownKeys}
         handleRef={editorHandleRef}
       />
+
+      {saveError ? (
+        <p className="mt-2 text-[11px] text-red-400" role="alert">
+          {saveError}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -787,17 +805,25 @@ function ToolPromptEditor({
   const [modelUsageGuidance, setModelUsageGuidance] = useState(tool.modelUsageGuidance ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const dirty =
     modelDescription !== (tool.modelDescription ?? "") ||
     modelUsageGuidance !== (tool.modelUsageGuidance ?? "");
 
   const handleSave = async () => {
+    setSaveError(null);
     setSaving(true);
-    await onSave(tool.toolCode, { modelDescription, modelUsageGuidance });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    try {
+      await onSave(tool.toolCode, { modelDescription, modelUsageGuidance });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (cause) {
+      console.error("[admin-presets] handleSaveTool failed", cause);
+      setSaveError(cause instanceof Error ? cause.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -852,6 +878,12 @@ function ToolPromptEditor({
           />
         </div>
       </div>
+
+      {saveError ? (
+        <p className="mt-2 text-[11px] text-red-400" role="alert">
+          {saveError}
+        </p>
+      ) : null}
     </div>
   );
 }

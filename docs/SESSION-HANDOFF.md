@@ -1,5 +1,60 @@
 # SESSION-HANDOFF
 
+## 2026-04-22 (night, late+) - ADR-074 Slice M3.3 live verification + admin/presets editor save-spinner hotfix
+
+### What was verified live on `persai-dev` (M3.3 — commit `1d5c7ba`)
+
+After M3.3 was published + Argo CD-rolled to `persai-dev`, the founder ran the four live gates from the M3.3 entry below. Result:
+
+- **Gate 1 (two re-laid-out tabs visible)** — ✅ passed.
+- **Gate 2 (close-button on `open_loop` row removes it OR shows a real error)** — ✅ passed in the "shows a real error" branch. The captured upstream HTTP class is **`401 Session expired`** — the Clerk session JWT had expired between page-load and click, the api-client's `toErrorMessage` mapping for `ContractsApiError.status === 401` returns the bilingual-equivalent string `"Session expired. Sign in again and refresh the page."`, the new M3.3 inline `FeedbackLine` surfaced it under the Memory section as designed (no more silent no-op), and the founder saw the exact reason for the first time. **This is the previously-deferred root cause from the M3.3 commit message and from the M3.3 ADR section** — it is now captured. The pre-M3.3 silent-catch in `handleCloseOpenLoop` was eating exactly this 401: the api-client correctly threw `ContractsApiError(401)`, the catch swallowed it, the optimistic row-removal never ran, the spinner cleared via `finally`, and the user saw "click animates, row stays, no error". M3.3 surfaced it; the bilingual `memoryCloseOpenLoopFailed` ("We could not mark this item as closed. Please try again.") was rendered alongside the upstream string from `toErrorMessage`. **No M3.3.1 per-status diagnostic message is required for now**: 401 is not a "Memory Center"-specific class, it is a session-wide condition that affects every authenticated POST in the same way and the existing `Session expired` wording is already actionable. If founder sees a different non-401 class on a future click that warrants a per-status hint, M3.3.1 can refine; until then the production shape stands.
+- **Gate 3 (workspace delete is tab-scoped)** — ✅ passed (the new merged-view layer delegates Forget on workspace items to the existing `/assistant/memory/workspace/*` route, which never touches registry rows).
+- **Gate 4 (the previously-doubled "PERSAI в реале для user" row is collapsed to a single row)** — ✅ passed (the `mergeMemoryViews` + `normalizeMemoryText` UI-side dedup correctly collapsed the workspace echo against the matching registry row in the workspace bucket).
+
+**ADR-074 Slice M3.3 status flips from "code-landed in code; verification gate green" to `Code-landed + deployed + live-verified` with the 401 root-cause captured.** The same flip lands in the ADR M3.3 status block and in the CHANGELOG M3.3 entry in this commit.
+
+### Companion follow-up — admin/presets editor save-spinner hotfix (separate from M3.3 scope, same family of silent-failure bug)
+
+While verifying M3.3 the founder also caught an unrelated infinite-spinner bug on `/admin/presets`: clicking Save on the **Task Heartbeat** prompt template editor (and on the **Native Tool Runtime** tool editor) hung the spinner forever and never persisted edits. He could not delete a word from the heartbeat template that was bleeding into the system prompt. Same class as the pre-M3.3 Memory Center silent-catch — but in editor components instead of handlers. Root cause:
+
+`PromptTemplateEditor.handleSave` and `ToolPromptEditor.handleSave` in `apps/web/app/admin/presets/page.tsx` were structured as:
+
+```
+const handleSave = async () => {
+  setSaving(true);
+  await onSave(...);     // <-- if this throws (e.g. 401 Session expired from Clerk JWT timeout), nothing below runs
+  setSaving(false);      // <-- never reached on throw
+  setSaved(true);
+  setTimeout(() => setSaved(false), 1500);
+};
+```
+
+When `onSave` throws (the `handleSaveTemplate` / `handleSaveTool` callbacks both `throw new Error(...)` on non-2xx, including 401), the exception propagates up into the `void handleSave()` callsite and `setSaving(false)` is never called — the `Loader2` spinner spins forever and the founder cannot tell the request failed. `PersonaArchetypeEditor.handleSave` was already structured correctly with `try { ... } catch { setParseError(...) } finally { setSaving(false) }` and an inline `parseError` line; that one stays as the pattern.
+
+Hotfix in this commit: both `PromptTemplateEditor.handleSave` and `ToolPromptEditor.handleSave` now match the `PersonaArchetypeEditor.handleSave` shape — `setSaveError(null)` + `setSaving(true)` + `try { await onSave(...); setSaved(true); ... } catch (cause) { console.error("[admin-presets] <handler> failed", cause); setSaveError(cause.message); } finally { setSaving(false); }`. A new `saveError` state on each editor renders an inline `<p className="mt-2 text-[11px] text-red-400" role="alert">{saveError}</p>` line under the editor body. `PromptTemplateEditor.handleReset` got the same try/catch/finally treatment (it was already wrapped in `try { ... } finally { setResetting(false) }`, but it now also surfaces the error inline instead of silently swallowing it into an unhandled promise rejection). Console errors are tagged `[admin-presets]` to mirror the `[memory-center]` tag from M3.3 for one-line traceability in the dev console.
+
+### Verification gate (this follow-up)
+
+- `pnpm -w typecheck` clean.
+- `pnpm -w lint` clean (incl. `pnpm run format:check`).
+- `pnpm -w test` clean (no test changes — the editor components are not test-covered today; founder verifies live).
+- `pnpm -w build` clean.
+
+### Live verification (deferred — runs after deploy of this follow-up)
+
+1. Founder opens `/admin/presets` on `persai-dev`, edits the Task Heartbeat template (deletes the word he wanted to remove from the system prompt), clicks Save.
+2. If the Clerk JWT is valid → Save completes with the green checkmark, the edit persists, the spinner clears.
+3. If the Clerk JWT has expired → spinner clears, an inline `Session expired. Sign in again and refresh the page.` (or the literal `Save failed: 401`) appears under the editor; founder refreshes the page, signs in if needed, and retries.
+4. Same behaviour for the Native Tool Runtime tool editor.
+
+### Next-session entry conditions
+
+- M3.3 itself is closed (live-verified). No further M3.3 work unless a NEW non-401 close-button error class shows up on a fresh `persai-dev` click.
+- The admin/presets editor hotfix is a one-shot stability fix in a non-ADR-074 surface; no follow-through is queued. If similar silent-spinner editors surface elsewhere in `/admin/*`, the canonical pattern to follow is the `PersonaArchetypeEditor.handleSave` shape (try/catch/finally + inline `*Error` line).
+- If the Clerk session JWT expiry surfaces as a recurring footgun across other admin surfaces, the right fix is to teach the auth client to refresh the token transparently (`getToken({ skipCache: true })` on 401, or a global axios-style interceptor) — that is a separate slice and explicitly out of scope here.
+
+---
+
 ## 2026-04-22 (night, late) - ADR-074 Slice M3.3 — Memory Center polish + M3.1 close-button hotfix — code-landed in code; verification gate green, awaiting `persai-dev` deploy + 4 founder live gates
 
 ### What changed
