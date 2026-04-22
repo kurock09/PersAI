@@ -162,11 +162,42 @@ function Section({
   );
 }
 
+// ADR-074 Slice M3.3 follow-up — Memory Center inline error rendering.
+// `Session expired` is the most common error class (Clerk JWT in the
+// page cache outlived the API's accepted lifetime → 401 from the
+// backend → `toErrorMessage` in `assistant-api-client.ts` returns the
+// English literal). The mutation handlers below already force-refresh
+// the Clerk session on every click, so this branch only fires when the
+// founder is genuinely signed out. In that case offer a one-click
+// recovery instead of leaving the user staring at a banner that does
+// not get them anywhere.
+function isSessionExpiredText(text: string): boolean {
+  return text.includes("Session expired") || text.includes("Сессия истекла");
+}
+
 function FeedbackLine({ fb }: { fb: ActionFeedback }) {
   if (!fb) return null;
+  const sessionExpired = fb.type === "err" && isSessionExpiredText(fb.text);
   return (
-    <p className={cn("mt-2 text-xs", fb.type === "ok" ? "text-success" : "text-destructive")}>
-      {fb.text}
+    <p
+      className={cn(
+        "mt-2 flex flex-wrap items-center gap-2 text-xs",
+        fb.type === "ok" ? "text-success" : "text-destructive"
+      )}
+    >
+      <span>{fb.text}</span>
+      {sessionExpired && (
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="cursor-pointer rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/20"
+        >
+          {/* Rendered text intentionally not localized — same scope as
+              the upstream English literal `Session expired. Sign in
+              again and refresh the page.` from `assistant-api-client`. */}
+          Reload
+        </button>
+      )}
     </p>
   );
 }
@@ -828,7 +859,13 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   );
 
   const handleAddWsMemory = useCallback(async () => {
-    const token = await getToken();
+    // ADR-074 Slice M3.3 follow-up — force-fresh Clerk JWT for
+    // mutations. The default `getToken()` returns the cached token,
+    // which can be older than the API's accepted lifetime when the tab
+    // has sat open for hours. `skipCache: true` performs the small
+    // refresh round-trip so the founder does not see a "Session
+    // expired" inline error on a click that should have just worked.
+    const token = await getToken({ skipCache: true });
     if (!token || !wsNewMemory.trim()) return;
     setWsMemoryAdding(true);
     setWsMemoryFb(null);
@@ -848,7 +885,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
 
   const handleForgetWsMemory = useCallback(
     async (itemId: string) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setWsForgettingId(itemId);
       setWsMemoryFb(null);
@@ -876,7 +913,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   }, [assistant, loadMemory, loadTasks, loadWsMemory]);
 
   const handleSaveAndApply = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
     setSaving(true);
     setSaveFb(null);
@@ -920,7 +957,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   ]);
 
   const handleRollback = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token || !version) return;
     const targetVersion = version.version - 1;
     if (targetVersion < 1) return;
@@ -938,7 +975,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   }, [getToken, version, data]);
 
   const handleReset = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
     setResetting(true);
     setResetFb(null);
@@ -953,7 +990,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
 
   const handleForget = useCallback(
     async (itemId: string) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setForgettingId(itemId);
       setMemoryFb(null);
@@ -981,7 +1018,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   // kind != open_loop / 409 envelope / 500 backend).
   const handleCloseOpenLoop = useCallback(
     async (itemId: string) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setClosingOpenLoopId(itemId);
       setMemoryFb(null);
@@ -1002,7 +1039,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
 
   const handleTaskAction = useCallback(
     async (itemId: string, action: "disable" | "cancel") => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setTaskActionId(itemId);
       setTasksFb(null);
@@ -1024,7 +1061,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
 
   const handleNotificationPreferenceChange = useCallback(
     async (channel: AssistantPreferredNotificationChannel) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setNotificationSaving(true);
       setNotificationFb(null);
@@ -1186,7 +1223,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
             setAvatarUploading(true);
             void (async () => {
               try {
-                const token = await getToken();
+                const token = await getToken({ skipCache: true });
                 if (!token) return;
                 const result = await uploadAssistantAvatar(token, file);
                 setDraftAvatarUrl(result.avatarUrl);
