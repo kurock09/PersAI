@@ -1,7 +1,7 @@
 {
   "id": "multi-session-continuity",
-  "title": "Multi-session — открытые петли между сессиями",
-  "description": "Две отдельные сессии с разными surfaceThreadKey. В первой пользователь оставляет открытые задачи и ключевые факты, во второй проверяем recall и cross-session continuity.",
+  "title": "Multi-session — открытые петли между сессиями (ADR-074 M3)",
+  "description": "Три сессии с разными surfaceThreadKey. Session 1 оставляет открытые петли и факты. Session 2 проверяет cross-session carry-over (синопсис session 1 + open-loops должны прилететь в стабильный prefix turn-0 — проверь руками `[Continuity from earlier conversations…]`). Session 3 проверяет, что после явного закрытия одной из открытых задач (memory_write закрывает open-loop) она не возвращается в carry-over. Сейчас все ходы — web; реальный TG-канал в smoke harness — отдельный follow-up к Slice E.",
   "defaultKind": "web_sync",
   "defaultThinkAfterMs": 8000,
   "sessions": [
@@ -32,7 +32,8 @@
       "sessionKey": "session-2-recall",
       "turns": [
         {
-          "message": "Привет, я снова на связи."
+          "message": "Привет, я снова на связи.",
+          "note": "M3 acceptance: TURN 0 нового треда → должен сработать cross_session_carry_over блок (в системном префиксе появится `[Continuity from earlier conversations…]`). Open-loops session 1 (ретрит в Барселоне, обзор Atlas/Helio, retention-фокус, формат «3 буллета») должны быть доступны ассистенту как контекст."
         },
         {
           "message": "Помнишь, что я планировала подготовить?"
@@ -47,7 +48,27 @@
           "message": "Отлично. Из проектов я хотела начать с того, который ближе к релизу. Какой это?"
         },
         {
-          "message": "Ага, спасибо. Давай тогда сразу набросаем 3 буллета по Atlas."
+          "message": "Ага, спасибо. Давай тогда сразу набросаем 3 буллета по Atlas.",
+          "note": "M3 acceptance: ассистент должен ОПИРАТЬСЯ на open-loop про Atlas/Helio + предпочтение про 3 буллета без воды, не пересказывая всю прошлую сессию."
+        },
+        {
+          "message": "Окей, ретрит в Барселоне я уже забронировала, можно убрать его из открытых задач — больше к нему не возвращаемся.",
+          "note": "M3 expected: ассистент должен либо явно вызвать memory_write с closeOpenLoop:true (для open-loop про ретрит), либо записать новую `fact`-память поверх старой open-loop (implicit close-by-overwrite). В обоих случаях `assistant_memory_registry_items.resolved_at` должен быть установлен."
+        }
+      ]
+    },
+    {
+      "sessionKey": "session-3-after-close",
+      "turns": [
+        {
+          "message": "Привет ещё раз.",
+          "note": "M3 acceptance: TURN 0 нового треда → cross_session_carry_over снова должен сработать, НО уже без закрытого open-loop про ретрит в Барселоне (он `resolved_at IS NOT NULL`). Должны остаться только не-resolved open-loops (квартальный обзор, retention, формат)."
+        },
+        {
+          "message": "Что у меня сейчас в открытых задачах? Только не упоминай уже закрытые."
+        },
+        {
+          "message": "Ага, ретрит уже не считается, ок. Давай тогда вернёмся к Helio."
         }
       ]
     }

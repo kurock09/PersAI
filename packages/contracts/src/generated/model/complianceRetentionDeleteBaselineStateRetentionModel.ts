@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateRetentionModel =
-  (typeof ComplianceRetentionDeleteBaselineStateRetentionModel)[keyof typeof ComplianceRetentionDeleteBaselineStateRetentionModel];
+export type ComplianceRetentionDeleteBaselineStateRetentionModel = typeof ComplianceRetentionDeleteBaselineStateRetentionModel[keyof typeof ComplianceRetentionDeleteBaselineStateRetentionModel];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateRetentionModel = {
-  user_controlled_no_silent_ttl: "user_controlled_no_silent_ttl"
+  user_controlled_no_silent_ttl: 'user_controlled_no_silent_ttl',
 } as const;

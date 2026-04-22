@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminToolPromptMetadataStateToolClass =
-  (typeof AdminToolPromptMetadataStateToolClass)[keyof typeof AdminToolPromptMetadataStateToolClass];
+export type AdminToolPromptMetadataStateToolClass = typeof AdminToolPromptMetadataStateToolClass[keyof typeof AdminToolPromptMetadataStateToolClass];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminToolPromptMetadataStateToolClass = {
-  cost_driving: "cost_driving",
-  utility: "utility"
+  cost_driving: 'cost_driving',
+  utility: 'utility',
 } as const;

@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GlobalKnowledgeSourceScope =
-  (typeof GlobalKnowledgeSourceScope)[keyof typeof GlobalKnowledgeSourceScope];
+export type GlobalKnowledgeSourceScope = typeof GlobalKnowledgeSourceScope[keyof typeof GlobalKnowledgeSourceScope];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const GlobalKnowledgeSourceScope = {
-  product: "product",
-  skill: "skill"
+  product: 'product',
+  skill: 'skill',
 } as const;

@@ -151,7 +151,8 @@ function createBundle(knowledgeAccess: RuntimeKnowledgeAccessConfig) {
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess,
       workerTools: WORKER_TOOLS_CONFIG,

@@ -18,6 +18,14 @@ export type AssistantMemoryRegistryItem = {
   memoryClass: AssistantMemoryRegistryClass;
   kind: AssistantMemoryRegistryKind | null;
   lastUsedAt: Date | null;
+  /**
+   * ADR-074 Slice M3 — set when an `open_loop` durable memory is closed,
+   * either implicitly via `memory_write` dedup-overwrite for the same kind
+   * or explicitly via the `closeOpenLoop: true` opt-in flag. Resolved
+   * open-loops stay in the registry for audit / re-open but are filtered
+   * out of the cross-session carry-over block.
+   */
+  resolvedAt: Date | null;
   forgottenAt: Date | null;
   createdAt: Date;
 };

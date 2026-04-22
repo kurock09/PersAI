@@ -26,6 +26,8 @@ import { InternalRuntimeKnowledgeController } from "./interface/http/internal-ru
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
+import { InternalRuntimeMemoryCloseMostSimilarController } from "./interface/http/internal-runtime-memory-close-most-similar.controller";
+import { InternalRuntimeCrossSessionCarryOverController } from "./interface/http/internal-runtime-cross-session-carry-over.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
@@ -97,6 +99,8 @@ import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assi
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
+import { CloseMostSimilarOpenLoopService } from "./application/close-most-similar-open-loop.service";
+import { FindCrossSessionCarryOverService } from "./application/find-cross-session-carry-over.service";
 import { MaterializeAssistantPublishedVersionService } from "./application/materialize-assistant-published-version.service";
 import { ManageAdminPlansService } from "./application/manage-admin-plans.service";
 import { ManageWebChatListService } from "./application/manage-web-chat-list.service";
@@ -227,6 +231,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeKnowledgeController,
     InternalRuntimeMemoryController,
     InternalRuntimeMemoryHydrationController,
+    InternalRuntimeMemoryCloseMostSimilarController,
+    InternalRuntimeCrossSessionCarryOverController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeToolQuotaController,
@@ -296,6 +302,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ReadAssistantKnowledgeService,
     WriteAssistantMemoryService,
     HydrateMemoryForTurnService,
+    CloseMostSimilarOpenLoopService,
+    FindCrossSessionCarryOverService,
     ApplyAssistantPublishedVersionService,
     AssistantRuntimePreflightService,
     MaterializeAssistantPublishedVersionService,

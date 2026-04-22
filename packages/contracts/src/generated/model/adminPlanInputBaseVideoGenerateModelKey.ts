@@ -8,12 +8,11 @@
 /**
  * @nullable
  */
-export type AdminPlanInputBaseVideoGenerateModelKey =
-  | (typeof AdminPlanInputBaseVideoGenerateModelKey)[keyof typeof AdminPlanInputBaseVideoGenerateModelKey]
-  | null;
+export type AdminPlanInputBaseVideoGenerateModelKey = typeof AdminPlanInputBaseVideoGenerateModelKey[keyof typeof AdminPlanInputBaseVideoGenerateModelKey] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminPlanInputBaseVideoGenerateModelKey = {
-  "sora-2": "sora-2",
-  "sora-2-pro": "sora-2-pro"
+  'sora-2': 'sora-2',
+  'sora-2-pro': 'sora-2-pro',
 } as const;

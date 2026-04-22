@@ -12,6 +12,7 @@ import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
 import { runPromptCacheStableBlocksTest } from "./prompt-cache-stable-blocks.test";
+import { runCrossSessionCarryOverRendererTest } from "./cross-session-carry-over-renderer.test";
 import { runTurnContextHydrationServiceTest } from "./turn-context-hydration.service.test";
 import { runTurnExecutionServiceTest } from "./turn-execution.service.test";
 import { runTurnFinalizationServiceTest } from "./turn-finalization.service.test";
@@ -21,6 +22,7 @@ import { runRuntimeQuotaStatusToolServiceTest } from "./runtime-quota-status-too
 import { runRuntimeScheduledActionToolServiceTest } from "./runtime-scheduled-action-tool.service.test";
 import { runRuntimeTtsToolServiceTest } from "./runtime-tts-tool.service.test";
 import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate-tool.service.test";
+import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-tool.service.test";
 
 async function run(): Promise<void> {
   await runRuntimeConfigTest();
@@ -36,12 +38,14 @@ async function run(): Promise<void> {
   await runRuntimeScheduledActionToolServiceTest();
   await runRuntimeTtsToolServiceTest();
   await runRuntimeVideoGenerateToolServiceTest();
+  await runRuntimeMemoryWriteToolServiceTest();
   await runSessionStoreServiceTest();
   await runSessionLeaseServiceTest();
   await runSessionCompactionServiceTest();
   await runIdempotencyServiceTest();
   await runTurnAcceptanceServiceTest();
   await runPromptCacheStableBlocksTest();
+  await runCrossSessionCarryOverRendererTest();
   await runTurnContextHydrationServiceTest();
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();

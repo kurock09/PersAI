@@ -23,10 +23,12 @@ import {
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
 import {
+  formatCrossSessionCarryOverStableBlock,
   formatDurableMemoryContextualBlock,
   formatDurableMemoryCoreStableBlock,
   formatSharedCompactionStableBlock
 } from "./prompt-cache-stable-blocks";
+import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
@@ -94,6 +96,13 @@ type DurableMemoryHydration = {
   contextualMessage: ProviderGatewayTextMessage | null;
 };
 
+// ADR-074 Slice M3 — output of the cross-session continuity carry-over
+// fetch + render. `null` = no block this turn (either not turn 0, the
+// fetch failed gracefully, or both lists were empty after filtering).
+type CrossSessionCarryOverHydration = {
+  message: ProviderGatewayTextMessage;
+};
+
 export interface RuntimeCompactionMessageSource {
   messages: ProviderGatewayTextMessage[];
   summarizedMessageCount: number;
@@ -129,9 +138,21 @@ export class TurnContextHydrationService {
       input.message.text,
       contextHydration
     );
+    // ADR-074 Slice M3 — turn 0 of a brand-new thread is the only trigger
+    // for the cross-session continuity carry-over block. Use the canonical
+    // chat row count as a proxy: zero stored messages OR a single stored
+    // message that is the just-saved current inbound = no prior assistant
+    // turn = first turn. Anything else means the user is reopening or
+    // continuing an existing thread and the in-thread context will already
+    // cover what M3 would otherwise duplicate.
+    const isFirstTurnOfThread = this.isFirstTurnOfThread(storedMessages, input);
+    const carryOver = isFirstTurnOfThread
+      ? await this.loadCrossSessionCarryOverHydration(input, contextHydration)
+      : null;
     if (storedMessages === null) {
       const currentUserMessage = await this.createCurrentUserMessage(input);
-      return this.composeWithDurableMemoryAndConversation(
+      return this.composeWithCarryOverDurableMemoryAndConversation(
+        carryOver,
         durableMemory,
         [currentUserMessage],
         contextHydration
@@ -142,25 +163,28 @@ export class TurnContextHydrationService {
       storedMessages,
       input,
       durableMemory,
+      carryOver,
       contextHydration
     );
     if (hydrated.length > 0) {
       return hydrated;
     }
     const currentUserMessage = await this.createCurrentUserMessage(input);
-    return this.composeWithDurableMemoryAndConversation(
+    return this.composeWithCarryOverDurableMemoryAndConversation(
+      carryOver,
       durableMemory,
       [currentUserMessage],
       contextHydration
     );
   }
 
-  private composeWithDurableMemoryAndConversation(
+  private composeWithCarryOverDurableMemoryAndConversation(
+    carryOver: CrossSessionCarryOverHydration | null,
     durableMemory: DurableMemoryHydration,
     conversationMessages: ProviderGatewayTextMessage[],
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): ProviderGatewayTextMessage[] {
-    const prefix = this.buildDurableMemoryPrefix(durableMemory);
+    const prefix = this.buildStablePrefix(carryOver, durableMemory);
     if (prefix.length === 0) {
       return conversationMessages;
     }
@@ -169,12 +193,22 @@ export class TurnContextHydrationService {
     });
   }
 
-  private buildDurableMemoryPrefix(
+  private buildStablePrefix(
+    carryOver: CrossSessionCarryOverHydration | null,
     durableMemory: DurableMemoryHydration
   ): ProviderGatewayTextMessage[] {
+    // Order is fixed: durable_memory_core (M1, stable) -> cross_session_carry_over
+    // (M3, stable, turn-0-only) -> durable_memory_contextual (per-turn,
+    // non-stable). The rolling-session-synopsis block is inserted by the
+    // canonical-web hydration path between core and contextual when a prior
+    // in-thread compaction exists; that path doesn't apply at turn 0 by
+    // construction, so the M3 block doesn't compete with it.
     const prefix: ProviderGatewayTextMessage[] = [];
     if (durableMemory.coreMessage !== null) {
       prefix.push(durableMemory.coreMessage);
+    }
+    if (carryOver !== null) {
+      prefix.push(carryOver.message);
     }
     if (durableMemory.contextualMessage !== null) {
       prefix.push(durableMemory.contextualMessage);
@@ -230,6 +264,7 @@ export class TurnContextHydrationService {
     storedMessages: CanonicalChatMessageRow[],
     input: RuntimeTurnRequest,
     durableMemory: DurableMemoryHydration,
+    carryOver: CrossSessionCarryOverHydration | null,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydratableMessages = storedMessages.filter((message) =>
@@ -245,7 +280,8 @@ export class TurnContextHydrationService {
         input,
         contextHydration
       );
-      return this.composeWithDurableMemoryAndConversation(
+      return this.composeWithCarryOverDurableMemoryAndConversation(
+        carryOver,
         durableMemory,
         hydratedMessages,
         contextHydration
@@ -262,7 +298,8 @@ export class TurnContextHydrationService {
         input,
         contextHydration
       );
-      return this.composeWithDurableMemoryAndConversation(
+      return this.composeWithCarryOverDurableMemoryAndConversation(
+        carryOver,
         durableMemory,
         hydratedMessages,
         contextHydration
@@ -275,14 +312,21 @@ export class TurnContextHydrationService {
       input,
       contextHydration
     );
-    // Stable prefix order is: durable_memory_core (stable) -> shared_compaction_summary
-    // (stable) -> durable_memory_contextual (non-stable, per-turn). The contextual block
-    // is intentionally placed AFTER the summary so the contiguous stable prefix walked by
-    // `resolveLeadingHydratedPromptCacheStableBlockTokens` keeps the cache key stable
-    // across turns even when the contextual relevance set rotates.
+    // Stable prefix order: durable_memory_core (stable) ->
+    // cross_session_carry_over (stable, turn-0-only — typically NOT present
+    // here because the in-thread compaction implies prior turns; left in
+    // place for symmetry / paranoia) -> rolling_session_synopsis (stable)
+    // -> durable_memory_contextual (non-stable, per-turn). The contextual
+    // block is intentionally placed AFTER the synopsis so the contiguous
+    // stable prefix walked by `resolveLeadingHydratedPromptCacheStableBlockTokens`
+    // keeps the cache key stable across turns even when the contextual
+    // relevance set rotates.
     const prefixMessages: ProviderGatewayTextMessage[] = [];
     if (durableMemory.coreMessage !== null) {
       prefixMessages.push(durableMemory.coreMessage);
+    }
+    if (carryOver !== null) {
+      prefixMessages.push(carryOver.message);
     }
     prefixMessages.push({
       role: "assistant",
@@ -298,6 +342,63 @@ export class TurnContextHydrationService {
         preserveLeadingMessageCount: prefixMessages.length
       }
     );
+  }
+
+  private isFirstTurnOfThread(
+    storedMessages: CanonicalChatMessageRow[] | null,
+    input: RuntimeTurnRequest
+  ): boolean {
+    if (storedMessages === null) {
+      return true;
+    }
+    const priorMessages = storedMessages.filter(
+      (message) => message.id !== input.idempotencyKey && this.isHydratableCanonicalMessage(message)
+    );
+    return priorMessages.length === 0;
+  }
+
+  private async loadCrossSessionCarryOverHydration(
+    input: RuntimeTurnRequest,
+    contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
+  ): Promise<CrossSessionCarryOverHydration | null> {
+    if (!this.persaiInternalApiClient.isConfigured()) {
+      this.logger.warn(
+        "PersAI internal API is not configured; cross-session carry-over is disabled for this turn."
+      );
+      return null;
+    }
+    const ttlDays = contextHydration.crossSessionCarryOverTtlDays;
+    if (!Number.isFinite(ttlDays) || ttlDays <= 0) {
+      return null;
+    }
+    let outcome;
+    try {
+      outcome = await this.persaiInternalApiClient.findCrossSessionCarryOver({
+        assistantId: input.conversation.assistantId,
+        ttlDays,
+        excludeRuntimeSessionId: null,
+        requestId: input.requestId
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Cross-session carry-over fetch failed; continuing without M3 block. error=${this.describeError(error)}`
+      );
+      return null;
+    }
+    const rendered = renderCrossSessionCarryOverBlock({
+      recentSynopses: outcome.recentSynopses,
+      unresolvedOpenLoops: outcome.unresolvedOpenLoops,
+      now: new Date()
+    });
+    if (rendered === null) {
+      return null;
+    }
+    return {
+      message: {
+        role: "assistant",
+        content: formatCrossSessionCarryOverStableBlock(rendered.bodyText)
+      }
+    };
   }
 
   private async hydrateCanonicalMessageSequence(

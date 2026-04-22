@@ -26,6 +26,7 @@ function buildMemoryRow(overrides: Partial<MemoryRow>): MemoryRow {
     memoryClass: "core",
     kind: "fact",
     lastUsedAt: null,
+    resolvedAt: null,
     forgottenAt: null,
     createdAt,
     ...overrides

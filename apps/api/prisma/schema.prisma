@@ -1188,6 +1188,7 @@ model AssistantMemoryRegistryItem {
   memoryClass               AssistantMemoryRegistryClass      @default(contextual) @map("memory_class")
   kind                      AssistantMemoryRegistryKind?      @map("kind")
   lastUsedAt                DateTime?                         @map("last_used_at") @db.Timestamptz(6)
+  resolvedAt                DateTime?                         @map("resolved_at") @db.Timestamptz(6)
   forgottenAt               DateTime?                         @map("forgotten_at") @db.Timestamptz(6)
   createdAt                 DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   assistant                 Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)

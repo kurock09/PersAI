@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantVoiceProfileStateSchema =
-  (typeof AssistantVoiceProfileStateSchema)[keyof typeof AssistantVoiceProfileStateSchema];
+export type AssistantVoiceProfileStateSchema = typeof AssistantVoiceProfileStateSchema[keyof typeof AssistantVoiceProfileStateSchema];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantVoiceProfileStateSchema = {
-  persaiassistantVoiceProfilev1: "persai.assistantVoiceProfile.v1"
+  persaiassistantVoiceProfilev1: 'persai.assistantVoiceProfile.v1',
 } as const;

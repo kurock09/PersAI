@@ -175,7 +175,7 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("memory_write", "description")]:
     "Write one concise durable memory for the current assistant-user pair.",
   [buildSyntheticToolMetadataPromptTemplateId("memory_write", "usage_guidance")]:
-    "Capture stable user facts, preferences, and real open loops the moment you learn them — do not wait for the user to ask you to remember. Write one concise memory per item, prefer refining an existing memory over near-duplicates, and skip transient turn context, full conversation summaries, secrets, or anything the user asked not to remember.",
+    "Capture stable user facts, preferences, and real open loops the moment you learn them — do not wait for the user to ask you to remember. Write one concise memory per item, prefer refining an existing memory over near-duplicates, and skip transient turn context, full conversation summaries, secrets, or anything the user asked not to remember. Set closeOpenLoop:true ONLY when this same memory_write also resolves a previously-recorded open loop (e.g. user just confirmed the decision you were waiting on).",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "description")]:
     "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets.",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:

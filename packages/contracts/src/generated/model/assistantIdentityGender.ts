@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantIdentityGender =
-  (typeof AssistantIdentityGender)[keyof typeof AssistantIdentityGender];
+export type AssistantIdentityGender = typeof AssistantIdentityGender[keyof typeof AssistantIdentityGender];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantIdentityGender = {
-  male: "male",
-  female: "female",
-  neutral: "neutral"
+  male: 'male',
+  female: 'female',
+  neutral: 'neutral',
 } as const;

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AdminNotificationDeliveryStatus =
-  (typeof AdminNotificationDeliveryStatus)[keyof typeof AdminNotificationDeliveryStatus];
+export type AdminNotificationDeliveryStatus = typeof AdminNotificationDeliveryStatus[keyof typeof AdminNotificationDeliveryStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AdminNotificationDeliveryStatus = {
-  succeeded: "succeeded",
-  failed: "failed",
-  skipped: "skipped"
+  succeeded: 'succeeded',
+  failed: 'failed',
+  skipped: 'skipped',
 } as const;

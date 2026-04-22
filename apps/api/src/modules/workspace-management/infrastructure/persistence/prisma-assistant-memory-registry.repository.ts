@@ -225,6 +225,97 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
     return result.count;
   }
 
+  async findActiveOpenLoopsByAssistantUser(
+    assistantId: string,
+    userId: string,
+    sinceCreatedAt: Date,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]> {
+    if (limit <= 0) {
+      return [];
+    }
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        userId,
+        kind: "open_loop",
+        forgottenAt: null,
+        resolvedAt: null,
+        createdAt: { gte: sinceCreatedAt }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit
+    });
+    return rows.map((row) => this.mapToDomain(row));
+  }
+
+  async setResolvedAtById(id: string, assistantId: string): Promise<boolean> {
+    const result = await this.prisma.assistantMemoryRegistryItem.updateMany({
+      where: {
+        id,
+        assistantId,
+        kind: "open_loop",
+        forgottenAt: null,
+        resolvedAt: null
+      },
+      data: { resolvedAt: new Date() }
+    });
+    return result.count > 0;
+  }
+
+  async findMostSimilarActiveOpenLoop(
+    assistantId: string,
+    userId: string,
+    referenceText: string
+  ): Promise<AssistantMemoryRegistryItem | null> {
+    const referenceTokens = tokenizeForLexicalMatch(referenceText);
+    if (referenceTokens.size === 0) {
+      return null;
+    }
+    // M3 keeps this lookup deliberately simple (no vector round-trip): pull
+    // the recent active open-loops and rank by token-overlap in memory. The
+    // candidate window is bounded by `MAX_CLOSE_CANDIDATES` so we never page
+    // through the whole history; M3.1 will replace this path with a
+    // structured close-by-id action that does not need scoring at all.
+    const rows = await this.prisma.assistantMemoryRegistryItem.findMany({
+      where: {
+        assistantId,
+        userId,
+        kind: "open_loop",
+        forgottenAt: null,
+        resolvedAt: null
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: MAX_CLOSE_CANDIDATES
+    });
+    if (rows.length === 0) {
+      return null;
+    }
+
+    let bestRow: PrismaItem | null = null;
+    let bestScore = 0;
+    for (const row of rows) {
+      const candidateTokens = tokenizeForLexicalMatch(row.summary);
+      if (candidateTokens.size === 0) {
+        continue;
+      }
+      let overlap = 0;
+      for (const token of referenceTokens) {
+        if (candidateTokens.has(token)) {
+          overlap++;
+        }
+      }
+      if (overlap > bestScore) {
+        bestScore = overlap;
+        bestRow = row;
+      }
+    }
+    if (bestRow === null || bestScore < MIN_CLOSE_TOKEN_OVERLAP) {
+      return null;
+    }
+    return this.mapToDomain(bestRow);
+  }
+
   private mapToDomain(row: PrismaItem): AssistantMemoryRegistryItem {
     return {
       id: row.id,
@@ -240,8 +331,52 @@ export class PrismaAssistantMemoryRegistryRepository implements AssistantMemoryR
       memoryClass: row.memoryClass,
       kind: row.kind,
       lastUsedAt: row.lastUsedAt,
+      resolvedAt: row.resolvedAt,
       forgottenAt: row.forgottenAt,
       createdAt: row.createdAt
     };
   }
+}
+
+// ADR-074 Slice M3 — bound the candidate window for the `closeOpenLoop`
+// flag's lexical match so a runaway scan can never starve the request path.
+// M3.1 will replace this scoring path with a structured close-by-id action.
+const MAX_CLOSE_CANDIDATES = 50;
+const MIN_CLOSE_TOKEN_OVERLAP = 1;
+const LEXICAL_TOKEN_MIN_LENGTH = 3;
+const LEXICAL_TOKEN_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "into",
+  "have",
+  "has",
+  "had",
+  "was",
+  "are",
+  "but",
+  "not",
+  "you",
+  "your",
+  "user",
+  "open",
+  "loop"
+]);
+
+function tokenizeForLexicalMatch(value: string): Set<string> {
+  const tokens = new Set<string>();
+  for (const rawToken of value.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (rawToken.length < LEXICAL_TOKEN_MIN_LENGTH) {
+      continue;
+    }
+    if (LEXICAL_TOKEN_STOPWORDS.has(rawToken)) {
+      continue;
+    }
+    tokens.add(rawToken);
+  }
+  return tokens;
 }

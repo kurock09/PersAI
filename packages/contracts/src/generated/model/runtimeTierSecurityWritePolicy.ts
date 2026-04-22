@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSecurityWritePolicy =
-  (typeof RuntimeTierSecurityWritePolicy)[keyof typeof RuntimeTierSecurityWritePolicy];
+export type RuntimeTierSecurityWritePolicy = typeof RuntimeTierSecurityWritePolicy[keyof typeof RuntimeTierSecurityWritePolicy];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSecurityWritePolicy = {
-  sandbox_workspace_only: "sandbox_workspace_only"
+  sandbox_workspace_only: 'sandbox_workspace_only',
 } as const;

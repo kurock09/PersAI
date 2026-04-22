@@ -102,7 +102,8 @@ function createBundle() {
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_EMPTY,
       workerTools: WORKER_TOOLS_CONFIG,

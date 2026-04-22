@@ -316,7 +316,8 @@ function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: numbe
               sharedCompactionSummaryBudgetTokens: input.sharedCompactionSummaryBudgetTokens
             }),
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,

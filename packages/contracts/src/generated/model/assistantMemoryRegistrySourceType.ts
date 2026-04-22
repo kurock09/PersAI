@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantMemoryRegistrySourceType =
-  (typeof AssistantMemoryRegistrySourceType)[keyof typeof AssistantMemoryRegistrySourceType];
+export type AssistantMemoryRegistrySourceType = typeof AssistantMemoryRegistrySourceType[keyof typeof AssistantMemoryRegistrySourceType];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantMemoryRegistrySourceType = {
-  web_chat: "web_chat",
-  memory_write: "memory_write"
+  web_chat: 'web_chat',
+  memory_write: 'memory_write',
 } as const;

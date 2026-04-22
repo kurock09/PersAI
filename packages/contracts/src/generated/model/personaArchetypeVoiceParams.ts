@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PersonaArchetypeVoiceParamsSentenceLength } from "./personaArchetypeVoiceParamsSentenceLength";
-import type { PersonaArchetypeVoiceParamsPace } from "./personaArchetypeVoiceParamsPace";
+import type { PersonaArchetypeVoiceParamsSentenceLength } from './personaArchetypeVoiceParamsSentenceLength';
+import type { PersonaArchetypeVoiceParamsPace } from './personaArchetypeVoiceParamsPace';
 
 export interface PersonaArchetypeVoiceParams {
   sentenceLength: PersonaArchetypeVoiceParamsSentenceLength;

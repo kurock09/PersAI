@@ -8,11 +8,10 @@
 /**
  * @nullable
  */
-export type AssistantWebChatRuntimeStateQuotaFallbackReason =
-  | (typeof AssistantWebChatRuntimeStateQuotaFallbackReason)[keyof typeof AssistantWebChatRuntimeStateQuotaFallbackReason]
-  | null;
+export type AssistantWebChatRuntimeStateQuotaFallbackReason = typeof AssistantWebChatRuntimeStateQuotaFallbackReason[keyof typeof AssistantWebChatRuntimeStateQuotaFallbackReason] | null;
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatRuntimeStateQuotaFallbackReason = {
-  token_budget_limit_reached: "token_budget_limit_reached"
+  token_budget_limit_reached: 'token_budget_limit_reached',
 } as const;

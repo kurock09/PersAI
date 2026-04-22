@@ -4,11 +4,11 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantRuntimeAssignmentStateSchema } from "./assistantRuntimeAssignmentStateSchema";
-import type { AssistantRuntimeAssignmentStatePlanDefaultTier } from "./assistantRuntimeAssignmentStatePlanDefaultTier";
-import type { AssistantRuntimeAssignmentStateRuntimeTierOverride } from "./assistantRuntimeAssignmentStateRuntimeTierOverride";
-import type { RuntimeTier } from "./runtimeTier";
-import type { AssistantRuntimeAssignmentSource } from "./assistantRuntimeAssignmentSource";
+import type { AssistantRuntimeAssignmentStateSchema } from './assistantRuntimeAssignmentStateSchema';
+import type { AssistantRuntimeAssignmentStatePlanDefaultTier } from './assistantRuntimeAssignmentStatePlanDefaultTier';
+import type { AssistantRuntimeAssignmentStateRuntimeTierOverride } from './assistantRuntimeAssignmentStateRuntimeTierOverride';
+import type { RuntimeTier } from './runtimeTier';
+import type { AssistantRuntimeAssignmentSource } from './assistantRuntimeAssignmentSource';
 
 export interface AssistantRuntimeAssignmentState {
   schema: AssistantRuntimeAssignmentStateSchema;

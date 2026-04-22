@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { UserPlanVisibilityEntitlementsChannelsAndSurfaces } from "./userPlanVisibilityEntitlementsChannelsAndSurfaces";
+import type { UserPlanVisibilityEntitlementsChannelsAndSurfaces } from './userPlanVisibilityEntitlementsChannelsAndSurfaces';
 
 export interface UserPlanVisibilityEntitlements {
   channelsAndSurfaces: UserPlanVisibilityEntitlementsChannelsAndSurfaces;

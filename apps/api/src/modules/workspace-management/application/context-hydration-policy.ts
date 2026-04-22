@@ -2,6 +2,8 @@ import { BadRequestException } from "@nestjs/common";
 import {
   DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG,
   DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET,
+  MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+  MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
   PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS,
   PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS,
   type PersaiRuntimeContextHydrationPreset,
@@ -108,6 +110,21 @@ function assertPolicyBounds(policy: RuntimeContextHydrationConfig, fieldPrefix: 
       `${fieldPrefix}.sharedCompactionSummaryBudgetTokens must be less than or equal to ${fieldPrefix}.targetContextBudget.`
     );
   }
+  if (
+    policy.crossSessionCarryOverTtlDays < MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS ||
+    policy.crossSessionCarryOverTtlDays > MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS
+  ) {
+    throw new BadRequestException(
+      `${fieldPrefix}.crossSessionCarryOverTtlDays must be between ${MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS} and ${MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS} days.`
+    );
+  }
+}
+
+function clampTtlDays(value: number): number {
+  return Math.min(
+    MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+    Math.max(MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS, value)
+  );
 }
 
 function normalizePolicy(policy: RuntimeContextHydrationConfig): RuntimeContextHydrationConfig {
@@ -116,6 +133,7 @@ function normalizePolicy(policy: RuntimeContextHydrationConfig): RuntimeContextH
     ...rest,
     compactionTriggerThreshold: Math.min(rest.compactionTriggerThreshold, rest.targetContextBudget),
     knowledgeHydrationBudget: Math.min(rest.knowledgeHydrationBudget, rest.targetContextBudget),
+    crossSessionCarryOverTtlDays: clampTtlDays(rest.crossSessionCarryOverTtlDays),
     ...(sharedCompactionSummaryBudgetTokens === undefined
       ? {}
       : {
@@ -169,7 +187,11 @@ export function resolveStoredPlanContextHydrationPolicy(
           sharedCompactionSummaryBudgetTokens
         }),
     autoCompactionWeb: toLooseBoolean(row.autoCompactionWeb, base.autoCompactionWeb),
-    autoCompactionTelegram: toLooseBoolean(row.autoCompactionTelegram, base.autoCompactionTelegram)
+    autoCompactionTelegram: toLooseBoolean(row.autoCompactionTelegram, base.autoCompactionTelegram),
+    crossSessionCarryOverTtlDays: toLoosePositiveInteger(
+      row.crossSessionCarryOverTtlDays,
+      base.crossSessionCarryOverTtlDays
+    )
   });
 }
 
@@ -217,6 +239,10 @@ export function parsePlanContextHydrationPolicy(
     autoCompactionTelegram: parseBoolean(
       row.autoCompactionTelegram,
       `${fieldName}.autoCompactionTelegram`
+    ),
+    crossSessionCarryOverTtlDays: parsePositiveInteger(
+      row.crossSessionCarryOverTtlDays,
+      `${fieldName}.crossSessionCarryOverTtlDays`
     )
   };
   assertPolicyBounds(policy, fieldName);
@@ -239,7 +265,8 @@ export function toPlanContextHydrationPolicyDocument(
           sharedCompactionSummaryBudgetTokens: policy.sharedCompactionSummaryBudgetTokens
         }),
     autoCompactionWeb: policy.autoCompactionWeb,
-    autoCompactionTelegram: policy.autoCompactionTelegram
+    autoCompactionTelegram: policy.autoCompactionTelegram,
+    crossSessionCarryOverTtlDays: policy.crossSessionCarryOverTtlDays
   };
 }
 

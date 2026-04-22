@@ -260,6 +260,11 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           maxLength: MEMORY_WRITE_MAX_CHARS,
           description: "One concise durable memory statement to store."
+        },
+        closeOpenLoop: {
+          type: "boolean",
+          description:
+            "ADR-074 Slice M3: set true ONLY when this memory_write also resolves a previously-recorded open loop (e.g. user just confirmed they made the decision you were waiting on). The runtime will look up the most-similar active open-loop and mark it resolved."
         }
       }
     }

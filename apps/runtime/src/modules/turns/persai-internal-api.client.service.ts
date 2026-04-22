@@ -159,6 +159,46 @@ export type InternalEnqueueBackgroundCompactionInput = {
   enqueuedRequestId: string | null;
 };
 
+// ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
+// driven by the model setting `closeOpenLoop: true` on `memory_write`.
+export type InternalCloseMostSimilarOpenLoopInput = {
+  assistantId: string;
+  referenceText: string;
+  requestId: string | null;
+};
+
+export type InternalCloseMostSimilarOpenLoopOutcome = {
+  closed: boolean;
+  closedItemId: string | null;
+  reason: "matched" | "no_active_open_loop_matched";
+};
+
+// ADR-074 Slice M3 — turn-0 cross-session continuity carry-over fetch.
+export type InternalFindCrossSessionCarryOverInput = {
+  assistantId: string;
+  ttlDays: number;
+  excludeRuntimeSessionId: string | null;
+  requestId: string | null;
+};
+
+export type InternalCrossSessionCarryOverSynopsis = {
+  runtimeSessionId: string;
+  channel: string;
+  synopsisUpdatedAt: string;
+  summaryPayload: unknown;
+};
+
+export type InternalCrossSessionCarryOverOpenLoop = {
+  id: string;
+  summary: string;
+  createdAt: string;
+};
+
+export type InternalFindCrossSessionCarryOverOutcome = {
+  recentSynopses: InternalCrossSessionCarryOverSynopsis[];
+  unresolvedOpenLoops: InternalCrossSessionCarryOverOpenLoop[];
+};
+
 @Injectable()
 export class PersaiInternalApiClientService {
   private readonly logger = new Logger(PersaiInternalApiClientService.name);
@@ -585,6 +625,106 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async closeMostSimilarOpenLoop(
+    input: InternalCloseMostSimilarOpenLoopInput
+  ): Promise<InternalCloseMostSimilarOpenLoopOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/memory/close-most-similar-open-loop",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      }
+    );
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const reason = payload?.reason;
+      if (
+        payload?.ok === true &&
+        typeof payload.closed === "boolean" &&
+        (payload.closedItemId === null || typeof payload.closedItemId === "string") &&
+        (reason === "matched" || reason === "no_active_open_loop_matched")
+      ) {
+        return {
+          closed: payload.closed,
+          closedItemId: (payload.closedItemId as string | null) ?? null,
+          reason
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid close-most-similar-open-loop response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API close-most-similar-open-loop request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the close-most-similar-open-loop request."
+    );
+  }
+
+  async findCrossSessionCarryOver(
+    input: InternalFindCrossSessionCarryOverInput
+  ): Promise<InternalFindCrossSessionCarryOverOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/cross-session/carry-over", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const synopses = payload?.recentSynopses;
+      const openLoops = payload?.unresolvedOpenLoops;
+      if (
+        payload?.ok === true &&
+        Array.isArray(synopses) &&
+        synopses.every((row) => this.isCrossSessionSynopsis(row)) &&
+        Array.isArray(openLoops) &&
+        openLoops.every((row) => this.isCrossSessionOpenLoop(row))
+      ) {
+        return {
+          recentSynopses: synopses as InternalCrossSessionCarryOverSynopsis[],
+          unresolvedOpenLoops: openLoops as InternalCrossSessionCarryOverOpenLoop[]
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid cross-session carry-over response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API cross-session carry-over request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the cross-session carry-over request."
+    );
+  }
+
   async ensureFreshSpec(input: {
     assistantId: string;
     currentConfigGeneration: number;
@@ -750,6 +890,26 @@ export class PersaiInternalApiClientService {
         row.kind === "open_loop") &&
       typeof row.createdAt === "string" &&
       (row.score === null || typeof row.score === "number")
+    );
+  }
+
+  private isCrossSessionSynopsis(value: unknown): value is InternalCrossSessionCarryOverSynopsis {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.runtimeSessionId === "string" &&
+      typeof row.channel === "string" &&
+      typeof row.synopsisUpdatedAt === "string"
+    );
+  }
+
+  private isCrossSessionOpenLoop(value: unknown): value is InternalCrossSessionCarryOverOpenLoop {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      typeof row.summary === "string" &&
+      typeof row.createdAt === "string"
     );
   }
 

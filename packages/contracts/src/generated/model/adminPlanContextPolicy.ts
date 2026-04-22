@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanContextPolicyPreset } from "./adminPlanContextPolicyPreset";
+import type { AdminPlanContextPolicyPreset } from './adminPlanContextPolicyPreset';
 
 export interface AdminPlanContextPolicy {
   preset: AdminPlanContextPolicyPreset;
@@ -15,4 +15,15 @@ export interface AdminPlanContextPolicy {
   sharedCompactionSummaryBudgetTokens?: number;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
+  /**
+   * ADR-074 Slice M3 — maximum age (in days) of a previous-session
+synopsis or unresolved open-loop that is eligible for the turn-0
+cross-session carry-over block. Older items are silently dropped.
+Plan-policy tunable; the top-N synopsis cap (3) is a hard-coded
+constant per Principle 1 ("magic, not user-controlled").
+
+   * @minimum 1
+   * @maximum 90
+   */
+  crossSessionCarryOverTtlDays: number;
 }

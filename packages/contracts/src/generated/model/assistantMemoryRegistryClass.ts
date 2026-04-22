@@ -5,11 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantMemoryRegistryClass =
-  (typeof AssistantMemoryRegistryClass)[keyof typeof AssistantMemoryRegistryClass];
+export type AssistantMemoryRegistryClass = typeof AssistantMemoryRegistryClass[keyof typeof AssistantMemoryRegistryClass];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantMemoryRegistryClass = {
-  core: "core",
-  contextual: "contextual"
+  core: 'core',
+  contextual: 'contextual',
 } as const;

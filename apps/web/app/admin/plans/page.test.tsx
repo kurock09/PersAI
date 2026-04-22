@@ -83,7 +83,8 @@ function createPlanState(): AdminPlanState {
       keepRecentMinimum: 4,
       knowledgeHydrationBudget: 2_400,
       autoCompactionWeb: false,
-      autoCompactionTelegram: true
+      autoCompactionTelegram: true,
+      crossSessionCarryOverTtlDays: 7
     },
     toolActivations: [
       {

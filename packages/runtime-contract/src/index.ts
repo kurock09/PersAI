@@ -380,7 +380,31 @@ export interface RuntimeContextHydrationConfig {
   sharedCompactionSummaryBudgetTokens?: number;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
+  /**
+   * ADR-074 Slice M3 — cross-session continuity carry-over.
+   *
+   * Maximum age (in days) of a previous-session synopsis or unresolved
+   * open-loop that is eligible for the turn-0 carry-over block. Older items
+   * are silently dropped. Plan-policy tunable through the admin UI; the
+   * top-N synopsis cap itself stays a hard-coded constant
+   * (`MAX_CROSS_SESSION_CARRY_OVER_SYNOPSES`) per ADR-074 Principle 1
+   * ("magic, not user-controlled").
+   */
+  crossSessionCarryOverTtlDays: number;
 }
+
+/**
+ * ADR-074 Slice M3 — hard cap for the number of previous-session synopses
+ * carried into the next conversation. Intentionally a constant (not plan-
+ * tunable): per Principle 1 the magic happens with zero per-user knobs, and
+ * three is the founder-confirmed sweet spot between continuity and prompt
+ * weight. Open-loops are bounded separately by the carry-over service.
+ */
+export const MAX_CROSS_SESSION_CARRY_OVER_SYNOPSES = 3 as const;
+
+export const MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 1 as const;
+export const MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 90 as const;
+export const DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 7 as const;
 
 type RuntimeContextHydrationPresetDefaults = Omit<RuntimeContextHydrationConfig, "preset">;
 
@@ -394,7 +418,8 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     keepRecentMinimum: 2,
     knowledgeHydrationBudget: 1_200,
     autoCompactionWeb: true,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
   },
   balanced: {
     targetContextBudget: 24_000,
@@ -406,7 +431,8 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     // (apps/api PersaiBackgroundCompactionSchedulerService), so the latency
     // cost that previously argued for keeping this `false` no longer applies.
     autoCompactionWeb: true,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
   },
   rich: {
     targetContextBudget: 32_000,
@@ -417,7 +443,8 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     // The richer context budget benefits even more from a rolling background
     // synopsis once total tokens approach `compactionTriggerThreshold`.
     autoCompactionWeb: true,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
   }
 };
 

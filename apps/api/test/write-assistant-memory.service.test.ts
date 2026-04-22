@@ -73,6 +73,7 @@ function createHarness(options?: {
 
   const demoteCalls: Array<{ assistantId: string; demoteCount: number }> = [];
   const bumpCalls: Array<{ assistantId: string; ids: readonly string[] }> = [];
+  const setResolvedCalls: Array<{ id: string; assistantId: string }> = [];
   const existingDuplicate = options?.existingDuplicate ?? null;
   const memoryRepository: Pick<
     AssistantMemoryRegistryRepository,
@@ -81,6 +82,7 @@ function createHarness(options?: {
     | "demoteOldestCoreByAssistantId"
     | "findActiveByNormalizedSummaryAndAssistantId"
     | "bumpLastUsedAt"
+    | "setResolvedAtById"
   > = {
     async create(input) {
       createdInputs.push(input as Record<string, unknown>);
@@ -98,6 +100,7 @@ function createHarness(options?: {
         memoryClass: input.memoryClass,
         kind: input.kind,
         lastUsedAt: null,
+        resolvedAt: null,
         forgottenAt: null,
         createdAt
       } satisfies AssistantMemoryRegistryItem;
@@ -115,6 +118,10 @@ function createHarness(options?: {
     async bumpLastUsedAt(assistantId, ids) {
       bumpCalls.push({ assistantId, ids });
       return ids.length;
+    },
+    async setResolvedAtById(id, assistantId) {
+      setResolvedCalls.push({ id, assistantId });
+      return true;
     }
   };
 
@@ -154,7 +161,8 @@ function createHarness(options?: {
     createdInputs,
     auditCalls,
     demoteCalls,
-    bumpCalls
+    bumpCalls,
+    setResolvedCalls
   };
 }
 
@@ -262,6 +270,7 @@ async function run(): Promise<void> {
     memoryClass: "core",
     kind: "preference",
     lastUsedAt: null,
+    resolvedAt: null,
     forgottenAt: null,
     createdAt: new Date("2026-04-12T00:00:00.000Z")
   };
@@ -291,6 +300,82 @@ async function run(): Promise<void> {
   assert.deepEqual(dup.bumpCalls[0]?.ids, ["memory-existing"]);
   assert.equal(dup.auditCalls.length, 1);
   assert.equal(dup.auditCalls[0]?.eventCode, "assistant.memory_write_duplicate");
+  assert.equal(
+    dup.setResolvedCalls.length,
+    0,
+    "non-open_loop dedup must NOT trigger implicit close-by-overwrite"
+  );
+
+  // ADR-074 Slice M3 — implicit close-by-overwrite. When the dedup path
+  // matches an existing `open_loop` row, the new memory_write should stamp
+  // `resolved_at = now()` on it via setResolvedAtById, regardless of the
+  // *new* memory's kind (the existing open_loop is what closes).
+  const openLoopExisting: AssistantMemoryRegistryItem = {
+    ...existingItem,
+    id: "memory-loop",
+    summary: "Need to pick a venue for the retreat.",
+    kind: "open_loop",
+    sourceLabel: "Memory write: open loop"
+  };
+  const implicitClose = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope(),
+    relatedMessage: {
+      id: "message-1",
+      author: "user",
+      chatId: "chat-1"
+    },
+    existingDuplicate: openLoopExisting
+  });
+  const implicitCloseResult = await implicitClose.service.execute({
+    assistantId: "assistant-1",
+    kind: "open_loop",
+    summary: "Need to pick a venue for the retreat.",
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: "message-1",
+    requestId: "request-implicit-close"
+  });
+  assert.equal(implicitCloseResult.written, false);
+  assert.equal(implicitCloseResult.code, "duplicate");
+  assert.equal(implicitClose.setResolvedCalls.length, 1);
+  assert.deepEqual(implicitClose.setResolvedCalls[0], {
+    id: "memory-loop",
+    assistantId: "assistant-1"
+  });
+  const implicitAuditDetails = implicitClose.auditCalls[0]?.details as Record<string, unknown>;
+  assert.equal(implicitAuditDetails.implicitlyResolvedOpenLoop, true);
+
+  // Already-resolved open_loop must NOT be re-resolved (idempotency).
+  const alreadyResolvedLoop: AssistantMemoryRegistryItem = {
+    ...openLoopExisting,
+    id: "memory-loop-resolved",
+    resolvedAt: new Date("2026-04-15T00:00:00.000Z")
+  };
+  const idempotent = createHarness({
+    memoryControl: createDefaultMemoryControlEnvelope(),
+    relatedMessage: {
+      id: "message-1",
+      author: "user",
+      chatId: "chat-1"
+    },
+    existingDuplicate: alreadyResolvedLoop
+  });
+  await idempotent.service.execute({
+    assistantId: "assistant-1",
+    kind: "open_loop",
+    summary: "Need to pick a venue for the retreat.",
+    transportSurface: "web",
+    sourceTrust: "trusted_1to1",
+    relatedUserMessageId: "message-1",
+    requestId: "request-already-resolved"
+  });
+  assert.equal(
+    idempotent.setResolvedCalls.length,
+    0,
+    "already-resolved open_loop dedup must NOT call setResolvedAtById again"
+  );
+  const idempotentAuditDetails = idempotent.auditCalls[0]?.details as Record<string, unknown>;
+  assert.equal(idempotentAuditDetails.implicitlyResolvedOpenLoop, false);
 }
 
 void run();

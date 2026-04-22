@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantChatMessageAuthor } from "./assistantChatMessageAuthor";
+import type { AssistantChatMessageAuthor } from './assistantChatMessageAuthor';
 
 export interface AssistantWebChatMessageState {
   id: string;

@@ -4,15 +4,24 @@ import type { ProviderGatewayTextMessage } from "@persai/runtime-contract";
 export type PromptCacheStableBlockFamily =
   | "ordinary_prompt"
   | "durable_memory_core"
+  | "cross_session_carry_over"
   | "rolling_session_synopsis";
 
 // ADR-074 Slice M2 — `rolling_session_synopsis` replaces the old
 // `shared_compaction_summary` family. The wire-level header text and the
 // version were both bumped in lockstep so any cached prefix from the old
 // family naturally invalidates on first turn after rollout.
+//
+// ADR-074 Slice M3 — `cross_session_carry_over` is a NEW stable family
+// rendered ONLY on the very first turn of a brand-new thread. It sits
+// between `durable_memory_core` and `rolling_session_synopsis` in the
+// stable prefix order. The cache-key hash is content-driven (synopsis +
+// open-loop content), so multiple fresh threads opened in the same TTL
+// window for the same user reuse the cached prefix.
 const PROMPT_CACHE_STABLE_BLOCK_VERSIONS: Record<PromptCacheStableBlockFamily, number> = {
   ordinary_prompt: 1,
   durable_memory_core: 1,
+  cross_session_carry_over: 1,
   rolling_session_synopsis: 2
 };
 
@@ -21,14 +30,23 @@ const DURABLE_MEMORY_CONTEXTUAL_PREFIX_HEADER =
   "[Relevant memories retrieved for this turn — may vary between turns]";
 const ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER =
   "[Rolling session synopsis — what we have established so far in this conversation]";
+const CROSS_SESSION_CARRY_OVER_PREFIX_HEADER =
+  "[Continuity from earlier conversations — surfaced on the first turn of a new thread]";
 
 const HYDRATED_STABLE_BLOCK_HEADERS: Array<{
-  family: Extract<PromptCacheStableBlockFamily, "durable_memory_core" | "rolling_session_synopsis">;
+  family: Extract<
+    PromptCacheStableBlockFamily,
+    "durable_memory_core" | "cross_session_carry_over" | "rolling_session_synopsis"
+  >;
   header: string;
 }> = [
   {
     family: "durable_memory_core",
     header: DURABLE_MEMORY_CORE_PREFIX_HEADER
+  },
+  {
+    family: "cross_session_carry_over",
+    header: CROSS_SESSION_CARRY_OVER_PREFIX_HEADER
   },
   {
     family: "rolling_session_synopsis",
@@ -55,6 +73,10 @@ export function formatDurableMemoryContextualBlock(lines: string[]): string {
 
 export function formatSharedCompactionStableBlock(summaryText: string): string {
   return `${ROLLING_SESSION_SYNOPSIS_PREFIX_HEADER}\n${summaryText}`;
+}
+
+export function formatCrossSessionCarryOverStableBlock(bodyText: string): string {
+  return `${CROSS_SESSION_CARRY_OVER_PREFIX_HEADER}\n${bodyText}`;
 }
 
 export function isDurableMemoryContextualMessage(message: ProviderGatewayTextMessage): boolean {

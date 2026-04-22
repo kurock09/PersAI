@@ -100,7 +100,8 @@ function createBundle() {
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_EMPTY,
       workerTools: WORKER_TOOLS_CONFIG,
@@ -124,7 +125,21 @@ function createBundle() {
       memoryControl: null,
       tasksControl: null,
       toolCredentialRefs: {},
-      toolPolicies: [],
+      toolPolicies: [
+        {
+          toolCode: "memory_write",
+          displayName: "Memory write",
+          description: "Persist a durable user fact, preference, or open loop.",
+          usageGuidance: null,
+          kind: "system",
+          executionMode: "inline",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
+        }
+      ],
       quota: {
         planCode: "paid",
         workspaceQuotaBytes: 1024,
@@ -174,6 +189,15 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 
 class FakePersaiInternalApiClientService {
   writeCalls: Array<Record<string, unknown>> = [];
+  // ADR-074 Slice M3 — track explicit close-open-loop follow-ups so the
+  // closeOpenLoop branch can be asserted from the test body.
+  closeOpenLoopCalls: Array<Record<string, unknown>> = [];
+  closeOpenLoopOutcome: {
+    closed: boolean;
+    closedItemId: string | null;
+    reason: "matched" | "no_active_open_loop_matched";
+  } = { closed: true, closedItemId: "loop-1", reason: "matched" };
+  closeOpenLoopError: Error | null = null;
   outcome: {
     written: boolean;
     code: string | null;
@@ -201,9 +225,17 @@ class FakePersaiInternalApiClientService {
     }
     return this.outcome;
   }
+
+  async closeMostSimilarOpenLoop(input: Record<string, unknown>) {
+    this.closeOpenLoopCalls.push(input);
+    if (this.closeOpenLoopError !== null) {
+      throw this.closeOpenLoopError;
+    }
+    return this.closeOpenLoopOutcome;
+  }
 }
 
-async function run(): Promise<void> {
+export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
   const bundle = createBundle();
   const projection = projectRuntimeNativeTools(bundle);
   const hiddenProjection = projectRuntimeNativeTools(bundle, {
@@ -334,6 +366,165 @@ async function run(): Promise<void> {
   assert.equal(failed.payload.action, "skipped");
   assert.equal(failed.payload.reason, "memory_write_failed");
   assert.equal(failed.isError, true);
-}
 
-void run();
+  // ADR-074 Slice M3 — closeOpenLoop branches.
+  // (a) Default behaviour: closeOpenLoop omitted → defaults to false →
+  //     closeMostSimilarOpenLoop NOT called even on a successful write.
+  {
+    const apiNoClose = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(
+      apiNoClose as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "User lives in Berlin."
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-noclose"
+    });
+    assert.equal(result.payload.action, "remembered");
+    assert.equal(apiNoClose.writeCalls.length, 1);
+    assert.equal(
+      apiNoClose.closeOpenLoopCalls.length,
+      0,
+      "default closeOpenLoop=false must NOT trigger the explicit close follow-up"
+    );
+  }
+
+  // (b) closeOpenLoop:false explicit → same behaviour, no follow-up.
+  {
+    const apiExplicitFalse = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(
+      apiExplicitFalse as unknown as PersaiInternalApiClientService
+    );
+    await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "User lives in Berlin.",
+        closeOpenLoop: false
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-false"
+    });
+    assert.equal(apiExplicitFalse.closeOpenLoopCalls.length, 0);
+  }
+
+  // (c) closeOpenLoop:true on successful write → exactly one follow-up call
+  //     with the same memory text as referenceText, the runtime requestId,
+  //     and the bundle's assistantId. The outer payload still reports
+  //     "remembered" — the follow-up does not change the user-visible
+  //     response.
+  {
+    const apiTrue = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(
+      apiTrue as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "Booked the Barcelona retreat venue.",
+        closeOpenLoop: true
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-true"
+    });
+    assert.equal(result.payload.action, "remembered");
+    assert.equal(apiTrue.writeCalls.length, 1);
+    assert.equal(apiTrue.closeOpenLoopCalls.length, 1);
+    assert.deepEqual(apiTrue.closeOpenLoopCalls[0], {
+      assistantId: "assistant-1",
+      referenceText: "Booked the Barcelona retreat venue.",
+      requestId: "request-true"
+    });
+  }
+
+  // (d) closeOpenLoop:true but the underlying write was DENIED (written:false)
+  //     → no follow-up call (we only attempt close on a successful write).
+  {
+    const apiDenied = new FakePersaiInternalApiClientService();
+    apiDenied.outcome = {
+      written: false,
+      code: "memory_write_denied",
+      message: "Denied",
+      item: null
+    };
+    const svc = new RuntimeMemoryWriteToolService(
+      apiDenied as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "Confirmed the venue.",
+        closeOpenLoop: true
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-denied"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "memory_write_denied");
+    assert.equal(
+      apiDenied.closeOpenLoopCalls.length,
+      0,
+      "denied write must NOT attempt closeMostSimilarOpenLoop"
+    );
+  }
+
+  // (e) closeOpenLoop:true and the follow-up THROWS → the outer write
+  //     payload is still "remembered" (we swallow + log close failures so a
+  //     downstream M3 hiccup never erases a successful memory_write).
+  {
+    const apiCloseFails = new FakePersaiInternalApiClientService();
+    apiCloseFails.closeOpenLoopError = new Error("boom");
+    const svc = new RuntimeMemoryWriteToolService(
+      apiCloseFails as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "open_loop",
+        memory: "Confirmed the venue.",
+        closeOpenLoop: true
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-fail"
+    });
+    assert.equal(result.payload.action, "remembered");
+    assert.equal(result.isError, false);
+    assert.equal(apiCloseFails.closeOpenLoopCalls.length, 1);
+  }
+
+  // (f) closeOpenLoop with non-boolean value → invalid_arguments (the
+  //     tool refuses to silently coerce a string/number into a boolean).
+  {
+    const apiInvalid = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(
+      apiInvalid as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        kind: "fact",
+        memory: "Some fact.",
+        closeOpenLoop: "yes" as unknown as boolean
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-bad-type"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
+    assert.equal(apiInvalid.writeCalls.length, 0);
+    assert.equal(apiInvalid.closeOpenLoopCalls.length, 0);
+  }
+}

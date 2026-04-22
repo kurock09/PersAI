@@ -162,6 +162,21 @@ export class WriteAssistantMemoryService {
       await this.assistantMemoryRegistryRepository.bumpLastUsedAt(assistant.id, [
         existingDuplicate.id
       ]);
+      // ADR-074 Slice M3 — implicit close-by-overwrite. When the dedup path
+      // matches an existing `open_loop` row, treat the new write as the
+      // closing restatement and stamp `resolved_at = now()`. This is the
+      // "minimal path" close mechanism (the explicit `closeOpenLoop: true`
+      // flag on `memory_write` is the opt-in path the model can use
+      // proactively); both feed the same column so the cross-session
+      // carry-over selector treats them identically. M3.1 will replace this
+      // implicit path with a structured close action.
+      let implicitlyResolvedOpenLoop = false;
+      if (existingDuplicate.kind === "open_loop" && existingDuplicate.resolvedAt === null) {
+        implicitlyResolvedOpenLoop = await this.assistantMemoryRegistryRepository.setResolvedAtById(
+          existingDuplicate.id,
+          assistant.id
+        );
+      }
       await this.appendAssistantAuditEventService.execute({
         workspaceId: assistant.workspaceId,
         assistantId: assistant.id,
@@ -175,7 +190,8 @@ export class WriteAssistantMemoryService {
           transportSurface: input.transportSurface,
           sourceTrust: input.sourceTrust,
           relatedUserMessageId: input.relatedUserMessageId,
-          requestId: input.requestId
+          requestId: input.requestId,
+          implicitlyResolvedOpenLoop
         }
       });
       return {

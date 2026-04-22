@@ -4,8 +4,8 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantWebChatRuntimeStateQuotaFallbackReason } from "./assistantWebChatRuntimeStateQuotaFallbackReason";
-import type { AssistantWebChatRuntimeStateTurnRouting } from "./assistantWebChatRuntimeStateTurnRouting";
+import type { AssistantWebChatRuntimeStateQuotaFallbackReason } from './assistantWebChatRuntimeStateQuotaFallbackReason';
+import type { AssistantWebChatRuntimeStateTurnRouting } from './assistantWebChatRuntimeStateTurnRouting';
 
 export interface AssistantWebChatRuntimeState {
   respondedAt: string;

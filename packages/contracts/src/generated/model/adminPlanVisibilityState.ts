@@ -4,10 +4,10 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanVisibilityPlanState } from "./adminPlanVisibilityPlanState";
-import type { AdminPlanVisibilityUsagePressure } from "./adminPlanVisibilityUsagePressure";
-import type { QuotaVisibilityBucketState } from "./quotaVisibilityBucketState";
-import type { AdminPlanVisibilityStateEffectiveEntitlements } from "./adminPlanVisibilityStateEffectiveEntitlements";
+import type { AdminPlanVisibilityPlanState } from './adminPlanVisibilityPlanState';
+import type { AdminPlanVisibilityUsagePressure } from './adminPlanVisibilityUsagePressure';
+import type { QuotaVisibilityBucketState } from './quotaVisibilityBucketState';
+import type { AdminPlanVisibilityStateEffectiveEntitlements } from './adminPlanVisibilityStateEffectiveEntitlements';
 
 export interface AdminPlanVisibilityState {
   planState: AdminPlanVisibilityPlanState;

@@ -5422,6 +5422,7 @@ components:
         - knowledgeHydrationBudget
         - autoCompactionWeb
         - autoCompactionTelegram
+        - crossSessionCarryOverTtlDays
       properties:
         preset:
           type: string
@@ -5444,6 +5445,16 @@ components:
           type: boolean
         autoCompactionTelegram:
           type: boolean
+        crossSessionCarryOverTtlDays:
+          type: integer
+          minimum: 1
+          maximum: 90
+          description: |
+            ADR-074 Slice M3 — maximum age (in days) of a previous-session
+            synopsis or unresolved open-loop that is eligible for the turn-0
+            cross-session carry-over block. Older items are silently dropped.
+            Plan-policy tunable; the top-N synopsis cap (3) is a hard-coded
+            constant per Principle 1 ("magic, not user-controlled").
     AdminPlanRetrievalPolicy:
       type: object
       required:

@@ -5,12 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type AssistantKnowledgeSourceStatus =
-  (typeof AssistantKnowledgeSourceStatus)[keyof typeof AssistantKnowledgeSourceStatus];
+export type AssistantKnowledgeSourceStatus = typeof AssistantKnowledgeSourceStatus[keyof typeof AssistantKnowledgeSourceStatus];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantKnowledgeSourceStatus = {
-  processing: "processing",
-  ready: "ready",
-  failed: "failed"
+  processing: 'processing',
+  ready: 'ready',
+  failed: 'failed',
 } as const;

@@ -4,6 +4,8 @@ import type { RuntimeTurnRequest } from "@persai/runtime-contract";
 import type { RuntimeStatePrismaService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import {
   PersaiInternalApiClientService,
+  type InternalFindCrossSessionCarryOverInput,
+  type InternalFindCrossSessionCarryOverOutcome,
   type InternalHydrateMemoryForTurnInput,
   type InternalHydrateMemoryForTurnOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
@@ -18,6 +20,14 @@ const HYDRATED_MEMORY_CONTEXT =
 class FakePersaiInternalApiClientService {
   configured = true;
   lastInputs: InternalHydrateMemoryForTurnInput[] = [];
+  // ADR-074 Slice M3 — track every call to the cross-session carry-over fetch
+  // so tests can assert turn-0-only behaviour and graceful failure handling.
+  carryOverInputs: InternalFindCrossSessionCarryOverInput[] = [];
+  carryOverOutcome: InternalFindCrossSessionCarryOverOutcome = {
+    recentSynopses: [],
+    unresolvedOpenLoops: []
+  };
+  carryOverFailure: Error | null = null;
   outcome: InternalHydrateMemoryForTurnOutcome = {
     core: [
       {
@@ -54,6 +64,16 @@ class FakePersaiInternalApiClientService {
     this.lastInputs.push(input);
     return this.outcome;
   }
+
+  async findCrossSessionCarryOver(
+    input: InternalFindCrossSessionCarryOverInput
+  ): Promise<InternalFindCrossSessionCarryOverOutcome> {
+    this.carryOverInputs.push(input);
+    if (this.carryOverFailure !== null) {
+      throw this.carryOverFailure;
+    }
+    return this.carryOverOutcome;
+  }
 }
 
 function createRuntimeBundle(
@@ -69,6 +89,7 @@ function createRuntimeBundle(
         knowledgeHydrationBudget: 2_400,
         autoCompactionWeb: false,
         autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7,
         ...overrides
       }
     }
@@ -801,4 +822,235 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     role: "assistant",
     content: "message-18"
   });
+
+  await runCrossSessionCarryOverM3Acceptance();
+}
+
+// ADR-074 Slice M3 — turn-0-only invariant + render order + graceful failure.
+async function runCrossSessionCarryOverM3Acceptance(): Promise<void> {
+  function buildHarness(): {
+    service: TurnContextHydrationService;
+    prisma: FakeRuntimeStatePrismaService;
+    runtimeStatePostgres: FakeRuntimeStatePostgresService;
+    persaiInternalApiClient: FakePersaiInternalApiClientService;
+  } {
+    const prisma = new FakeRuntimeStatePrismaService();
+    const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+    const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return null;
+      }
+    };
+    const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+    const service = new TurnContextHydrationService(
+      prisma as unknown as RuntimeStatePrismaService,
+      runtimeStatePostgres as never,
+      runtimeStateKeyspace as never,
+      mediaObjectStorage as never,
+      new RuntimeAssistantFileRegistryService(
+        prisma as unknown as RuntimeStatePrismaService,
+        mediaObjectStorage as never
+      ),
+      persaiInternalApiClient as unknown as PersaiInternalApiClientService
+    );
+    return { service, prisma, runtimeStatePostgres, persaiInternalApiClient };
+  }
+
+  function buildSimpleRequest(): RuntimeTurnRequest {
+    return {
+      requestId: "request-m3",
+      idempotencyKey: "message-current-m3",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        publishedVersionId: "version-1",
+        bundleHash: "1111111111111111111111111111111111111111111111111111111111111111",
+        compiledAt: "2026-04-11T12:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        channel: "web",
+        externalThreadKey: "thread-m3",
+        externalUserKey: "user-1",
+        mode: "direct"
+      },
+      message: {
+        text: "hi again, brand new thread",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: "2026-04-22T12:00:00.000Z"
+      }
+    };
+  }
+
+  // Scenario A — turn 0 (no prior chat at all) + non-empty carry-over →
+  // M3 block prepended right after the durable_memory_core block, with the
+  // canonical "[Continuity from earlier conversations…]" stable header.
+  {
+    const harness = buildHarness();
+    harness.prisma.chat = null;
+    harness.persaiInternalApiClient.carryOverOutcome = {
+      recentSynopses: [
+        {
+          runtimeSessionId: "session-1",
+          channel: "web",
+          synopsisUpdatedAt: "2026-04-21T09:00:00.000Z",
+          summaryPayload: {
+            schema: "persai.runtimeSessionCompaction.v2",
+            toolCode: "compact_context",
+            preservedRecentMessageCount: 4,
+            summarizedMessageCount: 6,
+            sections: {
+              stableFacts: ["Decided on Atlas project review focus."],
+              userPreferences: [],
+              assistantCommitments: [],
+              openThreads: [],
+              importantReferences: []
+            }
+          }
+        }
+      ],
+      unresolvedOpenLoops: [
+        {
+          id: "loop-1",
+          summary: "Need to confirm Barcelona retreat venue.",
+          createdAt: "2026-04-20T10:00:00.000Z"
+        }
+      ]
+    };
+    const result = await harness.service.buildMessages(buildSimpleRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      1,
+      "turn 0 must call findCrossSessionCarryOver exactly once"
+    );
+    const call = harness.persaiInternalApiClient.carryOverInputs[0]!;
+    assert.equal(call.assistantId, "assistant-1");
+    assert.equal(call.ttlDays, 7, "ttlDays must come from the bundle's contextHydration policy");
+    assert.equal(call.excludeRuntimeSessionId, null);
+    assert.equal(call.requestId, "request-m3");
+    assert.equal(result.length, 3, "core block + carry-over block + current user message");
+    assert.equal(result[0]?.role, "assistant");
+    assert.ok(
+      typeof result[0]?.content === "string" &&
+        result[0].content.startsWith("[Durable user context retained across conversations]")
+    );
+    const carryOverMessage = result[1];
+    assert.equal(carryOverMessage?.role, "assistant");
+    assert.ok(typeof carryOverMessage?.content === "string");
+    const carryOverContent = carryOverMessage.content as string;
+    assert.ok(
+      carryOverContent.startsWith(
+        "[Continuity from earlier conversations — surfaced on the first turn of a new thread]"
+      ),
+      `carry-over block must use the M3 stable header; got: ${carryOverContent.slice(0, 80)}`
+    );
+    assert.ok(carryOverContent.includes("Need to confirm Barcelona retreat venue."));
+    assert.equal(result[2]?.role, "user");
+    assert.equal(result[2]?.content, "hi again, brand new thread");
+  }
+
+  // Scenario B — non-turn-0 (existing thread has prior hydratable messages)
+  // → findCrossSessionCarryOver MUST NOT be called even with a configured
+  // client, because the in-thread context already covers what M3 would
+  // duplicate.
+  {
+    const harness = buildHarness();
+    harness.prisma.chat = { id: "chat-existing" };
+    harness.prisma.messages = [
+      {
+        id: "earlier-1",
+        author: "user",
+        content: "an earlier user turn",
+        attachments: []
+      },
+      {
+        id: "earlier-2",
+        author: "assistant",
+        content: "an earlier assistant turn",
+        attachments: []
+      },
+      {
+        id: "message-current-m3",
+        author: "user",
+        content: "hi again, brand new thread",
+        attachments: []
+      }
+    ];
+    await harness.service.buildMessages(buildSimpleRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      0,
+      "non-turn-0 path must NOT call findCrossSessionCarryOver"
+    );
+  }
+
+  // Scenario C — fetch failure must be swallowed and the turn must still
+  // build successfully (the M3 block is simply omitted). This is the
+  // "humanity-degrades-gracefully" guarantee from ADR-074.
+  {
+    const harness = buildHarness();
+    harness.prisma.chat = null;
+    harness.persaiInternalApiClient.carryOverFailure = new Error("internal API down");
+    const result = await harness.service.buildMessages(buildSimpleRequest(), createRuntimeBundle());
+    assert.equal(harness.persaiInternalApiClient.carryOverInputs.length, 1);
+    assert.equal(
+      result.length,
+      2,
+      "carry-over fetch failure → only durable_memory_core + current user message"
+    );
+    assert.ok(
+      typeof result[0]?.content === "string" &&
+        (result[0].content as string).startsWith(
+          "[Durable user context retained across conversations]"
+        )
+    );
+    assert.equal(result[1]?.role, "user");
+    assert.equal(result[1]?.content, "hi again, brand new thread");
+  }
+
+  // Scenario D — TTL=0 in policy short-circuits the network call entirely
+  // (admin can disable M3 by setting crossSessionCarryOverTtlDays<=0
+  // through the bundle; defensive code path).
+  {
+    const harness = buildHarness();
+    harness.prisma.chat = null;
+    harness.persaiInternalApiClient.carryOverOutcome = {
+      recentSynopses: [
+        {
+          runtimeSessionId: "session-x",
+          channel: "web",
+          synopsisUpdatedAt: "2026-04-21T09:00:00.000Z",
+          summaryPayload: {
+            schema: "persai.runtimeSessionCompaction.v2",
+            toolCode: "compact_context",
+            preservedRecentMessageCount: 4,
+            summarizedMessageCount: 6,
+            sections: {
+              stableFacts: ["Should not appear because TTL=0."],
+              userPreferences: [],
+              assistantCommitments: [],
+              openThreads: [],
+              importantReferences: []
+            }
+          }
+        }
+      ],
+      unresolvedOpenLoops: []
+    };
+    await harness.service.buildMessages(
+      buildSimpleRequest(),
+      createRuntimeBundle({ crossSessionCarryOverTtlDays: 0 })
+    );
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      0,
+      "ttlDays<=0 must short-circuit before the internal API is called"
+    );
+  }
 }

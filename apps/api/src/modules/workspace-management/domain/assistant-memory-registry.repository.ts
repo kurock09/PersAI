@@ -87,4 +87,39 @@ export interface AssistantMemoryRegistryRepository {
     assistantId: string,
     normalizedSummary: string
   ): Promise<AssistantMemoryRegistryItem | null>;
+  /**
+   * ADR-074 Slice M3 — list active (not-forgotten, not-resolved) durable
+   * `open_loop` memories for `(assistantId, userId)` whose `created_at` is
+   * still within the configured carry-over TTL window. Used by the
+   * cross-session carry-over service to inject the "still open from prior
+   * sessions" block into the next conversation, regardless of channel.
+   */
+  findActiveOpenLoopsByAssistantUser(
+    assistantId: string,
+    userId: string,
+    sinceCreatedAt: Date,
+    limit: number
+  ): Promise<AssistantMemoryRegistryItem[]>;
+  /**
+   * ADR-074 Slice M3 — stamp `resolved_at = now()` on an `open_loop` row.
+   * Returns true if a row was updated, false if the row was already
+   * resolved/forgotten or did not match the assistant. Safe to call when no
+   * matching open-loop exists; callers are expected to short-circuit on
+   * the boolean.
+   */
+  setResolvedAtById(id: string, assistantId: string): Promise<boolean>;
+  /**
+   * ADR-074 Slice M3 — opt-in close-most-similar lookup for `kind = open_loop`.
+   * Performs a deterministic lexical token-overlap match against active
+   * (not-forgotten, not-resolved) open-loops for the same `(assistantId,
+   * userId)`. Returns the highest-scoring candidate, or `null` if none
+   * share enough significant tokens with `referenceText` to be considered
+   * a match. The matching policy is intentionally simple (no embedding
+   * round-trip): M3.1 will replace this with a structured close action.
+   */
+  findMostSimilarActiveOpenLoop(
+    assistantId: string,
+    userId: string,
+    referenceText: string
+  ): Promise<AssistantMemoryRegistryItem | null>;
 }

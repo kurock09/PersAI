@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention =
-  (typeof ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention)[keyof typeof ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention];
+export type ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention = typeof ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention[keyof typeof ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const ComplianceRetentionDeleteBaselineStateMemoryRegistryRetention = {
-  retained_until_forget_or_do_not_remember: "retained_until_forget_or_do_not_remember"
+  retained_until_forget_or_do_not_remember: 'retained_until_forget_or_do_not_remember',
 } as const;

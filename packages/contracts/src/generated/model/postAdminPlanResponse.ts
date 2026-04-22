@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AdminPlanState } from "./adminPlanState";
+import type { AdminPlanState } from './adminPlanState';
 
 export interface PostAdminPlanResponse {
   /** @nullable */

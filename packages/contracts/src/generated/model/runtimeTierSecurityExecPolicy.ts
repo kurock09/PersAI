@@ -5,10 +5,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RuntimeTierSecurityExecPolicy =
-  (typeof RuntimeTierSecurityExecPolicy)[keyof typeof RuntimeTierSecurityExecPolicy];
+export type RuntimeTierSecurityExecPolicy = typeof RuntimeTierSecurityExecPolicy[keyof typeof RuntimeTierSecurityExecPolicy];
+
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const RuntimeTierSecurityExecPolicy = {
-  sandbox_only: "sandbox_only"
+  sandbox_only: 'sandbox_only',
 } as const;

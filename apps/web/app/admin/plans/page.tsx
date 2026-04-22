@@ -105,6 +105,7 @@ export type PlanDraft = {
   sharedCompactionSummaryBudgetTokens: string;
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
+  crossSessionCarryOverTtlDays: string;
   primaryModelKey: string;
   premiumModelKey: string;
   reasoningModelKey: string;
@@ -148,13 +149,15 @@ type NumericDraftField =
   | "compactionTriggerThreshold"
   | "keepRecentMinimum"
   | "knowledgeHydrationBudget"
-  | "sharedCompactionSummaryBudgetTokens";
+  | "sharedCompactionSummaryBudgetTokens"
+  | "crossSessionCarryOverTtlDays";
 
 type DraftValidationErrors = Partial<Record<NumericDraftField, string>>;
 type NumericDraftRule = {
   field: NumericDraftField;
   label: string;
   min: number;
+  max?: number;
   allowBlank?: boolean;
 };
 
@@ -193,6 +196,7 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
       | "knowledgeHydrationBudget"
       | "autoCompactionWeb"
       | "autoCompactionTelegram"
+      | "crossSessionCarryOverTtlDays"
     >,
     never
   >
@@ -203,7 +207,8 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     keepRecentMinimum: "2",
     knowledgeHydrationBudget: "1200",
     autoCompactionWeb: true,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: "7"
   },
   balanced: {
     targetContextBudget: "24000",
@@ -211,7 +216,8 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     keepRecentMinimum: "4",
     knowledgeHydrationBudget: "2400",
     autoCompactionWeb: false,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: "7"
   },
   rich: {
     targetContextBudget: "32000",
@@ -219,7 +225,8 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     keepRecentMinimum: "6",
     knowledgeHydrationBudget: "3600",
     autoCompactionWeb: false,
-    autoCompactionTelegram: true
+    autoCompactionTelegram: true,
+    crossSessionCarryOverTtlDays: "7"
   }
 };
 
@@ -248,6 +255,7 @@ function applyContextPolicyPreset(
   | "sharedCompactionSummaryBudgetTokens"
   | "autoCompactionWeb"
   | "autoCompactionTelegram"
+  | "crossSessionCarryOverTtlDays"
 > {
   return {
     contextPolicyPreset: preset,
@@ -276,7 +284,7 @@ function parseMimeAllowlistDraft(value: string): string[] {
 
 function parseStrictIntegerDraft(
   value: string,
-  options: { label: string; min: number; allowBlank?: boolean }
+  options: { label: string; min: number; max?: number; allowBlank?: boolean }
 ): number | null {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
@@ -294,6 +302,9 @@ function parseStrictIntegerDraft(
       throw new Error(`${options.label} must be blank or at least ${String(options.min)}.`);
     }
     throw new Error(`${options.label} must be at least ${String(options.min)}.`);
+  }
+  if (typeof options.max === "number" && parsed > options.max) {
+    throw new Error(`${options.label} must be at most ${String(options.max)}.`);
   }
   return parsed;
 }
@@ -335,6 +346,12 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
     label: "Shared summary budget",
     min: 1,
     allowBlank: true
+  },
+  {
+    field: "crossSessionCarryOverTtlDays",
+    label: "Cross-session carry-over TTL (days)",
+    min: 1,
+    max: 90
   }
 ];
 
@@ -539,6 +556,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       plan.contextPolicy.sharedCompactionSummaryBudgetTokens?.toString() ?? "",
     autoCompactionWeb: plan.contextPolicy.autoCompactionWeb,
     autoCompactionTelegram: plan.contextPolicy.autoCompactionTelegram,
+    crossSessionCarryOverTtlDays: plan.contextPolicy.crossSessionCarryOverTtlDays.toString(),
     primaryModelKey: plan.primaryModelKey ?? "",
     premiumModelKey: plan.premiumModelKey ?? "",
     reasoningModelKey: plan.reasoningModelKey ?? "",
@@ -768,7 +786,12 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
             sharedCompactionSummaryBudgetTokens
           }),
       autoCompactionWeb: draft.autoCompactionWeb,
-      autoCompactionTelegram: draft.autoCompactionTelegram
+      autoCompactionTelegram: draft.autoCompactionTelegram,
+      crossSessionCarryOverTtlDays: parseStrictIntegerDraft(draft.crossSessionCarryOverTtlDays, {
+        label: "Cross-session carry-over TTL (days)",
+        min: 1,
+        max: 90
+      })!
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
     premiumModelKey: toNullable(draft.premiumModelKey),
@@ -1924,6 +1947,30 @@ function PlanForm({
                     />
                     <FieldError message={validationErrors.knowledgeHydrationBudget} />
                   </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Cross-session carry-over TTL (days)</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={draft.crossSessionCarryOverTtlDays}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          crossSessionCarryOverTtlDays: value
+                        })
+                      }
+                      placeholder="7"
+                      invalid={Boolean(validationErrors.crossSessionCarryOverTtlDays)}
+                    />
+                    <FieldError message={validationErrors.crossSessionCarryOverTtlDays} />
+                    <HelpText>
+                      ADR-074 Slice M3 — how far back (in days) a previous-session synopsis or
+                      unresolved open-loop is eligible for the turn-0 cross-session carry-over
+                      block. Range 1..90, default 7. Top-3 most-recent synopses is a hard-coded code
+                      constant (not configurable).
+                    </HelpText>
+                  </label>
                   <label className="space-y-1 text-[11px] font-medium text-text sm:col-span-2">
                     <span className="block">Shared summary budget</span>
                     <Input
@@ -2196,6 +2243,9 @@ function PlanCardReadOnly({
                   <div>
                     Auto web / TG: {plan.contextPolicy.autoCompactionWeb ? "on" : "off"} /{" "}
                     {plan.contextPolicy.autoCompactionTelegram ? "on" : "off"}
+                  </div>
+                  <div>
+                    Cross-session carry-over TTL: {plan.contextPolicy.crossSessionCarryOverTtlDays}d
                   </div>
                 </div>
               </Sec>

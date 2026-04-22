@@ -250,7 +250,8 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,
@@ -381,7 +382,8 @@ function createWarmInputMissingToolPolicy() {
         keepRecentMinimum: 4,
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
-        autoCompactionTelegram: true
+        autoCompactionTelegram: true,
+        crossSessionCarryOverTtlDays: 7
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
       workerTools: WORKER_TOOLS_CONFIG,

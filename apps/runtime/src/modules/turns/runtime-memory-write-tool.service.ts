@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeMemoryWriteKind,
@@ -17,6 +17,8 @@ export interface RuntimeMemoryWriteToolExecutionResult {
 
 @Injectable()
 export class RuntimeMemoryWriteToolService {
+  private readonly logger = new Logger(RuntimeMemoryWriteToolService.name);
+
   constructor(private readonly persaiInternalApiClientService: PersaiInternalApiClientService) {}
 
   async executeToolCall(params: {
@@ -77,6 +79,25 @@ export class RuntimeMemoryWriteToolService {
         };
       }
 
+      // ADR-074 Slice M3 — opt-in explicit close of the most-similar active
+      // open-loop. Failures here MUST NOT fail the surrounding memory_write
+      // (which already succeeded server-side); we log and move on.
+      if (request.closeOpenLoop) {
+        try {
+          await this.persaiInternalApiClientService.closeMostSimilarOpenLoop({
+            assistantId: params.bundle.metadata.assistantId,
+            referenceText: request.memory,
+            requestId: params.requestId
+          });
+        } catch (closeError) {
+          this.logger.warn(
+            `[memory_write] closeOpenLoop=true follow-up failed for assistant=${params.bundle.metadata.assistantId}: ${
+              closeError instanceof Error ? closeError.message : String(closeError)
+            }`
+          );
+        }
+      }
+
       return {
         payload: {
           toolCode: "memory_write",
@@ -103,14 +124,27 @@ export class RuntimeMemoryWriteToolService {
 
   private readArguments(
     args: Record<string, unknown>
-  ): { kind: PersaiRuntimeMemoryWriteKind; memory: string } | Error {
-    const unknownKeys = Object.keys(args).filter((key) => key !== "kind" && key !== "memory");
+  ): { kind: PersaiRuntimeMemoryWriteKind; memory: string; closeOpenLoop: boolean } | Error {
+    const unknownKeys = Object.keys(args).filter(
+      (key) => key !== "kind" && key !== "memory" && key !== "closeOpenLoop"
+    );
     const kind = this.asKind(args.kind);
     const memory = this.normalizeMemory(args.memory);
-    if (unknownKeys.length > 0 || kind === null || memory === null) {
+    const closeOpenLoop = this.asCloseOpenLoop(args.closeOpenLoop);
+    if (unknownKeys.length > 0 || kind === null || memory === null || closeOpenLoop === null) {
       return new Error("Memory write arguments are invalid.");
     }
-    return { kind, memory };
+    return { kind, memory, closeOpenLoop };
+  }
+
+  private asCloseOpenLoop(value: unknown): boolean | null {
+    if (value === undefined) {
+      return false;
+    }
+    if (typeof value === "boolean") {
+      return value;
+    }
+    return null;
   }
 
   private createSkippedPayload(

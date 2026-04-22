@@ -4,9 +4,9 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { AssistantDraftStateTraits } from "./assistantDraftStateTraits";
-import type { AssistantDraftStateAssistantGender } from "./assistantDraftStateAssistantGender";
-import type { AssistantVoiceProfileState } from "./assistantVoiceProfileState";
+import type { AssistantDraftStateTraits } from './assistantDraftStateTraits';
+import type { AssistantDraftStateAssistantGender } from './assistantDraftStateAssistantGender';
+import type { AssistantVoiceProfileState } from './assistantVoiceProfileState';
 
 export interface AssistantDraftState {
   /** @nullable */

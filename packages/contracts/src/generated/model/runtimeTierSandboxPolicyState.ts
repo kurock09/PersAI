@@ -4,12 +4,12 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { RuntimeTierSandboxPolicyStateMode } from "./runtimeTierSandboxPolicyStateMode";
-import type { RuntimeTierSandboxPolicyStateBackend } from "./runtimeTierSandboxPolicyStateBackend";
-import type { RuntimeTierSandboxPolicyStateScope } from "./runtimeTierSandboxPolicyStateScope";
-import type { RuntimeTierSandboxPolicyStateWorkspaceAccess } from "./runtimeTierSandboxPolicyStateWorkspaceAccess";
-import type { RuntimeTierSandboxPolicyStateNetwork } from "./runtimeTierSandboxPolicyStateNetwork";
-import type { RuntimeTierSandboxPolicyStateSessionToolsVisibility } from "./runtimeTierSandboxPolicyStateSessionToolsVisibility";
+import type { RuntimeTierSandboxPolicyStateMode } from './runtimeTierSandboxPolicyStateMode';
+import type { RuntimeTierSandboxPolicyStateBackend } from './runtimeTierSandboxPolicyStateBackend';
+import type { RuntimeTierSandboxPolicyStateScope } from './runtimeTierSandboxPolicyStateScope';
+import type { RuntimeTierSandboxPolicyStateWorkspaceAccess } from './runtimeTierSandboxPolicyStateWorkspaceAccess';
+import type { RuntimeTierSandboxPolicyStateNetwork } from './runtimeTierSandboxPolicyStateNetwork';
+import type { RuntimeTierSandboxPolicyStateSessionToolsVisibility } from './runtimeTierSandboxPolicyStateSessionToolsVisibility';
 
 export interface RuntimeTierSandboxPolicyState {
   required: boolean;

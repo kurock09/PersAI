@@ -4,7 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
-import type { PersonaArchetypeRuntimeState } from "./personaArchetypeRuntimeState";
+import type { PersonaArchetypeRuntimeState } from './personaArchetypeRuntimeState';
 
 export interface GetAssistantPersonaArchetypesResponse {
   /** @nullable */
