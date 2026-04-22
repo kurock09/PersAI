@@ -83,10 +83,18 @@ export class UpdateAssistantNotificationPreferenceService {
       );
     }
 
+    // ADR-074 Slice T2 — every successful manual preference update writes
+    // `preferredNotificationChannelChosenAt` (the D-marker). This is what
+    // protects the user's explicit choice against the auto-select helper
+    // that fires on subsequent channel binds: once non-NULL the helper
+    // short-circuits as `already_chosen`. Founder-flipping the pill back to
+    // `web` after a TG bind, for example, must remain `web` even if they
+    // re-claim the bot tomorrow.
     await this.prisma.assistant.update({
       where: { id: assistant.id },
       data: {
-        preferredNotificationChannel: request.channel as PrismaPreferredNotificationChannel
+        preferredNotificationChannel: request.channel as PrismaPreferredNotificationChannel,
+        preferredNotificationChannelChosenAt: new Date()
       }
     });
 

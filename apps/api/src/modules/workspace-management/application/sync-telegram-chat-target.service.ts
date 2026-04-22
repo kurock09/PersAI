@@ -1,8 +1,12 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
+// ADR-074 Slice T2: VALUE import (not `import type`) — Nest needs the class
+// symbol at runtime for DI. M2/T1 precedent: `import type` for an injectable
+// is the known DI footgun that throws `UnknownDependenciesException` at boot.
+import { AutoSelectNotificationChannelOnBindService } from "./auto-select-notification-channel-on-bind.service";
 
 export interface TelegramChatTargetSyncRequest {
   assistantId: string;
@@ -19,9 +23,12 @@ export interface TelegramChatTargetSyncRequest {
 
 @Injectable()
 export class SyncTelegramChatTargetService {
+  private readonly logger = new Logger(SyncTelegramChatTargetService.name);
+
   constructor(
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
-    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository
+    private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
+    private readonly autoSelectNotificationChannelOnBindService: AutoSelectNotificationChannelOnBindService
   ) {}
 
   async execute(input: TelegramChatTargetSyncRequest): Promise<void> {
@@ -75,5 +82,30 @@ export class SyncTelegramChatTargetService {
       "telegram_bot",
       metadataPatch
     );
+
+    // ADR-074 Slice T2 — auto-route T1 pushes to first-bound notification
+    // channel. Only the private-DM owner-claim transition counts as a "bind
+    // completion" for routing purposes: it is the first moment when the
+    // binding has a `telegramDmChatId` populated (above) AND an established
+    // owner identity, which together is exactly what
+    // `tryDeliverReminderToTelegram` requires. Group-chat updates and
+    // non-claim metadata refreshes are NOT bind completions and must not
+    // touch the user's notification preference.
+    //
+    // Best-effort: helper failures (e.g. assistant row missing in a
+    // multi-shard race) must not roll back the bind itself. The helper
+    // catches and logs internally; we still wrap it for total safety.
+    if (input.claimOwner && isPrivateChat) {
+      try {
+        await this.autoSelectNotificationChannelOnBindService.execute({
+          assistantId: input.assistantId,
+          bindingChannel: "telegram"
+        });
+      } catch (error) {
+        this.logger.warn(
+          `AutoSelectNotificationChannelOnBind failed for assistant ${input.assistantId} after Telegram owner-claim; bind succeeded but preferred channel left unchanged: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
   }
 }

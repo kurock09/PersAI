@@ -926,45 +926,134 @@ The block lives in `developerInstructions` (P1 tail), prepended by `routingGuida
 
 ---
 
-### Slice T2 — Scheduled action multichannel delivery (Telegram outbound)
+### Slice T2 — Auto-route T1 pushes to first-bound notification channel
 
-- **Goal:** Route audience=user scheduled actions to the user's preferred active channel — Telegram if bot is bound and active, web otherwise. Today they always land in web chat regardless of binding.
-- **Founder anchor:** From Q7-B-T2.
+- **Status:** scoped 2026-04-22; ready for implementation.
+- **Goal:** Make the existing Telegram delivery path (`DeliverReminderNotificationService.tryDeliverReminderToTelegram`) actually fire for T1 `audience="user"` pushes by auto-selecting `Assistant.preferredNotificationChannel` when the user binds their first non-web channel — while honoring an explicit user choice if one was already made.
+- **Founder anchor:** "механизм отправки в TG уже есть и выбирается он в настройках, единственное я бы сделал автовыбор как подключил телегу чтобы он сам выбрался как TG" + Q4-A (TG today, generalize as more channels arrive) + Q7-B (one-time backfill so existing TG-bound founder gets pushes after first rollout).
+
+**Code-archaeology finding (2026-04-22, verified in scheduler + delivery code):**
+
+The original T2 spec above (now superseded by this section) was written before reading the actual scheduler/delivery flow. In reality:
+
+```
+PersaiScheduledActionSchedulerService.processClaimedTask
+  ├─ if audience === "assistant" → RunScheduledAssistantActionService → web chat (model turn, hidden prompt)
+  └─ if audience === "user" (T1):
+       ├─ ProactivePushPolicyService gate (T1 safeguards, already shipped)
+       └─ HandleInternalCronFireService.execute({ summary: payloadText })
+            ├─ claim/replay protection (idempotent on (assistantId, replayKey))
+            └─ DeliverReminderNotificationService.execute
+                 ├─ if preferredNotificationChannel === "telegram" + binding active + telegramDmChatId metadata:
+                 │    → tryDeliverReminderToTelegram → POST api.telegram.org/bot<token>/sendMessage (plain text)
+                 └─ else: deliverReminderToWeb (assistant message in `system:reminders` web thread)
+```
+
+`SyncTelegramChatTargetService.execute({ claimOwner: true, isPrivateChat: true })` already populates `metadata.telegramDmChatId`, `metadata.reminderDeliveryChatId`, etc. on TG owner-claim. So the TG outbound infrastructure is **complete**; the only reason T1 pushes never reach TG today is that `Assistant.preferredNotificationChannel` defaults to `"web"` and is never auto-flipped on bind.
+
+T2 therefore reduces to: (a) introduce `preferredNotificationChannelChosenAt` to distinguish "user explicitly picked this" from "still on default", (b) auto-set `preferredNotificationChannel = "telegram"` exactly when a fresh TG owner-claim succeeds **and** `chosenAt IS NULL`, (c) treat manual UI changes as explicit choice (write `chosenAt`), (d) one-time SQL backfill for assistants who bound TG before this slice landed.
+
+Crucially, `RunScheduledAssistantActionService`, `SendNativeWebChatTurnService`, runtime `channel: "telegram"`, and the `RuntimePersaiScheduledActionSourceSurface` enum are **not touched**. No `ChannelDeliveryRouter`, no `SendNativeTelegramOutboundService`, no new scenario yaml. The existing per-tick claim/replay key in `HandleInternalCronFireService` already gives idempotency, and the T1 policy gate already runs before delivery so "1 push per 48h, quiet hours, auto-mute" naturally apply combined across channels (the cap is on `lastFiredAt`, not per-channel).
+
+**Decisions captured (founder interview, 2026-04-22):**
+
+| # | Question | Choice | Rationale |
+|---|---|---|---|
+| Q1 | Scope (auto-select-only vs full reroute) | B (full T2: auto-select + reroute) | Reroute is automatic once preferredChannel is "telegram" because `DeliverReminderNotificationService` already routes on it. |
+| Q2 | Auto-select semantics | D (override default + write `chosenAt` marker; respect prior explicit choice) | Smart default for fresh users without overriding deliberate "I want web" choices. |
+| Q3 | Source for "where to send T1 push" | A (only `preferredNotificationChannel`) | Predictable, no recent-activity heuristic, no duplication of M3.2 logic. |
+| Q4 | Where to trigger auto-set | A (inside `SyncTelegramChatTargetService` on owner-claim) | Single source of truth for TG bind completion; future channels add their own one-line call to the same helper. |
+| Q5 | Generalization | B (extract `AutoSelectNotificationChannelOnBindService` helper) | Shared 10-line policy reused by future WhatsApp/MAX bind flows; no copy-paste. |
+| Q6 | Acceptance | C (unit tests + manual founder UI gates, no live E2E TG bot test) | T1 already covers safeguard E2E; new logic is one bit of data, not new delivery path. |
+| Q7 | Pre-existing TG-bound assistants | B (one-time SQL backfill in same migration) | Founder already has TG bound with `preferredChannel="web"` since claim predates this slice; without backfill he must click manually. SQL is idempotent (filters `chosenAt IS NULL AND preferredChannel='web' AND telegramDmChatId IS NOT NULL`). |
 
 **Touch points:**
 
-- `apps/api/src/modules/workspace-management/application/run-scheduled-assistant-action.service.ts` — replace hard-coded call to `SendNativeWebChatTurnService` with a router that picks `sendNativeWebChatTurnService` or a new `SendNativeTelegramOutboundService` based on assistant channel bindings + recent user activity per channel.
-- New: `apps/api/src/modules/workspace-management/application/send-native-telegram-outbound.service.ts` — sends a system-initiated Telegram message via existing Telegram bot infrastructure.
-- `apps/runtime/src/modules/turns/turn-execution.service.ts` and `turn-context-hydration.service.ts` — verify `channel: "telegram"` works for system-initiated turns (existing test coverage suggests yes for inbound; verify outbound).
-- `packages/runtime-contract/src/index.ts` — extend `RuntimePersaiScheduledActionSourceSurface` if needed to include `telegram`.
-- `apps/api/prisma/schema.prisma` — `assistant_task_registry.source_surface` may need `telegram` value added.
-- New scenario for S0: `proactive-push-tg.yaml` (requires test TG bot in dev).
+- `apps/api/prisma/schema.prisma` — add `preferredNotificationChannelChosenAt DateTime?` to `Assistant` model. No index (read together with the row).
+- `apps/api/prisma/migrations/<ts>_assistant_preferred_notification_channel_chosen_at/migration.sql` — `ALTER TABLE` adds the column nullable; same file performs the one-time backfill for assistants where TG owner-claim metadata exists but no explicit choice was ever recorded.
+- New: `apps/api/src/modules/workspace-management/application/auto-select-notification-channel-on-bind.service.ts` — pure helper service: given `{ assistantId, bindingChannel: "telegram" | "whatsapp" }`, set `preferredNotificationChannel = bindingChannel` and `preferredNotificationChannelChosenAt = NOW()` only if `chosenAt IS NULL`. Idempotent via conditional `updateMany` (no-op when already chosen). Returns `{ changed: boolean, reason: "auto_set" | "already_chosen" | "channel_already_matches" }` for observability.
+- `apps/api/src/modules/workspace-management/application/sync-telegram-chat-target.service.ts` — when `input.claimOwner === true && isPrivateChat === true` (the existing branch that writes `telegramOwnerClaimStatus = "claimed"`), call `autoSelectNotificationChannelOnBindService.execute({ assistantId, bindingChannel: "telegram" })` after the metadata patch succeeds. **Order matters**: helper must run after the binding metadata is persisted, so a subsequent `DeliverReminderNotificationService` lookup sees the new `telegramDmChatId`. Best-effort: helper failures must not roll back the bind itself; log a warning and continue.
+- `apps/api/src/modules/workspace-management/application/update-assistant-notification-preference.service.ts` — every successful explicit preference change writes `preferredNotificationChannelChosenAt: new Date()` (becomes the D-marker that protects against the auto-set helper).
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — register `AutoSelectNotificationChannelOnBindService` as a provider; inject into `SyncTelegramChatTargetService`. **DI footgun reminder (M2/T1 precedent):** import the class as a value, not via `import type`.
+- `apps/api/src/modules/workspace-management/application/auto-select-notification-channel-on-bind.service.test.ts` — three pure unit cases: `chosenAt IS NULL` → set + write timestamp; `chosenAt set` → no-op (`already_chosen`); `chosenAt NULL && current channel already matches` → no write but report `channel_already_matches`. Plus one edge: assistant not found → throws/returns `{ changed: false }` (decide in implementation; document in service docstring).
+- `apps/api/test/sync-telegram-chat-target.service.test.ts` (new or extend existing) — integration: claim with `claimOwner=true` on assistant with `preferredChannel="web"` and no `chosenAt` → after execute, assistant row has `preferredChannel="telegram"` and `chosenAt` set; second claim (idempotent re-run) does not double-write timestamp. Symmetric: claim on assistant with `preferredChannel="web"` but `chosenAt` already set → preference unchanged.
+- `apps/api/test/update-assistant-notification-preference.service.test.ts` (new or extend) — flipping preference via the API writes `chosenAt` and survives a subsequent TG re-claim.
+- `apps/web/messages/{en,ru}.json` — no copy changes required for T2 (Settings already exposes the channel pill from M3.2; the auto-set is invisible to the user except for "Telegram is now selected" being pre-checked).
+
+**Migration backfill SQL (Q7-B):**
+
+```sql
+ALTER TABLE "assistants"
+  ADD COLUMN "preferredNotificationChannelChosenAt" TIMESTAMP(3);
+
+-- One-time backfill: any assistant that has a live Telegram owner-claim but
+-- still sits on the "web" default has effectively never made a notification
+-- choice. Promote them to "telegram" so T1 audience="user" pushes start
+-- routing through the existing tryDeliverReminderToTelegram path immediately
+-- after rollout. Filter on telegramDmChatId so we never auto-flip an
+-- assistant whose binding is mid-claim and lacks the DM target metadata.
+UPDATE "assistants" a
+SET
+  "preferredNotificationChannel" = 'telegram',
+  "preferredNotificationChannelChosenAt" = NOW()
+WHERE a."preferredNotificationChannelChosenAt" IS NULL
+  AND a."preferredNotificationChannel" = 'web'
+  AND EXISTS (
+    SELECT 1
+    FROM "assistant_channel_surface_bindings" b
+    WHERE b."assistant_id" = a."id"
+      AND b."provider_key" = 'telegram'
+      AND b."surface_type" = 'telegram_bot'
+      AND b."binding_state" = 'active'
+      AND b."metadata"->>'telegramDmChatId' IS NOT NULL
+  );
+```
+
+The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the migration (e.g., during an api-migrate pod restart) is a no-op because every row touched the first time now has a non-null timestamp.
 
 **Implementation outline:**
 
-1. Define `ChannelDeliveryRouter` service: given `(assistantId, userId)`, return preferred channel from `{web, telegram}` based on: (a) which channels are bound and active; (b) channel where user was active most recently (last 7 days).
-2. Build `SendNativeTelegramOutboundService`: takes assistant + user + reminder text, sends through existing Telegram bot path (the same one that handles outbound replies to inbound user messages). Respect `parseMode` and `dmPolicy` from binding.
-3. In `RunScheduledAssistantActionService.execute`, replace the unconditional `sendNativeWebChatTurnService.execute` with a switch on the channel router result.
-4. The runtime `channel: "telegram"` path for system-initiated turns: verify existing handling. If gaps, fix minimally — do not re-architect channel infrastructure.
-5. Honor T1 safeguards regardless of channel.
-6. Add `proactive-push-tg.yaml` scenario to S0; it requires a test bot configured in dev (document the setup in `docs/LIVE-TEST-HYBRID.md`).
+1. Schema + migration: add `preferredNotificationChannelChosenAt`, write the backfill SQL above into the same migration file.
+2. Build `AutoSelectNotificationChannelOnBindService` with the conditional `updateMany` pattern (atomic compare-and-set on `chosenAt IS NULL`).
+3. Wire helper into `SyncTelegramChatTargetService.execute` (after `patchMetadata`), inside the `claimOwner && isPrivateChat` branch only — group/non-claim updates do not change preference.
+4. Make `update-assistant-notification-preference.service.ts` write `chosenAt = new Date()` on every successful preference change (treat as D-marker).
+5. Tests as listed in touch points; reuse existing test harness for both files.
+6. Verification gate: `pnpm --filter "./apps/api" lint && pnpm --filter "./apps/api" typecheck && pnpm --filter "./apps/api" test -- auto-select-notification-channel-on-bind sync-telegram-chat-target update-assistant-notification-preference`. Plus root `pnpm format:check`.
 
 **Acceptance criteria:**
 
-- For an assistant with TG bound + recent TG activity: audience=user scheduled action lands in TG chat with the bot owner.
-- For web-only assistant: audience=user scheduled action lands in web chat (today's behavior preserved).
-- T1 safeguards still apply (1-per-48h includes both channels combined).
-- E2E scenario passes both web and TG paths.
+- Fresh assistant with no binding: `preferredChannel="web"`, `chosenAt=NULL`. T1 push lands in web chat (unchanged).
+- Fresh assistant binds TG via `/start <claim_code>` → owner-claim succeeds → `preferredChannel="telegram"`, `chosenAt` set. Next T1 push lands in TG via `tryDeliverReminderToTelegram`.
+- Assistant with `chosenAt` already set (manual prior choice) binds/re-binds TG → preference unchanged regardless of binding channel.
+- Migration on existing prod row (founder has TG bound + `preferredChannel="web"` + `chosenAt=NULL` + `telegramDmChatId` populated) → after `api-migrate` job, founder row shows `preferredChannel="telegram"`, `chosenAt=NOW()`. Next T1 push lands in TG.
+- T1 safeguards (1/48h, quiet hours, auto-mute) continue to fire; channel switch does not bypass the policy gate (gate runs in scheduler **before** `HandleInternalCronFireService` is even called).
+- Idempotency: re-running the migration is a no-op; calling the helper twice on the same assistant within a millisecond is a no-op.
+
+**Manual founder UI gates (Q6-C):**
+
+1. After deploy, refresh persai-dev Settings → "Reminder delivery" pill must show `Telegram` selected for the founder assistant (backfill effect).
+2. Create a one-shot scheduled action for the founder assistant with `delayMs ≈ 60s` and `audience="user"`. Wait. Push must arrive in the TG bot DM (not in web chat).
+3. In Settings, click `Web` to flip preference back. Create another one-shot push. Push must arrive in web chat. Confirms manual override works.
+4. Spin up a fresh staging assistant (no TG bound). Bind TG via the bot. Confirm Settings now shows `Telegram` selected automatically; create a push, confirm it lands in TG.
 
 **Out of scope (T2):**
 
-- Web push notifications (T3).
-- Multi-recipient delivery (still just primary user).
-- Group chat outbound (DM only at T2).
+- Web push (browser Notifications API) — deferred to T3.
+- Multi-recipient delivery — still primary user only.
+- Group chat outbound — DM-only path (matches `tryDeliverReminderToTelegram`'s existing behavior).
+- WhatsApp / MAX auto-set — helper is generalized to accept any channel string, but no WA bind flow exists yet to call it. Will be a one-line addition when WA lands.
+- Recent-activity heuristic for channel selection — explicitly rejected at Q3.
+- Refactoring `RunScheduledAssistantActionService` or runtime `channel: "telegram"` — they are not on the audience=user push path.
 
 **Slice T2 handoff prompt:**
 
-> You are implementing ADR-074 Slice T2 (Scheduled action multichannel delivery). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice T2 section in full. Slices S0, T1 must be landed. Channel routing is internal (not user-facing); user does not pick a channel, the router does. T1 safeguards still apply across both channels combined. Do not implement web push. Do not touch group chat semantics. Acceptance: web-only assistant unchanged behavior; TG-bound assistant receives push in TG; T1 1-per-48h enforced across channels. When done, SESSION-HANDOFF + CHANGELOG.
+> You are implementing ADR-074 Slice T2 (Auto-route T1 pushes to first-bound notification channel). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice T2 section in full first. Slices S0, T1 must be landed (T1 already shipped 2026-04-22).
+>
+> Scope is intentionally tiny: add `Assistant.preferredNotificationChannelChosenAt`, build a 10-line `AutoSelectNotificationChannelOnBindService` helper, call it from `SyncTelegramChatTargetService` on owner-claim, write `chosenAt` from manual preference updates, and one-time SQL backfill for existing TG-bound assistants. Do NOT touch `RunScheduledAssistantActionService`, do NOT build any router, do NOT add a `proactive-push-tg.yaml` scenario, do NOT change runtime channel handling. The existing `DeliverReminderNotificationService.tryDeliverReminderToTelegram` already does the actual TG send; the only thing missing is the `preferredChannel` value being set automatically.
+>
+> Honor T1 safeguards (they already gate before delivery — do not duplicate). Backfill SQL must be idempotent (filter `chosenAt IS NULL`). DI: import the helper class as a value, not via `import type` (M2/T1 precedent). Tests per Q6-C: 3 unit cases for helper + integration for `SyncTelegramChatTargetService` + integration for `update-assistant-notification-preference.service`.
+>
+> When done: `pnpm format:check`, `pnpm --filter "./apps/api" lint typecheck test`, then SESSION-HANDOFF + CHANGELOG entries, commit + push, wait for CI / Dev Image Publish / Argo CD rollout (api-migrate job runs the backfill).
 
 ---
 

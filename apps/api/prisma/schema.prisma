@@ -392,6 +392,13 @@ model Assistant {
   userId                       String                                @unique @map("user_id") @db.Uuid
   workspaceId                  String                                @map("workspace_id") @db.Uuid
   preferredNotificationChannel AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
+  /// ADR-074 Slice T2 D-marker. NULL = the user has never explicitly picked a
+  /// notification channel; the value is still on the `web` default. Set to the
+  /// current timestamp on (a) every successful manual preference update via
+  /// the Settings UI and (b) the first auto-set triggered by a fresh
+  /// non-web-channel bind (today: TG owner-claim). Once non-NULL, the
+  /// auto-set helper treats the choice as binding and never overrides it.
+  preferredNotificationChannelChosenAt DateTime?                       @map("preferred_notification_channel_chosen_at") @db.Timestamptz(6)
   draftDisplayName             String?                               @map("draft_display_name")
   draftInstructions            String?                               @map("draft_instructions")
   draftTraits                  Json?                                 @map("draft_traits") @db.JsonB

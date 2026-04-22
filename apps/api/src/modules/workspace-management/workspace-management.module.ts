@@ -45,6 +45,7 @@ import { ResolveAssistantVoiceSettingsService } from "./application/resolve-assi
 import { ConnectTelegramIntegrationService } from "./application/connect-telegram-integration.service";
 import { UpdateTelegramIntegrationConfigService } from "./application/update-telegram-integration-config.service";
 import { UpdateAssistantNotificationPreferenceService } from "./application/update-assistant-notification-preference.service";
+import { AutoSelectNotificationChannelOnBindService } from "./application/auto-select-notification-channel-on-bind.service";
 import { RevokeTelegramIntegrationSecretService } from "./application/revoke-telegram-integration-secret.service";
 import { ResendTelegramOwnerMessageService } from "./application/resend-telegram-owner-message.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
@@ -330,6 +331,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ConnectTelegramIntegrationService,
     UpdateTelegramIntegrationConfigService,
     UpdateAssistantNotificationPreferenceService,
+    AutoSelectNotificationChannelOnBindService,
     RevokeTelegramIntegrationSecretService,
     ResendTelegramOwnerMessageService,
     ResolvePlanVisibilityService,
