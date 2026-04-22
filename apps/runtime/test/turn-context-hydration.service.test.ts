@@ -7,7 +7,9 @@ import {
   type InternalFindCrossSessionCarryOverInput,
   type InternalFindCrossSessionCarryOverOutcome,
   type InternalHydrateMemoryForTurnInput,
-  type InternalHydrateMemoryForTurnOutcome
+  type InternalHydrateMemoryForTurnOutcome,
+  type InternalMarkCrossSessionCarryOverFiredInput,
+  type InternalMarkCrossSessionCarryOverFiredOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
 import { RuntimeAssistantFileRegistryService } from "../src/modules/turns/runtime-assistant-file-registry.service";
 import { TurnContextHydrationService } from "../src/modules/turns/turn-context-hydration.service";
@@ -28,6 +30,13 @@ class FakePersaiInternalApiClientService {
     unresolvedOpenLoops: []
   };
   carryOverFailure: Error | null = null;
+  // ADR-074 Slice M3.2 — capture every fire-and-forget bookkeeping call so
+  // tests can assert idle-trigger + cooldown semantics. Failures here are
+  // intentionally swallowed by the runtime, so we expose a knob to inject
+  // a rejection too.
+  markFiredInputs: InternalMarkCrossSessionCarryOverFiredInput[] = [];
+  markFiredFailure: Error | null = null;
+  markFiredOutcome: InternalMarkCrossSessionCarryOverFiredOutcome = { outcome: "advanced" };
   outcome: InternalHydrateMemoryForTurnOutcome = {
     core: [
       {
@@ -74,6 +83,16 @@ class FakePersaiInternalApiClientService {
     }
     return this.carryOverOutcome;
   }
+
+  async markCrossSessionCarryOverFired(
+    input: InternalMarkCrossSessionCarryOverFiredInput
+  ): Promise<InternalMarkCrossSessionCarryOverFiredOutcome> {
+    this.markFiredInputs.push(input);
+    if (this.markFiredFailure !== null) {
+      throw this.markFiredFailure;
+    }
+    return this.markFiredOutcome;
+  }
 }
 
 function createRuntimeBundle(
@@ -90,6 +109,8 @@ function createRuntimeBundle(
         autoCompactionWeb: false,
         autoCompactionTelegram: true,
         crossSessionCarryOverTtlDays: 7,
+        crossSessionCarryOverIdleHours: 4,
+        crossSessionCarryOverCooldownHours: 12,
         ...overrides
       }
     }
@@ -147,8 +168,18 @@ function createRuntimeTurnRequest(): RuntimeTurnRequest {
 }
 
 class FakeRuntimeStatePrismaService {
-  chat: { id: string } | null = {
-    id: "chat-1"
+  // ADR-074 Slice M3.2 — the chat row now also carries
+  // `lastMessageAt` and `lastCrossSessionCarryOverAt`, used by the long-idle
+  // re-trigger predicate and per-thread cooldown gate. Defaults are `null`
+  // to preserve the prior turn-0-only behaviour for tests that don't opt in.
+  chat: {
+    id: string;
+    lastMessageAt?: Date | null;
+    lastCrossSessionCarryOverAt?: Date | null;
+  } | null = {
+    id: "chat-1",
+    lastMessageAt: null,
+    lastCrossSessionCarryOverAt: null
   };
   lastFindFirstArgs: unknown = null;
   messages: Array<{
@@ -209,7 +240,14 @@ class FakeRuntimeStatePrismaService {
   assistantChat = {
     findFirst: async (args: unknown) => {
       this.lastFindFirstArgs = args;
-      return this.chat;
+      if (this.chat === null) {
+        return null;
+      }
+      return {
+        id: this.chat.id,
+        lastMessageAt: this.chat.lastMessageAt ?? null,
+        lastCrossSessionCarryOverAt: this.chat.lastCrossSessionCarryOverAt ?? null
+      };
     }
   };
 
@@ -695,8 +733,14 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       surface: "telegram",
       surfaceThreadKey: "telegram-chat-1"
     },
+    // ADR-074 Slice M3.2 — `loadAssistantChatRowMeta` is the LAST findFirst
+    // call in the hydration pipeline (it runs right after the canonical
+    // message-row fetch so the long-idle / cooldown gates can use the
+    // chat-row metadata) and selects three columns.
     select: {
-      id: true
+      id: true,
+      lastMessageAt: true,
+      lastCrossSessionCarryOverAt: true
     }
   });
 
@@ -1052,5 +1096,300 @@ async function runCrossSessionCarryOverM3Acceptance(): Promise<void> {
       0,
       "ttlDays<=0 must short-circuit before the internal API is called"
     );
+  }
+
+  await runCrossSessionCarryOverM3_2LongIdleAcceptance();
+}
+
+// ADR-074 Slice M3.2 — long-idle re-trigger + per-thread cooldown +
+// fire-and-forget bookkeeping bump. Post-compaction sub-trigger is
+// intentionally OUT OF SCOPE (founder 2026-04-22) and therefore not
+// covered here.
+async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
+  function buildHarness(): {
+    service: TurnContextHydrationService;
+    prisma: FakeRuntimeStatePrismaService;
+    persaiInternalApiClient: FakePersaiInternalApiClientService;
+  } {
+    const prisma = new FakeRuntimeStatePrismaService();
+    const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+    const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+    const mediaObjectStorage = {
+      async downloadObject() {
+        return null;
+      }
+    };
+    const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+    const service = new TurnContextHydrationService(
+      prisma as unknown as RuntimeStatePrismaService,
+      runtimeStatePostgres as never,
+      runtimeStateKeyspace as never,
+      mediaObjectStorage as never,
+      new RuntimeAssistantFileRegistryService(
+        prisma as unknown as RuntimeStatePrismaService,
+        mediaObjectStorage as never
+      ),
+      persaiInternalApiClient as unknown as PersaiInternalApiClientService
+    );
+    return { service, prisma, persaiInternalApiClient };
+  }
+
+  function buildExistingThreadRequest(): RuntimeTurnRequest {
+    return {
+      requestId: "request-m32",
+      idempotencyKey: "message-current-m32",
+      runtimeTier: "paid_shared_restricted",
+      bundle: {
+        bundleId: "bundle-1",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        publishedVersionId: "version-1",
+        bundleHash: "1111111111111111111111111111111111111111111111111111111111111111",
+        compiledAt: "2026-04-11T12:00:00.000Z"
+      },
+      conversation: {
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        channel: "web",
+        externalThreadKey: "thread-m32",
+        externalUserKey: "user-1",
+        mode: "direct"
+      },
+      message: {
+        text: "hi again — coming back after a long break",
+        attachments: [],
+        locale: "en",
+        timezone: "UTC",
+        receivedAt: new Date().toISOString()
+      }
+    };
+  }
+
+  function seedExistingThread(prisma: FakeRuntimeStatePrismaService): void {
+    prisma.messages = [
+      {
+        id: "earlier-1",
+        author: "user",
+        content: "the previous user turn from a few hours ago",
+        attachments: []
+      },
+      {
+        id: "earlier-2",
+        author: "assistant",
+        content: "the previous assistant reply",
+        attachments: []
+      },
+      {
+        id: "message-current-m32",
+        author: "user",
+        content: "hi again — coming back after a long break",
+        attachments: []
+      }
+    ];
+  }
+
+  function nonEmptyCarryOver(): InternalFindCrossSessionCarryOverOutcome {
+    return {
+      recentSynopses: [
+        {
+          runtimeSessionId: "session-prev",
+          channel: "web",
+          synopsisUpdatedAt: "2026-04-21T09:00:00.000Z",
+          summaryPayload: {
+            schema: "persai.runtimeSessionCompaction.v2",
+            toolCode: "compact_context",
+            preservedRecentMessageCount: 4,
+            summarizedMessageCount: 6,
+            sections: {
+              stableFacts: ["Decided on Atlas project review focus."],
+              userPreferences: [],
+              assistantCommitments: [],
+              openThreads: [],
+              importantReferences: []
+            }
+          }
+        }
+      ],
+      unresolvedOpenLoops: []
+    };
+  }
+
+  // Scenario M3.2-A — existing thread + idle ≥ idleHours + no prior fire →
+  // long-idle sub-trigger fires AND the bookkeeping cell is bumped via the
+  // fire-and-forget path. The `assistant_chats` row exists but has no prior
+  // `lastCrossSessionCarryOverAt` value, so the cooldown is vacuously
+  // satisfied.
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-idle",
+      // 5h ago, > default 4h idle threshold
+      lastMessageAt: new Date(now - 5 * 60 * 60 * 1000),
+      lastCrossSessionCarryOverAt: null
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      1,
+      "long-idle existing thread MUST fire findCrossSessionCarryOver exactly once"
+    );
+    // wait one tick for the fire-and-forget mark to flush
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      harness.persaiInternalApiClient.markFiredInputs.length,
+      1,
+      "non-empty carry-over MUST trigger exactly one mark-fired bookkeeping bump"
+    );
+    const markCall = harness.persaiInternalApiClient.markFiredInputs[0]!;
+    assert.equal(markCall.assistantChatId, "chat-existing-idle");
+    assert.equal(markCall.requestId, "request-m32");
+    assert.ok(typeof markCall.firedAt === "string" && markCall.firedAt.length > 0);
+  }
+
+  // Scenario M3.2-B — existing thread + idle ≥ idleHours + last fire WITHIN
+  // cooldown → MUST NOT fire. The cooldown gate protects against the
+  // assistant repeatedly "remembering" the same continuity block within a
+  // short window.
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-cooldown",
+      lastMessageAt: new Date(now - 5 * 60 * 60 * 1000),
+      // last fired 6h ago, < default 12h cooldown
+      lastCrossSessionCarryOverAt: new Date(now - 6 * 60 * 60 * 1000)
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      0,
+      "cooldown gate MUST suppress the long-idle sub-trigger entirely"
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      harness.persaiInternalApiClient.markFiredInputs.length,
+      0,
+      "no fetch ⇒ no bookkeeping bump"
+    );
+  }
+
+  // Scenario M3.2-C — existing thread + idle ≥ idleHours + last fire OLDER
+  // than cooldown → fires again and bookkeeping is bumped. This is the
+  // "next day, same thread" path.
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-cooldown-elapsed",
+      lastMessageAt: new Date(now - 5 * 60 * 60 * 1000),
+      // last fired 25h ago, > default 12h cooldown
+      lastCrossSessionCarryOverAt: new Date(now - 25 * 60 * 60 * 1000)
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(harness.persaiInternalApiClient.carryOverInputs.length, 1);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 1);
+  }
+
+  // Scenario M3.2-D — existing thread + idle BELOW threshold → MUST NOT
+  // fire (this is the same-day "I was just chatting two minutes ago" case).
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-fresh",
+      // 1h ago, < default 4h idle threshold
+      lastMessageAt: new Date(now - 60 * 60 * 1000),
+      lastCrossSessionCarryOverAt: null
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(harness.persaiInternalApiClient.carryOverInputs.length, 0);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 0);
+  }
+
+  // Scenario M3.2-E — turn 0 of a brand-new thread → fire AND bookkeeping
+  // bump (regression: M3 already fires here, M3.2 just adds the bump).
+  {
+    const harness = buildHarness();
+    harness.prisma.chat = {
+      id: "chat-brand-new",
+      lastMessageAt: null,
+      lastCrossSessionCarryOverAt: null
+    };
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(harness.persaiInternalApiClient.carryOverInputs.length, 1);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      harness.persaiInternalApiClient.markFiredInputs.length,
+      1,
+      "brand-new thread must also bump the cooldown cell so the next idle re-fire respects it"
+    );
+  }
+
+  // Scenario M3.2-F — long-idle path but the carry-over fetch returns
+  // an EMPTY block → no bookkeeping bump (the cooldown gate intentionally
+  // tracks *user-visible* fires only, so an empty render doesn't burn the
+  // cooldown window).
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-empty-render",
+      lastMessageAt: new Date(now - 5 * 60 * 60 * 1000),
+      lastCrossSessionCarryOverAt: null
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = {
+      recentSynopses: [],
+      unresolvedOpenLoops: []
+    };
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      1,
+      "the trigger predicate fires even when the fetched block ends up empty"
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      harness.persaiInternalApiClient.markFiredInputs.length,
+      0,
+      "empty render ⇒ no bookkeeping bump (cooldown tracks user-visible fires)"
+    );
+  }
+
+  // Scenario M3.2-G — bookkeeping bump failure is swallowed and the turn
+  // still completes successfully (humanity-degrades-gracefully).
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-mark-fail",
+      lastMessageAt: new Date(now - 5 * 60 * 60 * 1000),
+      lastCrossSessionCarryOverAt: null
+    };
+    seedExistingThread(harness.prisma);
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    harness.persaiInternalApiClient.markFiredFailure = new Error("mark-fired API down");
+    const result = await harness.service.buildMessages(
+      buildExistingThreadRequest(),
+      createRuntimeBundle()
+    );
+    assert.ok(
+      result.length >= 2,
+      "turn must complete successfully even if the bookkeeping bump rejects"
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 1);
   }
 }

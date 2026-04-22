@@ -391,6 +391,26 @@ export interface RuntimeContextHydrationConfig {
    * ("magic, not user-controlled").
    */
   crossSessionCarryOverTtlDays: number;
+  /**
+   * ADR-074 Slice M3.2 — long-idle re-trigger window.
+   *
+   * If the most recent stored user message in the current thread is older
+   * than this many hours, the cross-session carry-over block fires again on
+   * the next turn (subject to {@link crossSessionCarryOverCooldownHours}).
+   * Plan-policy tunable; range 1..168 (1 hour … 7 days). The brand-new
+   * thread sub-trigger is unaffected by this field.
+   */
+  crossSessionCarryOverIdleHours: number;
+  /**
+   * ADR-074 Slice M3.2 — per-thread cooldown between long-idle fires.
+   *
+   * After the carry-over block fires, the long-idle sub-trigger is muted
+   * for this many hours per-thread, even if the idle window has otherwise
+   * elapsed. Protects the user from frequent "магия каждые полдня" feel.
+   * Plan-policy tunable; range 1..168. Does NOT apply to the brand-new
+   * thread sub-trigger (a fresh thread always fires).
+   */
+  crossSessionCarryOverCooldownHours: number;
 }
 
 /**
@@ -406,6 +426,14 @@ export const MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 1 as const;
 export const MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 90 as const;
 export const DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS = 7 as const;
 
+export const MIN_CROSS_SESSION_CARRY_OVER_IDLE_HOURS = 1 as const;
+export const MAX_CROSS_SESSION_CARRY_OVER_IDLE_HOURS = 168 as const;
+export const DEFAULT_CROSS_SESSION_CARRY_OVER_IDLE_HOURS = 4 as const;
+
+export const MIN_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS = 1 as const;
+export const MAX_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS = 168 as const;
+export const DEFAULT_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS = 12 as const;
+
 type RuntimeContextHydrationPresetDefaults = Omit<RuntimeContextHydrationConfig, "preset">;
 
 export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
@@ -419,7 +447,9 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     knowledgeHydrationBudget: 1_200,
     autoCompactionWeb: true,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+    crossSessionCarryOverIdleHours: DEFAULT_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
+    crossSessionCarryOverCooldownHours: DEFAULT_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS
   },
   balanced: {
     targetContextBudget: 24_000,
@@ -432,7 +462,9 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     // cost that previously argued for keeping this `false` no longer applies.
     autoCompactionWeb: true,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+    crossSessionCarryOverIdleHours: DEFAULT_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
+    crossSessionCarryOverCooldownHours: DEFAULT_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS
   },
   rich: {
     targetContextBudget: 32_000,
@@ -444,7 +476,9 @@ export const PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS: Record<
     // synopsis once total tokens approach `compactionTriggerThreshold`.
     autoCompactionWeb: true,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS
+    crossSessionCarryOverTtlDays: DEFAULT_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+    crossSessionCarryOverIdleHours: DEFAULT_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
+    crossSessionCarryOverCooldownHours: DEFAULT_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS
   }
 };
 

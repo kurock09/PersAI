@@ -29,7 +29,9 @@ async function run(): Promise<void> {
     knowledgeHydrationBudget: 2400,
     autoCompactionWeb: false,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: 7
+    crossSessionCarryOverTtlDays: 7,
+    crossSessionCarryOverIdleHours: 4,
+    crossSessionCarryOverCooldownHours: 12
   };
   const retrievalPolicyForTest = {
     defaultMaxResults: 5,

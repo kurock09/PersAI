@@ -106,6 +106,8 @@ export type PlanDraft = {
   autoCompactionWeb: boolean;
   autoCompactionTelegram: boolean;
   crossSessionCarryOverTtlDays: string;
+  crossSessionCarryOverIdleHours: string;
+  crossSessionCarryOverCooldownHours: string;
   primaryModelKey: string;
   premiumModelKey: string;
   reasoningModelKey: string;
@@ -150,7 +152,9 @@ type NumericDraftField =
   | "keepRecentMinimum"
   | "knowledgeHydrationBudget"
   | "sharedCompactionSummaryBudgetTokens"
-  | "crossSessionCarryOverTtlDays";
+  | "crossSessionCarryOverTtlDays"
+  | "crossSessionCarryOverIdleHours"
+  | "crossSessionCarryOverCooldownHours";
 
 type DraftValidationErrors = Partial<Record<NumericDraftField, string>>;
 type NumericDraftRule = {
@@ -197,6 +201,8 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
       | "autoCompactionWeb"
       | "autoCompactionTelegram"
       | "crossSessionCarryOverTtlDays"
+      | "crossSessionCarryOverIdleHours"
+      | "crossSessionCarryOverCooldownHours"
     >,
     never
   >
@@ -208,7 +214,9 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     knowledgeHydrationBudget: "1200",
     autoCompactionWeb: true,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: "7"
+    crossSessionCarryOverTtlDays: "7",
+    crossSessionCarryOverIdleHours: "4",
+    crossSessionCarryOverCooldownHours: "12"
   },
   balanced: {
     targetContextBudget: "24000",
@@ -217,7 +225,9 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     knowledgeHydrationBudget: "2400",
     autoCompactionWeb: false,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: "7"
+    crossSessionCarryOverTtlDays: "7",
+    crossSessionCarryOverIdleHours: "4",
+    crossSessionCarryOverCooldownHours: "12"
   },
   rich: {
     targetContextBudget: "32000",
@@ -226,7 +236,9 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
     knowledgeHydrationBudget: "3600",
     autoCompactionWeb: false,
     autoCompactionTelegram: true,
-    crossSessionCarryOverTtlDays: "7"
+    crossSessionCarryOverTtlDays: "7",
+    crossSessionCarryOverIdleHours: "4",
+    crossSessionCarryOverCooldownHours: "12"
   }
 };
 
@@ -256,6 +268,8 @@ function applyContextPolicyPreset(
   | "autoCompactionWeb"
   | "autoCompactionTelegram"
   | "crossSessionCarryOverTtlDays"
+  | "crossSessionCarryOverIdleHours"
+  | "crossSessionCarryOverCooldownHours"
 > {
   return {
     contextPolicyPreset: preset,
@@ -352,6 +366,18 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
     label: "Cross-session carry-over TTL (days)",
     min: 1,
     max: 90
+  },
+  {
+    field: "crossSessionCarryOverIdleHours",
+    label: "Cross-session carry-over idle hours",
+    min: 1,
+    max: 168
+  },
+  {
+    field: "crossSessionCarryOverCooldownHours",
+    label: "Cross-session carry-over cooldown hours",
+    min: 1,
+    max: 168
   }
 ];
 
@@ -557,6 +583,9 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     autoCompactionWeb: plan.contextPolicy.autoCompactionWeb,
     autoCompactionTelegram: plan.contextPolicy.autoCompactionTelegram,
     crossSessionCarryOverTtlDays: plan.contextPolicy.crossSessionCarryOverTtlDays.toString(),
+    crossSessionCarryOverIdleHours: plan.contextPolicy.crossSessionCarryOverIdleHours.toString(),
+    crossSessionCarryOverCooldownHours:
+      plan.contextPolicy.crossSessionCarryOverCooldownHours.toString(),
     primaryModelKey: plan.primaryModelKey ?? "",
     premiumModelKey: plan.premiumModelKey ?? "",
     reasoningModelKey: plan.reasoningModelKey ?? "",
@@ -791,7 +820,23 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
         label: "Cross-session carry-over TTL (days)",
         min: 1,
         max: 90
-      })!
+      })!,
+      crossSessionCarryOverIdleHours: parseStrictIntegerDraft(
+        draft.crossSessionCarryOverIdleHours,
+        {
+          label: "Cross-session carry-over idle window (hours)",
+          min: 1,
+          max: 168
+        }
+      )!,
+      crossSessionCarryOverCooldownHours: parseStrictIntegerDraft(
+        draft.crossSessionCarryOverCooldownHours,
+        {
+          label: "Cross-session carry-over cooldown (hours)",
+          min: 1,
+          max: 168
+        }
+      )!
     },
     primaryModelKey: toNullable(draft.primaryModelKey),
     premiumModelKey: toNullable(draft.premiumModelKey),
@@ -1971,6 +2016,54 @@ function PlanForm({
                       constant (not configurable).
                     </HelpText>
                   </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Cross-session carry-over idle hours</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={draft.crossSessionCarryOverIdleHours}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          crossSessionCarryOverIdleHours: value
+                        })
+                      }
+                      placeholder="4"
+                      invalid={Boolean(validationErrors.crossSessionCarryOverIdleHours)}
+                    />
+                    <FieldError message={validationErrors.crossSessionCarryOverIdleHours} />
+                    <HelpText>
+                      ADR-074 Slice M3.2 — long-idle re-trigger threshold. The cross-session
+                      carry-over block re-fires inside an existing thread when the previous user
+                      message is older than this many hours (and the cooldown below has elapsed).
+                      Range 1..168, default 4. The post-compaction sub-trigger is intentionally OUT
+                      OF SCOPE.
+                    </HelpText>
+                  </label>
+                  <label className="space-y-1 text-[11px] font-medium text-text">
+                    <span className="block">Cross-session carry-over cooldown hours</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={168}
+                      value={draft.crossSessionCarryOverCooldownHours}
+                      onValue={(value) =>
+                        onPatch({
+                          contextPolicyPreset: "custom",
+                          crossSessionCarryOverCooldownHours: value
+                        })
+                      }
+                      placeholder="12"
+                      invalid={Boolean(validationErrors.crossSessionCarryOverCooldownHours)}
+                    />
+                    <FieldError message={validationErrors.crossSessionCarryOverCooldownHours} />
+                    <HelpText>
+                      ADR-074 Slice M3.2 — per-thread cooldown between consecutive long-idle
+                      carry-over fires. The brand-new-thread sub-trigger remains cooldown-exempt.
+                      Range 1..168, default 12.
+                    </HelpText>
+                  </label>
                   <label className="space-y-1 text-[11px] font-medium text-text sm:col-span-2">
                     <span className="block">Shared summary budget</span>
                     <Input
@@ -2246,6 +2339,9 @@ function PlanCardReadOnly({
                   </div>
                   <div>
                     Cross-session carry-over TTL: {plan.contextPolicy.crossSessionCarryOverTtlDays}d
+                    {" / idle "}
+                    {plan.contextPolicy.crossSessionCarryOverIdleHours}h{" / cooldown "}
+                    {plan.contextPolicy.crossSessionCarryOverCooldownHours}h
                   </div>
                 </div>
               </Sec>

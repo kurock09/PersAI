@@ -84,7 +84,9 @@ function createPlanState(): AdminPlanState {
       knowledgeHydrationBudget: 2_400,
       autoCompactionWeb: false,
       autoCompactionTelegram: true,
-      crossSessionCarryOverTtlDays: 7
+      crossSessionCarryOverTtlDays: 7,
+      crossSessionCarryOverIdleHours: 4,
+      crossSessionCarryOverCooldownHours: 12
     },
     toolActivations: [
       {

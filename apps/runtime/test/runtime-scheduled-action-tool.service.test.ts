@@ -103,7 +103,9 @@ function createBundle() {
         knowledgeHydrationBudget: 2400,
         autoCompactionWeb: false,
         autoCompactionTelegram: true,
-        crossSessionCarryOverTtlDays: 7
+        crossSessionCarryOverTtlDays: 7,
+        crossSessionCarryOverIdleHours: 4,
+        crossSessionCarryOverCooldownHours: 12
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_EMPTY,
       workerTools: WORKER_TOOLS_CONFIG,

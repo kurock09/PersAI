@@ -72,4 +72,18 @@ export interface AssistantChatRepository {
     messageId: string,
     assistantId: string
   ): Promise<AssistantChatMessage | null>;
+  /**
+   * ADR-074 Slice M3.2 — read the per-thread cooldown bookkeeping cell.
+   * Returns `null` when the thread has never fired the cross-session
+   * carry-over block (cooldown does not apply yet).
+   */
+  findLastCrossSessionCarryOverAt(chatId: string): Promise<Date | null>;
+  /**
+   * ADR-074 Slice M3.2 — bump the per-thread cooldown bookkeeping cell to
+   * `firedAt` IFF the new value is strictly greater than the current value
+   * (idempotent against stale fire-and-forget retries). Returns `true` if
+   * the column was advanced, `false` otherwise (chat missing, or the stored
+   * value is already >= `firedAt`).
+   */
+  setLastCrossSessionCarryOverAt(chatId: string, firedAt: Date): Promise<boolean>;
 }

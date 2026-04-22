@@ -2,7 +2,11 @@ import { BadRequestException } from "@nestjs/common";
 import {
   DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_CONFIG,
   DEFAULT_PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET,
+  MAX_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS,
+  MAX_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
   MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
+  MIN_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS,
+  MIN_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
   MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
   PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESETS,
   PERSAI_RUNTIME_CONTEXT_HYDRATION_PRESET_DEFAULTS,
@@ -118,12 +122,42 @@ function assertPolicyBounds(policy: RuntimeContextHydrationConfig, fieldPrefix: 
       `${fieldPrefix}.crossSessionCarryOverTtlDays must be between ${MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS} and ${MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS} days.`
     );
   }
+  if (
+    policy.crossSessionCarryOverIdleHours < MIN_CROSS_SESSION_CARRY_OVER_IDLE_HOURS ||
+    policy.crossSessionCarryOverIdleHours > MAX_CROSS_SESSION_CARRY_OVER_IDLE_HOURS
+  ) {
+    throw new BadRequestException(
+      `${fieldPrefix}.crossSessionCarryOverIdleHours must be between ${MIN_CROSS_SESSION_CARRY_OVER_IDLE_HOURS} and ${MAX_CROSS_SESSION_CARRY_OVER_IDLE_HOURS} hours.`
+    );
+  }
+  if (
+    policy.crossSessionCarryOverCooldownHours < MIN_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS ||
+    policy.crossSessionCarryOverCooldownHours > MAX_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS
+  ) {
+    throw new BadRequestException(
+      `${fieldPrefix}.crossSessionCarryOverCooldownHours must be between ${MIN_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS} and ${MAX_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS} hours.`
+    );
+  }
 }
 
 function clampTtlDays(value: number): number {
   return Math.min(
     MAX_CROSS_SESSION_CARRY_OVER_TTL_DAYS,
     Math.max(MIN_CROSS_SESSION_CARRY_OVER_TTL_DAYS, value)
+  );
+}
+
+function clampIdleHours(value: number): number {
+  return Math.min(
+    MAX_CROSS_SESSION_CARRY_OVER_IDLE_HOURS,
+    Math.max(MIN_CROSS_SESSION_CARRY_OVER_IDLE_HOURS, value)
+  );
+}
+
+function clampCooldownHours(value: number): number {
+  return Math.min(
+    MAX_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS,
+    Math.max(MIN_CROSS_SESSION_CARRY_OVER_COOLDOWN_HOURS, value)
   );
 }
 
@@ -134,6 +168,8 @@ function normalizePolicy(policy: RuntimeContextHydrationConfig): RuntimeContextH
     compactionTriggerThreshold: Math.min(rest.compactionTriggerThreshold, rest.targetContextBudget),
     knowledgeHydrationBudget: Math.min(rest.knowledgeHydrationBudget, rest.targetContextBudget),
     crossSessionCarryOverTtlDays: clampTtlDays(rest.crossSessionCarryOverTtlDays),
+    crossSessionCarryOverIdleHours: clampIdleHours(rest.crossSessionCarryOverIdleHours),
+    crossSessionCarryOverCooldownHours: clampCooldownHours(rest.crossSessionCarryOverCooldownHours),
     ...(sharedCompactionSummaryBudgetTokens === undefined
       ? {}
       : {
@@ -191,6 +227,14 @@ export function resolveStoredPlanContextHydrationPolicy(
     crossSessionCarryOverTtlDays: toLoosePositiveInteger(
       row.crossSessionCarryOverTtlDays,
       base.crossSessionCarryOverTtlDays
+    ),
+    crossSessionCarryOverIdleHours: toLoosePositiveInteger(
+      row.crossSessionCarryOverIdleHours,
+      base.crossSessionCarryOverIdleHours
+    ),
+    crossSessionCarryOverCooldownHours: toLoosePositiveInteger(
+      row.crossSessionCarryOverCooldownHours,
+      base.crossSessionCarryOverCooldownHours
     )
   });
 }
@@ -243,6 +287,14 @@ export function parsePlanContextHydrationPolicy(
     crossSessionCarryOverTtlDays: parsePositiveInteger(
       row.crossSessionCarryOverTtlDays,
       `${fieldName}.crossSessionCarryOverTtlDays`
+    ),
+    crossSessionCarryOverIdleHours: parsePositiveInteger(
+      row.crossSessionCarryOverIdleHours,
+      `${fieldName}.crossSessionCarryOverIdleHours`
+    ),
+    crossSessionCarryOverCooldownHours: parsePositiveInteger(
+      row.crossSessionCarryOverCooldownHours,
+      `${fieldName}.crossSessionCarryOverCooldownHours`
     )
   };
   assertPolicyBounds(policy, fieldName);
@@ -266,7 +318,9 @@ export function toPlanContextHydrationPolicyDocument(
         }),
     autoCompactionWeb: policy.autoCompactionWeb,
     autoCompactionTelegram: policy.autoCompactionTelegram,
-    crossSessionCarryOverTtlDays: policy.crossSessionCarryOverTtlDays
+    crossSessionCarryOverTtlDays: policy.crossSessionCarryOverTtlDays,
+    crossSessionCarryOverIdleHours: policy.crossSessionCarryOverIdleHours,
+    crossSessionCarryOverCooldownHours: policy.crossSessionCarryOverCooldownHours
   };
 }
 

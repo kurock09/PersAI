@@ -26,4 +26,28 @@ constant per Principle 1 ("magic, not user-controlled").
    * @maximum 90
    */
   crossSessionCarryOverTtlDays: number;
+  /**
+   * ADR-074 Slice M3.2 — long-idle re-trigger window in hours. If the
+most recent stored user message in the current thread is older
+than this, the cross-session carry-over block fires again on the
+next turn (subject to crossSessionCarryOverCooldownHours). The
+brand-new thread sub-trigger is unaffected. Range 1..168 hours
+(1 hour … 7 days). Default 4.
+
+   * @minimum 1
+   * @maximum 168
+   */
+  crossSessionCarryOverIdleHours: number;
+  /**
+   * ADR-074 Slice M3.2 — per-thread cooldown between consecutive
+long-idle carry-over fires, in hours. After the block fires, the
+long-idle sub-trigger is muted for this many hours per thread,
+even if the idle window has otherwise elapsed. Does NOT apply to
+the brand-new thread sub-trigger (a fresh thread always fires).
+Range 1..168 hours (1 hour … 7 days). Default 12.
+
+   * @minimum 1
+   * @maximum 168
+   */
+  crossSessionCarryOverCooldownHours: number;
 }
