@@ -364,6 +364,7 @@
     "memoryKindFact": "Fact",
     "memoryKindPreference": "Preference",
     "memoryKindOpenLoop": "Open loop",
+    "markAsClosed": "Mark as closed",
     "forget": "Forget",
     "loadMore": "Load more",
     "tasks": "Tasks",

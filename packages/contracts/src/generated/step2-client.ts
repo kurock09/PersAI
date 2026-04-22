@@ -75,6 +75,7 @@ import type {
   PostAdminStepUpChallengeResponse,
   PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
+  PostAssistantMemoryItemCloseOpenLoopResponse,
   PostAssistantMemoryItemForgetResponse,
   PostAssistantSetupPreviewResponse,
   PostAssistantTaskItemCancelResponse,
@@ -2184,6 +2185,74 @@ export const postAssistantMemoryItemForget = async (
 ): Promise<postAssistantMemoryItemForgetResponse> => {
   return customFetch<postAssistantMemoryItemForgetResponse>(
     getPostAssistantMemoryItemForgetUrl(itemId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary ADR-074 Slice M3.1 — explicitly close one open-loop Memory Center item by id
+ */
+export type postAssistantMemoryItemCloseOpenLoopResponse200 = {
+  data: PostAssistantMemoryItemCloseOpenLoopResponse;
+  status: 200;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponseSuccess =
+  postAssistantMemoryItemCloseOpenLoopResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantMemoryItemCloseOpenLoopResponseError = (
+  | postAssistantMemoryItemCloseOpenLoopResponse400
+  | postAssistantMemoryItemCloseOpenLoopResponse401
+  | postAssistantMemoryItemCloseOpenLoopResponse404
+  | postAssistantMemoryItemCloseOpenLoopResponse409
+  | postAssistantMemoryItemCloseOpenLoopResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantMemoryItemCloseOpenLoopResponse =
+  | postAssistantMemoryItemCloseOpenLoopResponseSuccess
+  | postAssistantMemoryItemCloseOpenLoopResponseError;
+
+export const getPostAssistantMemoryItemCloseOpenLoopUrl = (itemId: string) => {
+  return `/assistant/memory/items/${itemId}/close-open-loop`;
+};
+
+export const postAssistantMemoryItemCloseOpenLoop = async (
+  itemId: string,
+  options?: RequestInit
+): Promise<postAssistantMemoryItemCloseOpenLoopResponse> => {
+  return customFetch<postAssistantMemoryItemCloseOpenLoopResponse>(
+    getPostAssistantMemoryItemCloseOpenLoopUrl(itemId),
     {
       ...options,
       method: "POST"

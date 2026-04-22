@@ -173,6 +173,22 @@ export type InternalCloseMostSimilarOpenLoopOutcome = {
   reason: "matched" | "no_active_open_loop_matched";
 };
 
+// ADR-074 Slice M3.1 — deterministic close-by-ref for the model's structured
+// `memory_write({ action: "close", ref })` action. The `itemId` here is the
+// opaque ref the carry-over renderer surfaced to the model in the previous
+// turn(s); the API verifies ownership and kind before flipping resolved_at.
+export type InternalCloseAssistantMemoryByRefInput = {
+  assistantId: string;
+  itemId: string;
+  requestId: string | null;
+};
+
+export type InternalCloseAssistantMemoryByRefOutcome = {
+  closed: boolean;
+  closedItemId: string | null;
+  reason: "closed" | "already_closed" | "not_open_loop" | "not_found";
+};
+
 // ADR-074 Slice M3 — turn-0 cross-session continuity carry-over fetch.
 export type InternalFindCrossSessionCarryOverInput = {
   assistantId: string;
@@ -673,6 +689,73 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the close-most-similar-open-loop request."
+    );
+  }
+
+  async closeAssistantMemoryByRef(
+    input: InternalCloseAssistantMemoryByRefInput
+  ): Promise<InternalCloseAssistantMemoryByRefOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/memory/close-by-ref", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const reason = payload?.reason;
+      if (
+        payload?.ok === true &&
+        typeof payload.closed === "boolean" &&
+        (payload.closedItemId === null || typeof payload.closedItemId === "string") &&
+        (reason === "closed" || reason === "already_closed")
+      ) {
+        return {
+          closed: payload.closed,
+          closedItemId: (payload.closedItemId as string | null) ?? null,
+          reason
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid close-by-ref response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    // 400 = item is not an open_loop kind. 404 = assistant or item missing.
+    // Both are non-retryable; propagate as BadRequest so the runtime can
+    // surface a `skipped` payload to the model rather than crashing the
+    // turn or retrying.
+    if (response.status === 404) {
+      return {
+        closed: false,
+        closedItemId: null,
+        reason: "not_found"
+      };
+    }
+    if (response.status === 400) {
+      return {
+        closed: false,
+        closedItemId: null,
+        reason: "not_open_loop"
+      };
+    }
+
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API close-by-ref request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the close-by-ref request."
     );
   }
 

@@ -1471,6 +1471,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/memory/items/{itemId}/close-open-loop:
+    post:
+      operationId: postAssistantMemoryItemCloseOpenLoop
+      summary: ADR-074 Slice M3.1 — explicitly close one open-loop Memory Center item by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Open-loop item closed (or already closed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantMemoryItemCloseOpenLoopResponse"
+        "400":
+          description: Item exists but is not an open-loop kind
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or item not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Memory control policy denies this action
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/memory/do-not-remember:
     post:
       operationId: postAssistantMemoryDoNotRemember
@@ -3607,6 +3657,7 @@ components:
         - kind
         - createdAt
         - chatId
+        - resolvedAt
       properties:
         id:
           type: string
@@ -3631,6 +3682,16 @@ components:
           type: string
           format: uuid
           nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description:
+            ADR-074 Slice M3 — when an `open_loop` is resolved (implicitly via
+            memory_write dedup, opt-in via `closeOpenLoop:true`, structured via
+            M3.1 `action:"close"`, or via the Memory Center "Mark as closed"
+            button), this is the resolution timestamp. `null` for active loops
+            and for non-`open_loop` kinds.
     GetAssistantMemoryItemsResponse:
       type: object
       required:
@@ -3657,6 +3718,33 @@ components:
           type: boolean
           enum:
             - true
+    PostAssistantMemoryItemCloseOpenLoopResponse:
+      type: object
+      required:
+        - requestId
+        - closed
+        - closedItemId
+        - reason
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        closed:
+          type: boolean
+        closedItemId:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          enum:
+            - closed
+            - already_closed
+          description:
+            "ADR-074 Slice M3.1 — `closed` when this request flipped resolved_at;
+            `already_closed` when the item was already resolved (idempotent
+            success). Both responses return HTTP 200; the front-end should treat
+            both as success and refresh the list."
     AssistantMemoryDoNotRememberRequest:
       type: object
       required:

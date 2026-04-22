@@ -364,6 +364,7 @@
     "memoryKindFact": "Факт",
     "memoryKindPreference": "Предпочтение",
     "memoryKindOpenLoop": "Открытый вопрос",
+    "markAsClosed": "Отметить как закрытый",
     "forget": "Забыть",
     "loadMore": "Загрузить ещё",
     "tasks": "Задачи",

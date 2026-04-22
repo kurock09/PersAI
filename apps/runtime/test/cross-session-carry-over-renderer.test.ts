@@ -134,6 +134,9 @@ export async function runCrossSessionCarryOverRendererTest(): Promise<void> {
   // Open-loop top-N cap = 10. Even with 15 incoming items, only 10 render.
   // Order is preserved in input order (the API is the one that imposes
   // recency ordering; the renderer trusts it).
+  // ADR-074 Slice M3.1 — each rendered open-loop line must include a
+  // `[ref: <id>]` prefix so the model can call
+  // `memory_write({ action: "close", ref })` deterministically.
   const manyLoops = Array.from({ length: 15 }, (_, index) =>
     buildOpenLoop({
       id: `loop-${String(index + 1)}`,
@@ -149,15 +152,20 @@ export async function runCrossSessionCarryOverRendererTest(): Promise<void> {
   assert.equal(cappedLoops?.renderedOpenLoopCount, 10);
   const loopLines = (cappedLoops?.bodyText ?? "")
     .split("\n")
-    .filter((line) => line.startsWith("- Open loop"));
+    .filter((line) => /^- \[ref: [^\]]+\] Open loop /.test(line));
   assert.equal(loopLines.length, 10);
-  assert.equal(loopLines[0], "- Open loop number 1");
-  assert.equal(loopLines[9], "- Open loop number 10");
+  assert.equal(loopLines[0], "- [ref: loop-1] Open loop number 1");
+  assert.equal(loopLines[9], "- [ref: loop-10] Open loop number 10");
   assert.ok(!cappedLoops?.bodyText.includes("Open loop number 11"));
+  assert.ok(
+    !cappedLoops?.bodyText.includes("[ref: loop-11]"),
+    "loops past the top-N cap must NOT leak refs into the rendered block"
+  );
 
   // Whitespace-only / empty open-loop summaries are filtered out (the
   // renderer normalizes via normalizeOpenLoopSummary). The bullet count must
-  // equal the number of NON-empty summaries.
+  // equal the number of NON-empty summaries. Refs (M3.1) are included for
+  // every kept summary.
   const mixed = renderCrossSessionCarryOverBlock({
     recentSynopses: [],
     unresolvedOpenLoops: [
@@ -168,8 +176,12 @@ export async function runCrossSessionCarryOverRendererTest(): Promise<void> {
     now: NOW
   });
   assert.equal(mixed?.renderedOpenLoopCount, 2);
-  assert.ok(mixed?.bodyText.includes("- Confirm Barcelona venue."));
-  assert.ok(mixed?.bodyText.includes("- Send the retention deck to Maya."));
+  assert.ok(mixed?.bodyText.includes("- [ref: ok] Confirm Barcelona venue."));
+  assert.ok(mixed?.bodyText.includes("- [ref: ok2] Send the retention deck to Maya."));
+  assert.ok(
+    !mixed?.bodyText.includes("[ref: blank]"),
+    "filtered-out (whitespace-only) loops must NOT have their ref leaked into the rendered block"
+  );
 
   // Footer is always present once we have at least one rendered row, and
   // contains the canonical anti-recap rules (DO/DON'T sections from
@@ -181,6 +193,13 @@ export async function runCrossSessionCarryOverRendererTest(): Promise<void> {
     mixed?.bodyText.includes("- Read the synopsis back to the user. They lived it."),
     "footer must include the no-recap-readback rule"
   );
+  // ADR-074 Slice M3.1 — the footer must teach the model how to use the new
+  // `[ref: …]` markers via `memory_write({ action: "close", ref })`.
+  assert.ok(
+    mixed?.bodyText.includes('memory_write({ action: "close", ref })'),
+    "footer must include the close-by-ref usage rule introduced by M3.1"
+  );
+  assert.ok(mixed?.bodyText.includes("[ref:"), "footer must reference the [ref: …] marker shape");
 
   // Section ordering: synopses come BEFORE open loops, separated by a
   // blank line, then the rules footer follows another blank line.

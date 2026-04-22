@@ -191,7 +191,12 @@ export class WriteAssistantMemoryService {
           sourceTrust: input.sourceTrust,
           relatedUserMessageId: input.relatedUserMessageId,
           requestId: input.requestId,
-          implicitlyResolvedOpenLoop
+          implicitlyResolvedOpenLoop,
+          // ADR-074 Slice M3.1 — distinct close-source marker so the four
+          // close paths (dedup_overwrite, closeOpenLoop_flag,
+          // memory_write_action_close, user_ui_close) can be measured
+          // independently in the audit log.
+          ...(implicitlyResolvedOpenLoop ? { closeSource: "dedup_overwrite" } : {})
         }
       });
       return {

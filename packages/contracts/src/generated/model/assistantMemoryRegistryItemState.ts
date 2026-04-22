@@ -20,4 +20,9 @@ export interface AssistantMemoryRegistryItemState {
   createdAt: string;
   /** @nullable */
   chatId: string | null;
+  /**
+   * ADR-074 Slice M3 — when an `open_loop` is resolved (implicitly via memory_write dedup, opt-in via `closeOpenLoop:true`, structured via M3.1 `action:"close"`, or via the Memory Center "Mark as closed" button), this is the resolution timestamp. `null` for active loops and for non-`open_loop` kinds.
+   * @nullable
+   */
+  resolvedAt: string | null;
 }

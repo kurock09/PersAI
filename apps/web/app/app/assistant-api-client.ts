@@ -56,6 +56,7 @@ import {
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
   postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
+  postAssistantMemoryItemCloseOpenLoop as postAssistantMemoryItemCloseOpenLoopContract,
   postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
   postAssistantTaskItemDisable as postAssistantTaskItemDisableContract,
   postAssistantTaskItemEnable as postAssistantTaskItemEnableContract,
@@ -1269,6 +1270,35 @@ export async function postAssistantMemoryItemForget(token: string, itemId: strin
     ) {
       throw new Error(
         "Unexpected non-success response for POST /assistant/memory/items/:itemId/forget."
+      );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+// ADR-074 Slice M3.1 — Memory Center "Mark as closed" button calls this to
+// close one open-loop registry item by id. Treats both `closed` and
+// `already_closed` reasons as success (idempotent); the caller refreshes the
+// list, which causes the closed loop to drop out (the list endpoint only
+// returns active rows).
+export async function postAssistantMemoryItemCloseOpenLoop(
+  token: string,
+  itemId: string
+): Promise<void> {
+  try {
+    const response = await postAssistantMemoryItemCloseOpenLoopContract(itemId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("closed" in response.data)
+    ) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/memory/items/:itemId/close-open-loop."
       );
     }
   } catch (error) {

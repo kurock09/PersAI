@@ -45,8 +45,11 @@ export function renderCrossSessionCarryOverBlock(
     .filter((row): row is RenderedSynopsis => row !== null);
   const renderedOpenLoops = input.unresolvedOpenLoops
     .slice(0, MAX_OPEN_LOOPS_RENDERED)
-    .map((row) => normalizeOpenLoopSummary(row.summary))
-    .filter((value): value is string => value !== null);
+    .map((row) => {
+      const text = normalizeOpenLoopSummary(row.summary);
+      return text === null ? null : { ref: row.id, text };
+    })
+    .filter((value): value is { ref: string; text: string } => value !== null);
 
   if (renderedSynopses.length === 0 && renderedOpenLoops.length === 0) {
     return null;
@@ -74,7 +77,12 @@ export function renderCrossSessionCarryOverBlock(
     }
     lines.push("Things you've kept in mind for this person:");
     for (const openLoop of renderedOpenLoops) {
-      lines.push(`- ${openLoop}`);
+      // ADR-074 Slice M3.1 — surface an opaque ref next to each open loop so
+      // the model can deterministically close it via
+      // `memory_write({ action: "close", ref })` once it confirms with the
+      // user that the loop is resolved. The ref is just the registry id;
+      // the runtime forwards it verbatim to the close-by-ref endpoint.
+      lines.push(`- [ref: ${openLoop.ref}] ${openLoop.text}`);
     }
   }
 
@@ -96,6 +104,9 @@ export function renderCrossSessionCarryOverBlock(
   );
   lines.push(
     "- Use the previous-conversation channel as background context only; you know it, but you do not announce it."
+  );
+  lines.push(
+    '- When the user confirms an open loop above is resolved (decision made, action taken, no longer relevant), close it with `memory_write({ action: "close", ref })` using the `[ref: …]` value shown next to the loop. Do not invent refs and do not echo the ref text in your reply.'
   );
   lines.push("");
   lines.push("DON'T:");

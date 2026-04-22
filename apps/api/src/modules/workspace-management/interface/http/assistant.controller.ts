@@ -48,7 +48,9 @@ import { RevokeTelegramIntegrationSecretService } from "../../application/revoke
 import { ResendTelegramOwnerMessageService } from "../../application/resend-telegram-owner-message.service";
 import { DoNotRememberAssistantMemoryService } from "../../application/do-not-remember-assistant-memory.service";
 import { ForgetAssistantMemoryItemService } from "../../application/forget-assistant-memory-item.service";
+import { CloseAssistantMemoryByRefService } from "../../application/close-assistant-memory-by-ref.service";
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
+import type { AssistantMemoryRegistryItemState } from "../../application/assistant-memory.types";
 import { ListAssistantTaskItemsService } from "../../application/list-assistant-task-items.service";
 import { DisableAssistantTaskRegistryItemService } from "../../application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "../../application/enable-assistant-task-registry-item.service";
@@ -99,6 +101,7 @@ export class AssistantController {
     private readonly resendTelegramOwnerMessageService: ResendTelegramOwnerMessageService,
     private readonly listAssistantMemoryItemsService: ListAssistantMemoryItemsService,
     private readonly forgetAssistantMemoryItemService: ForgetAssistantMemoryItemService,
+    private readonly closeAssistantMemoryByRefService: CloseAssistantMemoryByRefService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
     private readonly listAssistantTaskItemsService: ListAssistantTaskItemsService,
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
@@ -577,14 +580,7 @@ export class AssistantController {
   @Get("assistant/memory/items")
   async listMemoryItems(@Req() req: RequestWithPlatformContext): Promise<{
     requestId: string | null;
-    items: Array<{
-      id: string;
-      summary: string;
-      sourceType: "web_chat" | "memory_write";
-      sourceLabel: string | null;
-      createdAt: string;
-      chatId: string | null;
-    }>;
+    items: AssistantMemoryRegistryItemState[];
   }> {
     const userId = this.resolveRequestUserId(req);
     const items = await this.listAssistantMemoryItemsService.execute(userId);
@@ -609,6 +605,31 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       forgotten: result.forgotten
+    };
+  }
+
+  @Post("assistant/memory/items/:itemId/close-open-loop")
+  @HttpCode(200)
+  async closeOpenLoopMemoryItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{
+    requestId: string | null;
+    closed: boolean;
+    closedItemId: string | null;
+    reason: "closed" | "already_closed";
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.closeAssistantMemoryByRefService.executeForUser(
+      userId,
+      itemId,
+      req.requestId ?? null
+    );
+    return {
+      requestId: req.requestId ?? null,
+      closed: result.closed,
+      closedItemId: result.closedItemId,
+      reason: result.reason === "closed" ? "closed" : "already_closed"
     };
   }
 

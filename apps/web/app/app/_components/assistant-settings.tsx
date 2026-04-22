@@ -9,6 +9,7 @@ import {
   Rocket,
   RotateCcw,
   Trash2,
+  CheckCircle2,
   Brain,
   ListTodo,
   Send,
@@ -46,6 +47,7 @@ import {
   type AssistantPreferredNotificationChannel,
   getAssistantTaskItems,
   postAssistantMemoryItemForget,
+  postAssistantMemoryItemCloseOpenLoop,
   postAssistantTaskItemDisable,
   postAssistantTaskItemCancel,
   getWorkspaceMemoryItems,
@@ -384,6 +386,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
+  const [closingOpenLoopId, setClosingOpenLoopId] = useState<string | null>(null);
   const [memoryVisibleCount, setMemoryVisibleCount] = useState(5);
 
   const [wsMemoryItems, setWsMemoryItems] = useState<WorkspaceMemoryItem[]>([]);
@@ -828,6 +831,27 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
         /* non-critical */
       }
       setForgettingId(null);
+    },
+    [getToken]
+  );
+
+  // ADR-074 Slice M3.1 — Memory Center "Mark as closed" button. Closes one
+  // open-loop registry item by id and drops it from the active list. The
+  // server treats `closed` and `already_closed` as success, so we just
+  // optimistically remove the row on success and let the next refetch
+  // reconcile if the call failed.
+  const handleCloseOpenLoop = useCallback(
+    async (itemId: string) => {
+      const token = await getToken();
+      if (!token) return;
+      setClosingOpenLoopId(itemId);
+      try {
+        await postAssistantMemoryItemCloseOpenLoop(token, itemId);
+        setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
+      } catch {
+        /* non-critical */
+      }
+      setClosingOpenLoopId(null);
     },
     [getToken]
   );
@@ -1447,19 +1471,37 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                           )}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        disabled={forgettingId === item.id}
-                        onClick={() => void handleForget(item.id)}
-                        className="shrink-0 cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                        title={t("forget")}
-                      >
-                        {forgettingId === item.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3 w-3" />
+                      <div className="flex shrink-0 items-center gap-1">
+                        {item.kind === "open_loop" && (
+                          <button
+                            type="button"
+                            disabled={closingOpenLoopId === item.id}
+                            onClick={() => void handleCloseOpenLoop(item.id)}
+                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-accent disabled:cursor-default disabled:opacity-50"
+                            title={t("markAsClosed")}
+                            aria-label={t("markAsClosed")}
+                          >
+                            {closingOpenLoopId === item.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3" />
+                            )}
+                          </button>
                         )}
-                      </button>
+                        <button
+                          type="button"
+                          disabled={forgettingId === item.id}
+                          onClick={() => void handleForget(item.id)}
+                          className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                          title={t("forget")}
+                        >
+                          {forgettingId === item.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

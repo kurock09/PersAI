@@ -6,6 +6,7 @@ import {
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
+  postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
@@ -19,6 +20,7 @@ const contractMocks = vi.hoisted(() => {
     getAssistantWebChatCompaction: vi.fn(),
     postAdminPlatformRollout: vi.fn(),
     postAdminPlatformRolloutRollback: vi.fn(),
+    postAssistantMemoryItemCloseOpenLoop: vi.fn(),
     postAssistantWebChatCompact: vi.fn(),
     putAdminRuntimeProviderSettings: vi.fn(),
     postAssistantTelegramRevoke: vi.fn()
@@ -34,6 +36,7 @@ vi.mock("@persai/contracts", async () => {
     getAssistantWebChatCompaction: contractMocks.getAssistantWebChatCompaction,
     postAdminPlatformRollout: contractMocks.postAdminPlatformRollout,
     postAdminPlatformRolloutRollback: contractMocks.postAdminPlatformRolloutRollback,
+    postAssistantMemoryItemCloseOpenLoop: contractMocks.postAssistantMemoryItemCloseOpenLoop,
     postAssistantWebChatCompact: contractMocks.postAssistantWebChatCompact,
     putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
     postAssistantTelegramRevoke: contractMocks.postAssistantTelegramRevoke
@@ -282,6 +285,61 @@ describe("admin rollout client", () => {
     ).resolves.toMatchObject({
       connectionStatus: "not_connected"
     });
+  });
+});
+
+describe("memory center close-open-loop client (ADR-074 M3.1)", () => {
+  it("treats `closed` as success", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 200,
+      data: {
+        requestId: null,
+        closed: true,
+        closedItemId: "loop-1",
+        reason: "closed"
+      }
+    });
+
+    await expect(
+      postAssistantMemoryItemCloseOpenLoop("token-1", "loop-1")
+    ).resolves.toBeUndefined();
+    expect(contractMocks.postAssistantMemoryItemCloseOpenLoop).toHaveBeenCalledWith("loop-1", {
+      headers: { Authorization: "Bearer token-1" }
+    });
+  });
+
+  it("treats `already_closed` as idempotent success", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 200,
+      data: {
+        requestId: null,
+        closed: true,
+        closedItemId: "loop-1",
+        reason: "already_closed"
+      }
+    });
+
+    await expect(
+      postAssistantMemoryItemCloseOpenLoop("token-1", "loop-1")
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects on non-success HTTP status", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 404,
+      data: { message: "Memory item not found." }
+    });
+
+    await expect(postAssistantMemoryItemCloseOpenLoop("token-1", "loop-missing")).rejects.toThrow();
+  });
+
+  it("rejects on a malformed body that is missing `closed`", async () => {
+    contractMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue({
+      status: 200,
+      data: { requestId: null }
+    });
+
+    await expect(postAssistantMemoryItemCloseOpenLoop("token-1", "loop-1")).rejects.toThrow();
   });
 });
 

@@ -344,6 +344,10 @@ async function run(): Promise<void> {
   });
   const implicitAuditDetails = implicitClose.auditCalls[0]?.details as Record<string, unknown>;
   assert.equal(implicitAuditDetails.implicitlyResolvedOpenLoop, true);
+  // ADR-074 Slice M3.1 — implicit close-by-overwrite must mark its source so
+  // ops can distinguish it from the explicit `closeOpenLoop:true` flag and
+  // the new `memory_write({ action: "close", ref })` path.
+  assert.equal(implicitAuditDetails.closeSource, "dedup_overwrite");
 
   // Already-resolved open_loop must NOT be re-resolved (idempotency).
   const alreadyResolvedLoop: AssistantMemoryRegistryItem = {

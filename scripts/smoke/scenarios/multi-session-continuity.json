@@ -1,7 +1,7 @@
 {
   "id": "multi-session-continuity",
-  "title": "Multi-session — открытые петли между сессиями (ADR-074 M3)",
-  "description": "Три сессии с разными surfaceThreadKey. Session 1 оставляет открытые петли и факты. Session 2 проверяет cross-session carry-over (синопсис session 1 + open-loops должны прилететь в стабильный prefix turn-0 — проверь руками `[Continuity from earlier conversations…]`). Session 3 проверяет, что после явного закрытия одной из открытых задач (memory_write закрывает open-loop) она не возвращается в carry-over. Сейчас все ходы — web; реальный TG-канал в smoke harness — отдельный follow-up к Slice E.",
+  "title": "Multi-session — открытые петли между сессиями (ADR-074 M3 + M3.1)",
+  "description": "Четыре сессии с разными surfaceThreadKey. Session 1 оставляет открытые петли и факты. Session 2 проверяет cross-session carry-over (синопсис session 1 + open-loops должны прилететь в стабильный prefix turn-0 — проверь руками `[Continuity from earlier conversations…]`) и закрывает один open-loop (ретрит в Барселоне) через implicit close-by-overwrite или legacy `closeOpenLoop:true`. Session 3 проверяет, что закрытый open-loop больше не появляется в carry-over. Session 4 (ADR-074 Slice M3.1) проверяет структурный close-by-ref: ассистент должен увидеть оставшиеся open-loops с маркерами `[ref: …]` в системном префиксе и в ответ на сообщение пользователя выполнить `memory_write({ action: \"close\", ref })` с тем же ref. После завершения Session 4 проверь руками: (a) audit-event `assistant.open_loop_closed_by_ref` с `details.closeSource = \"memory_write_action_close\"`, и (b) `resolved_at IS NOT NULL` у соответствующего open-loop. Сейчас все ходы — web; реальный TG-канал в smoke harness — отдельный follow-up к Slice E.",
   "defaultKind": "web_sync",
   "defaultThinkAfterMs": 8000,
   "sessions": [
@@ -62,13 +62,30 @@
       "turns": [
         {
           "message": "Привет ещё раз.",
-          "note": "M3 acceptance: TURN 0 нового треда → cross_session_carry_over снова должен сработать, НО уже без закрытого open-loop про ретрит в Барселоне (он `resolved_at IS NOT NULL`). Должны остаться только не-resolved open-loops (квартальный обзор, retention, формат)."
+          "note": "M3 acceptance: TURN 0 нового треда → cross_session_carry_over снова должен сработать, НО уже без закрытого open-loop про ретрит в Барселоне (он `resolved_at IS NOT NULL`). Должны остаться только не-resolved open-loops (квартальный обзор, retention, формат). M3.1 acceptance: рядом с каждым оставшимся open-loop в системном префиксе должен появиться маркер `[ref: <uuid>]` — это ref, который Session 4 будет использовать для close-by-ref."
         },
         {
           "message": "Что у меня сейчас в открытых задачах? Только не упоминай уже закрытые."
         },
         {
           "message": "Ага, ретрит уже не считается, ок. Давай тогда вернёмся к Helio."
+        }
+      ]
+    },
+    {
+      "sessionKey": "session-4-close-by-ref",
+      "turns": [
+        {
+          "message": "Привет, я снова на связи.",
+          "note": "M3.1 acceptance: TURN 0 нового треда → cross_session_carry_over блок должен снова сработать с оставшимися open-loops (квартальный обзор Atlas/Helio, retention-фокус, формат «3 буллета»), КАЖДЫЙ строкой `- [ref: <uuid>] <summary>`. Эти ref — то, что ассистент должен использовать в Session 4."
+        },
+        {
+          "message": "Я закончила квартальный обзор по Atlas и Helio — отправила вчера, retention расписала отдельным разделом. Можно убрать это из открытых задач, мы к нему уже не возвращаемся.",
+          "note": "M3.1 expected: ассистент должен НА ЭТОМ ХОДУ вызвать `memory_write({ action: \"close\", ref })` с тем самым ref, который был показан рядом с open-loop про квартальный обзор Atlas/Helio в системном префиксе TURN 0. Это структурный close-by-ref (НЕ legacy `closeOpenLoop:true` на write). Проверь в БД: `assistant_audit_events` должен содержать запись `event_code = 'assistant.open_loop_closed_by_ref'` с `details.closeSource = 'memory_write_action_close'`, и `resolved_at` соответствующего ряда `assistant_memory_registry_items` должен быть установлен."
+        },
+        {
+          "message": "Окей, что у меня осталось из открытых задач?",
+          "note": "M3.1 acceptance: ассистент должен перечислить только оставшиеся open-loops (retention-фокус и формат «3 буллета»), без квартального обзора (он уже закрыт через close-by-ref) и без ретрита (закрыт ещё в Session 2). Если ассистент упомянет квартальный обзор как открытый — close-by-ref не сработал, regress, разбираться руками."
         }
       ]
     }

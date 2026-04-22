@@ -11,4 +11,5 @@ export interface AssistantMemoryRegistryItemState {
   kind: AssistantMemoryRegistryKindState | null;
   createdAt: string;
   chatId: string | null;
+  resolvedAt: string | null;
 }

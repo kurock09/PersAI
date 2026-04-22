@@ -198,6 +198,16 @@ class FakePersaiInternalApiClientService {
     reason: "matched" | "no_active_open_loop_matched";
   } = { closed: true, closedItemId: "loop-1", reason: "matched" };
   closeOpenLoopError: Error | null = null;
+  // ADR-074 Slice M3.1 — track structured close-by-ref calls so the
+  // memory_write `action: "close"` branch can be asserted from the test
+  // body.
+  closeByRefCalls: Array<Record<string, unknown>> = [];
+  closeByRefOutcome: {
+    closed: boolean;
+    closedItemId: string | null;
+    reason: "closed" | "already_closed" | "not_open_loop" | "not_found";
+  } = { closed: true, closedItemId: "loop-1", reason: "closed" };
+  closeByRefError: Error | null = null;
   outcome: {
     written: boolean;
     code: string | null;
@@ -232,6 +242,14 @@ class FakePersaiInternalApiClientService {
       throw this.closeOpenLoopError;
     }
     return this.closeOpenLoopOutcome;
+  }
+
+  async closeAssistantMemoryByRef(input: Record<string, unknown>) {
+    this.closeByRefCalls.push(input);
+    if (this.closeByRefError !== null) {
+      throw this.closeByRefError;
+    }
+    return this.closeByRefOutcome;
   }
 }
 
@@ -526,5 +544,256 @@ export async function runRuntimeMemoryWriteToolServiceTest(): Promise<void> {
     assert.equal(result.isError, true);
     assert.equal(apiInvalid.writeCalls.length, 0);
     assert.equal(apiInvalid.closeOpenLoopCalls.length, 0);
+  }
+
+  // ADR-074 Slice M3.1 — structured close-by-ref branches.
+  const SAMPLE_REF_UUID = "11111111-2222-4333-8444-555555555555";
+
+  // (g) action:"close" + valid ref → calls closeAssistantMemoryByRef with
+  //     the runtime-resolved bundle.assistantId, the ref forwarded as
+  //     itemId, and the requestId. The outer payload reports
+  //     action:"closed" with the server-confirmed closedItemRef and no
+  //     write-side fields.
+  {
+    const apiClose = new FakePersaiInternalApiClientService();
+    apiClose.closeByRefOutcome = {
+      closed: true,
+      closedItemId: SAMPLE_REF_UUID,
+      reason: "closed"
+    };
+    const svc = new RuntimeMemoryWriteToolService(
+      apiClose as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-ref"
+    });
+    assert.equal(result.payload.action, "closed");
+    assert.equal(result.payload.requestedKind, null);
+    assert.equal(result.payload.item, null);
+    assert.equal(result.payload.closedItemRef, SAMPLE_REF_UUID);
+    assert.equal(result.payload.reason, "closed");
+    assert.equal(result.isError, false);
+    assert.equal(apiClose.writeCalls.length, 0, "action:close MUST NOT call writeMemory");
+    assert.equal(
+      apiClose.closeOpenLoopCalls.length,
+      0,
+      "action:close MUST NOT call the M3 lexical closeMostSimilarOpenLoop"
+    );
+    assert.equal(apiClose.closeByRefCalls.length, 1);
+    assert.deepEqual(apiClose.closeByRefCalls[0], {
+      assistantId: "assistant-1",
+      itemId: SAMPLE_REF_UUID,
+      requestId: "request-close-ref"
+    });
+  }
+
+  // (h) action:"close" with already_closed reason → still action:"closed"
+  //     (idempotent success), closedItemRef is the server-returned id, no
+  //     error.
+  {
+    const apiAlready = new FakePersaiInternalApiClientService();
+    apiAlready.closeByRefOutcome = {
+      closed: true,
+      closedItemId: SAMPLE_REF_UUID,
+      reason: "already_closed"
+    };
+    const svc = new RuntimeMemoryWriteToolService(
+      apiAlready as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-already"
+    });
+    assert.equal(result.payload.action, "closed");
+    assert.equal(result.payload.reason, "already_closed");
+    assert.equal(result.isError, false);
+  }
+
+  // (i) action:"close" with not_found / not_open_loop reason → mapped to a
+  //     skipped payload so the model can adjust without crashing the turn.
+  {
+    const apiMissing = new FakePersaiInternalApiClientService();
+    apiMissing.closeByRefOutcome = {
+      closed: false,
+      closedItemId: null,
+      reason: "not_found"
+    };
+    const svc = new RuntimeMemoryWriteToolService(
+      apiMissing as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-missing"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "memory_close_ref_not_found");
+    assert.equal(result.payload.requestedKind, null);
+    assert.equal(result.payload.closedItemRef, null);
+    assert.equal(result.isError, false);
+  }
+
+  // (j) action:"close" but the API call THROWS → action:"skipped",
+  //     reason:"memory_close_failed", isError true (mirrors the write
+  //     failure path).
+  {
+    const apiThrow = new FakePersaiInternalApiClientService();
+    apiThrow.closeByRefError = new Error("boom");
+    const svc = new RuntimeMemoryWriteToolService(
+      apiThrow as unknown as PersaiInternalApiClientService
+    );
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-throw"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "memory_close_failed");
+    assert.equal(result.isError, true);
+  }
+
+  // (k) action:"close" missing ref → invalid_arguments.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({ action: "close" }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-no-ref"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
+    assert.equal(api.closeByRefCalls.length, 0);
+  }
+
+  // (l) action:"close" with a non-UUID ref → invalid_arguments. The runtime
+  //     refuses to forward malformed refs because the API endpoint expects
+  //     a registry uuid; bouncing here gives the model a clean signal.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({ action: "close", ref: "ol_not_a_uuid" }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-bad-ref"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
+    assert.equal(api.closeByRefCalls.length, 0);
+  }
+
+  // (m) action:"close" + extra write-side fields (kind/memory/closeOpenLoop)
+  //     → invalid_arguments per schema contract.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "close",
+        ref: SAMPLE_REF_UUID,
+        kind: "open_loop"
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-close-extra"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
+    assert.equal(api.closeByRefCalls.length, 0);
+    assert.equal(api.writeCalls.length, 0);
+  }
+
+  // (n) action:"write" explicit (default) — same behaviour as omitting it.
+  //     Confirms the runtime accepts both shapes from the model.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "write",
+        kind: "fact",
+        memory: "User uses metric units."
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-explicit-write"
+    });
+    assert.equal(result.payload.action, "remembered");
+    assert.equal(api.writeCalls.length, 1);
+    assert.equal(api.closeByRefCalls.length, 0);
+  }
+
+  // (o) action:"write" + ref → invalid_arguments. ref MUST NOT be supplied
+  //     on a write call.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "write",
+        kind: "fact",
+        memory: "User uses metric units.",
+        ref: SAMPLE_REF_UUID
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-write-with-ref"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
+    assert.equal(api.writeCalls.length, 0);
+    assert.equal(api.closeByRefCalls.length, 0);
+  }
+
+  // (p) Unknown action value → invalid_arguments.
+  {
+    const api = new FakePersaiInternalApiClientService();
+    const svc = new RuntimeMemoryWriteToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle,
+      toolCall: createToolCall({
+        action: "delete" as unknown as "write" | "close"
+      }),
+      conversation: directWebConversation,
+      currentUserMessageId: null,
+      requestId: "request-bad-action"
+    });
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.equal(result.isError, true);
   }
 }

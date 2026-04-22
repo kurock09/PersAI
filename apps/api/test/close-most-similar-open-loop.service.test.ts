@@ -194,6 +194,11 @@ async function run(): Promise<void> {
   const details = happy.auditCalls[0]?.details as Record<string, unknown>;
   assert.equal(details.closedItemId, "loop-42");
   assert.equal(details.requestId, "req-2");
+  // ADR-074 Slice M3.1 — every close path must stamp a distinct closeSource
+  // so ops can tell the legacy `closeOpenLoop:true` lexical match apart from
+  // the M3.1 deterministic `memory_write({ action: "close", ref })` path and
+  // the M3 implicit close-by-overwrite.
+  assert.equal(details.closeSource, "closeOpenLoop_flag");
 
   // race: candidate found but setResolvedAtById returns false (already
   // resolved by a concurrent writer). Treated as success, no extra audit.

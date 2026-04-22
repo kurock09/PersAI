@@ -15,6 +15,20 @@ export interface RuntimeMemoryWriteToolExecutionResult {
   isError: boolean;
 }
 
+type WriteRequest = {
+  action: "write";
+  kind: PersaiRuntimeMemoryWriteKind;
+  memory: string;
+  closeOpenLoop: boolean;
+};
+
+type CloseRequest = {
+  action: "close";
+  ref: string;
+};
+
+type ParsedRequest = WriteRequest | CloseRequest;
+
 @Injectable()
 export class RuntimeMemoryWriteToolService {
   private readonly logger = new Logger(RuntimeMemoryWriteToolService.name);
@@ -32,7 +46,7 @@ export class RuntimeMemoryWriteToolService {
     if (request instanceof Error) {
       return {
         payload: this.createSkippedPayload(
-          "fact",
+          null,
           "invalid_arguments",
           "Memory write arguments are invalid."
         ),
@@ -40,6 +54,83 @@ export class RuntimeMemoryWriteToolService {
       };
     }
 
+    if (request.action === "close") {
+      return this.executeClose(params, request);
+    }
+
+    return this.executeWrite(params, request);
+  }
+
+  private async executeClose(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      toolCall: ProviderGatewayToolCall;
+      conversation: RuntimeTurnRequest["conversation"];
+      currentUserMessageId: string | null;
+      requestId: string | null;
+    },
+    request: CloseRequest
+  ): Promise<RuntimeMemoryWriteToolExecutionResult> {
+    try {
+      const outcome = await this.persaiInternalApiClientService.closeAssistantMemoryByRef({
+        assistantId: params.bundle.metadata.assistantId,
+        itemId: request.ref,
+        requestId: params.requestId
+      });
+
+      // The API returns `not_found` / `not_open_loop` as soft outcomes (the
+      // client maps 404 / 400 to these). The model should see a `skipped`
+      // result so it can adjust, not a `closed` confirmation.
+      if (outcome.reason === "not_found" || outcome.reason === "not_open_loop") {
+        return {
+          payload: this.createSkippedPayload(
+            null,
+            outcome.reason === "not_found"
+              ? "memory_close_ref_not_found"
+              : "memory_close_ref_not_open_loop",
+            outcome.reason === "not_found"
+              ? `Open-loop ref "${request.ref}" was not found.`
+              : `Memory item "${request.ref}" is not an open-loop.`
+          ),
+          isError: false
+        };
+      }
+
+      return {
+        payload: {
+          toolCode: "memory_write",
+          executionMode: "inline",
+          requestedKind: null,
+          item: null,
+          action: "closed",
+          reason: outcome.reason,
+          warning: null,
+          closedItemRef: outcome.closedItemId
+        },
+        isError: false
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Memory close failed.";
+      this.logger.warn(
+        `[memory_write] action=close failed for assistant=${params.bundle.metadata.assistantId} ref=${request.ref}: ${message}`
+      );
+      return {
+        payload: this.createSkippedPayload(null, "memory_close_failed", message),
+        isError: true
+      };
+    }
+  }
+
+  private async executeWrite(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      toolCall: ProviderGatewayToolCall;
+      conversation: RuntimeTurnRequest["conversation"];
+      currentUserMessageId: string | null;
+      requestId: string | null;
+    },
+    request: WriteRequest
+  ): Promise<RuntimeMemoryWriteToolExecutionResult> {
     const transportSurface = this.resolveTransportSurface(params.conversation.channel);
     if (transportSurface === null) {
       return {
@@ -79,9 +170,12 @@ export class RuntimeMemoryWriteToolService {
         };
       }
 
-      // ADR-074 Slice M3 — opt-in explicit close of the most-similar active
-      // open-loop. Failures here MUST NOT fail the surrounding memory_write
-      // (which already succeeded server-side); we log and move on.
+      // ADR-074 Slice M3 — opt-in legacy explicit close of the most-similar
+      // active open-loop. M3.1 prefers `action:"close"` with a ref from the
+      // carry-over block; this flag remains for cases where the model does
+      // not have a precise ref. Failures here MUST NOT fail the surrounding
+      // memory_write (which already succeeded server-side); we log and move
+      // on.
       if (request.closeOpenLoop) {
         try {
           await this.persaiInternalApiClientService.closeMostSimilarOpenLoop({
@@ -106,7 +200,8 @@ export class RuntimeMemoryWriteToolService {
           item: outcome.item,
           action: "remembered",
           reason: null,
-          warning: null
+          warning: null,
+          closedItemRef: null
         },
         isError: false
       };
@@ -122,19 +217,65 @@ export class RuntimeMemoryWriteToolService {
     }
   }
 
-  private readArguments(
-    args: Record<string, unknown>
-  ): { kind: PersaiRuntimeMemoryWriteKind; memory: string; closeOpenLoop: boolean } | Error {
-    const unknownKeys = Object.keys(args).filter(
-      (key) => key !== "kind" && key !== "memory" && key !== "closeOpenLoop"
-    );
+  private readArguments(args: Record<string, unknown>): ParsedRequest | Error {
+    const allowedKeys = new Set(["action", "kind", "memory", "closeOpenLoop", "ref"]);
+    const unknownKeys = Object.keys(args).filter((key) => !allowedKeys.has(key));
+    if (unknownKeys.length > 0) {
+      return new Error("Memory write arguments are invalid.");
+    }
+    const action = this.asAction(args.action);
+    if (action === null) {
+      return new Error("Memory write arguments are invalid.");
+    }
+
+    if (action === "close") {
+      const ref = this.asRef(args.ref);
+      // For close: forbid kind/memory/closeOpenLoop fields per the schema
+      // contract. Tolerate `kind`/`memory`/`closeOpenLoop` literally being
+      // `undefined` (some providers serialize JSON `undefined` properties).
+      if (
+        ref === null ||
+        args.kind !== undefined ||
+        args.memory !== undefined ||
+        args.closeOpenLoop !== undefined
+      ) {
+        return new Error("Memory write arguments are invalid.");
+      }
+      return { action: "close", ref };
+    }
+
+    // Write path. `ref` MUST NOT be supplied.
+    if (args.ref !== undefined) {
+      return new Error("Memory write arguments are invalid.");
+    }
     const kind = this.asKind(args.kind);
     const memory = this.normalizeMemory(args.memory);
     const closeOpenLoop = this.asCloseOpenLoop(args.closeOpenLoop);
-    if (unknownKeys.length > 0 || kind === null || memory === null || closeOpenLoop === null) {
+    if (kind === null || memory === null || closeOpenLoop === null) {
       return new Error("Memory write arguments are invalid.");
     }
-    return { kind, memory, closeOpenLoop };
+    return { action: "write", kind, memory, closeOpenLoop };
+  }
+
+  private asAction(value: unknown): "write" | "close" | null {
+    if (value === undefined) {
+      return "write";
+    }
+    if (value === "write" || value === "close") {
+      return value;
+    }
+    return null;
+  }
+
+  private asRef(value: unknown): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (!UUID_PATTERN.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
   }
 
   private asCloseOpenLoop(value: unknown): boolean | null {
@@ -148,7 +289,7 @@ export class RuntimeMemoryWriteToolService {
   }
 
   private createSkippedPayload(
-    requestedKind: PersaiRuntimeMemoryWriteKind,
+    requestedKind: PersaiRuntimeMemoryWriteKind | null,
     reason: string,
     warning: string | null
   ): RuntimeMemoryWriteToolResult {
@@ -159,7 +300,8 @@ export class RuntimeMemoryWriteToolService {
       item: null,
       action: "skipped",
       reason,
-      warning
+      warning,
+      closedItemRef: null
     };
   }
 

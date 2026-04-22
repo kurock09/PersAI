@@ -599,11 +599,23 @@ export interface RuntimeMemoryWriteItem {
 export interface RuntimeMemoryWriteToolResult {
   toolCode: "memory_write";
   executionMode: "inline";
-  requestedKind: PersaiRuntimeMemoryWriteKind;
+  /**
+   * For `action: "remembered"` and `action: "skipped"` from a `write` call this
+   * is the model-requested kind. For `action: "closed"` (ADR-074 Slice M3.1's
+   * structured close-by-ref) and for `skipped` close-call validation errors
+   * there is no kind and this is `null`.
+   */
+  requestedKind: PersaiRuntimeMemoryWriteKind | null;
   item: RuntimeMemoryWriteItem | null;
-  action: "remembered" | "skipped";
+  action: "remembered" | "closed" | "skipped";
   reason: string | null;
   warning: string | null;
+  /**
+   * ADR-074 Slice M3.1 — when `action: "closed"`, this is the registry id the
+   * runtime stamped `resolved_at` on (server-confirmed). `null` for any other
+   * action.
+   */
+  closedItemRef: string | null;
 }
 
 export interface RuntimeQuotaStatusToolRow {

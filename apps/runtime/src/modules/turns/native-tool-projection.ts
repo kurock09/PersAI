@@ -244,27 +244,39 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "memory_write",
     description: resolveToolDefinitionDescription(
       policy,
-      "Write one concise durable memory for the current assistant-user pair."
+      "Write one concise durable memory for the current assistant-user pair, or close a previously-recorded open loop by its ref."
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["kind", "memory"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["write", "close"],
+          description:
+            'ADR-074 Slice M3.1: defaults to "write" (record a new durable memory). Use "close" to deterministically resolve a known open loop by its `ref`. When "close", `ref` is required and `kind`/`memory`/`closeOpenLoop` MUST be omitted.'
+        },
         kind: {
           type: "string",
           enum: [...PERSAI_RUNTIME_MEMORY_WRITE_KINDS],
-          description: "Durable memory class: fact, preference, or open_loop."
+          description:
+            'Required when action is "write" (or omitted). Durable memory class: fact, preference, or open_loop.'
         },
         memory: {
           type: "string",
           maxLength: MEMORY_WRITE_MAX_CHARS,
-          description: "One concise durable memory statement to store."
+          description:
+            'Required when action is "write" (or omitted). One concise durable memory statement to store.'
         },
         closeOpenLoop: {
           type: "boolean",
           description:
-            "ADR-074 Slice M3: set true ONLY when this memory_write also resolves a previously-recorded open loop (e.g. user just confirmed they made the decision you were waiting on). The runtime will look up the most-similar active open-loop and mark it resolved."
+            'ADR-074 Slice M3 (legacy lexical close): set true on a `write` action ONLY when this memory_write also resolves a previously-recorded open loop and you do NOT have a precise `ref` from the carry-over block. The runtime will look up the most-similar active open-loop and mark it resolved. Prefer `action:"close"` with a `ref` from the carry-over block when one is available.'
+        },
+        ref: {
+          type: "string",
+          description:
+            'Required when action is "close". Opaque open-loop reference shown next to each loop in the cross-session carry-over block as `[ref: ...]`. Pass it back verbatim to close that exact loop.'
         }
       }
     }

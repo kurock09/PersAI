@@ -52,7 +52,8 @@ export class ListAssistantMemoryItemsService {
       memoryClass: item.memoryClass,
       kind: item.kind,
       createdAt: item.createdAt.toISOString(),
-      chatId: item.chatId
+      chatId: item.chatId,
+      resolvedAt: item.resolvedAt === null ? null : item.resolvedAt.toISOString()
     }));
   }
 }
