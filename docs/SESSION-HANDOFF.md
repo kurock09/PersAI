@@ -1,5 +1,84 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 (later) - ADR-074 Memory Center "Session expired" — actual root cause: `close-open-loop` POST was missing from `ClerkAuthMiddleware.forRoutes(...)`
+
+### Why this session
+
+After `c5ee67cd` deployed and the founder hit the same Memory Center workspace screen again, the `Session expired. Sign in again and refresh the page.` banner was **still there** under the "Расскажи что-нибудь новое… / Добавить" form. The founder pushed back hard: "Смотри логи GKE ты не починил - именно смотри в чем причина а не гадай" — i.e. stop theorising, read the live evidence.
+
+### What I found in GKE logs (this time, on the `c5ee67cd`-image pods, with the new diagnostic WARN logging deployed)
+
+Searched `kubectl -n persai-dev logs api-55cf686dbf-c4cgk -c api --tail=2000` for `Clerk|401|verifyToken|UnauthorizedException`. Two cardinal observations:
+
+1. **Zero ClerkAuthService WARN lines.** The diagnostic `this.logger.warn("Clerk verifyToken failed: reason=...")` block I added in `c5ee67cd` never logged a single line during the reproduction. That alone falsified the "stale Clerk JWT" theory — `verifyToken` was never being called at all.
+2. **A direct contradiction in the `request_completed` audit lane within the same 16 seconds**, all from the same browser:
+   - `07:16:32.985` `POST /api/v1/assistant/memory/items/5cab88a6-…/close-open-loop` → `status=401 userId=null latencyMs=13.52`
+   - `07:16:41.784` `GET /api/v1/assistant/memory/workspace/items` → `status=200 userId=4d3d176a-866d-4087-a66e-2b2f372512e5`
+   - `07:16:41.815` `GET /api/v1/assistant/memory/items` → `status=200 userId=4d3d176a-…`
+   - `07:16:48.946` `POST /api/v1/assistant/memory/items/5cab88a6-…/close-open-loop` → `status=401 userId=null latencyMs=1.28`
+
+The same JWT was being accepted for the GETs and rejected for the close-open-loop POST. And `latencyMs=1.28` was way too short for any verifyToken roundtrip — the request was being rejected synchronously in-process, not by the auth pipeline.
+
+### What was actually breaking (real root cause this time)
+
+`apps/api/src/modules/identity-access/identity-access.module.ts` mounts `ClerkAuthMiddleware` via an **explicit allow-list** of `{ path, method }` pairs in `consumer.apply(ClerkAuthMiddleware).forRoutes(...)`. When ADR-074 Slice M3.1 introduced `POST /api/v1/assistant/memory/items/:itemId/close-open-loop` in `AssistantController`, **the matching entry was never added to that allow-list**. Result:
+
+- The Nest router happily mounted the controller route.
+- Requests to it bypassed `ClerkAuthMiddleware` entirely, so `req.resolvedAppUser` stayed `undefined`.
+- `AssistantController.closeOpenLoopMemoryItem` calls `this.resolveRequestUserId(req)` on its very first line; that helper throws `UnauthorizedException("Authenticated user context is missing.")` when `req.resolvedAppUser === undefined`.
+- Nest mapped the exception to a 401 response (in `~1ms`, no Clerk network call).
+- `apps/web/app/app/assistant-api-client.ts::toErrorMessage` maps any `ContractsApiError.status === 401` to the literal English `"Session expired. Sign in again and refresh the page."` (it has no other branch for "you forgot to register the middleware").
+- The new M3.3 inline `FeedbackLine` rendered that string under the Memory section.
+
+So all the previous "Session expired" UX work — the `Reload` button, `skipCache:true` on mutations, `skipCache:true` on read paths, the diagnostic WARN logging — was attacking a token-lifecycle problem that **did not exist**. The founder's session was perfectly valid; the route was effectively un-authenticated and was rejecting itself in the controller body.
+
+### What changed in this session
+
+**Backend — register the missing route on the Clerk auth middleware:**
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`: added `{ path: "api/v1/assistant/memory/items/:itemId/close-open-loop", method: RequestMethod.POST }` to the `ClerkAuthMiddleware.forRoutes(...)` block, right next to its sibling `…/forget` POST entry. Now the middleware actually runs, populates `req.resolvedAppUser`, and the handler's `resolveRequestUserId(req)` succeeds.
+- `apps/api/test/identity-access.module.test.ts`: added a regression assertion `hasRoute(consumer.routes, { path: ".../close-open-loop", method: POST })` with a failure message that explicitly says "must be guarded by `ClerkAuthMiddleware`" — so the next time a new endpoint is added to `AssistantController`, the missing-middleware drop-off is caught at test time, not at production-401 time.
+
+**Frontend — revert the misguided `skipCache:true` on read paths:**
+
+- `apps/web/app/app/_components/use-app-data.ts`: `loadAll` and `reloadChats` go back to plain `getToken()`. The skipCache-on-every-read change from `c5ee67cd` was defending against a failure mode that GKE proved is not happening, and it would needlessly hammer Clerk's refresh endpoint on every `data.reload()` cycle.
+- `apps/web/app/app/_components/assistant-settings.tsx`: `loadMemory`, `loadTasks`, `loadWsMemory`, and the voice-settings load effect go back to plain `getToken()` for the same reason. The earlier hotfix's `skipCache:true` on **mutations** and the `Reload` button on `FeedbackLine` are kept — they cost nothing on the happy path and remain a cheap last-resort recovery if a token ever does expire on a long-idle tab.
+
+**Diagnostic logging — kept as-is:**
+
+- The WARN logging and the `classifyClerkVerifyFailure` enum + 7 unit tests from `c5ee67cd` (`apps/api/src/modules/identity-access/infrastructure/identity/clerk-auth.service.ts`, `apps/api/test/clerk-auth.service.test.ts`) are kept. They did not cause the bug; their **silence** during the live repro was what finally falsified the previous theory and let the real cause surface.
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts` — one new `forRoutes(...)` entry for the `close-open-loop` POST.
+- `apps/api/test/identity-access.module.test.ts` — new `hasRoute(...)` regression assertion.
+- `apps/web/app/app/_components/use-app-data.ts` — reverted `skipCache:true` on `loadAll` + `reloadChats`.
+- `apps/web/app/app/_components/assistant-settings.tsx` — reverted `skipCache:true` on `loadMemory`, `loadTasks`, `loadWsMemory`, voice-settings load.
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` — this entry.
+
+### Verification gate
+
+- `pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts` → silent (passes; new assertion green).
+- `pnpm --filter @persai/api exec tsx test/clerk-auth.service.test.ts` → 7/7 passing.
+- `pnpm --filter @persai/api typecheck` + `pnpm --filter @persai/web typecheck` → clean.
+- `pnpm format:check` → clean.
+
+### Acceptance signals after deploy
+
+- A click on the open-loop "Mark as closed" button (✓ icon) on a real `open_loop` memory row now removes that row from the Memory section instead of erasing the row optimistically and then painting `Session expired. Sign in again and refresh the page.` over the workspace input.
+- `kubectl -n persai-dev logs api-<new-pod> -c api --tail=…` no longer contains `request_completed` lines with `path=/api/v1/assistant/memory/items/<id>/close-open-loop status=401 userId=null`.
+- If the user is genuinely signed-out, the same endpoint now logs a `ClerkAuthService` WARN (`reason=token_expired` / `invalid_signature` / etc.) before the 401 — i.e. the diagnostic loop is closed for next time.
+
+### Risks and residuals
+
+- The `forRoutes(...)` allow-list pattern in `identity-access.module.ts` is the actual fragile thing here — there is no compile-time enforcement that every controller route is in the list. The new test only asserts the close-open-loop route specifically. Follow-up worth queuing: add a generic test that walks `AssistantController`'s decorator metadata and asserts every `@Post`/`@Patch`/`@Delete` route is in the middleware list (the current test file's `RecordingMiddlewareConsumer` already gives us a clean spot to add it). Out of scope for this session.
+
+### What is NOT in this slice
+
+- The `Reload` button on `FeedbackLine` stays. It is now expected to remain unused in normal operation (no real session-expiry has been observed in logs); removing it would be a separate UX cleanup.
+
+---
+
 ## 2026-04-23 - ADR-074 Memory Center "Session expired" follow-up — root-cause fix on top of `a782d36d` Reload-button hotfix
 
 ### Why this session

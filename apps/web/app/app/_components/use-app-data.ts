@@ -61,13 +61,7 @@ export function useAppData(): AppData {
   const [error, setError] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
-    // ADR-074 Memory Center "Session expired" follow-up — every read
-    // path on `/app` now force-fetches a fresh Clerk JWT. The cached
-    // token can outlive Clerk's accepted lifetime when the tab has sat
-    // open for a while, which used to surface as a 401 on the very next
-    // `data.reload()` call after a successful mutation and mask the
-    // mutation's success behind a "Session expired" banner.
-    const token = await getToken({ skipCache: true });
+    const token = await getToken();
     if (token === null) return;
 
     setIsLoading(true);
@@ -109,7 +103,7 @@ export function useAppData(): AppData {
   }, [getToken]);
 
   const reloadChats = useCallback(async () => {
-    const token = await getToken({ skipCache: true });
+    const token = await getToken();
     if (token === null) return;
     try {
       const result = await getAssistantWebChats(token);

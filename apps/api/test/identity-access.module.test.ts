@@ -130,6 +130,21 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     }),
     true
   );
+  // ADR-074 Memory Center "Session expired" — real root cause: this route
+  // was added to AssistantController without a matching middleware
+  // registration here, so requests reached the controller with
+  // `req.resolvedAppUser === undefined` and were rejected as 401 inside the
+  // handler in ~1ms (no Clerk verifyToken call ever happened). The frontend
+  // turned that 401 into the inline "Session expired" banner. Lock the
+  // registration with a regression assertion so we never lose it again.
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/memory/items/:itemId/close-open-loop",
+      method: RequestMethod.POST
+    }),
+    true,
+    "POST /api/v1/assistant/memory/items/:itemId/close-open-loop must be guarded by ClerkAuthMiddleware"
+  );
 }
 
 void runIdentityAccessModuleTest().catch((error: unknown) => {
