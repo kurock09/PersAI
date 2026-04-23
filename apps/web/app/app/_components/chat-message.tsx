@@ -565,7 +565,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             )}
           </>
         ) : (
-          <div className="prose-invert text-sm text-text">
+          <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
             {isStreaming ? (
               <StreamingMarkdownMessageContent content={message.content} />

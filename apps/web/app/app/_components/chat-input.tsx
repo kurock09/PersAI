@@ -19,6 +19,7 @@ import {
   isAcceptedChatFile,
   isKnowledgeEligibleFile
 } from "../chat-file-policy";
+import { useTouchDevice } from "./use-touch-device";
 
 const MAX_FILES = 5;
 
@@ -78,6 +79,7 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
+  const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -125,6 +127,11 @@ export function ChatInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      // On touch devices (phones, tablets) Enter must insert a newline so
+      // the soft keyboard's Return key behaves like in every chat app
+      // (Telegram, WhatsApp, iMessage). Sending is exclusively the Send
+      // button. On desktop, Enter sends and Shift+Enter inserts a newline.
+      if (isTouchDevice) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         if (!isStreaming && !disabled) {
@@ -132,7 +139,7 @@ export function ChatInput({
         }
       }
     },
-    [handleSend, isStreaming, disabled]
+    [handleSend, isStreaming, disabled, isTouchDevice]
   );
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

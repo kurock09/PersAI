@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface SlideOverProps {
   open: boolean;
@@ -13,6 +14,8 @@ interface SlideOverProps {
 }
 
 export function SlideOver({ open, onClose, title, children, size = "default" }: SlideOverProps) {
+  useHistoryBackToClose(open, onClose);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {

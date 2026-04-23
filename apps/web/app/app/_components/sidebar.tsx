@@ -727,7 +727,7 @@ function ChatListItem({
               setMenuOpen((o) => !o);
             }
           }}
-          className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-surface-raised group-hover:opacity-100"
+          className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:bg-surface-raised md:opacity-0 md:group-hover:opacity-100"
         >
           <MoreHorizontal className="h-3.5 w-3.5 text-text-subtle" />
         </span>
