@@ -5,16 +5,24 @@
    ────────────────────────────────────────────────────────── */
 
 :root {
-  --bg: #0c0c0c;
-  --surface: #151515;
-  --surface-raised: #1d1d1c;
-  --surface-hover: #262625;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.13);
+  /*
+   * ChatGPT-style dark palette (cosmetic refresh, 2026-04-23):
+   * sidebar (--surface) is the darkest layer, main chat (--bg) sits one
+   * step above it, and lifted controls / composer / cards (--surface-raised)
+   * sit one step above that. Hover is the lightest neutral. Accent /
+   * destructive / success / warning are unchanged — only neutrals were
+   * remapped per founder request to match the reference screenshot.
+   */
+  --bg: #212121;
+  --surface: #181818;
+  --surface-raised: #2f2f2f;
+  --surface-hover: #3a3a3a;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
   --ring: rgba(102, 187, 106, 0.35);
-  --text: #eeeeed;
-  --text-muted: #8b8b86;
-  --text-subtle: #555551;
+  --text: #ececec;
+  --text-muted: #b4b4b4;
+  --text-subtle: #6e6e6e;
   --accent: #66bb6a;
   --accent-hover: #81c784;
   --accent-glow: rgba(102, 187, 106, 0.15);
