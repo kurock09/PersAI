@@ -320,7 +320,11 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
     }
   });
 
-  const invalidAssistantCheck = await service.executeToolCall({
+  // ADR-074 F4 — assistant_check used to fail hard on a missing actionPayload
+  // and the model would burn its loop budget retrying. We now auto-derive a
+  // minimal payload from `title` + `actionType` so the background check
+  // still fires.
+  const autoDerivedAssistantCheck = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
       action: "create",
@@ -331,9 +335,70 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
     }),
     conversation: createConversation("thread-1")
   });
-  assert.equal(invalidAssistantCheck.payload.action, "skipped");
-  assert.equal(invalidAssistantCheck.payload.reason, "invalid_arguments");
-  assert.match(invalidAssistantCheck.payload.warning ?? "", /requires a non-empty actionPayload/);
+  assert.equal(autoDerivedAssistantCheck.payload.action, "created");
+  assert.equal(autoDerivedAssistantCheck.isError, false);
+  assert.deepEqual(internalApi.controlCalls.at(-1), {
+    assistantId: "assistant-1",
+    action: "create",
+    kind: "assistant_check",
+    title: "Watch cosmos",
+    actionType: "check_status",
+    actionPayload: {
+      description: "Watch cosmos",
+      actionType: "check_status",
+      autoDerived: true
+    },
+    contextSessionKey: "thread-1",
+    delayMs: 120000,
+    conversationContext: {
+      channel: "web",
+      externalThreadKey: "thread-1"
+    }
+  });
+
+  // Stringified JSON object payloads must also be accepted — the previous
+  // behaviour rejected them as `invalid_arguments`.
+  const stringifiedPayloadCheck = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "create",
+      kind: "assistant_check",
+      title: "Check USD rate",
+      actionType: "follow_up",
+      actionPayload: '{"target":"USD","threshold":30,"action":"ping_above"}',
+      delayMs: 120000
+    }),
+    conversation: createConversation("thread-1")
+  });
+  assert.equal(stringifiedPayloadCheck.payload.action, "created");
+  assert.equal(stringifiedPayloadCheck.isError, false);
+  assert.deepEqual((internalApi.controlCalls.at(-1) as Record<string, unknown>).actionPayload, {
+    target: "USD",
+    threshold: 30,
+    action: "ping_above"
+  });
+
+  // A string that does not parse to a non-array object still produces a
+  // structured invalid-arguments error so genuinely broken payloads stay
+  // visible.
+  const malformedPayloadCheck = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "create",
+      kind: "assistant_check",
+      title: "Broken payload",
+      actionType: "follow_up",
+      actionPayload: "not-json",
+      delayMs: 120000
+    }),
+    conversation: createConversation("thread-1")
+  });
+  assert.equal(malformedPayloadCheck.payload.action, "skipped");
+  assert.equal(malformedPayloadCheck.payload.reason, "invalid_arguments");
+  assert.match(
+    malformedPayloadCheck.payload.warning ?? "",
+    /must be a JSON object \(or a JSON-encoded object string\)/
+  );
 
   const blockedSelfCancel = await service.executeToolCall({
     bundle,

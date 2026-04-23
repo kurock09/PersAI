@@ -242,7 +242,7 @@ export class RuntimeScheduledActionToolService {
     const title = this.asNonEmptyString(args.title);
     const reminderText = this.asNonEmptyString(args.reminderText) ?? undefined;
     const actionType = this.asNonEmptyString(args.actionType) ?? undefined;
-    const actionPayload = this.asJsonObject(args.actionPayload);
+    let actionPayload = this.asJsonObject(args.actionPayload);
     const taskId = this.asNonEmptyString(args.taskId) ?? undefined;
     const titleMatch = this.asNonEmptyString(args.titleMatch) ?? undefined;
     const runAt = this.asNonEmptyString(args.runAt) ?? undefined;
@@ -284,7 +284,9 @@ export class RuntimeScheduledActionToolService {
         return new Error("scheduled_action everyMs must be a positive number.");
       }
       if ("actionPayload" in args && actionPayload === null) {
-        return new Error("scheduled_action actionPayload must be a JSON object when provided.");
+        return new Error(
+          "scheduled_action actionPayload must be a JSON object (or a JSON-encoded object string) when provided."
+        );
       }
       if ("audience" in args) {
         return new Error(
@@ -306,15 +308,24 @@ export class RuntimeScheduledActionToolService {
           'scheduled_action create with kind="assistant_check" requires actionType.'
         );
       }
+      // ADR-074 F4: assistant_check used to fail hard when the model omitted
+      // `actionPayload` or sent `{}`. The model would then burn its loop
+      // budget retrying, often hitting `tool_budget_exhausted` and lying
+      // ("я поставил") to the user. We now auto-derive a minimal payload so
+      // the background check still fires; the hidden-run prompt only needs a
+      // non-empty payload to render the contract description, and any extra
+      // fields the model includes are still preserved verbatim.
       if (
         kind === "assistant_check" &&
         (actionPayload === undefined ||
           actionPayload === null ||
           Object.keys(actionPayload).length === 0)
       ) {
-        return new Error(
-          'scheduled_action create with kind="assistant_check" requires a non-empty actionPayload.'
-        );
+        actionPayload = {
+          description: title,
+          actionType: actionType ?? "follow_up",
+          autoDerived: true
+        };
       }
       if (kind === "assistant_check" && reminderText !== undefined) {
         return new Error(
@@ -567,6 +578,22 @@ export class RuntimeScheduledActionToolService {
     }
     if (value !== null && typeof value === "object" && !Array.isArray(value)) {
       return value as Record<string, unknown>;
+    }
+    // ADR-074 F4 — leniently accept JSON-encoded object strings. Some
+    // providers (notably tool-loop-recovery paths) re-emit `actionPayload`
+    // as a stringified JSON object instead of a raw object; rejecting it
+    // forced the model into retry storms that ate the loop budget. A
+    // string that does not parse to a non-array object still resolves to
+    // `null` so the upstream "must be a JSON object" error fires.
+    if (typeof value === "string" && value.trim().length > 0) {
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        return null;
+      }
     }
     return null;
   }

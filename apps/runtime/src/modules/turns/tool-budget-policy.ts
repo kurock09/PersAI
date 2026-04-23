@@ -52,8 +52,14 @@
 
 export type ToolBudgetExecutionMode = "normal" | "premium" | "reasoning";
 
+// ADR-074 F4: bumped `normal` from 2 → 3 to give the model one free
+// self-repair iteration after a structured tool-call validation error
+// (notably `scheduled_action invalid_arguments`). With limit=2 a single
+// malformed `actionPayload` immediately exhausted the loop and forced the
+// model to either lie to the user ("я поставил") or surface a generic
+// "tool budget" message — both observed live on 2026-04-23.
 export const TOOL_LOOP_LIMIT_BY_MODE: Readonly<Record<ToolBudgetExecutionMode, number>> = {
-  normal: 2,
+  normal: 3,
   premium: 4,
   reasoning: 8
 };

@@ -5351,14 +5351,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     toolCalls: []
   });
 
-  // ── L1 Test 1 — normal mode loop limit (loopLimit=2) ──
+  // ── L1 Test 1 — normal mode loop limit (loopLimit=3, ADR-074 F4) ──
   // Model emits one web_fetch per iteration. In normal mode the loop
-  // budget allows iterations 0 and 1 to actually execute the tool; the
-  // 3rd iteration must be rejected with `tool_budget_exhausted` /
+  // budget allows iterations 0..2 to actually execute the tool; the
+  // 4th iteration must be rejected with `tool_budget_exhausted` /
   // `loop_limit` and the model must get a wrap-up iteration to reply
   // honestly. Pre-L1 this would have either kept executing up to 4
   // iterations (universal MAX_NATIVE_TOOL_LOOP_ITERATIONS) or failed
-  // the whole turn with `native_tool_loop_exhausted`.
+  // the whole turn with `native_tool_loop_exhausted`. F4 raised normal
+  // from 2 → 3 to give one self-repair iteration after invalid_arguments.
   persaiInternalApiClientService.consumeOutcome = {
     allowed: true,
     currentCount: 1,
@@ -5369,7 +5370,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     buildWebFetchToolCallsResult(["l1-loop-1"], "2026-04-13T12:00:00.000Z"),
     buildWebFetchToolCallsResult(["l1-loop-2"], "2026-04-13T12:00:01.000Z"),
     buildWebFetchToolCallsResult(["l1-loop-3"], "2026-04-13T12:00:02.000Z"),
-    buildCompletionResult("normal-mode wrap-up reply", "2026-04-13T12:00:03.000Z")
+    buildWebFetchToolCallsResult(["l1-loop-4"], "2026-04-13T12:00:03.000Z"),
+    buildCompletionResult("normal-mode wrap-up reply", "2026-04-13T12:00:04.000Z")
   ];
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -5378,12 +5380,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(
     normalLoopLimitCompleted.assistantText,
     "normal-mode wrap-up reply",
-    "ADR-074 L1 regression: after the loop budget is exhausted in normal mode the model must still get a wrap-up iteration and reply honestly (got no completion text)."
+    "ADR-074 F4 regression: after the loop budget is exhausted in normal mode the model must still get a wrap-up iteration and reply honestly (got no completion text)."
   );
   assert.equal(
     providerGatewayClient.webFetchCalls.length - webFetchCallsBeforeNormalLoop,
-    2,
-    "ADR-074 L1 regression: normal-mode loopLimit=2 must allow exactly 2 real web_fetch executions (got a different count — either the limit regressed back to 4 or the budget policy did not skip the 3rd call)."
+    3,
+    "ADR-074 F4 regression: normal-mode loopLimit=3 must allow exactly 3 real web_fetch executions (got a different count — either the limit regressed or the budget policy did not skip the 4th call)."
   );
   const normalLoopExhaustedHistory = providerGatewayClient.calls.at(-1)?.toolHistory ?? [];
   const normalLoopExhaustedEntry = normalLoopExhaustedHistory.find((entry) =>
@@ -5407,10 +5409,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(
       parsed.budgetReason,
       "loop_limit",
-      "ADR-074 L1 regression: normal-mode iteration past loopLimit=2 must report budgetReason=loop_limit (NOT per_tool_cap — web_fetch cap=5 is not the limiter here)."
+      "ADR-074 F4 regression: normal-mode iteration past loopLimit=3 must report budgetReason=loop_limit (NOT per_tool_cap — web_fetch cap=5 is not the limiter here)."
     );
-    assert.equal(parsed.limit, 2);
-    assert.equal(parsed.observed, 3);
+    assert.equal(parsed.limit, 3);
+    assert.equal(parsed.observed, 4);
     assert.equal(parsed.action, "skipped");
   }
   await flushTaskQueue();
@@ -5420,8 +5422,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   // per-turn hard cap of 5, so the first 5 must execute and the 6th must
   // be substituted with `tool_budget_exhausted` / `per_tool_cap`. This
   // exercises the per-call (not per-iteration) branch of the policy. The
-  // loop budget (loopLimit=2 in normal mode) is *not* the limiter here —
-  // we are inside a single iteration, iteration index 0.
+  // loop budget (loopLimit=3 in normal mode after ADR-074 F4) is *not*
+  // the limiter here — we are inside a single iteration, iteration index 0.
   const webFetchCallsBeforePerToolCap = providerGatewayClient.webFetchCalls.length;
   providerGatewayClient.resultQueue = [
     buildWebFetchToolCallsResult(
@@ -5537,7 +5539,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(
     providerGatewayClient.webFetchCalls.length - webFetchCallsBeforePremiumLoop,
     4,
-    "ADR-074 L1 regression: premium-mode loopLimit=4 must allow exactly 4 real web_fetch executions (got a different count — either the per-mode lookup is broken or premium silently fell back to normal=2)."
+    "ADR-074 L1 regression: premium-mode loopLimit=4 must allow exactly 4 real web_fetch executions (got a different count — either the per-mode lookup is broken or premium silently fell back to normal)."
   );
   const premiumLoopExhaustedEntry = (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).find(
     (entry) => entry.toolResult.content.includes('"reason":"tool_budget_exhausted"')
@@ -5568,7 +5570,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   // here pretends to be such an assistant by setting
   // `runtime.toolBudgets.loopLimitByMode.normal = 5`. With the override in
   // place, normal mode must allow 5 real iterations (not the code default
-  // of 2) before the synthetic tool_budget_exhausted fires on iteration 6.
+  // of 3 after ADR-074 F4) before the synthetic tool_budget_exhausted fires
+  // on iteration 6.
   // This pins the wiring from the bundle through `createToolBudgetPolicy`
   // into the actual loop bound.
   if (bundleRegistry.entry !== null) {
@@ -5605,7 +5608,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(
       providerGatewayClient.webFetchCalls.length - webFetchCallsBeforeOverride,
       5,
-      "ADR-074 L1 regression: bundle override loopLimitByMode.normal=5 must allow exactly 5 real web_fetch executions (got a different count — the runtime is ignoring the bundle override and using the code default of 2)."
+      "ADR-074 L1 regression: bundle override loopLimitByMode.normal=5 must allow exactly 5 real web_fetch executions (got a different count — the runtime is ignoring the bundle override and using the code default)."
     );
     const overrideHistory = providerGatewayClient.calls.at(-1)?.toolHistory ?? [];
     const overrideExhaustedEntry = overrideHistory.find((entry) =>
@@ -5629,7 +5632,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       assert.equal(
         parsed.limit,
         5,
-        "ADR-074 L1 regression: tool_budget_exhausted.limit must reflect the OVERRIDE value (5), not the code default (2)."
+        "ADR-074 L1 regression: tool_budget_exhausted.limit must reflect the OVERRIDE value (5), not the code default."
       );
       assert.equal(parsed.observed, 6);
     }

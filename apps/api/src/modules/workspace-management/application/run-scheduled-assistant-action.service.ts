@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import type { RuntimeTurnReceiptStatus } from "@prisma/client";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -61,6 +67,8 @@ function buildScheduledActionPrompt(input: {
 
 @Injectable()
 export class RunScheduledAssistantActionService {
+  private readonly logger = new Logger(RunScheduledAssistantActionService.name);
+
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -98,25 +106,70 @@ export class RunScheduledAssistantActionService {
       runAtMs: input.runAtMs
     });
     if (deliveryAttempt.kind === "skip") {
+      // ADR-074 F4 (no-silent-hidden-run): even when we deduplicate via the
+      // RuntimeTurnReceipt cache, we want a structured breadcrumb so the task
+      // never "disappears" silently from the operator's POV. The earlier
+      // completed receipt already proves the model produced (or chose not to
+      // produce) an observable side-effect; we just record that fact.
+      this.logger.log({
+        event: "scheduled_assistant_action_skipped_already_completed",
+        assistantId: assistant.id,
+        externalRef: input.externalRef,
+        actionType: input.actionType,
+        runAtIso: new Date(input.runAtMs).toISOString()
+      });
       return;
     }
-    await this.sendNativeWebChatTurnService.execute({
-      assistantId: assistant.id,
-      publishedVersionId,
-      runtimeTier,
-      surfaceThreadKey,
-      userId: assistant.userId,
-      workspaceId: assistant.workspaceId,
-      userMessageId: deliveryAttempt.userMessageId,
-      userMessage: buildScheduledActionPrompt({
-        title: input.title,
+    const startedAtMs = Date.now();
+    try {
+      await this.sendNativeWebChatTurnService.execute({
+        assistantId: assistant.id,
+        publishedVersionId,
+        runtimeTier,
+        surfaceThreadKey,
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        userMessageId: deliveryAttempt.userMessageId,
+        userMessage: buildScheduledActionPrompt({
+          title: input.title,
+          actionType: input.actionType,
+          actionPayload: input.actionPayload,
+          payloadText: input.payloadText
+        }),
+        attachments: [],
+        modelRoleOverride: "system_tool",
+        currentTimeIso: new Date(input.runAtMs).toISOString()
+      });
+    } catch (error) {
+      // ADR-074 F4: failure is already retried/disabled by the scheduler's
+      // exhaustion path, but we add a structured log here so the cause is
+      // attributable to the hidden-run dispatch rather than the scheduler tick.
+      this.logger.error({
+        event: "scheduled_assistant_action_dispatch_failed",
+        assistantId: assistant.id,
+        externalRef: input.externalRef,
         actionType: input.actionType,
-        actionPayload: input.actionPayload,
-        payloadText: input.payloadText
-      }),
-      attachments: [],
-      modelRoleOverride: "system_tool",
-      currentTimeIso: new Date(input.runAtMs).toISOString()
+        durationMs: Date.now() - startedAtMs,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+    // ADR-074 F4 (no-silent-hidden-run): the runtime turn returned without
+    // throwing, which means the model's hidden run completed. The actual
+    // user-visible artifact (a `kind="user_reminder"` follow-up) only exists
+    // if the model decided the condition fired. Either way, we leave a
+    // structured breadcrumb so the operator can grep
+    // `scheduled_assistant_action_completed` per externalRef and reconstruct
+    // the timeline (paired with the registry-side "disabled" marker the
+    // scheduler writes via completeAssistantActionRun).
+    this.logger.log({
+      event: "scheduled_assistant_action_completed",
+      assistantId: assistant.id,
+      externalRef: input.externalRef,
+      actionType: input.actionType,
+      durationMs: Date.now() - startedAtMs,
+      runAtIso: new Date(input.runAtMs).toISOString()
     });
   }
 

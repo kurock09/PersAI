@@ -606,12 +606,43 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     nextRunAtMs: number | undefined
   ): Promise<void> {
     if (nextRunAtMs === undefined) {
-      await this.prisma.assistantTaskRegistryItem.deleteMany({
+      // ADR-074 F4 (no-silent-hidden-run): one-shot assistant_check rows used
+      // to be hard-deleted on completion. That made the user perception of
+      // "background tasks just disappeared" literally true: even when the
+      // hidden run finished cleanly (and the model legitimately decided "no
+      // user follow-up needed"), nothing remained in the task registry. We
+      // now flip the row to `disabled` with `attemptCount=0` /
+      // `lastErrorMessage=null` so it stays visible in the admin task list
+      // and is distinguishable from the dead-letter state (which sets
+      // attemptCount=MAX and a lastErrorMessage). The disabledAt timestamp
+      // is the breadcrumb operators can join with the runtime log
+      // `scheduled_assistant_action_completed`.
+      const completedAt = new Date();
+      await this.prisma.assistantTaskRegistryItem.updateMany({
         where: {
           id,
           schedulerClaimToken: claimToken,
           schedulerClaimEpoch: claimEpoch
+        },
+        data: {
+          controlStatus: "disabled",
+          nextRunAt: null,
+          disabledAt: completedAt,
+          cancelledAt: null,
+          retryAfterAt: null,
+          attemptCount: 0,
+          lastErrorMessage: null,
+          lastErrorAt: null,
+          schedulerClaimToken: null,
+          schedulerClaimEpoch: null,
+          schedulerClaimedAt: null,
+          schedulerClaimExpiresAt: null
         }
+      });
+      this.logger.log({
+        event: "scheduled_assistant_one_shot_completed",
+        taskId: id,
+        decision: "marked_disabled_completed"
       });
       return;
     }

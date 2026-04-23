@@ -15,10 +15,15 @@ import {
  */
 export async function runToolBudgetPolicyTest(): Promise<void> {
   // ── Loop limits per execution mode (founder-confirmed Q9-C part 1) ──
+  // ADR-074 F4 (2026-04-23): normal raised 2 → 3 to give the model one
+  // free self-repair iteration after a structured invalid_arguments error
+  // (live trigger: scheduled_action with a malformed actionPayload would
+  // exhaust the 2-iteration normal loop and force the model to either lie
+  // to the user or surface a generic budget-exhausted message).
   assert.equal(
     TOOL_LOOP_LIMIT_BY_MODE.normal,
-    2,
-    "ADR-074 L1 regression: TOOL_LOOP_LIMIT_BY_MODE.normal must be 2 (founder-confirmed in Q9-C part 1; do not weaken without re-asking)."
+    3,
+    "ADR-074 F4 regression: TOOL_LOOP_LIMIT_BY_MODE.normal must be 3 (raised from 2 on 2026-04-23 to give one self-repair iteration)."
   );
   assert.equal(
     TOOL_LOOP_LIMIT_BY_MODE.premium,
@@ -121,7 +126,7 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
   );
 
   // ── ToolBudgetPolicy.loopLimit() reflects the resolved mode ──
-  assert.equal(new ToolBudgetPolicy("normal").loopLimit(), 2);
+  assert.equal(new ToolBudgetPolicy("normal").loopLimit(), 3);
   assert.equal(new ToolBudgetPolicy("premium").loopLimit(), 4);
   assert.equal(new ToolBudgetPolicy("reasoning").loopLimit(), 8);
 
@@ -184,25 +189,25 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
   }
 
   // ── Loop limit exhausts on iteration index >= mode limit ──
-  const loopPolicy = new ToolBudgetPolicy("normal"); // loopLimit = 2
-  for (let iteration = 0; iteration < 2; iteration += 1) {
+  const loopPolicy = new ToolBudgetPolicy("normal"); // loopLimit = 3 (ADR-074 F4)
+  for (let iteration = 0; iteration < 3; iteration += 1) {
     const reservation = loopPolicy.reserve("memory_write", iteration);
     assert.equal(
       reservation.exhausted,
       false,
-      `ADR-074 L1 regression: iteration ${String(iteration)} must execute (loopLimit=2 means iterations 0..1 are real).`
+      `ADR-074 F4 regression: iteration ${String(iteration)} must execute (loopLimit=3 means iterations 0..2 are real).`
     );
   }
-  const wrapUpReservation = loopPolicy.reserve("memory_write", 2);
+  const wrapUpReservation = loopPolicy.reserve("memory_write", 3);
   assert.equal(wrapUpReservation.exhausted, true);
   if (wrapUpReservation.exhausted === true) {
     assert.equal(
       wrapUpReservation.reason,
       "loop_limit",
-      "ADR-074 L1 regression: iteration index 2 in normal mode (loopLimit=2) must be rejected as loop_limit, NOT per_tool_cap (memory_write has no per-tool cap)."
+      "ADR-074 F4 regression: iteration index 3 in normal mode (loopLimit=3) must be rejected as loop_limit, NOT per_tool_cap (memory_write has no per-tool cap)."
     );
-    assert.equal(wrapUpReservation.limit, 2);
-    assert.equal(wrapUpReservation.observed, 3);
+    assert.equal(wrapUpReservation.limit, 3);
+    assert.equal(wrapUpReservation.observed, 4);
   }
 
   // ── Loop-limit exhaustion does NOT bump per-tool counters either ──
@@ -270,7 +275,7 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
   assert.equal(
     overriddenLoop.loopLimit(),
     5,
-    "ADR-074 L1 regression: bundle override loopLimitByMode.normal=5 must replace the code default of 2."
+    "ADR-074 L1 regression: bundle override loopLimitByMode.normal=5 must replace the code default."
   );
 
   // A `null`, missing, or non-positive override is rejected and the code
@@ -278,23 +283,23 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
   // the tool loop off (loopLimit=0) and silently break every tool-using turn.
   assert.equal(
     new ToolBudgetPolicy("normal", { loopLimitOverrides: { normal: null } }).loopLimit(),
-    2,
-    "ADR-074 L1 regression: a null override must fall back to the code default."
+    3,
+    "ADR-074 F4 regression: a null override must fall back to the code default (normal=3)."
   );
   assert.equal(
     new ToolBudgetPolicy("normal", { loopLimitOverrides: { normal: 0 } }).loopLimit(),
-    2,
-    "ADR-074 L1 regression: a non-positive override must be ignored so a misconfigured bundle cannot disable the tool loop."
+    3,
+    "ADR-074 F4 regression: a non-positive override must be ignored so a misconfigured bundle cannot disable the tool loop."
   );
   assert.equal(
     new ToolBudgetPolicy("normal", { loopLimitOverrides: { normal: -3 } }).loopLimit(),
-    2,
-    "ADR-074 L1 regression: a negative override must be ignored."
+    3,
+    "ADR-074 F4 regression: a negative override must be ignored."
   );
   assert.equal(
     new ToolBudgetPolicy("normal", { loopLimitOverrides: null }).loopLimit(),
-    2,
-    "ADR-074 L1 regression: a null overrides bag must fall back to code defaults."
+    3,
+    "ADR-074 F4 regression: a null overrides bag must fall back to code defaults (normal=3)."
   );
 
   // Per-tool cap override on a normally-capped tool: bundle wants web_fetch

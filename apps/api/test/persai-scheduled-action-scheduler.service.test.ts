@@ -964,7 +964,29 @@ async function runAssistantActionBatchTest(): Promise<void> {
     payloadText: "Check whether a project follow-up would be useful.",
     runAtMs: dueAt.getTime()
   });
-  assert.equal(prisma.rows.length, 0);
+  // ADR-074 F4 (no-silent-hidden-run): the row is now KEPT and flipped to
+  // controlStatus="disabled" instead of being hard-deleted, so a completed
+  // one-shot assistant_check stays visible in the admin task list.
+  assert.equal(prisma.rows.length, 1);
+  const completedRow = prisma.rows[0];
+  assert.ok(completedRow !== undefined, "expected the one-shot row to remain after completion");
+  assert.equal(completedRow.id, "task-5");
+  assert.equal(completedRow.controlStatus, "disabled");
+  assert.equal(completedRow.nextRunAt, null);
+  assert.ok(
+    completedRow.disabledAt instanceof Date,
+    "disabledAt must be set as a completion breadcrumb"
+  );
+  assert.equal(
+    completedRow.attemptCount,
+    0,
+    "attemptCount=0 distinguishes 'completed' from 'disabled-after-exhausted'"
+  );
+  assert.equal(
+    completedRow.lastErrorMessage,
+    null,
+    "lastErrorMessage must remain null on a clean completion"
+  );
 }
 
 // ADR-074 Slice T1 hard constraint #11 + #12: assistant audience is
