@@ -203,6 +203,58 @@ const MIN_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 250;
 const MAX_SHARED_COMPACTION_SUMMARY_BUDGET_TOKENS = 1000;
 const APPROX_SUMMARY_CHARS_PER_TOKEN = 4;
 
+/**
+ * Per-tool default for the per-turn cap shown as the input placeholder when
+ * the operator has not overridden the value. Keep in sync with
+ * `TOOL_HARD_CAP_PER_TURN` in
+ * `apps/runtime/src/modules/turns/tool-budget-policy.ts`.
+ */
+const TOOL_PER_TURN_CAP_DEFAULT: Readonly<Record<string, number>> = {
+  web_fetch: 5,
+  web_search: 3,
+  image_generate: 1,
+  image_edit: 1,
+  video_generate: 1,
+  tts: 3,
+  browser: 3,
+  exec: 5,
+  shell: 5,
+  files: 10,
+  scheduled_action: 5,
+  memory_search: 5,
+  memory_get: 10,
+  memory_write: 10
+};
+
+/**
+ * One-sentence operator-facing description shown under each tool card title.
+ * Plain English, no ADR references. Kept short so cards stay compact.
+ */
+const TOOL_CARD_DESCRIPTION: Readonly<Record<string, string>> = {
+  web_search: "Search the public web for sources and links.",
+  web_fetch: "Read the main content of a known web page.",
+  image_generate: "Generate brand-new images from a text prompt.",
+  image_edit: "Edit an existing image with prompt-guided changes.",
+  video_generate: "Generate a short video clip from a text prompt.",
+  tts: "Synthesize spoken audio in the assistant voice.",
+  browser: "Drive a real browser for JS-heavy or interactive pages.",
+  memory_search: "Search the assistant's durable memory and knowledge base.",
+  memory_get: "Read a specific knowledge or memory entry by reference.",
+  scheduled_action: "Schedule user-visible reminders or hidden assistant follow-up checks.",
+  files: "List, read, write, edit, and deliver assistant files.",
+  exec: "Run one bounded executable inside the sandbox workspace.",
+  shell: "Run one bounded shell command inside the sandbox workspace."
+};
+
+/** Short tooltips for the per-tool fields. Plain English, no ADR refs. */
+const TOOL_FIELD_HELP = {
+  dailyCap:
+    "Maximum calls per workspace per day. Blank = unlimited (calls are still counted, never refused). A positive number rejects further calls once reached.",
+  perTurnCap:
+    "Maximum calls inside a single assistant turn. Blank = inherit the runtime default for this tool.",
+  videoModel: "Provider model used for video generation. Affects cost and quality."
+} as const;
+
 const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
   ContextPolicyPresetWithDefaults,
   Omit<
@@ -1082,6 +1134,32 @@ function Input({
   );
 }
 
+function InfoIcon({ tip }: { tip: string }) {
+  return (
+    <span
+      className="pointer-events-auto absolute right-1.5 top-1/2 inline-flex h-3.5 w-3.5 -translate-y-1/2 cursor-help select-none items-center justify-center rounded-full border border-border/70 bg-surface text-[8.5px] font-bold leading-none text-text-subtle hover:border-accent/60 hover:text-text"
+      title={tip}
+      aria-label="More info"
+    >
+      ?
+    </span>
+  );
+}
+
+function FieldRow({ label, tip, children }: { label: string; tip: string; children: ReactNode }) {
+  return (
+    <label className="grid gap-0.5">
+      <span className="text-[9px] font-medium uppercase tracking-wider text-text-subtle">
+        {label}
+      </span>
+      <div className="relative">
+        {children}
+        <InfoIcon tip={tip} />
+      </div>
+    </label>
+  );
+}
+
 /* ─── Tool activations (read-only inline) ─── */
 
 function ToolActivationsInline({ activations }: { activations: AdminPlanToolActivation[] }) {
@@ -1147,106 +1225,95 @@ export function ToolActivationsEdit({
     onUpdate(next);
   }
 
+  const numericInputClasses =
+    "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]";
+
   return (
     <div className="grid gap-2 md:grid-cols-2">
-      {activations.map((ta, idx) => (
-        <div
-          key={ta.toolCode}
-          className="rounded-md border border-border/80 bg-surface-raised px-3 py-2"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-[11px] font-semibold text-text">{ta.displayName}</span>
-                <span className="font-mono text-[10px] text-text-subtle">{ta.toolCode}</span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
-                  {ta.toolClass === "cost_driving" ? "cost" : "util"}
-                </Pill>
-                <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
-              </div>
-            </div>
-            <label className="grid shrink-0 gap-1 text-[10px] font-medium text-text-subtle">
-              <span className="text-right uppercase tracking-wider">On</span>
-              <input
-                type="checkbox"
-                checked={ta.active}
-                onChange={() => toggle(idx)}
-                aria-label={`${ta.displayName} enabled`}
-                className="ml-auto h-3 w-3 rounded border-border bg-surface text-accent focus:ring-accent/50 focus:ring-1"
-              />
-            </label>
-          </div>
+      {activations.map((ta, idx) => {
+        const description = TOOL_CARD_DESCRIPTION[ta.toolCode];
+        const defaultCap = TOOL_PER_TURN_CAP_DEFAULT[ta.toolCode];
+        const perTurnPlaceholder =
+          defaultCap !== undefined ? `${defaultCap} default` : "no per-turn cap";
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <div>
-              {ta.toolCode === "video_generate" ? (
-                <label className="grid gap-1">
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                    Model
+        return (
+          <div
+            key={ta.toolCode}
+            className="rounded-md border border-border/80 bg-surface-raised px-3 py-2.5"
+          >
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(170px,200px)]">
+              {/* LEFT: enable + title + description + pills */}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={ta.active}
+                    onChange={() => toggle(idx)}
+                    aria-label={`${ta.displayName} enabled`}
+                    className="h-3.5 w-3.5 shrink-0 rounded border-border bg-surface text-accent focus:ring-1 focus:ring-accent/50"
+                  />
+                  <span className="truncate text-[12px] font-semibold text-text">
+                    {ta.displayName}
                   </span>
-                  <select
-                    value={videoGenerateModelKey}
-                    onChange={(e) =>
-                      onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
-                    }
-                    className="min-w-0 rounded border border-border bg-surface px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
-                  >
-                    {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
-                      <option key={option.label} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <HelpText>
-                  Blank daily cap = no daily limit (calls are still counted for observability but
-                  never refused). Set a positive integer to enforce a hard daily ceiling per
-                  workspace; the call is rejected once the counter reaches it.
-                </HelpText>
-              )}
-            </div>
-            <label className="grid gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                Daily cap
-              </span>
-              <input
-                type="number"
-                min={0}
-                value={ta.dailyCallLimit ?? ""}
-                onChange={(e) => setLimit(idx, e.target.value)}
-                placeholder="inherit"
-                className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-              />
-            </label>
-          </div>
+                  <span className="truncate font-mono text-[10px] text-text-subtle">
+                    {ta.toolCode}
+                  </span>
+                </div>
+                {description ? (
+                  <p className="mt-1 text-[10.5px] leading-snug text-text-subtle">{description}</p>
+                ) : null}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                  <Pill variant={ta.toolClass === "cost_driving" ? "amber" : "dim"}>
+                    {ta.toolClass === "cost_driving" ? "cost" : "util"}
+                  </Pill>
+                  <Pill variant="dim">{getPolicyClassLabel(ta.policyClass)}</Pill>
+                </div>
+              </div>
 
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <HelpText>
-              Per-turn cap overrides the runtime default for this tool inside one turn. Blank =
-              inherit. Defaults: web_fetch=5, web_search=3, image_generate=1 (each requested count
-              consumes one cap unit), image_edit=1, video_generate=1, tts=3, browser=3, exec=5,
-              shell=5, files=10, scheduled_action=5, knowledge_search=5, knowledge_fetch=10,
-              memory_write=10. Tools not listed have no per-turn cap.
-            </HelpText>
-            <label className="grid gap-1">
-              <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
-                Per-turn cap
-              </span>
-              <input
-                type="number"
-                min={1}
-                value={ta.perTurnCap ?? ""}
-                onChange={(e) => setPerTurnCap(idx, e.target.value)}
-                placeholder="inherit"
-                className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
-              />
-            </label>
+              {/* RIGHT: stacked fields, each on its own row with `?` tooltip */}
+              <div className="grid gap-1.5">
+                {ta.toolCode === "video_generate" ? (
+                  <FieldRow label="Model" tip={TOOL_FIELD_HELP.videoModel}>
+                    <select
+                      value={videoGenerateModelKey}
+                      onChange={(e) =>
+                        onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
+                      }
+                      className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+                    >
+                      {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
+                        <option key={option.label} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </FieldRow>
+                ) : null}
+                <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
+                  <input
+                    type="number"
+                    min={0}
+                    value={ta.dailyCallLimit ?? ""}
+                    onChange={(e) => setLimit(idx, e.target.value)}
+                    placeholder="unlimited"
+                    className={numericInputClasses}
+                  />
+                </FieldRow>
+                <FieldRow label="Per-turn cap" tip={TOOL_FIELD_HELP.perTurnCap}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={ta.perTurnCap ?? ""}
+                    onChange={(e) => setPerTurnCap(idx, e.target.value)}
+                    placeholder={perTurnPlaceholder}
+                    className={numericInputClasses}
+                  />
+                </FieldRow>
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1484,15 +1551,83 @@ function PlanForm({
               </div>
             </SubPanel>
           </div>
+          <div className="mt-2">
+            <SubPanel
+              title="AI model slots"
+              hint="Pick the model used in each routing role. Empty = inherit the next-coarser default."
+            >
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  {
+                    label: "Normal reply",
+                    value: draft.primaryModelKey,
+                    patch: (value: string) => onPatch({ primaryModelKey: value }),
+                    placeholder: "platform default"
+                  },
+                  {
+                    label: "Premium reply",
+                    value: draft.premiumModelKey,
+                    patch: (value: string) => onPatch({ premiumModelKey: value }),
+                    placeholder: "normal reply"
+                  },
+                  {
+                    label: "Reasoning",
+                    value: draft.reasoningModelKey,
+                    patch: (value: string) => onPatch({ reasoningModelKey: value }),
+                    placeholder: "premium reply"
+                  },
+                  {
+                    label: "Retrieval helper",
+                    value: draft.retrievalModelKey,
+                    patch: (value: string) => onPatch({ retrievalModelKey: value }),
+                    placeholder: "system/runtime default"
+                  },
+                  {
+                    label: "Embedding index",
+                    value: draft.embeddingModelKey,
+                    patch: (value: string) => onPatch({ embeddingModelKey: value }),
+                    placeholder: "retrieval helper / runtime default"
+                  }
+                ].map((slot) => (
+                  <label key={slot.label} className="grid gap-1">
+                    <span className="text-[11px] font-medium text-text">{slot.label}</span>
+                    <select
+                      value={slot.value}
+                      onChange={(e) => slot.patch(e.target.value)}
+                      className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
+                    >
+                      <option value="">{slot.placeholder}</option>
+                      {availableModelKeys.length > 0
+                        ? Object.entries(
+                            availableModelKeys.reduce<Record<string, string[]>>(
+                              (acc, { provider, model }) => {
+                                (acc[provider] ??= []).push(model);
+                                return acc;
+                              },
+                              {}
+                            )
+                          ).map(([provider, models]) => (
+                            <optgroup key={provider} label={provider}>
+                              {models.map((m) => (
+                                <option key={`${slot.label}-${m}`} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))
+                        : null}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </SubPanel>
+          </div>
           <HelpText className="mt-2">
             Runtime routing default is server-managed on the active product path and is no longer
             edited here.
           </HelpText>
         </Panel>
-        <Panel
-          title="Plan limits and model defaults"
-          hint="The plan tuning knobs admins usually touch: budgets, retrieval behavior, and model defaults."
-        >
+        <Panel title="Plan limits" hint="Quota and retrieval tuning knobs admins usually touch.">
           <div className="grid gap-2">
             <SubPanel title="Quota limits">
               <div className="space-y-1.5">
@@ -1651,78 +1786,11 @@ function PlanForm({
                 </label>
               </div>
             </SubPanel>
-
-            <SubPanel title="AI model slots">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {[
-                  {
-                    label: "Normal reply",
-                    value: draft.primaryModelKey,
-                    patch: (value: string) => onPatch({ primaryModelKey: value }),
-                    placeholder: "platform default"
-                  },
-                  {
-                    label: "Premium reply",
-                    value: draft.premiumModelKey,
-                    patch: (value: string) => onPatch({ premiumModelKey: value }),
-                    placeholder: "normal reply"
-                  },
-                  {
-                    label: "Reasoning",
-                    value: draft.reasoningModelKey,
-                    patch: (value: string) => onPatch({ reasoningModelKey: value }),
-                    placeholder: "premium reply"
-                  },
-                  {
-                    label: "Retrieval helper",
-                    value: draft.retrievalModelKey,
-                    patch: (value: string) => onPatch({ retrievalModelKey: value }),
-                    placeholder: "system/runtime default"
-                  },
-                  {
-                    label: "Embedding index",
-                    value: draft.embeddingModelKey,
-                    patch: (value: string) => onPatch({ embeddingModelKey: value }),
-                    placeholder: "retrieval helper / runtime default"
-                  }
-                ].map((slot) => (
-                  <label key={slot.label} className="grid gap-1">
-                    <span className="text-[11px] font-medium text-text">{slot.label}</span>
-                    <select
-                      value={slot.value}
-                      onChange={(e) => slot.patch(e.target.value)}
-                      className="w-full rounded border border-border bg-bg px-2 py-1 text-xs text-text focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent/50"
-                    >
-                      <option value="">{slot.placeholder}</option>
-                      {availableModelKeys.length > 0
-                        ? Object.entries(
-                            availableModelKeys.reduce<Record<string, string[]>>(
-                              (acc, { provider, model }) => {
-                                (acc[provider] ??= []).push(model);
-                                return acc;
-                              },
-                              {}
-                            )
-                          ).map(([provider, models]) => (
-                            <optgroup key={provider} label={provider}>
-                              {models.map((m) => (
-                                <option key={`${slot.label}-${m}`} value={m}>
-                                  {m}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))
-                        : null}
-                    </select>
-                  </label>
-                ))}
-              </div>
-            </SubPanel>
           </div>
         </Panel>
       </div>
 
-      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+      <div className="space-y-3">
         <Sec label="Sandbox policy">
           <div className="rounded border border-border bg-surface px-3 py-2">
             <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1947,11 +2015,11 @@ function PlanForm({
 
         {/* row 5: context policy */}
         <Sec label="Context policy">
-          <div className="rounded border border-border bg-surface px-3 py-2">
-            <div className="grid gap-2">
+          <div className="space-y-2 rounded border border-border bg-surface px-3 py-2">
+            <div className="grid items-start gap-2 lg:grid-cols-[220px_minmax(0,1fr)]">
               <SubPanel
                 title="Preset"
-                hint="Presets tune prompt budget, compaction pressure, and auto behavior. Any manual override switches the draft to custom."
+                hint="Presets tune budget, compaction pressure, and auto-compact defaults. Any manual override switches the draft to custom."
               >
                 <select
                   value={draft.contextPolicyPreset}
@@ -1971,9 +2039,9 @@ function PlanForm({
                     </option>
                   ))}
                 </select>
-                <div className="mt-2 grid gap-1">
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
                   <Check
-                    label="Auto-compact on web"
+                    label="Auto-compact web"
                     checked={draft.autoCompactionWeb}
                     onChange={(value) =>
                       onPatch({
@@ -1983,7 +2051,7 @@ function PlanForm({
                     }
                   />
                   <Check
-                    label="Auto-compact on Telegram"
+                    label="Auto-compact Telegram"
                     checked={draft.autoCompactionTelegram}
                     onChange={(value) =>
                       onPatch({
@@ -1995,190 +2063,160 @@ function PlanForm({
                 </div>
               </SubPanel>
 
-              <SubPanel title="Budgets and thresholds">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Target context budget</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={draft.targetContextBudget}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          targetContextBudget: value
-                        })
+              <SubPanel
+                title="Budgets and thresholds"
+                hint="Token budgets, compaction trigger, and cross-session carry-over timing."
+              >
+                <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-4">
+                  {(
+                    [
+                      {
+                        key: "targetContextBudget" as const,
+                        label: "Target context budget",
+                        value: draft.targetContextBudget,
+                        placeholder: "24000",
+                        min: 1,
+                        tip: "Plan target for total prompt-message budget (tokens). Compaction works toward this ceiling.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            targetContextBudget: value
+                          })
+                      },
+                      {
+                        key: "compactionTriggerThreshold" as const,
+                        label: "Compaction trigger",
+                        value: draft.compactionTriggerThreshold,
+                        placeholder: "8000",
+                        min: 1,
+                        tip: "Token level at which the runtime starts compressing older context.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            compactionTriggerThreshold: value
+                          })
+                      },
+                      {
+                        key: "keepRecentMinimum" as const,
+                        label: "Keep recent turns",
+                        value: draft.keepRecentMinimum,
+                        placeholder: "4",
+                        min: 1,
+                        tip: "Minimum number of most-recent turns kept verbatim during compaction.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            keepRecentMinimum: value
+                          })
+                      },
+                      {
+                        key: "knowledgeHydrationBudget" as const,
+                        label: "Knowledge budget",
+                        value: draft.knowledgeHydrationBudget,
+                        placeholder: "2400",
+                        min: 0,
+                        tip: "Tokens reserved for durable memory and retrieval inserts in the prompt.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            knowledgeHydrationBudget: value
+                          })
+                      },
+                      {
+                        key: "crossSessionCarryOverTtlDays" as const,
+                        label: "Carry-over TTL (days)",
+                        value: draft.crossSessionCarryOverTtlDays,
+                        placeholder: "7",
+                        min: 1,
+                        max: 90,
+                        tip: "How far back (days) a previous-session synopsis or open loop is eligible for cross-session carry-over. Range 1–90.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            crossSessionCarryOverTtlDays: value
+                          })
+                      },
+                      {
+                        key: "crossSessionCarryOverIdleHours" as const,
+                        label: "Carry-over idle hours",
+                        value: draft.crossSessionCarryOverIdleHours,
+                        placeholder: "4",
+                        min: 1,
+                        max: 168,
+                        tip: "Re-fire the cross-session carry-over inside an existing thread when the previous user message is older than this many hours. Range 1–168.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            crossSessionCarryOverIdleHours: value
+                          })
+                      },
+                      {
+                        key: "crossSessionCarryOverCooldownHours" as const,
+                        label: "Carry-over cooldown",
+                        value: draft.crossSessionCarryOverCooldownHours,
+                        placeholder: "12",
+                        min: 1,
+                        max: 168,
+                        tip: "Per-thread cooldown (hours) between consecutive long-idle carry-over fires. New threads are exempt. Range 1–168.",
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            crossSessionCarryOverCooldownHours: value
+                          })
+                      },
+                      {
+                        key: "sharedCompactionSummaryBudgetTokens" as const,
+                        label: "Shared summary budget",
+                        value: draft.sharedCompactionSummaryBudgetTokens,
+                        placeholder: String(
+                          deriveSharedCompactionSummaryBudgetTokens(
+                            resolveDraftTargetContextBudget(draft)
+                          )
+                        ),
+                        min: 1,
+                        tip: `Tokens reserved for the shared compaction summary block. Blank = auto (${String(
+                          deriveSharedCompactionSummaryBudgetTokens(
+                            resolveDraftTargetContextBudget(draft)
+                          )
+                        )} tokens, ~${String(
+                          deriveSharedCompactionSummaryBudgetTokens(
+                            resolveDraftTargetContextBudget(draft)
+                          ) * APPROX_SUMMARY_CHARS_PER_TOKEN
+                        )} chars).`,
+                        patch: (value: string) =>
+                          onPatch({
+                            contextPolicyPreset: "custom",
+                            sharedCompactionSummaryBudgetTokens: value
+                          })
                       }
-                      placeholder="24000"
-                      invalid={Boolean(validationErrors.targetContextBudget)}
-                    />
-                    <FieldError message={validationErrors.targetContextBudget} />
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Compaction trigger</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={draft.compactionTriggerThreshold}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          compactionTriggerThreshold: value
-                        })
-                      }
-                      placeholder="8000"
-                      invalid={Boolean(validationErrors.compactionTriggerThreshold)}
-                    />
-                    <FieldError message={validationErrors.compactionTriggerThreshold} />
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Keep recent turns</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={draft.keepRecentMinimum}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          keepRecentMinimum: value
-                        })
-                      }
-                      placeholder="4"
-                      invalid={Boolean(validationErrors.keepRecentMinimum)}
-                    />
-                    <FieldError message={validationErrors.keepRecentMinimum} />
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Knowledge budget</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={draft.knowledgeHydrationBudget}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          knowledgeHydrationBudget: value
-                        })
-                      }
-                      placeholder="2400"
-                      invalid={Boolean(validationErrors.knowledgeHydrationBudget)}
-                    />
-                    <FieldError message={validationErrors.knowledgeHydrationBudget} />
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Cross-session carry-over TTL (days)</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      value={draft.crossSessionCarryOverTtlDays}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          crossSessionCarryOverTtlDays: value
-                        })
-                      }
-                      placeholder="7"
-                      invalid={Boolean(validationErrors.crossSessionCarryOverTtlDays)}
-                    />
-                    <FieldError message={validationErrors.crossSessionCarryOverTtlDays} />
-                    <HelpText>
-                      ADR-074 Slice M3 — how far back (in days) a previous-session synopsis or
-                      unresolved open-loop is eligible for the turn-0 cross-session carry-over
-                      block. Range 1..90, default 7. Top-3 most-recent synopses is a hard-coded code
-                      constant (not configurable).
-                    </HelpText>
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Cross-session carry-over idle hours</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={168}
-                      value={draft.crossSessionCarryOverIdleHours}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          crossSessionCarryOverIdleHours: value
-                        })
-                      }
-                      placeholder="4"
-                      invalid={Boolean(validationErrors.crossSessionCarryOverIdleHours)}
-                    />
-                    <FieldError message={validationErrors.crossSessionCarryOverIdleHours} />
-                    <HelpText>
-                      ADR-074 Slice M3.2 — long-idle re-trigger threshold. The cross-session
-                      carry-over block re-fires inside an existing thread when the previous user
-                      message is older than this many hours (and the cooldown below has elapsed).
-                      Range 1..168, default 4. The post-compaction sub-trigger is intentionally OUT
-                      OF SCOPE.
-                    </HelpText>
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text">
-                    <span className="block">Cross-session carry-over cooldown hours</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={168}
-                      value={draft.crossSessionCarryOverCooldownHours}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          crossSessionCarryOverCooldownHours: value
-                        })
-                      }
-                      placeholder="12"
-                      invalid={Boolean(validationErrors.crossSessionCarryOverCooldownHours)}
-                    />
-                    <FieldError message={validationErrors.crossSessionCarryOverCooldownHours} />
-                    <HelpText>
-                      ADR-074 Slice M3.2 — per-thread cooldown between consecutive long-idle
-                      carry-over fires. The brand-new-thread sub-trigger remains cooldown-exempt.
-                      Range 1..168, default 12.
-                    </HelpText>
-                  </label>
-                  <label className="space-y-1 text-[11px] font-medium text-text sm:col-span-2">
-                    <span className="block">Shared summary budget</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={draft.sharedCompactionSummaryBudgetTokens}
-                      onValue={(value) =>
-                        onPatch({
-                          contextPolicyPreset: "custom",
-                          sharedCompactionSummaryBudgetTokens: value
-                        })
-                      }
-                      placeholder={String(
-                        deriveSharedCompactionSummaryBudgetTokens(
-                          resolveDraftTargetContextBudget(draft)
-                        )
-                      )}
-                      invalid={Boolean(validationErrors.sharedCompactionSummaryBudgetTokens)}
-                    />
-                    <FieldError message={validationErrors.sharedCompactionSummaryBudgetTokens} />
-                    <HelpText>
-                      Leave blank for auto (
-                      {String(
-                        deriveSharedCompactionSummaryBudgetTokens(
-                          resolveDraftTargetContextBudget(draft)
-                        )
-                      )}{" "}
-                      tokens, ~
-                      {String(
-                        deriveSharedCompactionSummaryBudgetTokens(
-                          resolveDraftTargetContextBudget(draft)
-                        ) * APPROX_SUMMARY_CHARS_PER_TOKEN
-                      )}{" "}
-                      chars).
-                    </HelpText>
-                  </label>
+                    ] satisfies Array<{
+                      key: NumericDraftField;
+                      label: string;
+                      value: string;
+                      placeholder: string;
+                      min: number;
+                      max?: number;
+                      tip: string;
+                      patch: (value: string) => void;
+                    }>
+                  ).map((field) => (
+                    <div key={field.key} className="grid gap-0.5">
+                      <FieldRow label={field.label} tip={field.tip}>
+                        <Input
+                          type="number"
+                          min={field.min}
+                          max={field.max}
+                          value={field.value}
+                          onValue={field.patch}
+                          placeholder={field.placeholder}
+                          invalid={Boolean(validationErrors[field.key])}
+                          className="pr-7"
+                        />
+                      </FieldRow>
+                      <FieldError message={validationErrors[field.key]} />
+                    </div>
+                  ))}
                 </div>
-                <HelpText className="mt-2">
-                  `Target context budget` is the plan&apos;s target message budget. `Compaction
-                  trigger` defines when runtime should start compressing older context. `Knowledge
-                  budget` reserves room for durable memory and future retrieval inserts.
-                </HelpText>
               </SubPanel>
             </div>
           </div>
@@ -2197,13 +2235,12 @@ function PlanForm({
         />
         <HelpText className="mt-2">
           Only plan-managed tools are editable here. Platform-managed and internal tools stay
-          read-only in summaries. `Limit/d` is a per-plan daily cap; `Per-turn cap` is the per-plan
-          override of the runtime per-turn hard cap. Leave either blank to inherit the runtime
-          defaults.
+          read-only in summaries. Leave `Daily cap` blank for unlimited daily calls (still counted
+          for observability) and leave `Per-turn cap` blank to inherit the runtime default.
         </HelpText>
       </Sec>
 
-      {/* row 7: ADR-074 Slice L1 — tool budgets (loop limits) */}
+      {/* row 7: tool loop limits per execution mode */}
       <Sec label="Tool budgets (loop limits per execution mode)">
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="space-y-1 text-[11px] font-medium text-text">
@@ -2241,8 +2278,8 @@ function PlanForm({
           </label>
         </div>
         <HelpText className="mt-2">
-          ADR-074 Slice L1. Each value caps the maximum number of model→tool→model iterations inside
-          a single turn for the matching execution mode. After the cap, additional tool calls return
+          Each value caps the maximum number of model→tool→model iterations inside a single turn for
+          the matching execution mode. After the cap, additional tool calls return
           `tool_budget_exhausted` so the model can wrap up. Tune to balance cost/latency vs.
           tool-using power.
         </HelpText>

@@ -23,16 +23,15 @@ import {
 
 type ScheduledActionControlAction = "create" | "pause" | "resume" | "cancel";
 type ScheduledActionAudience = "user" | "assistant";
+type ScheduledActionCreateKind = "user_reminder" | "assistant_check";
 const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
 
-type CreateScheduledActionControlRequest = {
+type CreateUserReminderScheduledActionControlRequest = {
   assistantId: string;
   action: "create";
-  audience: ScheduledActionAudience;
+  kind: "user_reminder";
   title: string;
   reminderText: string;
-  actionType?: string;
-  actionPayload?: Record<string, unknown>;
   contextSessionKey?: string;
   conversationContext?: ScheduledActionConversationContext;
   runAt?: string;
@@ -43,6 +42,28 @@ type CreateScheduledActionControlRequest = {
   timezone?: string;
   contextMessages?: number;
 };
+
+type CreateAssistantCheckScheduledActionControlRequest = {
+  assistantId: string;
+  action: "create";
+  kind: "assistant_check";
+  title: string;
+  actionType: string;
+  actionPayload: Record<string, unknown>;
+  contextSessionKey?: string;
+  conversationContext?: ScheduledActionConversationContext;
+  runAt?: string;
+  delayMs?: number;
+  everyMs?: number;
+  anchorAt?: string;
+  cronExpr?: string;
+  timezone?: string;
+  contextMessages?: number;
+};
+
+type CreateScheduledActionControlRequest =
+  | CreateUserReminderScheduledActionControlRequest
+  | CreateAssistantCheckScheduledActionControlRequest;
 
 type UpdateScheduledActionControlRequest = {
   assistantId: string;
@@ -327,22 +348,12 @@ function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSche
   };
 }
 
-// ADR-074 F2 (background-task hygiene v2): conservative heuristic for
-// routing-coercion when the model creates an `audience="assistant"` scheduled
-// action with no payload to evaluate. In live traffic the model frequently
-// interprets natural-language requests like "поставь СЕБЕ задачу пнуть меня
-// через 2 мин" as `create audience=assistant`, but with no actionPayload the
-// assistant-side check turn has literally nothing to evaluate. Historically the
-// model called `scheduled_action(action="list")` to orient itself, got nothing
-// back, and went silent — so the user never got pinged. We now route those
-// payload-less rows directly to `audience="user"` with the title (or title-fallback)
-// as reminderText. Rows WITH a non-empty actionPayload (any structured context
-// that the assistant-side turn could reason on) are left alone.
-function looksLikeUnconditionalAssistantTask(input: {
-  actionPayload?: Record<string, unknown>;
-}): boolean {
-  const payload = input.actionPayload;
-  return payload === undefined || Object.keys(payload).length === 0;
+function deriveAudienceFromCreateKind(kind: ScheduledActionCreateKind): ScheduledActionAudience {
+  return kind === "user_reminder" ? "user" : "assistant";
+}
+
+function resolveCreateReminderText(input: CreateScheduledActionControlRequest): string {
+  return input.kind === "user_reminder" ? input.reminderText : input.title;
 }
 
 @Injectable()
@@ -371,9 +382,16 @@ export class ControlInternalScheduledActionService {
     }
 
     if (action === "create") {
-      const audienceRaw = row.audience;
-      if (audienceRaw !== "user" && audienceRaw !== "assistant") {
-        throw new BadRequestException('audience must be "user" or "assistant".');
+      const kindRaw = row.kind;
+      if (kindRaw !== "user_reminder" && kindRaw !== "assistant_check") {
+        throw new BadRequestException(
+          'kind must be "user_reminder" or "assistant_check" for scheduled_action create.'
+        );
+      }
+      if ("audience" in row) {
+        throw new BadRequestException(
+          'audience is no longer accepted for scheduled_action create. Use kind="user_reminder" or kind="assistant_check".'
+        );
       }
       const delayMsRaw = row.delayMs;
       if (
@@ -401,14 +419,6 @@ export class ControlInternalScheduledActionService {
       }
       const actionType = normalizeOptionalString(row.actionType);
       const actionPayload = normalizeOptionalJsonObject(row.actionPayload);
-      if (audienceRaw === "assistant" && actionType === undefined) {
-        throw new BadRequestException('actionType is required when audience is "assistant".');
-      }
-      if (audienceRaw === "user" && (actionType !== undefined || actionPayload !== undefined)) {
-        throw new BadRequestException(
-          'actionType/actionPayload are only allowed when audience is "assistant".'
-        );
-      }
       if (
         "actionPayload" in row &&
         actionPayload === undefined &&
@@ -416,15 +426,10 @@ export class ControlInternalScheduledActionService {
       ) {
         throw new BadRequestException("actionPayload must be a JSON object when provided.");
       }
-      return {
+      const sharedInput = {
         assistantId,
         action,
-        audience: audienceRaw,
         title: normalizeRequiredString(row.title, "title"),
-        reminderText:
-          normalizeOptionalString(row.reminderText) ?? normalizeRequiredString(row.title, "title"),
-        ...(actionType === undefined ? {} : { actionType }),
-        ...(actionPayload === undefined ? {} : { actionPayload }),
         ...(normalizeOptionalString(row.contextSessionKey)
           ? { contextSessionKey: normalizeOptionalString(row.contextSessionKey)! }
           : normalizeOptionalString(row.sessionKey)
@@ -454,6 +459,36 @@ export class ControlInternalScheduledActionService {
         ...(contextMessagesRaw !== undefined
           ? { contextMessages: contextMessagesRaw as number }
           : {})
+      };
+      if (kindRaw === "user_reminder") {
+        const reminderText = normalizeRequiredString(row.reminderText, "reminderText");
+        if (actionType !== undefined || actionPayload !== undefined) {
+          throw new BadRequestException(
+            'kind="user_reminder" does not accept actionType or actionPayload.'
+          );
+        }
+        return {
+          ...sharedInput,
+          kind: "user_reminder",
+          reminderText
+        };
+      }
+      if (actionType === undefined) {
+        throw new BadRequestException('kind="assistant_check" requires actionType.');
+      }
+      if (actionPayload === undefined || Object.keys(actionPayload).length === 0) {
+        throw new BadRequestException('kind="assistant_check" requires a non-empty actionPayload.');
+      }
+      if (normalizeOptionalString(row.reminderText) !== undefined) {
+        throw new BadRequestException(
+          'kind="assistant_check" does not accept reminderText. Put evaluation details in actionPayload.'
+        );
+      }
+      return {
+        ...sharedInput,
+        kind: "assistant_check",
+        actionType,
+        actionPayload
       };
     }
 
@@ -534,48 +569,16 @@ export class ControlInternalScheduledActionService {
     input: CreateScheduledActionControlRequest
   ): Promise<unknown> {
     if (
-      input.audience === "assistant" &&
+      deriveAudienceFromCreateKind(input.kind) === "assistant" &&
       input.contextSessionKey?.startsWith(SCHEDULED_ACTION_THREAD_PREFIX)
     ) {
       throw new BadRequestException(
-        'Nested assistant scheduled_action creation is not allowed during assistant background runs. Create audience="user" for any visible follow-up.'
+        'Nested assistant scheduled_action creation is not allowed during assistant background runs. Create kind="user_reminder" for any visible follow-up.'
       );
     }
 
-    // ADR-074 F2: routing-coercion. See `looksLikeUnconditionalAssistantTask`
-    // above — if the model asked for an assistant-side scheduled action that
-    // has nothing to check, we transparently route it to audience="user" so
-    // the user actually gets pinged at the requested time. The tool result
-    // surfaces `coercedFromAudience: "assistant"` so the model can self-correct
-    // on the next turn.
-    let coercedFromAudience: ScheduledActionAudience | null = null;
-    let effectiveInput: CreateScheduledActionControlRequest = input;
-    if (
-      input.audience === "assistant" &&
-      looksLikeUnconditionalAssistantTask({
-        ...(input.actionPayload === undefined ? {} : { actionPayload: input.actionPayload })
-      })
-    ) {
-      coercedFromAudience = "assistant";
-      effectiveInput = {
-        ...input,
-        audience: "user",
-        reminderText:
-          (input.actionPayload?.reminderText as string | undefined)?.trim() ||
-          input.reminderText ||
-          input.title
-      };
-      delete (effectiveInput as { actionType?: string }).actionType;
-      delete (effectiveInput as { actionPayload?: Record<string, unknown> }).actionPayload;
-      this.logger.log({
-        event: "scheduled_action_coerced_to_user_push",
-        assistantId: assistant.id,
-        title: input.title,
-        originalActionType: input.actionType ?? null
-      });
-    }
-
-    const schedule = buildSchedule(effectiveInput);
+    const audience = deriveAudienceFromCreateKind(input.kind);
+    const schedule = buildSchedule(input);
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
     if (nextRunAtMs === undefined) {
       throw new BadRequestException(
@@ -585,34 +588,30 @@ export class ControlInternalScheduledActionService {
     const externalRef = randomUUID();
     const payloadText = await this.buildReminderContextSnapshotService.execute({
       assistantId: assistant.id,
-      reminderText: effectiveInput.reminderText,
-      ...(effectiveInput.contextMessages === undefined
+      reminderText: resolveCreateReminderText(input),
+      ...(input.contextMessages === undefined ? {} : { contextMessages: input.contextMessages }),
+      ...(input.conversationContext === undefined
         ? {}
-        : { contextMessages: effectiveInput.contextMessages }),
-      ...(effectiveInput.conversationContext === undefined
-        ? {}
-        : { conversationContext: effectiveInput.conversationContext })
+        : { conversationContext: input.conversationContext })
     });
     const created = await this.prisma.assistantTaskRegistryItem.create({
       data: {
         assistantId: assistant.id,
         userId: assistant.userId,
         workspaceId: assistant.workspaceId,
-        title: effectiveInput.title,
+        title: input.title,
         sourceSurface: "web",
         sourceLabel: resolveTaskSourceLabel({
-          audience: effectiveInput.audience,
+          audience,
           schedule,
-          ...(effectiveInput.actionType === undefined
-            ? {}
-            : { actionType: effectiveInput.actionType })
+          ...(input.kind === "assistant_check" ? { actionType: input.actionType } : {})
         }),
-        audience: effectiveInput.audience,
-        actionType: effectiveInput.actionType ?? null,
+        audience,
+        actionType: input.kind === "assistant_check" ? input.actionType : null,
         actionPayloadJson:
-          effectiveInput.actionPayload === undefined
+          input.kind !== "assistant_check"
             ? Prisma.DbNull
-            : (effectiveInput.actionPayload as unknown as Prisma.InputJsonValue),
+            : (input.actionPayload as unknown as Prisma.InputJsonValue),
         controlStatus: "active",
         nextRunAt: new Date(nextRunAtMs),
         disabledAt: null,
@@ -635,12 +634,12 @@ export class ControlInternalScheduledActionService {
         nextRunAt: true
       }
     });
-    if (effectiveInput.audience === "user") {
+    if (audience === "user") {
       await this.persistTelegramReminderTarget(
         assistant.id,
         externalRef,
-        effectiveInput.conversationContext,
-        effectiveInput.contextSessionKey
+        input.conversationContext,
+        input.contextSessionKey
       );
     }
 
@@ -654,8 +653,7 @@ export class ControlInternalScheduledActionService {
         actionType: created.actionType,
         controlStatus: created.controlStatus,
         nextRunAt: created.nextRunAt?.toISOString() ?? null
-      },
-      ...(coercedFromAudience === null ? {} : { coercedFromAudience })
+      }
     };
   }
 

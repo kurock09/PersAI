@@ -1257,6 +1257,14 @@ export const PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES = ["user", "assistant"] a
 export type PersaiRuntimeScheduledActionAudience =
   (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES)[number];
 
+export const PERSAI_RUNTIME_SCHEDULED_ACTION_CREATE_KINDS = [
+  "user_reminder",
+  "assistant_check"
+] as const;
+
+export type PersaiRuntimeScheduledActionCreateKind =
+  (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_CREATE_KINDS)[number];
+
 export const PERSAI_RUNTIME_SCHEDULED_ACTION_CONTROL_STATUSES = [
   "active",
   "disabled",
@@ -1266,16 +1274,7 @@ export const PERSAI_RUNTIME_SCHEDULED_ACTION_CONTROL_STATUSES = [
 export type PersaiRuntimeScheduledActionControlStatus =
   (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_CONTROL_STATUSES)[number];
 
-export interface RuntimeScheduledActionRequest {
-  toolCode: "scheduled_action";
-  action: PersaiRuntimeScheduledActionAction;
-  audience?: PersaiRuntimeScheduledActionAudience;
-  title?: string;
-  reminderText?: string;
-  actionType?: string;
-  actionPayload?: Record<string, unknown>;
-  taskId?: string;
-  titleMatch?: string;
+export interface RuntimeScheduledActionCreateSchedule {
   runAt?: string;
   delayMs?: number;
   everyMs?: number;
@@ -1284,6 +1283,41 @@ export interface RuntimeScheduledActionRequest {
   timezone?: string;
   contextMessages?: number;
 }
+
+export interface RuntimeScheduledActionCreateUserReminderRequest extends RuntimeScheduledActionCreateSchedule {
+  toolCode: "scheduled_action";
+  action: "create";
+  kind: "user_reminder";
+  title: string;
+  reminderText: string;
+}
+
+export interface RuntimeScheduledActionCreateAssistantCheckRequest extends RuntimeScheduledActionCreateSchedule {
+  toolCode: "scheduled_action";
+  action: "create";
+  kind: "assistant_check";
+  title: string;
+  actionType: string;
+  actionPayload: Record<string, unknown>;
+}
+
+export interface RuntimeScheduledActionListRequest {
+  toolCode: "scheduled_action";
+  action: "list";
+}
+
+export interface RuntimeScheduledActionControlRequest {
+  toolCode: "scheduled_action";
+  action: "pause" | "resume" | "cancel";
+  taskId?: string;
+  titleMatch?: string;
+}
+
+export type RuntimeScheduledActionRequest =
+  | RuntimeScheduledActionCreateUserReminderRequest
+  | RuntimeScheduledActionCreateAssistantCheckRequest
+  | RuntimeScheduledActionListRequest
+  | RuntimeScheduledActionControlRequest;
 
 export interface RuntimeScheduledActionItem {
   id: string | null;

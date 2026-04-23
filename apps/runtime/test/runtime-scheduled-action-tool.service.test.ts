@@ -297,8 +297,9 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
     bundle,
     toolCall: createToolCall({
       action: "create",
-      audience: "user",
+      kind: "user_reminder",
       title: "Pay rent",
+      reminderText: "Pay rent",
       delayMs: 300000
     }),
     conversation: createConversation("thread-1")
@@ -308,7 +309,7 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
   assert.deepEqual(internalApi.controlCalls.at(-1), {
     assistantId: "assistant-1",
     action: "create",
-    audience: "user",
+    kind: "user_reminder",
     title: "Pay rent",
     reminderText: "Pay rent",
     contextSessionKey: "thread-1",
@@ -318,6 +319,21 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
       externalThreadKey: "thread-1"
     }
   });
+
+  const invalidAssistantCheck = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "create",
+      kind: "assistant_check",
+      title: "Watch cosmos",
+      actionType: "check_status",
+      delayMs: 120000
+    }),
+    conversation: createConversation("thread-1")
+  });
+  assert.equal(invalidAssistantCheck.payload.action, "skipped");
+  assert.equal(invalidAssistantCheck.payload.reason, "invalid_arguments");
+  assert.match(invalidAssistantCheck.payload.warning ?? "", /requires a non-empty actionPayload/);
 
   const blockedSelfCancel = await service.executeToolCall({
     bundle,

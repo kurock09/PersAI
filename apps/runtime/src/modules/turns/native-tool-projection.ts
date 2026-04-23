@@ -760,11 +760,11 @@ function createScheduledActionToolDefinition(
           enum: ["create", "list", "pause", "resume", "cancel"],
           description: "Scheduled-action operation to perform."
         },
-        audience: {
+        kind: {
           type: "string",
-          enum: ["user", "assistant"],
+          enum: ["user_reminder", "assistant_check"],
           description:
-            'Required for create. Use "user" for a user-visible reminder and "assistant" for a hidden background assistant action.'
+            'Required for create. Use "user_reminder" for an unconditional user-visible reminder and "assistant_check" for a hidden conditional background check.'
         },
         title: {
           type: "string",
@@ -773,18 +773,18 @@ function createScheduledActionToolDefinition(
         reminderText: {
           type: "string",
           description:
-            'Optional action text. For audience="user" this is the message later delivered to the user. For audience="assistant" this becomes hidden follow-up guidance/context for the assistant.'
+            'Required for kind="user_reminder". This is the exact short message the user will later receive.'
         },
         actionType: {
           type: "string",
           description:
-            'Optional for audience="assistant". Short machine-readable action kind such as "follow_up" or "check_status".'
+            'Required for kind="assistant_check". Short machine-readable action kind such as "follow_up" or "check_status".'
         },
         actionPayload: {
           type: "object",
           additionalProperties: true,
           description:
-            'Optional for audience="assistant". Structured JSON payload with background-action parameters.'
+            'Required for kind="assistant_check". Structured non-empty JSON payload describing what the background check must evaluate.'
         },
         taskId: {
           type: "string",

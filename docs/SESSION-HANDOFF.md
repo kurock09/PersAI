@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 (late-night scheduled_action contract cleanup) — explicit `user_reminder` / `assistant_check` create modes replace audience-coercion guessing
+
+### Why this session
+
+Live founder QA after the combined F2 + L1.1 deploy exposed the real remaining scheduled-action bug: unconditional "пни меня через 2 минуты" had improved, but honest conditional background requests still degraded. Repro dialogs on `persai-dev` showed the assistant repeatedly promising to "set actionPayload correctly", then failing to do so; the backend silently coerced the malformed `audience="assistant"` create into `audience="user"`, and the eventual push text was the raw condition/instruction (`If in 2 minutes the user has not written…`) instead of a human reminder. The founder explicitly rejected layering more repair-loop or word-heuristic logic on top ("а просто подумать и сделать как положено а не колхозить нельзя?") and restated the desired architecture: the tool contract itself must make the two modes explicit, and backend must stop guessing.
+
+### What changed
+
+- **`scheduled_action.create` is now a strict discriminated contract.** The overload on `audience=` is gone from the create path. `packages/runtime-contract/src/index.ts` now defines two create variants: `kind="user_reminder"` (`title` + `reminderText` + exactly one schedule) and `kind="assistant_check"` (`title` + `actionType` + NON-EMPTY `actionPayload` + exactly one schedule). `list` / `pause` / `resume` / `cancel` are unchanged. Storage rows still use `audience="user" | "assistant"` because that remains the right execution-time split in the DB; the distinction is simply no longer model-facing on the create call.
+- **Runtime parser/projection switched from `audience` to `kind`.** `apps/runtime/src/modules/turns/native-tool-projection.ts:createScheduledActionToolDefinition` now exposes `kind` in the model-visible schema and explains the two modes directly. `apps/runtime/src/modules/turns/runtime-scheduled-action-tool.service.ts` rejects legacy `audience=` create calls with `invalid_arguments`, requires `reminderText` for `user_reminder`, requires non-empty `actionPayload` for `assistant_check`, forbids hidden fields on `user_reminder`, and forbids `reminderText` on `assistant_check`. The runtime now sends the strict `kind` shape to the internal API; there is no more "create as assistant and let backend decide if it really meant user".
+- **API control-plane no longer guesses or coerces.** `apps/api/src/modules/workspace-management/application/control-internal-scheduled-action.service.ts` now parses the same strict `kind` contract. For `kind="user_reminder"` it derives storage `audience="user"` and requires `reminderText`. For `kind="assistant_check"` it derives `audience="assistant"`, requires `actionType`, requires a non-empty `actionPayload`, and rejects `reminderText`. The F2 `looksLikeUnconditionalAssistantTask()` routing-coercion path is removed entirely; `coercedFromAudience` and `scheduled_action_coerced_to_user_push` are no longer part of the happy path.
+- **Assistant-side executor prompt now assumes only valid background checks exist.** `apps/api/src/modules/workspace-management/application/run-scheduled-assistant-action.service.ts` no longer has a "no payload → convert to user push" fallback branch. Instead, malformed null/empty-payload assistant rows are treated as invalid legacy rows and rejected loudly. Valid assistant runs are instructed to create `kind="user_reminder"` when the condition matches, or another `kind="assistant_check"` with the same payload and a new `runAt` when the condition does not match.
+- **Guidance/preset text aligned to the new truth.** `apps/api/prisma/tool-catalog-data.ts` now explains the two explicit create modes and explicitly warns that `reminderText` must be the final human message the user will see, not an instruction dump like "If in 2 minutes...". `apps/api/prisma/bootstrap-preset-data.ts` heartbeat guidance now says to create a `kind="user_reminder"` follow-up when an assistant-side check decides to nudge the user.
+- **Tests.** `apps/api/test/control-internal-scheduled-action.service.test.ts` removes the old coercion regression and replaces it with strict contract tests (`assistant_check` requires non-empty payload; `user_reminder` rejects hidden fields). `apps/api/test/run-scheduled-assistant-action.service.test.ts` now expects the executor prompt to speak in `kind="user_reminder"` / `kind="assistant_check"` terms and to reject malformed null-payload rows. `apps/runtime/test/runtime-scheduled-action-tool.service.test.ts` and `apps/runtime/test/turn-execution.service.test.ts` were updated for the new create contract and now verify end-to-end `kind` forwarding.
+
+### Verification gate
+
+- `pnpm --filter @persai/runtime-contract typecheck` clean.
+- `pnpm --filter @persai/api typecheck` clean.
+- `pnpm --filter @persai/runtime typecheck` clean.
+
+### Live-acceptance (post-deploy on `persai-dev`)
+
+After Argo rolls these out:
+
+1. Ask: `Напомни мне поесть через минуту.` Expect the model to call `scheduled_action.create` with `kind="user_reminder"` and a short final `reminderText`; one minute later the user sees a normal human push (not a technical instruction).
+2. Ask: `Если через 2 минуты я не напишу в чат слово "космос", пингани меня.` Expect the model to call `scheduled_action.create` with `kind="assistant_check"` plus non-empty `actionPayload`; no immediate coercion to a user reminder; after 2 minutes the hidden check runs and only then, if the word is absent, creates a separate `kind="user_reminder"` push.
+3. Ask: `Через 2 минуты проверь курс доллара к рублю, и если он не станет ниже 30 рублей — пингани меня.` Expect the same `assistant_check` path. Critically, the delivered user-facing push must NOT be the raw instruction text (`If in 2 minutes...`) because that text no longer belongs in `user_reminder.reminderText`.
+
+### Known follow-ups (out of scope, intentionally)
+
+- No migration/backfill for already-created malformed assistant rows. Old broken rows should be cancelled manually if they still exist; new rows cannot be created in that shape anymore.
+- This supersedes the previous F2 claim that "no `kind` discriminator is needed". Repo truth is now the opposite: the explicit discriminator is the clean fix.
+
 ## 2026-04-23 (late-evening L1 follow-through) — ADR-074 Slice L1.1: cost-counting holes from live observation (conscious revision of L1 founder anchor)
 
 ### Why this session

@@ -181,7 +181,7 @@ async function runNativeCreateTest(): Promise<void> {
   const input = service.parseInput({
     assistantId: "assistant-1",
     action: "create",
-    audience: "user",
+    kind: "user_reminder",
     title: "Group reminder",
     reminderText: "Group reminder",
     runAt: runAtIso,
@@ -242,9 +242,8 @@ async function runAssistantActionCreateTest(): Promise<void> {
   const input = service.parseInput({
     assistantId: "assistant-1",
     action: "create",
-    audience: "assistant",
+    kind: "assistant_check",
     title: "Project follow-up",
-    reminderText: "Quietly decide whether a project follow-up would be helpful.",
     actionType: "follow_up",
     actionPayload: {
       topic: "project",
@@ -267,7 +266,7 @@ async function runAssistantActionCreateTest(): Promise<void> {
     topic: "project",
     suggestedDelayDays: 1
   });
-  assert.match(prisma.rows[0]?.payloadText ?? "", /Quietly decide whether a project follow-up/);
+  assert.match(prisma.rows[0]?.payloadText ?? "", /Project follow-up/);
   assert.equal(bindingRepository.patched.length, 0);
   assert.deepEqual(result, {
     ok: true,
@@ -365,7 +364,7 @@ async function runLegacyCancelFallbackTest(): Promise<void> {
   });
 }
 
-async function runUnconditionalAssistantCoercedToUserTest(): Promise<void> {
+async function runAssistantCheckRequiresNonEmptyPayloadTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
   const prisma = new FakeWorkspaceManagementPrismaService();
@@ -380,34 +379,59 @@ async function runUnconditionalAssistantCoercedToUserTest(): Promise<void> {
     contextSnapshotService as never
   );
 
-  const input = service.parseInput({
-    assistantId: "assistant-1",
-    action: "create",
-    audience: "assistant",
-    title: "пнуть пользователя через 2 минуты",
-    reminderText: "пни пользователя",
-    actionType: "check_status",
-    delayMs: 120_000,
-    conversationContext: {
-      channel: "telegram",
-      externalThreadKey: "group-1"
-    }
-  });
+  assert.throws(
+    () =>
+      service.parseInput({
+        assistantId: "assistant-1",
+        action: "create",
+        kind: "assistant_check",
+        title: "пнуть пользователя через 2 минуты",
+        actionType: "check_status",
+        delayMs: 120_000,
+        conversationContext: {
+          channel: "telegram",
+          externalThreadKey: "group-1"
+        }
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes('kind="assistant_check" requires a non-empty actionPayload.')
+  );
+  assert.equal(prisma.rows.length, 0);
+  assert.equal(bindingRepository.patched.length, 0);
+}
 
-  const result = (await service.execute(input)) as {
-    ok: boolean;
-    created: boolean;
-    coercedFromAudience?: "assistant";
-    task: { audience: "user" | "assistant"; actionType: string | null };
-  };
+async function runUserReminderRejectsHiddenFieldsTest(): Promise<void> {
+  const assistantRepository = new FakeAssistantRepository();
+  const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
+  const prisma = new FakeWorkspaceManagementPrismaService();
+  const contextSnapshotService = new BuildReminderContextSnapshotService(
+    new FakeAssistantChatRepository() as never
+  );
 
-  assert.equal(prisma.rows.length, 1);
-  assert.equal(prisma.rows[0]?.audience, "user");
-  assert.equal(prisma.rows[0]?.actionType, null);
-  assert.equal(result.coercedFromAudience, "assistant");
-  assert.equal(result.task.audience, "user");
-  assert.equal(result.task.actionType, null);
-  assert.equal(bindingRepository.patched.length, 1);
+  const service = new ControlInternalScheduledActionService(
+    assistantRepository as never,
+    bindingRepository as never,
+    prisma as never,
+    contextSnapshotService as never
+  );
+
+  assert.throws(
+    () =>
+      service.parseInput({
+        assistantId: "assistant-1",
+        action: "create",
+        kind: "user_reminder",
+        title: "пнуть пользователя через 2 минуты",
+        reminderText: "Пора вернуться 🙂",
+        actionType: "check_status",
+        actionPayload: { foo: "bar" },
+        delayMs: 120_000
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes('kind="user_reminder" does not accept actionType or actionPayload.')
+  );
 }
 
 async function runNestedAssistantActionRejectedTest(): Promise<void> {
@@ -428,10 +452,12 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
   const input = service.parseInput({
     assistantId: "assistant-1",
     action: "create",
-    audience: "assistant",
+    kind: "assistant_check",
     title: "Nested assistant action",
-    reminderText: "Do not create nested background jobs.",
     actionType: "follow_up",
+    actionPayload: {
+      topic: "nested"
+    },
     delayMs: 1,
     contextSessionKey: "system:scheduled-action:abc-123"
   });
@@ -447,7 +473,8 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
 async function run(): Promise<void> {
   await runNativeCreateTest();
   await runAssistantActionCreateTest();
-  await runUnconditionalAssistantCoercedToUserTest();
+  await runAssistantCheckRequiresNonEmptyPayloadTest();
+  await runUserReminderRejectsHiddenFieldsTest();
   await runLegacyPauseRejectedTest();
   await runLegacyCancelFallbackTest();
   await runNestedAssistantActionRejectedTest();

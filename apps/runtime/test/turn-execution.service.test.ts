@@ -4119,8 +4119,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "scheduled_action",
           arguments: {
             action: "create",
-            audience: "user",
+            kind: "user_reminder",
             title: "Pay rent",
+            reminderText: "Pay rent",
             delayMs: 300000,
             contextMessages: 2
           }
@@ -4167,7 +4168,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.reminderTaskControlCalls.at(-1), {
     assistantId: "assistant-1",
     action: "create",
-    audience: "user",
+    kind: "user_reminder",
     title: "Pay rent",
     reminderText: "Pay rent",
     contextSessionKey: "thread-1",

@@ -103,17 +103,10 @@ export class RuntimeScheduledActionToolService {
         }
         case "create": {
           const title = request.title ?? "";
-          const createAudience = request.audience ?? "user";
-          const response = await this.persaiInternalApiClientService.controlScheduledAction({
+          const sharedCreateInput = {
             assistantId: params.bundle.metadata.assistantId,
-            action: "create",
-            audience: createAudience,
+            action: "create" as const,
             title,
-            reminderText: request.reminderText ?? title,
-            ...(request.actionType === undefined ? {} : { actionType: request.actionType }),
-            ...(request.actionPayload === undefined
-              ? {}
-              : { actionPayload: request.actionPayload }),
             contextSessionKey: params.conversation.externalThreadKey,
             ...(request.runAt === undefined ? {} : { runAt: request.runAt }),
             ...(request.delayMs === undefined ? {} : { delayMs: request.delayMs }),
@@ -128,23 +121,29 @@ export class RuntimeScheduledActionToolService {
               channel: params.conversation.channel,
               externalThreadKey: params.conversation.externalThreadKey
             }
-          });
+          };
+          const response = await this.persaiInternalApiClientService.controlScheduledAction(
+            request.kind === "user_reminder"
+              ? {
+                  ...sharedCreateInput,
+                  kind: "user_reminder",
+                  reminderText: request.reminderText
+                }
+              : {
+                  ...sharedCreateInput,
+                  kind: "assistant_check",
+                  actionType: request.actionType,
+                  actionPayload: request.actionPayload
+                }
+          );
           const task = this.normalizeTaskFromControlResponse(response) ?? {
             id: null,
             title,
-            audience: createAudience,
-            actionType: request.actionType ?? null,
+            audience: request.kind === "assistant_check" ? "assistant" : "user",
+            actionType: request.kind === "assistant_check" ? request.actionType : null,
             controlStatus: "active",
             nextRunAt: null
           };
-          // ADR-074 F2: backend may have coerced audience="assistant" → "user"
-          // for unconditional reminders (empty actionPayload). Surface a warning
-          // so the model self-corrects on the next turn.
-          const coercedFromAudience = this.readCoercedFromAudience(response);
-          const coercionWarning =
-            coercedFromAudience === null
-              ? null
-              : `Routed to audience="user" because actionPayload was empty. For unconditional reminders, call scheduled_action with audience="user" directly.`;
           return {
             payload: {
               toolCode: "scheduled_action",
@@ -152,7 +151,7 @@ export class RuntimeScheduledActionToolService {
               requestedAction: "create",
               action: "created",
               reason: null,
-              warning: coercionWarning,
+              warning: null,
               task,
               items: null
             },
@@ -239,7 +238,7 @@ export class RuntimeScheduledActionToolService {
       );
     }
 
-    const audience = this.asAudience(args.audience) ?? undefined;
+    const kind = this.asCreateKind(args.kind);
     const title = this.asNonEmptyString(args.title);
     const reminderText = this.asNonEmptyString(args.reminderText) ?? undefined;
     const actionType = this.asNonEmptyString(args.actionType) ?? undefined;
@@ -258,12 +257,11 @@ export class RuntimeScheduledActionToolService {
       if (title === null) {
         return new Error("scheduled_action create requires title.");
       }
-      if (audience === undefined) {
+      if (kind === null) {
         return new Error(
-          'scheduled_action create requires audience="user" or audience="assistant".'
+          'scheduled_action create requires kind="user_reminder" or kind="assistant_check".'
         );
       }
-      const createAudience = audience;
       const scheduleCount =
         Number(runAt !== undefined) +
         Number(delayMs !== undefined) +
@@ -288,29 +286,58 @@ export class RuntimeScheduledActionToolService {
       if ("actionPayload" in args && actionPayload === null) {
         return new Error("scheduled_action actionPayload must be a JSON object when provided.");
       }
-      if (audience === "assistant" && actionType === undefined) {
-        return new Error('scheduled_action create with audience="assistant" requires actionType.');
-      }
-      if (audience === "user" && (actionType !== undefined || actionPayload !== undefined)) {
+      if ("audience" in args) {
         return new Error(
-          'scheduled_action create with audience="user" does not accept actionType or actionPayload.'
+          'scheduled_action create no longer accepts audience. Use kind="user_reminder" or kind="assistant_check".'
         );
       }
-      const createRequest: RuntimeScheduledActionRequest = {
-        toolCode: "scheduled_action",
-        action,
-        audience: createAudience,
-        title
-      };
-      if (reminderText !== undefined) {
-        createRequest.reminderText = reminderText;
+      if (kind === "user_reminder" && reminderText === undefined) {
+        return new Error(
+          'scheduled_action create with kind="user_reminder" requires reminderText.'
+        );
       }
-      if (actionType !== undefined) {
-        createRequest.actionType = actionType;
+      if (kind === "user_reminder" && (actionType !== undefined || actionPayload !== undefined)) {
+        return new Error(
+          'scheduled_action create with kind="user_reminder" does not accept actionType or actionPayload.'
+        );
       }
-      if (actionPayload !== undefined && actionPayload !== null) {
-        createRequest.actionPayload = actionPayload;
+      if (kind === "assistant_check" && actionType === undefined) {
+        return new Error(
+          'scheduled_action create with kind="assistant_check" requires actionType.'
+        );
       }
+      if (
+        kind === "assistant_check" &&
+        (actionPayload === undefined ||
+          actionPayload === null ||
+          Object.keys(actionPayload).length === 0)
+      ) {
+        return new Error(
+          'scheduled_action create with kind="assistant_check" requires a non-empty actionPayload.'
+        );
+      }
+      if (kind === "assistant_check" && reminderText !== undefined) {
+        return new Error(
+          'scheduled_action create with kind="assistant_check" does not accept reminderText.'
+        );
+      }
+      const createRequest: RuntimeScheduledActionRequest =
+        kind === "user_reminder"
+          ? {
+              toolCode: "scheduled_action",
+              action,
+              kind,
+              title,
+              reminderText: reminderText!
+            }
+          : {
+              toolCode: "scheduled_action",
+              action,
+              kind,
+              title,
+              actionType: actionType!,
+              actionPayload: actionPayload!
+            };
       if (runAt !== undefined) {
         createRequest.runAt = runAt;
       }
@@ -462,14 +489,6 @@ export class RuntimeScheduledActionToolService {
     return policy;
   }
 
-  private readCoercedFromAudience(value: unknown): "assistant" | null {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      return null;
-    }
-    const coerced = (value as Record<string, unknown>).coercedFromAudience;
-    return coerced === "assistant" ? "assistant" : null;
-  }
-
   private normalizeTaskFromControlResponse(value: unknown): RuntimeScheduledActionItem | null {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return null;
@@ -536,6 +555,10 @@ export class RuntimeScheduledActionToolService {
 
   private asAudience(value: unknown): PersaiRuntimeScheduledActionAudience | null {
     return value === "user" || value === "assistant" ? value : null;
+  }
+
+  private asCreateKind(value: unknown): "user_reminder" | "assistant_check" | null {
+    return value === "user_reminder" || value === "assistant_check" ? value : null;
   }
 
   private asJsonObject(value: unknown): Record<string, unknown> | null | undefined {

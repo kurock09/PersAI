@@ -75,29 +75,29 @@ describe("RunScheduledAssistantActionService", () => {
     assert.match(userMessage as string, /MUST NOT use scheduled_action\(action="list"\)/);
     assert.match(
       userMessage as string,
-      /YES → call scheduled_action\(action="create", audience="user"/
+      /YES → call scheduled_action\(action="create", kind="user_reminder"/
     );
     assert.match(
       userMessage as string,
-      /NO {2}→ call scheduled_action\(action="create", audience="assistant"/
+      /NO {2}→ call scheduled_action\(action="create", kind="assistant_check"/
     );
   });
 
-  test("renders the no-payload branch that mandates an audience='user' push", async () => {
+  test("rejects malformed assistant rows that have no actionPayload", async () => {
     const { service, sendService } = createService();
 
-    await service.execute({
-      ...INPUT,
-      actionPayload: null,
-      payloadText: "(no payload context — backend coercion did not run)"
-    });
-
-    const userMessage = sendService.calls[0]?.userMessage as string;
-    assert.match(userMessage, /This task has no actionPayload/);
-    assert.match(
-      userMessage,
-      /You MUST end this turn by calling scheduled_action\(action="create", audience="user"/
+    await assert.rejects(
+      () =>
+        service.execute({
+          ...INPUT,
+          actionPayload: null,
+          payloadText: "(malformed legacy row)"
+        }),
+      (error) =>
+        error instanceof ServiceUnavailableException &&
+        error.message === "Assistant scheduled actions require a non-empty actionPayload."
     );
+    assert.equal(sendService.calls.length, 0);
   });
 
   test("skips re-sending when the latest scheduled-action receipt already completed", async () => {

@@ -123,7 +123,7 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
 
 - Check the requested condition first before creating any user-visible follow-up.
 - If no user-visible follow-up is needed, stay quiet.
-- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
+- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`kind="user_reminder"\` and an immediate schedule.
 - Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
 
   presence: `# Sense of Time

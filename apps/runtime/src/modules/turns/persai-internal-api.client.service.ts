@@ -73,11 +73,26 @@ export type InternalScheduledActionControlInput =
   | {
       assistantId: string;
       action: "create";
-      audience: "user" | "assistant";
+      kind: "user_reminder";
       title: string;
       reminderText: string;
-      actionType?: string;
-      actionPayload?: Record<string, unknown>;
+      contextSessionKey?: string;
+      runAt?: string;
+      delayMs?: number;
+      everyMs?: number;
+      anchorAt?: string;
+      cronExpr?: string;
+      timezone?: string;
+      contextMessages?: number;
+      conversationContext?: InternalScheduledActionConversationContext;
+    }
+  | {
+      assistantId: string;
+      action: "create";
+      kind: "assistant_check";
+      title: string;
+      actionType: string;
+      actionPayload: Record<string, unknown>;
       contextSessionKey?: string;
       runAt?: string;
       delayMs?: number;
