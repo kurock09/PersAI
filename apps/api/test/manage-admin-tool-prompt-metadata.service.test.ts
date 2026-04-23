@@ -45,8 +45,12 @@ async function run(): Promise<void> {
               toolCode: "web_search",
               displayName: "Web Search",
               description: "Catalog description",
-              modelDescription: "Search the public web.",
-              modelUsageGuidance: "Use for fresh external facts.",
+              modelDescription: "Search current public web information.",
+              modelUsageGuidance: "Use for links and recent external facts.",
+              codeDefaultModelDescription: "Search the public web.",
+              codeDefaultModelUsageGuidance: "Use for fresh external facts.",
+              modelDescriptionOverridden: true,
+              modelUsageGuidanceOverridden: true,
               toolClass: "utility",
               capabilityGroup: "knowledge",
               policyClass: "plan_managed",
@@ -59,8 +63,13 @@ async function run(): Promise<void> {
             toolCode,
             displayName: "Web Search",
             description: "Catalog description",
-            modelDescription: patch.modelDescription as string,
-            modelUsageGuidance: patch.modelUsageGuidance as string,
+            modelDescription: (patch.modelDescription as string | null) ?? "Search the public web.",
+            modelUsageGuidance:
+              (patch.modelUsageGuidance as string | null) ?? "Use for fresh external facts.",
+            codeDefaultModelDescription: "Search the public web.",
+            codeDefaultModelUsageGuidance: "Use for fresh external facts.",
+            modelDescriptionOverridden: patch.modelDescription !== null,
+            modelUsageGuidanceOverridden: patch.modelUsageGuidance !== null,
             toolClass: "utility" as const,
             capabilityGroup: "knowledge" as const,
             policyClass: "plan_managed" as const,
@@ -84,6 +93,8 @@ async function run(): Promise<void> {
     assert.equal(listed.length, 7);
     assert.equal(listed[0]?.toolCode, "summarize_context");
     assert.equal(listed[6]?.toolCode, "web_search");
+    assert.equal(listed[6]?.codeDefaultModelDescription, "Search the public web.");
+    assert.equal(listed[6]?.modelDescriptionOverridden, true);
 
     const updated = await service.update("admin-user", "web_search", {
       modelDescription: "Search current public web information.",
@@ -91,6 +102,7 @@ async function run(): Promise<void> {
     });
     assert.equal(updated.modelDescription, "Search current public web information.");
     assert.equal(updated.modelUsageGuidance, "Use for links and recent external facts.");
+    assert.equal(updated.modelDescriptionOverridden, true);
     assert.equal(bumped, 1);
   }
 
@@ -174,6 +186,7 @@ async function run(): Promise<void> {
     assert.equal(updated.toolCode, "summarize_context");
     assert.equal(updated.modelDescription, "Short summary.");
     assert.equal(updated.modelUsageGuidance, "Use only when needed.");
+    assert.equal(updated.modelDescriptionOverridden, true);
     assert.equal(bumped, 1);
   }
 

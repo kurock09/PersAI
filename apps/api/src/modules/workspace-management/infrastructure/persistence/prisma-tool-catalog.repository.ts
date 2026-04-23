@@ -15,6 +15,7 @@ import {
 const POLICY_CLASS_BY_TOOL_CODE = new Map(
   TOOL_CATALOG.map((tool) => [tool.code, tool.policyClass ?? "plan_managed"])
 );
+const TOOL_CATALOG_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool] as const));
 const CURRENT_TOOL_CODES = TOOL_CATALOG.map((tool) => tool.code);
 
 @Injectable()
@@ -31,12 +32,22 @@ export class PrismaToolCatalogRepository implements ToolCatalogRepository {
     providerHints: unknown;
   }): ToolCatalogPromptMetadataView {
     const promptMetadata = readToolPromptMetadataState(tool.providerHints);
+    const catalogEntry = TOOL_CATALOG_BY_CODE.get(tool.code);
+    const codeDefaultModelDescription =
+      catalogEntry?.modelDescription?.trim() ||
+      catalogEntry?.description?.trim() ||
+      tool.description;
+    const codeDefaultModelUsageGuidance = catalogEntry?.modelUsageGuidance?.trim() || null;
     return {
       toolCode: tool.code,
       displayName: tool.displayName,
       description: tool.description,
-      modelDescription: promptMetadata.modelDescription,
-      modelUsageGuidance: promptMetadata.modelUsageGuidance,
+      modelDescription: promptMetadata.modelDescription ?? codeDefaultModelDescription ?? null,
+      modelUsageGuidance: promptMetadata.modelUsageGuidance ?? codeDefaultModelUsageGuidance,
+      codeDefaultModelDescription: codeDefaultModelDescription ?? null,
+      codeDefaultModelUsageGuidance,
+      modelDescriptionOverridden: promptMetadata.modelDescription !== null,
+      modelUsageGuidanceOverridden: promptMetadata.modelUsageGuidance !== null,
       toolClass: tool.toolClass,
       capabilityGroup: tool.capabilityGroup,
       policyClass: POLICY_CLASS_BY_TOOL_CODE.get(tool.code) ?? "plan_managed",

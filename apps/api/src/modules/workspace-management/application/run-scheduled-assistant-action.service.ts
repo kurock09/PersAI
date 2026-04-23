@@ -40,15 +40,15 @@ function buildScheduledActionPrompt(input: {
   }
   return [
     "You are executing a hidden assistant-side scheduled action. Nothing in this turn is shown to the user directly.",
-    "Your job in this turn is to PRODUCE exactly one observable side-effect (a single scheduled_action call). Silence is not a valid outcome.",
+    "Your job in this turn is to PRODUCE at most one observable side-effect.",
     'You MUST NOT use scheduled_action(action="list") in this turn — the actionPayload below already tells you everything you need to act.',
-    'You MUST NOT create another kind="assistant_check" scheduled_action that simply mirrors this same task without changing runAt — that creates an infinite-recheck loop.',
+    'You MUST NOT create kind="assistant_check" during this hidden run. Nested assistant background tasks are forbidden by the scheduler contract.',
     "",
     "This task has a structured actionPayload — treat it as the contract for what to evaluate.",
     "Step 1. Read actionPayload + the scheduled action context below. Use available tools (memory_search, knowledge_*, web_*) only if the payload explicitly requires fresh evidence.",
     "Step 2. Decide: did the payload's condition fire?",
     '  - YES → call scheduled_action(action="create", kind="user_reminder", delayMs=1, title=<short>, reminderText=<short message in the user\'s language explaining what changed>).',
-    '  - NO  → call scheduled_action(action="create", kind="assistant_check", actionType=<same as this turn>, actionPayload=<same payload>, runAt=<ISO time of next check>, title=<same or slightly updated title>) to schedule the next check. Pick a delay that matches the payload (e.g. minutes for FX checks, hours for project follow-ups).',
+    "  - NO  → do NOT call scheduled_action. Finish the turn with a short internal acknowledgement that the condition did not fire and no user follow-up is needed right now.",
     "",
     `Title: ${input.title}`,
     `Action type: ${input.actionType}`,

@@ -55,6 +55,10 @@ interface ToolPromptState {
   description: string | null;
   modelDescription: string | null;
   modelUsageGuidance: string | null;
+  codeDefaultModelDescription?: string | null;
+  codeDefaultModelUsageGuidance?: string | null;
+  modelDescriptionOverridden?: boolean;
+  modelUsageGuidanceOverridden?: boolean;
   toolClass: "cost_driving" | "utility";
   capabilityGroup: "knowledge" | "automation" | "communication" | "workspace_ops";
   policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
@@ -185,7 +189,7 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
 
 - Check the requested condition first before creating any user-visible follow-up.
 - If no user-visible follow-up is needed, stay quiet.
-- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`audience="user"\` and an immediate schedule.
+- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`kind="user_reminder"\` and an immediate schedule.
 - Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
 
   presence: `# Sense of Time
@@ -473,6 +477,19 @@ function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
     }
   }
   return blocks.join("\n\n").trimEnd();
+}
+
+function supportsCodeDefault(tool: ToolPromptState): boolean {
+  return (
+    tool.codeDefaultModelDescription !== undefined ||
+    tool.codeDefaultModelUsageGuidance !== undefined ||
+    tool.modelDescriptionOverridden !== undefined ||
+    tool.modelUsageGuidanceOverridden !== undefined
+  );
+}
+
+function usesCodeDefault(tool: ToolPromptState): boolean {
+  return tool.modelDescriptionOverridden !== true && tool.modelUsageGuidanceOverridden !== true;
 }
 
 function buildOrdinaryPreview(
@@ -843,29 +860,81 @@ function ToolPromptEditor({
   tool: ToolPromptState;
   onSave: (
     toolCode: string,
-    patch: { modelDescription: string; modelUsageGuidance: string }
+    patch: { modelDescription: string | null; modelUsageGuidance: string | null }
   ) => Promise<void>;
 }) {
+  const codeDefaultEnabled = supportsCodeDefault(tool);
+  const persistedUseCodeDefault = usesCodeDefault(tool);
   const [modelDescription, setModelDescription] = useState(tool.modelDescription ?? "");
   const [modelUsageGuidance, setModelUsageGuidance] = useState(tool.modelUsageGuidance ?? "");
+  const [useCodeDefault, setUseCodeDefault] = useState(persistedUseCodeDefault);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const dirty =
-    modelDescription !== (tool.modelDescription ?? "") ||
-    modelUsageGuidance !== (tool.modelUsageGuidance ?? "");
+  useEffect(() => {
+    setModelDescription(tool.modelDescription ?? "");
+    setModelUsageGuidance(tool.modelUsageGuidance ?? "");
+    setUseCodeDefault(persistedUseCodeDefault);
+  }, [persistedUseCodeDefault, tool.modelDescription, tool.modelUsageGuidance, tool.toolCode]);
+
+  const dirty = codeDefaultEnabled
+    ? useCodeDefault !== persistedUseCodeDefault ||
+      (!useCodeDefault &&
+        (modelDescription !== (tool.modelDescription ?? "") ||
+          modelUsageGuidance !== (tool.modelUsageGuidance ?? "")))
+    : modelDescription !== (tool.modelDescription ?? "") ||
+      modelUsageGuidance !== (tool.modelUsageGuidance ?? "");
 
   const handleSave = async () => {
     setSaveError(null);
     setSaving(true);
     try {
-      await onSave(tool.toolCode, { modelDescription, modelUsageGuidance });
+      await onSave(tool.toolCode, {
+        modelDescription: codeDefaultEnabled && useCodeDefault ? null : modelDescription,
+        modelUsageGuidance: codeDefaultEnabled && useCodeDefault ? null : modelUsageGuidance
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     } catch (cause) {
       console.error("[admin-presets] handleSaveTool failed", cause);
       setSaveError(cause instanceof Error ? cause.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResetToDefault = async () => {
+    if (
+      !window.confirm(
+        `Reset tool "${tool.displayName}" to the code default prompt text? Any manual override will be cleared.`
+      )
+    ) {
+      return;
+    }
+    const defaultDescription = tool.codeDefaultModelDescription ?? "";
+    const defaultGuidance = tool.codeDefaultModelUsageGuidance ?? "";
+    setSaveError(null);
+    setUseCodeDefault(true);
+    setModelDescription(defaultDescription);
+    setModelUsageGuidance(defaultGuidance);
+    if (persistedUseCodeDefault) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(tool.toolCode, {
+        modelDescription: null,
+        modelUsageGuidance: null
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (cause) {
+      console.error("[admin-presets] handleResetTool failed", cause);
+      setUseCodeDefault(persistedUseCodeDefault);
+      setModelDescription(tool.modelDescription ?? "");
+      setModelUsageGuidance(tool.modelUsageGuidance ?? "");
+      setSaveError(cause instanceof Error ? cause.message : "Reset failed");
     } finally {
       setSaving(false);
     }
@@ -883,35 +952,78 @@ function ToolPromptEditor({
             {tool.toolClass}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={!dirty || saving}
-          className={cn(
-            "flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
-            dirty
-              ? "bg-accent text-white hover:bg-accent/90"
-              : "cursor-not-allowed bg-surface-hover text-text-subtle"
-          )}
-        >
-          {saving ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : saved ? (
-            <CheckCircle className="h-3 w-3 text-green-400" />
-          ) : (
-            <Save className="h-3 w-3" />
-          )}
-          {saved ? "Saved" : "Save"}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {codeDefaultEnabled ? (
+            <button
+              type="button"
+              onClick={() => void handleResetToDefault()}
+              disabled={saving || (persistedUseCodeDefault && useCodeDefault && !dirty)}
+              className="flex cursor-pointer items-center gap-1 rounded border border-border px-2.5 py-1 text-[10px] font-medium text-text-muted transition-colors hover:border-yellow-500/40 hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset to default
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={!dirty || saving}
+            className={cn(
+              "flex cursor-pointer items-center gap-1 rounded px-2.5 py-1 text-[10px] font-medium transition-colors",
+              dirty
+                ? "bg-accent text-white hover:bg-accent/90"
+                : "cursor-not-allowed bg-surface-hover text-text-subtle"
+            )}
+          >
+            {saving ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : saved ? (
+              <CheckCircle className="h-3 w-3 text-green-400" />
+            ) : (
+              <Save className="h-3 w-3" />
+            )}
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
+        {codeDefaultEnabled ? (
+          <div className="rounded border border-border bg-bg/70 p-2">
+            <label className="flex items-center gap-2 text-[11px] text-text">
+              <input
+                type="checkbox"
+                checked={useCodeDefault}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setUseCodeDefault(next);
+                  if (next) {
+                    setModelDescription(tool.codeDefaultModelDescription ?? "");
+                    setModelUsageGuidance(tool.codeDefaultModelUsageGuidance ?? "");
+                  }
+                }}
+                className="h-3.5 w-3.5 rounded border-border bg-bg text-accent"
+              />
+              Use code default
+            </label>
+            <p className="mt-1 text-[11px] text-text-muted">
+              Enabled = read-only, code-backed prompt text. Disable it only when you intentionally
+              want this tool to use a manual override.
+            </p>
+          </div>
+        ) : null}
         <div>
           <p className="mb-1 text-[11px] font-medium text-text-muted">Model-visible description</p>
           <textarea
             value={modelDescription}
             onChange={(event) => setModelDescription(event.target.value)}
-            className="min-h-[72px] w-full rounded border border-border bg-bg p-2 text-xs text-text outline-none focus:border-accent/50"
+            readOnly={codeDefaultEnabled && useCodeDefault}
+            className={cn(
+              "min-h-[72px] w-full rounded border border-border p-2 text-xs text-text outline-none focus:border-accent/50",
+              codeDefaultEnabled && useCodeDefault
+                ? "cursor-not-allowed bg-surface-hover text-text-muted"
+                : "bg-bg"
+            )}
           />
         </div>
         <div>
@@ -919,7 +1031,13 @@ function ToolPromptEditor({
           <textarea
             value={modelUsageGuidance}
             onChange={(event) => setModelUsageGuidance(event.target.value)}
-            className="min-h-[90px] w-full rounded border border-border bg-bg p-2 text-xs text-text outline-none focus:border-accent/50"
+            readOnly={codeDefaultEnabled && useCodeDefault}
+            className={cn(
+              "min-h-[90px] w-full rounded border border-border p-2 text-xs text-text outline-none focus:border-accent/50",
+              codeDefaultEnabled && useCodeDefault
+                ? "cursor-not-allowed bg-surface-hover text-text-muted"
+                : "bg-bg"
+            )}
           />
         </div>
       </div>
@@ -1095,6 +1213,7 @@ export default function AdminPresetsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<"ordinary" | "preview" | "welcome">("ordinary");
+  const [resettingAllTools, setResettingAllTools] = useState(false);
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -1171,7 +1290,10 @@ export default function AdminPresetsPage() {
   );
 
   const handleSaveTool = useCallback(
-    async (toolCode: string, patch: { modelDescription: string; modelUsageGuidance: string }) => {
+    async (
+      toolCode: string,
+      patch: { modelDescription: string | null; modelUsageGuidance: string | null }
+    ) => {
       const token = await getToken();
       if (!token) return;
       const response = await fetch(`/api/v1/admin/tools/metadata/${toolCode}`, {
@@ -1193,6 +1315,42 @@ export default function AdminPresetsPage() {
     },
     [getToken]
   );
+
+  const resettableTools = useMemo(() => tools.filter((tool) => supportsCodeDefault(tool)), [tools]);
+  const overriddenToolCount = useMemo(
+    () => resettableTools.filter((tool) => !usesCodeDefault(tool)).length,
+    [resettableTools]
+  );
+
+  const handleResetAllTools = useCallback(async () => {
+    if (overriddenToolCount === 0) {
+      return;
+    }
+    if (
+      !window.confirm(
+        `Reset ${String(overriddenToolCount)} tool override${overriddenToolCount === 1 ? "" : "s"} to code defaults?`
+      )
+    ) {
+      return;
+    }
+    setResettingAllTools(true);
+    setError(null);
+    try {
+      for (const tool of resettableTools) {
+        if (usesCodeDefault(tool)) {
+          continue;
+        }
+        await handleSaveTool(tool.toolCode, {
+          modelDescription: null,
+          modelUsageGuidance: null
+        });
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to reset tool overrides.");
+    } finally {
+      setResettingAllTools(false);
+    }
+  }, [handleSaveTool, overriddenToolCount, resettableTools]);
 
   const handleSaveArchetype = useCallback(
     async (key: string, patch: PersonaArchetypePatchPayload) => {
@@ -1398,13 +1556,29 @@ export default function AdminPresetsPage() {
       </section>
 
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-accent" />
-          <h2 className="text-sm font-semibold text-text">Per-Tool Model Instructions</h2>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-accent" />
+            <h2 className="text-sm font-semibold text-text">Per-Tool Model Instructions</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleResetAllTools()}
+            disabled={resettingAllTools || overriddenToolCount === 0}
+            className="flex cursor-pointer items-center gap-1 rounded border border-border px-2.5 py-1 text-[10px] font-medium text-text-muted transition-colors hover:border-yellow-500/40 hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {resettingAllTools ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3 w-3" />
+            )}
+            Reset all tools to code defaults
+          </button>
         </div>
         <p className="text-xs text-text-muted">
           These fields control the model-facing description and usage guidance injected into runtime
-          tool policy and native tool definitions.
+          tool policy and native tool definitions. Tool prompts are code-backed and read-only by
+          default; disable `Use code default` only when you intentionally need a manual override.
         </p>
         <div className="grid gap-4">
           {generalTools.map((tool) => (

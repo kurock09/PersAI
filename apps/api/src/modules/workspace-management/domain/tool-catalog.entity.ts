@@ -15,6 +15,10 @@ export type ToolCatalogActivationView = {
   description: string | null;
   modelDescription: string | null;
   modelUsageGuidance: string | null;
+  codeDefaultModelDescription?: string | null;
+  codeDefaultModelUsageGuidance?: string | null;
+  modelDescriptionOverridden?: boolean;
+  modelUsageGuidanceOverridden?: boolean;
   toolClass: ToolCatalogToolClass;
   capabilityGroup: ToolCatalogCapabilityGroup;
   policyClass: ToolPolicyClass;
@@ -28,6 +32,10 @@ export type ToolCatalogPromptMetadataView = {
   description: string | null;
   modelDescription: string | null;
   modelUsageGuidance: string | null;
+  codeDefaultModelDescription?: string | null;
+  codeDefaultModelUsageGuidance?: string | null;
+  modelDescriptionOverridden?: boolean;
+  modelUsageGuidanceOverridden?: boolean;
   toolClass: ToolCatalogToolClass;
   capabilityGroup: ToolCatalogCapabilityGroup;
   policyClass: ToolPolicyClass;

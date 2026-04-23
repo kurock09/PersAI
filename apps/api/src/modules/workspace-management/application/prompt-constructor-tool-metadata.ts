@@ -137,53 +137,29 @@ function withOverrides(
   base: SyntheticNativeToolDefinition,
   rows: PromptTemplate[]
 ): SyntheticNativeToolDefinition {
+  const descriptionId = buildSyntheticToolMetadataPromptTemplateId(
+    base.toolCode as SyntheticNativeToolCode,
+    "description"
+  );
+  const usageGuidanceId = buildSyntheticToolMetadataPromptTemplateId(
+    base.toolCode as SyntheticNativeToolCode,
+    "usage_guidance"
+  );
+  const storedDescription = readStoredPromptValue(rows, descriptionId);
+  const storedUsageGuidance = readStoredPromptValue(rows, usageGuidanceId);
+  const codeDefaultModelDescription =
+    readDefaultPromptValue(descriptionId) ?? base.modelDescription;
+  const codeDefaultModelUsageGuidance =
+    readDefaultPromptValue(usageGuidanceId) ?? base.modelUsageGuidance;
   return {
     ...base,
-    description:
-      readStoredPromptValue(
-        rows,
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "description"
-        )
-      ) ??
-      readDefaultPromptValue(
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "description"
-        )
-      ) ??
-      base.description,
-    modelDescription:
-      readStoredPromptValue(
-        rows,
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "description"
-        )
-      ) ??
-      readDefaultPromptValue(
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "description"
-        )
-      ) ??
-      base.modelDescription,
-    modelUsageGuidance:
-      readStoredPromptValue(
-        rows,
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "usage_guidance"
-        )
-      ) ??
-      readDefaultPromptValue(
-        buildSyntheticToolMetadataPromptTemplateId(
-          base.toolCode as SyntheticNativeToolCode,
-          "usage_guidance"
-        )
-      ) ??
-      base.modelUsageGuidance
+    description: storedDescription ?? codeDefaultModelDescription ?? base.description,
+    modelDescription: storedDescription ?? codeDefaultModelDescription ?? null,
+    modelUsageGuidance: storedUsageGuidance ?? codeDefaultModelUsageGuidance ?? null,
+    codeDefaultModelDescription: codeDefaultModelDescription ?? null,
+    codeDefaultModelUsageGuidance: codeDefaultModelUsageGuidance ?? null,
+    modelDescriptionOverridden: storedDescription !== null,
+    modelUsageGuidanceOverridden: storedUsageGuidance !== null
   };
 }
 

@@ -764,7 +764,7 @@ function createScheduledActionToolDefinition(
           type: "string",
           enum: ["user_reminder", "assistant_check"],
           description:
-            'Required for create. Use "user_reminder" for an unconditional user-visible reminder and "assistant_check" for a hidden conditional background check.'
+            'Required for create. Use "user_reminder" for an unconditional user-visible reminder. Use "assistant_check" for a hidden conditional background check, especially for requests like "поставь себе фоновую задачу", "тихо проверь", or "if/если ... then ping me".'
         },
         title: {
           type: "string",

@@ -60,7 +60,7 @@ const BASE_USER_MESSAGE_ID = `scheduled-action:${INPUT.externalRef}:${String(INP
 const SURFACE_THREAD_KEY = `system:scheduled-action:${INPUT.externalRef}`;
 
 describe("RunScheduledAssistantActionService", () => {
-  test("renders an executor-style brief that forbids silence and action='list'", async () => {
+  test("renders an executor-style brief that forbids list and nested assistant checks", async () => {
     const { service, sendService } = createService();
 
     await service.execute(INPUT);
@@ -71,7 +71,6 @@ describe("RunScheduledAssistantActionService", () => {
     assert.equal(sendService.calls[0]?.modelRoleOverride, "system_tool");
     const userMessage = sendService.calls[0]?.userMessage;
     assert.equal(typeof userMessage, "string");
-    assert.match(userMessage as string, /Silence is not a valid outcome\./);
     assert.match(userMessage as string, /MUST NOT use scheduled_action\(action="list"\)/);
     assert.match(
       userMessage as string,
@@ -79,8 +78,9 @@ describe("RunScheduledAssistantActionService", () => {
     );
     assert.match(
       userMessage as string,
-      /NO {2}→ call scheduled_action\(action="create", kind="assistant_check"/
+      /MUST NOT create kind="assistant_check" during this hidden run/
     );
+    assert.match(userMessage as string, /NO {2}→ do NOT call scheduled_action\./);
   });
 
   test("rejects malformed assistant rows that have no actionPayload", async () => {

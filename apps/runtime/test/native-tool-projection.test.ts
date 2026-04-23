@@ -166,6 +166,21 @@ async function run(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: null
+        },
+        {
+          toolCode: "scheduled_action",
+          displayName: "Scheduled Action",
+          description:
+            "Schedule actions for both user-visible reminders and hidden assistant follow-ups.",
+          usageGuidance:
+            'For create, choose EXACTLY ONE explicit kind. Use "assistant_check" for hidden background checks.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: null
         }
       ],
       quota: {
@@ -211,6 +226,7 @@ async function run(): Promise<void> {
   const files = projected.tools.find((tool) => tool.name === "files");
   const exec = projected.tools.find((tool) => tool.name === "exec");
   const shell = projected.tools.find((tool) => tool.name === "shell");
+  const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
@@ -249,6 +265,15 @@ async function run(): Promise<void> {
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(shell?.description ?? "", /same turn stay mounted/i);
+  const scheduledActionKindDescription = (
+    scheduledAction?.inputSchema as {
+      properties?: {
+        kind?: { description?: string };
+      };
+    }
+  )?.properties?.kind?.description;
+  assert.match(scheduledActionKindDescription ?? "", /фоновую задачу/);
+  assert.match(scheduledActionKindDescription ?? "", /assistant_check/);
 }
 
 void run();

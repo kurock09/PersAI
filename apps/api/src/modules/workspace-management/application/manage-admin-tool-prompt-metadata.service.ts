@@ -26,6 +26,10 @@ export type AdminToolPromptMetadataState = {
   description: string | null;
   modelDescription: string | null;
   modelUsageGuidance: string | null;
+  codeDefaultModelDescription?: string | null;
+  codeDefaultModelUsageGuidance?: string | null;
+  modelDescriptionOverridden?: boolean;
+  modelUsageGuidanceOverridden?: boolean;
   toolClass: "cost_driving" | "utility";
   capabilityGroup: "knowledge" | "automation" | "communication" | "workspace_ops";
   policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
