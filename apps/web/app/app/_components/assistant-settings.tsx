@@ -702,7 +702,13 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     }
 
     void (async () => {
-      const token = await getToken();
+      // ADR-074 Memory Center "Session expired" follow-up — also force
+      // a fresh Clerk JWT on the initial voice-settings load. Without
+      // this, the read flows reuse a cached token which can be older
+      // than the API's accepted lifetime and produce a 401 → inline
+      // "Session expired" banner on a screen that simply mounted, not
+      // on a click that the user just made.
+      const token = await getToken({ skipCache: true });
       if (!token || cancelled) {
         return;
       }
@@ -800,7 +806,14 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   }, [data.notificationPreference]);
 
   const loadMemory = useCallback(async () => {
-    const token = await getToken();
+    // ADR-074 Memory Center "Session expired" follow-up — symmetric to
+    // the mutation handlers below: force-fresh Clerk JWT on every read
+    // too. Without `skipCache: true`, a `data.reload()` triggered by a
+    // successful mutation re-runs `loadMemory` via useEffect; if the
+    // cached token has just crossed its TTL the read 401s and the
+    // memory banner shows "Session expired" right after a click that
+    // actually succeeded — the exact loop the founder reported.
+    const token = await getToken({ skipCache: true });
     if (!token) return;
     setMemoryLoading(true);
     setMemoryVisibleCount(5);
@@ -818,7 +831,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
   }, [getToken, t]);
 
   const loadTasks = useCallback(async () => {
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (!token) return;
     setTaskLoading(true);
     setTasksFb(null);
@@ -836,7 +849,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
 
   const loadWsMemory = useCallback(
     async (query?: string) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       setWsMemoryLoading(true);
       setWsMemoryVisibleCount(5);

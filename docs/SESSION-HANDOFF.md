@@ -1,5 +1,101 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 - ADR-074 Memory Center "Session expired" follow-up — root-cause fix on top of `a782d36d` Reload-button hotfix
+
+### Why this session
+
+After T2 landed and was rolled out to `persai-dev`, the founder pushed back on the prior `a782d36d` `skipCache:true`-on-mutations + `Reload`-button hotfix with two specific objections:
+
+1. The screenshot the founder posted still showed the inline `Session expired. Sign in again and refresh the page.` banner under the Memory Center **Workspace** tab right next to the "Расскажи что-нибудь новое…" / "Добавить" form — proving the loop was still live for him after the previous deploy.
+2. "Ты тупо сделал кнопку reload, проблема была в другом" — the `Reload` button is a UX workaround, not a root-cause fix. The founder explicitly asked to look in **GKE logs** and eliminate the cause if it is clear.
+
+### What I found in GKE logs
+
+- `gcloud logging read … resource.labels.namespace_name=persai-dev AND resource.labels.container_name=api AND jsonPayload.status=401 --freshness=24h --limit=30` returned **30+ hits**, all of them on `POST /api/v1/assistant/memory/items/<uuid>/close-open-loop`, all with `userId: null` (i.e. the failing request never reached the route handler — it was rejected by `ClerkAuthMiddleware` before `req.userId` was set), and all on the **pre-hotfix** ReplicaSets (`api-7888ccfcdc-*` / `api-75964b5b87-*`). The current `api-54f5ff894d-*` pods (image `7a442e36` = T2) had no 401s in the same window.
+- This means the founder's screenshot was indeed captured before the previous deploy reached his browser cache, but the underlying root cause was still present in the codebase, just not yet retriggered.
+- A `gcloud logging read … severity>=WARNING` sweep returned only Node `DEP0040` `punycode` deprecation warnings — i.e. **the API never logged a warning when it returned 401**. The reason: `apps/api/src/modules/identity-access/infrastructure/identity/clerk-auth.service.ts`'s `verifyToken(...).catch(() => throw new UnauthorizedException("Invalid Clerk token."))` swallowed every Clerk failure into a single opaque message with no log line. We literally could not tell from logs whether the 401 was expired-token, bad-signature, audience-mismatch, malformed bearer, or a JWKS network flake. That is the diagnostic blind spot the previous Reload button could not address.
+
+### What was actually breaking (root cause, not symptom)
+
+The previous hotfix added `getToken({ skipCache: true })` on every **mutation handler** in `apps/web/app/app/_components/assistant-settings.tsx`. It did NOT touch the **load functions** that the same component re-invokes via `useEffect` after every successful mutation through `data.reload()`:
+
+- `loadMemory` (line 803) — `getToken()` cached
+- `loadTasks` (line 821) — `getToken()` cached
+- `loadWsMemory` (line 839) — `getToken()` cached
+- voice-settings load effect (line 705) — `getToken()` cached
+- `useAppData.loadAll` (`apps/web/app/app/_components/use-app-data.ts:64`) — `getToken()` cached
+- `useAppData.reloadChats` (`:106`) — `getToken()` cached
+
+The reproducible loop:
+
+1. Founder clicks any mutation (e.g. `+ Добавить` workspace memory).
+2. The mutation uses `skipCache:true` → fresh JWT → API returns 200, `wsMemoryItems` updated optimistically.
+3. The success branch calls `data.reload()`.
+4. `useAppData.loadAll` re-runs with the still-cached token from the page-load.
+5. If that cached token has crossed Clerk's accepted lifetime in the few seconds the user spent typing/clicking, every parallel `Promise.allSettled` request 401s, the api-client's `toErrorMessage` for `ContractsApiError(status === 401)` returns the literal `"Session expired. Sign in again and refresh the page."`, the `useAppData` `error` state propagates back into the consuming surface, and `FeedbackLine` paints the inline banner immediately after a click that actually succeeded server-side.
+
+### What changed in this session
+
+**Frontend — symmetric `skipCache:true` on every read path on `/app`:**
+
+- `apps/web/app/app/_components/assistant-settings.tsx`: `loadMemory`, `loadTasks`, `loadWsMemory`, and the voice-settings load effect now all call `getToken({ skipCache: true })`. Each got a one-paragraph doc-comment pointing back at the M3.3 hotfix and explaining the post-mutation-`data.reload()` cycle so the next maintainer does not regress one of these back to cached `getToken()`.
+- `apps/web/app/app/_components/use-app-data.ts`: `loadAll` and `reloadChats` switched the same way.
+- The `Reload` button on `FeedbackLine` is intentionally **kept** as the last-resort surface for genuinely-dead sessions (e.g. user closed the laptop overnight, Clerk session truly expired, even a fresh fetch comes back 401). It is no longer the first-line UX response — it is the fallback after the fresh-token retry implicit in every read also fails.
+
+**Backend — unblock diagnostic blind spot in `ClerkAuthService`:**
+
+- `apps/api/src/modules/identity-access/infrastructure/identity/clerk-auth.service.ts` now exports a pure `classifyClerkVerifyFailure(error: unknown): ClerkVerifyFailureReason` that maps `error.reason | error.code | error.message` substrings into a bounded enum: `token_expired | token_not_active_yet | invalid_signature | invalid_audience | invalid_issuer | malformed_token | jwks_fetch_failed | unknown`. Cardinality stays small so `gcloud logging read` queries on the new field stay cheap.
+- The `verifyToken(...).catch(error)` block now emits `WARN [ClerkAuthService] Clerk verifyToken failed: reason=<one_of_the_eight> upstream="<original message>"` before throwing `UnauthorizedException("Invalid Clerk token (<reason>).")`. The `clerkClient.users.getUser(...)` follow-up failure now also logs `WARN [ClerkAuthService] Clerk users.getUser(<sub>) failed: <upstream message>`. A missing `sub` claim now logs `WARN [ClerkAuthService] Clerk verifyToken succeeded but payload is missing 'sub' claim.`. None of the lines contain the bearer token itself.
+
+**Tests:**
+
+- New `apps/api/test/clerk-auth.service.test.ts` — 7 unit tests on the classifier (expired in three input shapes, nbf, signature, audience/issuer, malformed/decode, jwks/network, and the `unknown` fallback for unrecognized errors / `null` / numbers / empty objects). Pure-function tests, no Clerk SDK mocking needed.
+
+### Files touched
+
+```
+apps/api/src/modules/identity-access/infrastructure/identity/clerk-auth.service.ts
+apps/api/test/clerk-auth.service.test.ts                                            (NEW)
+apps/web/app/app/_components/assistant-settings.tsx
+apps/web/app/app/_components/use-app-data.ts
+docs/CHANGELOG.md
+docs/SESSION-HANDOFF.md                                                             (this file)
+```
+
+No schema change, no Prisma migration, no contract change, no new endpoint, no admin surface.
+
+### Verification gate
+
+- `pnpm exec prettier --write` on the three edited files + the new test file → all written or unchanged.
+- `pnpm format:check` → clean.
+- `pnpm --filter ./apps/api lint` → clean (0 warnings).
+- `pnpm --filter ./apps/web lint` → clean (0 warnings).
+- `pnpm --filter ./apps/api typecheck` → clean.
+- `pnpm --filter ./apps/web typecheck` → clean.
+- `pnpm --filter ./apps/api exec tsx --test test/clerk-auth.service.test.ts` → 7/7 pass.
+
+### Acceptance signals after deploy
+
+1. The next time the founder triggers any Memory Center action that previously surfaced `Session expired`, **GKE logs will record the actual Clerk verification reason** under `ClerkAuthService` WARN lines. Expected reason for the original report is `token_expired`, but the WARN tells us with certainty if it is something else (e.g. `jwks_fetch_failed` Clerk-side flake or `invalid_signature` env misconfiguration).
+2. The inline `Session expired` banner should no longer appear at all on a normal mutation → reload cycle, because every read on `/app` is now equally fresh-token and the `data.reload()` no longer reuses a stale cached JWT.
+3. If the banner DOES surface again after this fix, the WARN log gives us exactly one substring to grep on (`reason=`) so the next iteration is root-cause-first instead of UX-band-aid.
+
+### Risks and residuals
+
+- The `getToken({ skipCache: true })` round-trip adds one extra Clerk request per read invocation. For `/app` this is bounded — at most 6 reads on initial mount + 6 on every `data.reload()` — and each request is a small JSON. The founder is the only live user on `persai-dev`, and OpenAI/Anthropic provider calls dominate latency by 2-3 orders of magnitude, so this is in the noise.
+- The same cached-token-on-read footgun exists on other surfaces (`/admin/*` pages, `chat-area`, `use-chat`, `telegram-connect`, `sidebar`, etc. — see the grep audit in this session). They were intentionally left alone in this slice because (a) they have not been reported as breaking and (b) the symmetric retrofit is mechanical and can land in a focused follow-up if any of them surfaces a similar inline-banner cycle. The 401-classifier WARN log will tell us immediately if any of those surfaces start showing the same pattern.
+
+### What is NOT in this slice
+
+- No automatic 401-retry-with-fresh-token wrapper around the api-client. That would be the next-level structural fix (turn the read pattern into a `withFreshToken` helper that catches 401, refreshes, and retries once before surfacing the banner) and is the right move if the WARN log shows continued `token_expired` after this slice. Deferred until live evidence justifies the api-client refactor over the targeted `skipCache:true` retrofit.
+- No change to Clerk session TTL configuration. That lives in the Clerk dashboard, not in code, and we have no evidence yet that the default lifetime is wrong — the WARN log will tell us if `token_expired` becomes the dominant 401 reason.
+
+### Original T2 entry
+
+The Slice T2 entry follows below — preserved as it was at the moment T2 landed earlier this session, since the deployed image (`7a442e36`) is still the active dev pin and T2 is the more recent active slice for product work.
+
+---
+
 ## 2026-04-23 - ADR-074 Slice T2 — Auto-route T1 pushes to first-bound notification channel — code-landed in code; verification gate green, awaiting `persai-dev` deploy + 4 founder live gates
 
 ### What changed
