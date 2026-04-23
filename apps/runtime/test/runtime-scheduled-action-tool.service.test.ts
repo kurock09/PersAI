@@ -412,7 +412,11 @@ export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> 
   assert.equal(blockedSelfCancel.payload.reason, "self_target_not_allowed");
   assert.equal(blockedSelfCancel.payload.warning !== null, true);
   assert.equal(blockedSelfCancel.isError, false);
-  assert.equal(internalApi.controlCalls.length, 1);
+  assert.equal(
+    internalApi.controlCalls.length,
+    3,
+    "self-targeted cancel must not emit an extra controlScheduledAction call"
+  );
 
   const cancelOtherTask = await service.executeToolCall({
     bundle,
