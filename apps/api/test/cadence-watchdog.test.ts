@@ -416,6 +416,180 @@ describe("CadenceWatchdog", () => {
     assert.equal(reports.length, 0);
   });
 
+  test("recordToolStarted suspends the silent timer for the entire tool span", () => {
+    // Regression: long tools (image_generate, video_generate) routinely take
+    // 15–60 s without producing any intermediate chunks. The silent timer
+    // must NOT fire mid-tool — the previous behaviour aborted the runtime
+    // stream and surfaced a false "Streaming ended before a full answer was
+    // completed." banner to the user.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordToolStarted();
+    // Silent timer must be suspended — the long tool can take much more than
+    // silentMs without being a stall.
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(60_000);
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    // Tool finishes — silent timer re-arms from "now".
+    wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 1);
+    clock.advance(4999);
+    assert.equal(reports.length, 0);
+    clock.advance(2);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "silent");
+    wd.dispose();
+  });
+
+  test("recordToolStarted clears an already-armed silent timer", () => {
+    // Healthy text streaming starts the silent timer; then the model decides
+    // to call a tool. The previously armed silent timer must be cleared so
+    // it cannot fire mid-tool.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    assert.equal(clock.pendingCount(), 1);
+    wd.recordToolStarted();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(30_000);
+    assert.equal(reports.length, 0);
+    wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 1);
+    wd.dispose();
+  });
+
+  test("overlapping tools keep silent timer suspended until last finish", () => {
+    // Two parallel tool calls (e.g. image_generate + memory_search) must
+    // suspend the silent timer for the union of their spans. The first
+    // finish must NOT prematurely re-arm the timer while the second tool
+    // is still running.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordToolStarted();
+    wd.recordToolStarted();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(20_000);
+    wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(20_000);
+    assert.equal(reports.length, 0);
+    wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 1);
+    clock.advance(5001);
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0]?.reason, "silent");
+    wd.dispose();
+  });
+
+  test("recordToolFinished tolerates over-decrement without re-suspending", () => {
+    // Defensive: an extra/duplicate recordToolFinished call must be a no-op
+    // and must not push the inflight counter negative — otherwise a future
+    // genuine tool span would never properly suspend the silent timer.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 5000,
+        avgWindow: 8,
+        avgThresholdMs: 200,
+        avgMinSamples: 8,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordToolFinished();
+    wd.recordToolStarted();
+    wd.recordToolFinished();
+    wd.recordToolFinished();
+    wd.recordToolStarted();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(60_000);
+    assert.equal(reports.length, 0);
+    wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 1);
+    wd.dispose();
+  });
+
+  test("tool span does not pollute slow_avg of resumed text deltas", () => {
+    // Healthy text deltas before and after a long tool span. The inter-delta
+    // anchor must be moved forward by recordToolStarted/recordToolFinished
+    // so the tool's execution duration does NOT appear as a giant gap in the
+    // slow_avg rolling window.
+    const clock = createFakeClock();
+    const reports: CadenceWatchdogStallReport[] = [];
+    const wd = createCadenceWatchdog(
+      {
+        silentMs: 60_000,
+        avgWindow: 5,
+        avgThresholdMs: 200,
+        avgMinSamples: 5,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer
+      },
+      (r) => reports.push(r)
+    );
+    wd.arm();
+    wd.recordDelta();
+    for (let i = 0; i < 4; i++) {
+      clock.advance(40);
+      wd.recordDelta();
+    }
+    wd.recordToolStarted();
+    clock.advance(45_000);
+    wd.recordToolFinished();
+    for (let i = 0; i < 5; i++) {
+      clock.advance(40);
+      wd.recordDelta();
+    }
+    assert.equal(reports.length, 0);
+    assert.equal(wd.hasStalled(), false);
+    wd.dispose();
+  });
+
   test("swallows errors thrown from the onStall callback", () => {
     const clock = createFakeClock();
     const wd = createCadenceWatchdog(

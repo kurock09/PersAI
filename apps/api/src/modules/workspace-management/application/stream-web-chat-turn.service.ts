@@ -782,7 +782,18 @@ export class StreamWebChatTurnService {
           if (input.cadenceState !== null) {
             recordToolPhase(input.cadenceState, chunk.toolPhase);
           }
-          watchdog.recordActivity();
+          // Suspend the silent watchdog for the tool's execution span instead
+          // of treating tool phases as generic activity. Long tools
+          // (image_generate, video_generate, slow web_fetch) routinely take
+          // 15–60 s with no intermediate chunks; the previous behavior reset
+          // the silent timer on tool_started but then fired ~`silentMs` later
+          // mid-tool, aborted the runtime, and surfaced the false-positive
+          // "Streaming ended before a full answer was completed." banner.
+          if (chunk.toolPhase === "start") {
+            watchdog.recordToolStarted();
+          } else {
+            watchdog.recordToolFinished();
+          }
           input.callbacks.onTool?.({
             phase: chunk.toolPhase,
             toolName: chunk.toolName,

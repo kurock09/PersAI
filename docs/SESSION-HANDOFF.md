@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 (post-L1 evening) — Web chat slow-mo cadence watchdog no longer false-fires on long tool calls (founder repro on `persai-dev` while asking for `image_generate`; confirmed by GKE logs)
+
+### Why this session
+
+Right after the L1 turnkey closeout deployed to `persai-dev`, the founder hit the red `Streaming ended before a full answer was completed.` banner under the chat composer when asking the assistant for two image-generate results. The founder explicitly framed it as "не связана с L1, это старая из-за fix слоумо webchat — при вызове длинных tool ложно срабатывает, должна срабатывать только на текст." This session captured the exact upstream chain in GKE logs, located the false-positive trigger in the cadence watchdog, and shipped the minimal fix.
+
+### What changed
+
+- **Diagnosis (one-line summary).** The cadence watchdog's `silent` timer (default 8 s) was being reset by `tool_started` (via `recordActivity`) and then ticking through the tool's actual execution span. Long tools (`image_generate`, `video_generate`, slow `web_fetch`) routinely take 15–60 s with no intermediate chunks, so at ~`silentMs` the watchdog fired, `internalAbort.abort()` killed the runtime fetch, the API returned `failed/runtime_invalid_response` ("Runtime stream finished without assistant output."), and the web client classifier matched the `"stream"` substring and surfaced the bilingual banner. GKE evidence: `web_stream_stall_detected reason=silent silentMs=8000 rollingAvgMs=n/a rollingWindow=n/a observedGaps=0 accumulatedLen=0` ~11 s after `web_runtime_route` for an `image_generate`-driven turn (zero text-delta gaps observed, zero accumulated text — purely a tool-execution gap that was misclassified as a text stall).
+- **Watchdog (`apps/api/src/modules/workspace-management/application/cadence-watchdog.ts`).** Two new methods on the `CadenceWatchdog` interface: `recordToolStarted()` and `recordToolFinished()`. They maintain an internal `inflightToolCount` counter; while the counter is `> 0`, `startSilentTimer()` short-circuits so the silent timer is **suspended** for the union of all in-flight tool spans. `recordToolFinished()` re-arms the timer with `lastDeltaAtMs = now()` once the **last** tool resolves. Both methods also move the inter-delta anchor forward (mirroring the existing `recordActivity` semantics) so resumed text deltas after the tool finishes are not penalized by the tool's execution span polluting the `slow_avg` rolling window. `recordToolFinished()` tolerates over-decrement defensively (extra calls are no-ops, the counter never goes negative) so a duplicate end event from upstream demuxing cannot indefinitely keep the suspension active. The file header comment was extended with a "Tool-inflight suspension" paragraph that documents the design intent ("the watchdog is meant to detect slow TEXT streaming, not slow tool execution; per-tool execution timeouts live elsewhere — provider gateway / runtime").
+- **Web-chat consumer (`apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts`).** On `chunk.type === "tool"`, the consumer now calls `watchdog.recordToolStarted()` for `toolPhase === "start"` and `watchdog.recordToolFinished()` for `toolPhase === "end"` instead of the generic `watchdog.recordActivity()`. `chunk.type === "thinking" / "media" / "done"` continue to use `recordActivity()` because those are genuine in-flight progress signals during the text phase. The change is local to the webchat consumer; the Telegram consumer (`send-native-telegram-turn.service.ts`) does not use the cadence watchdog so there is no parallel change there.
+- **Tests (`apps/api/test/cadence-watchdog.test.ts`).** Five new unit tests with the existing `FakeClock` harness (the suite grows from 14 to 19, all green): (1) `recordToolStarted` suspends the silent timer for the entire tool span (60 s tool with `silentMs = 5000` does not fire, then `recordToolFinished` re-arms and fires `silentMs` later); (2) `recordToolStarted` clears an already-armed silent timer (healthy text streaming → tool starts mid-stream → timer is suspended even if it was previously armed by `recordDelta`); (3) overlapping tools (counter `0→1→2` then `2→1→0`) keep the timer suspended until the **last** finish; (4) over-decrement is tolerated (extra `recordToolFinished` calls do not push the counter negative or break a subsequent genuine tool span); (5) tool spans do not pollute `slow_avg` of resumed text deltas (45 s tool span between two healthy text bursts does not flag `slow_avg`).
+
+### Verification gate
+
+- `pnpm --filter @persai/api typecheck` clean.
+- `pnpm --filter @persai/api lint` clean (touched files have zero lints).
+- `pnpm exec prettier --check apps/api/src/modules/workspace-management/application/cadence-watchdog.ts apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts apps/api/test/cadence-watchdog.test.ts` clean. (The repo-wide `pnpm format:check` reports a pre-existing format issue in `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` that belongs to an unrelated in-flight scheduler workstream and is not part of this fix.)
+- `pnpm --filter @persai/api test` clean (full suite green).
+- `pnpm --filter @persai/api exec node --import tsx --test test/cadence-watchdog.test.ts` reports `# tests 19 # pass 19 # fail 0` (5 new + 14 existing).
+- `pnpm --filter @persai/runtime test` clean (custom suite via `tsx test/run-suite.ts`, exit 0; no runtime code was touched but the run reconfirms no contract regression).
+
+### Out of scope
+
+- The classifier mapping in `apps/web/app/app/assistant-api-client.ts:666` that maps any error message containing the substring `"stream"` to `stream_incomplete` is intentionally **left as-is** — it is the correct catch-all for genuine stream-incomplete cases; the fix removes the **false** trigger source instead of papering over it on the client.
+- Per-tool execution timeouts and circuit-breakers (already enforced in the provider gateway / runtime) are not touched.
+- No bundle / Prisma / OpenAPI changes; no new env / config; no admin UI surface.
+
+### Awaiting
+
+- Founder push to remote (the user explicitly said "Делай но не push я скажу потом когда" — do not push without an explicit go-ahead). Once pushed and rolled out via Argo CD, the next `image_generate` / `video_generate` request on `persai-dev` should complete cleanly with no `Streaming ended…` banner; GKE logs should no longer record `web_stream_stall_detected reason=silent` lines tied to long tool spans (only genuine slow-text stalls).
+
+---
+
 ## 2026-04-23 (very late evening) — ADR-074 Slice L1 turnkey closeout — API-side bundle compile + admin PATCH + admin UI for the L1 tool-loop budgets (founder Q9-C closeout; code-landed; verification gate green)
 
 ### Why this session

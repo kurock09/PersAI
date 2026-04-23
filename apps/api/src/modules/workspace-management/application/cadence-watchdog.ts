@@ -14,6 +14,17 @@
  *    like `thinking`/`tool`/`media` would inflate the average and mask real slow-mo,
  *    so they are recorded via `recordActivity()` which only resets the silent timer.
  *
+ * Tool-inflight suspension: while at least one native tool call is in flight (i.e.
+ * the runtime emitted `tool_started` but not the matching `tool_finished` yet), the
+ * silent timer is suspended. Long tools — `image_generate`, `video_generate`, slow
+ * `web_fetch`, etc. — routinely take 15–60 s to complete and produce no intermediate
+ * chunks; without suspension the silent timer would fire ~`silentMs` after the start
+ * and falsely report the stream as stalled, which then aborts the runtime fetch and
+ * loses the tool's side effects. Use `recordToolStarted()` / `recordToolFinished()`
+ * for tool phase events instead of the generic `recordActivity()`. The watchdog is
+ * meant to detect slow TEXT streaming, not slow tool execution — per-tool execution
+ * timeouts live elsewhere (provider gateway / runtime).
+ *
  * The watchdog fires `onStall` at most once and then becomes inert. Callers must
  * always invoke `dispose()` (typically in a `finally` block) so that the silent
  * timer is cleared even when the stream completes normally.
@@ -59,13 +70,33 @@ export interface CadenceWatchdog {
    */
   recordDelta(): void;
   /**
-   * Record any non-text activity from the runtime (`thinking`, `tool` start/
-   * end, `media`, `runtime_done`, etc.). Resets the silent timer (and starts
-   * it on the first call) but does NOT feed the slow_avg window, so that long
-   * inter-text gaps caused by tool calls or reasoning blocks do not mask real
-   * slow-motion text streaming.
+   * Record any non-text activity from the runtime (`thinking`, `media`,
+   * `runtime_done`, etc. — but NOT tool phase events). Resets the silent
+   * timer (and starts it on the first call) but does NOT feed the slow_avg
+   * window, so that long inter-text gaps caused by reasoning blocks do not
+   * mask real slow-motion text streaming. For `tool_started` / `tool_finished`
+   * use the dedicated `recordToolStarted` / `recordToolFinished` instead so
+   * the silent timer is suspended for the tool's execution span.
    */
   recordActivity(): void;
+  /**
+   * Record that a native tool call has started executing. Increments the
+   * inflight-tool counter and, if the count transitions from 0→1, suspends
+   * the silent timer for the duration of the tool span. Also moves the
+   * inter-delta anchor forward like `recordActivity` so a subsequent text
+   * delta does not pollute the slow_avg rolling window with the tool's
+   * setup gap.
+   */
+  recordToolStarted(): void;
+  /**
+   * Record that a native tool call finished. Decrements the inflight-tool
+   * counter and, if the count transitions to 0, re-arms the silent timer
+   * with `lastDeltaAtMs = now()` so the post-tool quiet window is measured
+   * from the moment the tool returned (not from before it started).
+   * Tolerates over-decrement (extra `recordToolFinished` calls are no-ops)
+   * so callers do not need to track pairing perfectly across edge cases.
+   */
+  recordToolFinished(): void;
   /** Stop all timers. Idempotent. */
   dispose(): void;
   /** Whether the stall callback already fired. */
@@ -101,6 +132,10 @@ export function createCadenceWatchdog(
   let fired = false;
   let disposed = false;
   let observedDeltaCount = 0;
+  // Number of native tool calls currently in flight. While > 0, the silent
+  // timer is suspended (long tools like image_generate routinely produce no
+  // chunks for 15–60 s, which is healthy, not a stall).
+  let inflightToolCount = 0;
   const recentGapsMs: number[] = [];
 
   function clearSilentTimer(): void {
@@ -113,6 +148,9 @@ export function createCadenceWatchdog(
   function startSilentTimer(): void {
     clearSilentTimer();
     if (disposed || fired) return;
+    // Suspend the silent timer while any tool is in flight. The matching
+    // `recordToolFinished` call will re-arm it once the last tool completes.
+    if (inflightToolCount > 0) return;
     timerHandle = setTimer(() => {
       timerHandle = null;
       trigger({
@@ -183,6 +221,35 @@ export function createCadenceWatchdog(
       // falsely flagging healthy post-tool text as slow_avg. We only want
       // slow_avg to reflect real text-delta-to-text-delta cadence.
       lastDeltaAtMs = now();
+      startSilentTimer();
+    },
+    recordToolStarted() {
+      if (disposed || fired) return;
+      inflightToolCount += 1;
+      // Move the inter-delta anchor forward (same reason as recordActivity)
+      // so that resumed text deltas after the tool finishes do not measure
+      // the giant pre-tool gap.
+      lastDeltaAtMs = now();
+      // Suspend silent timer for the duration of the tool span. We do NOT
+      // start a new timer here because `startSilentTimer` short-circuits when
+      // `inflightToolCount > 0`; clearing here makes the suspension explicit
+      // even if a previous timer was already armed.
+      clearSilentTimer();
+    },
+    recordToolFinished() {
+      if (disposed || fired) return;
+      // Tolerate over-decrement: extra finished events (e.g. duplicated by
+      // upstream demuxing) must not push the counter negative because that
+      // would re-suspend the timer indefinitely once it next reached zero.
+      if (inflightToolCount > 0) {
+        inflightToolCount -= 1;
+      }
+      // Anchor the next text-delta gap measurement at "now" so a healthy
+      // post-tool stream is not penalized by the tool's execution span.
+      lastDeltaAtMs = now();
+      // Re-arm the silent timer once the last in-flight tool resolves.
+      // While more tools are still in flight, `startSilentTimer` will
+      // short-circuit and keep the suspension active.
       startSilentTimer();
     },
     dispose() {
