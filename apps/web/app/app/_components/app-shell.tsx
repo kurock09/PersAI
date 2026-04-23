@@ -1,6 +1,14 @@
 "use client";
 
-import { type ReactNode, Suspense, createContext, useContext, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  Suspense,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState
+} from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -10,6 +18,8 @@ import { SlideOver } from "./slide-over";
 import { AssistantSettings } from "./assistant-settings";
 import { TelegramConnect } from "./telegram-connect";
 import { useAppData, type AppData } from "./use-app-data";
+import { useHistoryBackToClose } from "./use-history-back-to-close";
+import { BackButtonBridge } from "./back-button-bridge";
 
 const AppDataContext = createContext<AppData | null>(null);
 
@@ -63,10 +73,20 @@ export function AppShell({ children }: { children: ReactNode }) {
     openTelegram: () => setTelegramOpen(true)
   };
 
+  // Wire mobile slide-out sidebar into the system Back gesture so it
+  // dismisses the overlay before navigating the page. Safe now that
+  // useHistoryBackToClose uses a JS handler stack instead of pushState
+  // markers — no interference with router.push from links inside.
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  useHistoryBackToClose(sidebarOpen, closeSidebar);
+
   if (isSetup) {
     return (
       <AppDataContext.Provider value={appData}>
-        <ShellActionsContext.Provider value={shellActions}>{children}</ShellActionsContext.Provider>
+        <ShellActionsContext.Provider value={shellActions}>
+          <BackButtonBridge />
+          {children}
+        </ShellActionsContext.Provider>
       </AppDataContext.Provider>
     );
   }
@@ -74,6 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <AppDataContext.Provider value={appData}>
       <ShellActionsContext.Provider value={shellActions}>
+        <BackButtonBridge />
         <div className="flex h-dvh overflow-hidden bg-bg">
           {/* Desktop sidebar — always visible */}
           <Suspense>
