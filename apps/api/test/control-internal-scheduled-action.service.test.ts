@@ -365,6 +365,51 @@ async function runLegacyCancelFallbackTest(): Promise<void> {
   });
 }
 
+async function runUnconditionalAssistantCoercedToUserTest(): Promise<void> {
+  const assistantRepository = new FakeAssistantRepository();
+  const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
+  const prisma = new FakeWorkspaceManagementPrismaService();
+  const contextSnapshotService = new BuildReminderContextSnapshotService(
+    new FakeAssistantChatRepository() as never
+  );
+
+  const service = new ControlInternalScheduledActionService(
+    assistantRepository as never,
+    bindingRepository as never,
+    prisma as never,
+    contextSnapshotService as never
+  );
+
+  const input = service.parseInput({
+    assistantId: "assistant-1",
+    action: "create",
+    audience: "assistant",
+    title: "пнуть пользователя через 2 минуты",
+    reminderText: "пни пользователя",
+    actionType: "check_status",
+    delayMs: 120_000,
+    conversationContext: {
+      channel: "telegram",
+      externalThreadKey: "group-1"
+    }
+  });
+
+  const result = (await service.execute(input)) as {
+    ok: boolean;
+    created: boolean;
+    coercedFromAudience?: "assistant";
+    task: { audience: "user" | "assistant"; actionType: string | null };
+  };
+
+  assert.equal(prisma.rows.length, 1);
+  assert.equal(prisma.rows[0]?.audience, "user");
+  assert.equal(prisma.rows[0]?.actionType, null);
+  assert.equal(result.coercedFromAudience, "assistant");
+  assert.equal(result.task.audience, "user");
+  assert.equal(result.task.actionType, null);
+  assert.equal(bindingRepository.patched.length, 1);
+}
+
 async function runNestedAssistantActionRejectedTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
@@ -402,6 +447,7 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
 async function run(): Promise<void> {
   await runNativeCreateTest();
   await runAssistantActionCreateTest();
+  await runUnconditionalAssistantCoercedToUserTest();
   await runLegacyPauseRejectedTest();
   await runLegacyCancelFallbackTest();
   await runNestedAssistantActionRejectedTest();

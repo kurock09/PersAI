@@ -19,7 +19,7 @@ export class InternalRuntimeToolQuotaController {
   async consumeToolDailyLimit(
     @Req() req: InternalRequestLike,
     @Body() body: unknown
-  ): Promise<{ ok: true; currentCount: number; limit: number }> {
+  ): Promise<{ ok: true; currentCount: number; limit: number | null }> {
     this.assertAuthorized(req);
     const input = this.consumeInternalRuntimeToolDailyLimitService.parseInput(body);
     return this.consumeInternalRuntimeToolDailyLimitService.execute(input);

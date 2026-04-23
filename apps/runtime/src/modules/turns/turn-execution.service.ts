@@ -865,9 +865,20 @@ export class TurnExecutionService {
     routeDecision?: TurnRouteDecision,
     trace?: RuntimeTrace
   ): RuntimeTurnResult {
-    if (providerResult.stopReason !== "completed" || providerResult.text === null) {
+    if (providerResult.stopReason !== "completed") {
       throw new InternalServerErrorException(
         `Turn "${acceptedTurn.receipt.requestId}" did not finish with a completed text result.`
+      );
+    }
+    // ADR-074 F2: provider may legitimately return text === null (model chose
+    // silence per our proactive prompts; was previously cascading into 500s
+    // from OpenAI/Anthropic clients before they were taught to accept empty
+    // completions). We materialise an empty assistant turn here — upstream
+    // chat surfaces will simply not render a bubble for "" — and emit a
+    // single warn so we can still spot pathological patterns.
+    if (providerResult.text === null) {
+      this.logger.warn(
+        `Turn "${acceptedTurn.receipt.requestId}" finished as empty completion (provider=${providerResult.provider} model=${providerResult.model}); rendering as empty assistant turn.`
       );
     }
 
@@ -876,7 +887,7 @@ export class TurnExecutionService {
     return {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
-      assistantText: providerResult.text,
+      assistantText: providerResult.text ?? "",
       artifacts: [...turnState.artifacts],
       respondedAt: providerResult.respondedAt,
       usage: providerResult.usage,
@@ -1742,26 +1753,25 @@ export class TurnExecutionService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: execution.bundle.metadata.assistantId,
+      // ADR-074 L1.1 — always count for observability.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: execution.bundle.metadata.assistantId,
+        toolCode: WEB_SEARCH_TOOL_CODE,
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return this.createToolExecutionOutcome(toolCall, {
           toolCode: WEB_SEARCH_TOOL_CODE,
-          dailyCallLimit: policy.dailyCallLimit
+          executionMode: "inline",
+          provider: providerId,
+          query: request.query,
+          summary: null,
+          hits: [],
+          externalContent: null,
+          action: "skipped",
+          reason: quotaOutcome.code,
+          warning: quotaOutcome.message
         });
-        if (!quotaOutcome.allowed) {
-          return this.createToolExecutionOutcome(toolCall, {
-            toolCode: WEB_SEARCH_TOOL_CODE,
-            executionMode: "inline",
-            provider: providerId,
-            query: request.query,
-            summary: null,
-            hits: [],
-            externalContent: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message
-          });
-        }
       }
 
       const providerResult = await this.providerGatewayClientService.webSearch({
@@ -1853,22 +1863,21 @@ export class TurnExecutionService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: execution.bundle.metadata.assistantId,
+      // ADR-074 L1.1 — always count for observability.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: execution.bundle.metadata.assistantId,
+        toolCode: WEB_FETCH_TOOL_CODE,
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return this.createToolExecutionOutcome(toolCall, {
           toolCode: WEB_FETCH_TOOL_CODE,
-          dailyCallLimit: policy.dailyCallLimit
+          executionMode: "inline",
+          document: null,
+          action: "skipped",
+          reason: quotaOutcome.code,
+          warning: quotaOutcome.message
         });
-        if (!quotaOutcome.allowed) {
-          return this.createToolExecutionOutcome(toolCall, {
-            toolCode: WEB_FETCH_TOOL_CODE,
-            executionMode: "inline",
-            document: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message
-          });
-        }
       }
 
       const providerResult = await this.providerGatewayClientService.webFetch({

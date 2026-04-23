@@ -283,12 +283,18 @@ class FakeProviderGatewayClientService {
 }
 
 class FakePersaiInternalApiClientService {
-  quotaCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
+  quotaCalls: Array<{
+    assistantId: string;
+    toolCode: string;
+    dailyCallLimit: number | null;
+    units?: number;
+  }> = [];
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
     toolCode: string;
-    dailyCallLimit: number;
+    dailyCallLimit: number | null;
+    units?: number;
   }): Promise<ConsumeToolDailyLimitOutcome> {
     this.quotaCalls.push(input);
     return {

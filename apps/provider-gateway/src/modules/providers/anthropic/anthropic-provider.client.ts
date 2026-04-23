@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import type {
   ProviderGatewayToolCall,
@@ -75,6 +75,7 @@ type AnthropicBuiltMessage = {
 export class AnthropicProviderClient implements ProviderWarmableClient {
   readonly provider = "anthropic" as const;
   readonly catalogSource = "bootstrap_config" as const;
+  private readonly logger = new Logger(AnthropicProviderClient.name);
   private client: Anthropic | null = null;
 
   constructor(@Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig) {}
@@ -146,9 +147,19 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       }
 
       const text = this.extractAnthropicText(response.content) ?? "";
-
-      if (!text) {
-        throw new Error("Anthropic provider response did not contain text output.");
+      if (text.length === 0) {
+        // ADR-074 F2: empty completions are a legit outcome of our proactive
+        // prompts; mirror the OpenAI-side behaviour (warn + return text=null
+        // with stopReason="completed") instead of throwing 500.
+        this.logger.warn({
+          event: "anthropic_empty_completion",
+          model: input.model,
+          runtimeRequestId: input.requestMetadata?.runtimeRequestId ?? null,
+          stopReason: response.stop_reason ?? null,
+          contentBlockTypes: this.summarizeAnthropicContentBlockTypes(response.content),
+          inputTokens: response.usage?.input_tokens ?? null,
+          outputTokens: response.usage?.output_tokens ?? null
+        });
       }
 
       const inputTokens = response.usage?.input_tokens ?? null;
@@ -161,7 +172,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       return {
         provider: "anthropic",
         model: input.model,
-        text,
+        text: text.length === 0 ? null : text,
         respondedAt: new Date().toISOString(),
         usage: {
           providerKey: "anthropic",
@@ -356,14 +367,16 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
           }
 
           const text = accumulatedText.trim();
-          if (!text) {
-            const failedEvent: ProviderGatewayTextFailedEvent = {
-              type: "failed",
-              code: "provider_invalid_response",
-              message: "Anthropic provider stream completed without text output."
-            };
-            yield failedEvent;
-            return;
+          if (text.length === 0) {
+            // ADR-074 F2: see non-streaming generateText() — empty completion
+            // is now a valid end-of-turn (warn + completed event with text=null)
+            // instead of a `failed` event that cascaded into 500s.
+            this.logger.warn({
+              event: "anthropic_empty_completion",
+              transport: "stream",
+              model: input.model,
+              runtimeRequestId: input.requestMetadata?.runtimeRequestId ?? null
+            });
           }
 
           const completedEvent: ProviderGatewayTextCompletedEvent = {
@@ -371,7 +384,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
             result: {
               provider: "anthropic",
               model: input.model,
-              text,
+              text: text.length === 0 ? null : text,
               respondedAt: new Date().toISOString(),
               usage: latestUsage,
               stopReason: "completed",
@@ -563,6 +576,17 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       .join("\n")
       .trim();
     return text.length > 0 ? text : null;
+  }
+
+  // ADR-074 F2: cheap shape diagnostic for "anthropic_empty_completion" warns.
+  private summarizeAnthropicContentBlockTypes(
+    content: Anthropic.Messages.Message["content"]
+  ): string[] {
+    const seen = new Set<string>();
+    for (const block of content) {
+      seen.add(typeof (block as { type?: unknown }).type === "string" ? block.type : "unknown");
+    }
+    return Array.from(seen).sort();
   }
 
   private normalizeOptionalText(value: string): string | null {

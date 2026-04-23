@@ -59,26 +59,26 @@ export class RuntimeSandboxToolService {
       };
     }
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: params.toolCall.name,
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: {
-              toolCode: params.toolCall.name,
-              executionMode: "sandbox",
-              action: "skipped",
-              reason: quotaOutcome.code,
-              warning: quotaOutcome.message,
-              job: null,
-              fileRefs: []
-            },
-            isError: false
-          };
-        }
+      // ADR-074 L1.1 — always count for observability (sandbox CPU
+      // minutes are billed by Daytona regardless of plan cap).
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: params.toolCall.name,
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: {
+            toolCode: params.toolCall.name,
+            executionMode: "sandbox",
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message,
+            job: null,
+            fileRefs: []
+          },
+          isError: false
+        };
       }
 
       const job = await this.sandboxClientService.waitForCompletion({

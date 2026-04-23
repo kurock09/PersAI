@@ -327,16 +327,22 @@ function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSche
   };
 }
 
-// ADR-074 F1: window for the soft "duplicate audience create" guard. If the
-// model creates two scheduled_actions with the same normalized title and
-// opposite audiences within this window we emit a structured warn — diagnostic
-// only, the rows are still created so we don't cause regressions on legitimate
-// edge cases (e.g. a real assistant-side probe that happens to share a title
-// with an unrelated user reminder).
-const DUPLICATE_AUDIENCE_CREATE_WINDOW_MS = 60_000;
-
-function normalizeTitleForDuplicateCheck(title: string): string {
-  return title.trim().toLowerCase().replace(/\s+/g, " ");
+// ADR-074 F2 (background-task hygiene v2): conservative heuristic for
+// routing-coercion when the model creates an `audience="assistant"` scheduled
+// action with no payload to evaluate. In live traffic the model frequently
+// interprets natural-language requests like "поставь СЕБЕ задачу пнуть меня
+// через 2 мин" as `create audience=assistant`, but with no actionPayload the
+// assistant-side check turn has literally nothing to evaluate. Historically the
+// model called `scheduled_action(action="list")` to orient itself, got nothing
+// back, and went silent — so the user never got pinged. We now route those
+// payload-less rows directly to `audience="user"` with the title (or title-fallback)
+// as reminderText. Rows WITH a non-empty actionPayload (any structured context
+// that the assistant-side turn could reason on) are left alone.
+function looksLikeUnconditionalAssistantTask(input: {
+  actionPayload?: Record<string, unknown>;
+}): boolean {
+  const payload = input.actionPayload;
+  return payload === undefined || Object.keys(payload).length === 0;
 }
 
 @Injectable()
@@ -535,7 +541,41 @@ export class ControlInternalScheduledActionService {
         'Nested assistant scheduled_action creation is not allowed during assistant background runs. Create audience="user" for any visible follow-up.'
       );
     }
-    const schedule = buildSchedule(input);
+
+    // ADR-074 F2: routing-coercion. See `looksLikeUnconditionalAssistantTask`
+    // above — if the model asked for an assistant-side scheduled action that
+    // has nothing to check, we transparently route it to audience="user" so
+    // the user actually gets pinged at the requested time. The tool result
+    // surfaces `coercedFromAudience: "assistant"` so the model can self-correct
+    // on the next turn.
+    let coercedFromAudience: ScheduledActionAudience | null = null;
+    let effectiveInput: CreateScheduledActionControlRequest = input;
+    if (
+      input.audience === "assistant" &&
+      looksLikeUnconditionalAssistantTask({
+        ...(input.actionPayload === undefined ? {} : { actionPayload: input.actionPayload })
+      })
+    ) {
+      coercedFromAudience = "assistant";
+      effectiveInput = {
+        ...input,
+        audience: "user",
+        reminderText:
+          (input.actionPayload?.reminderText as string | undefined)?.trim() ||
+          input.reminderText ||
+          input.title
+      };
+      delete (effectiveInput as { actionType?: string }).actionType;
+      delete (effectiveInput as { actionPayload?: Record<string, unknown> }).actionPayload;
+      this.logger.log({
+        event: "scheduled_action_coerced_to_user_push",
+        assistantId: assistant.id,
+        title: input.title,
+        originalActionType: input.actionType ?? null
+      });
+    }
+
+    const schedule = buildSchedule(effectiveInput);
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
     if (nextRunAtMs === undefined) {
       throw new BadRequestException(
@@ -545,30 +585,34 @@ export class ControlInternalScheduledActionService {
     const externalRef = randomUUID();
     const payloadText = await this.buildReminderContextSnapshotService.execute({
       assistantId: assistant.id,
-      reminderText: input.reminderText,
-      ...(input.contextMessages === undefined ? {} : { contextMessages: input.contextMessages }),
-      ...(input.conversationContext === undefined
+      reminderText: effectiveInput.reminderText,
+      ...(effectiveInput.contextMessages === undefined
         ? {}
-        : { conversationContext: input.conversationContext })
+        : { contextMessages: effectiveInput.contextMessages }),
+      ...(effectiveInput.conversationContext === undefined
+        ? {}
+        : { conversationContext: effectiveInput.conversationContext })
     });
     const created = await this.prisma.assistantTaskRegistryItem.create({
       data: {
         assistantId: assistant.id,
         userId: assistant.userId,
         workspaceId: assistant.workspaceId,
-        title: input.title,
+        title: effectiveInput.title,
         sourceSurface: "web",
         sourceLabel: resolveTaskSourceLabel({
-          audience: input.audience,
+          audience: effectiveInput.audience,
           schedule,
-          ...(input.actionType === undefined ? {} : { actionType: input.actionType })
+          ...(effectiveInput.actionType === undefined
+            ? {}
+            : { actionType: effectiveInput.actionType })
         }),
-        audience: input.audience,
-        actionType: input.actionType ?? null,
+        audience: effectiveInput.audience,
+        actionType: effectiveInput.actionType ?? null,
         actionPayloadJson:
-          input.actionPayload === undefined
+          effectiveInput.actionPayload === undefined
             ? Prisma.DbNull
-            : (input.actionPayload as unknown as Prisma.InputJsonValue),
+            : (effectiveInput.actionPayload as unknown as Prisma.InputJsonValue),
         controlStatus: "active",
         nextRunAt: new Date(nextRunAtMs),
         disabledAt: null,
@@ -591,20 +635,14 @@ export class ControlInternalScheduledActionService {
         nextRunAt: true
       }
     });
-    if (input.audience === "user") {
+    if (effectiveInput.audience === "user") {
       await this.persistTelegramReminderTarget(
         assistant.id,
         externalRef,
-        input.conversationContext,
-        input.contextSessionKey
+        effectiveInput.conversationContext,
+        effectiveInput.contextSessionKey
       );
     }
-    await this.warnIfDuplicateAudienceCreate({
-      assistantId: assistant.id,
-      newTaskId: created.id,
-      title: input.title,
-      audience: input.audience
-    });
 
     return {
       ok: true,
@@ -616,7 +654,8 @@ export class ControlInternalScheduledActionService {
         actionType: created.actionType,
         controlStatus: created.controlStatus,
         nextRunAt: created.nextRunAt?.toISOString() ?? null
-      }
+      },
+      ...(coercedFromAudience === null ? {} : { coercedFromAudience })
     };
   }
 
@@ -729,56 +768,6 @@ export class ControlInternalScheduledActionService {
       "telegram_bot",
       { reminderTaskTargets }
     );
-  }
-
-  // ADR-074 F1: soft "duplicate audience create" guard. The model has been
-  // observed to create both audience="user" + audience="assistant" in a single
-  // turn for the same intent (e.g. "поставь себе задачу пнуть меня через 2 мин").
-  // The new prompt + catalog guidance forbid that, but we still emit a
-  // structured warn here so we can spot regressions in GKE without scraping
-  // raw `assistant_task_registry_items`. We DO NOT block the second create —
-  // false positives would silently break legitimate cases (an assistant probe
-  // that incidentally shares a title with an unrelated user reminder).
-  private async warnIfDuplicateAudienceCreate(input: {
-    assistantId: string;
-    newTaskId: string;
-    title: string;
-    audience: ScheduledActionAudience;
-  }): Promise<void> {
-    const oppositeAudience: ScheduledActionAudience =
-      input.audience === "user" ? "assistant" : "user";
-    const since = new Date(Date.now() - DUPLICATE_AUDIENCE_CREATE_WINDOW_MS);
-    const normalizedTitle = normalizeTitleForDuplicateCheck(input.title);
-    let recent: Array<{ id: string; title: string; audience: ScheduledActionAudience }>;
-    try {
-      recent = await this.prisma.assistantTaskRegistryItem.findMany({
-        where: {
-          assistantId: input.assistantId,
-          audience: oppositeAudience,
-          createdAt: { gte: since },
-          id: { not: input.newTaskId }
-        },
-        select: { id: true, title: true, audience: true },
-        take: 10
-      });
-    } catch {
-      return;
-    }
-    const match = recent.find(
-      (row) => normalizeTitleForDuplicateCheck(row.title) === normalizedTitle
-    );
-    if (match === undefined) {
-      return;
-    }
-    this.logger.warn({
-      event: "duplicate_audience_create_detected",
-      assistantId: input.assistantId,
-      newTaskId: input.newTaskId,
-      newTaskAudience: input.audience,
-      siblingTaskId: match.id,
-      siblingAudience: match.audience,
-      normalizedTitle
-    });
   }
 
   private async deleteTelegramReminderTarget(

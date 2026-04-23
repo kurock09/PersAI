@@ -236,6 +236,18 @@ class FakePersaiInternalApiClientService {
       ok: true
     };
   }
+
+  // ADR-074 Slice L1.1 — scheduled_action now always consumes the daily
+  // quota counter for observability (the previous code only called the
+  // API when `dailyCallLimit !== null`). The test fake records the
+  // calls and returns an `allowed: true` outcome so existing assertions
+  // continue to pass without rewriting every test case.
+  quotaCalls: Array<Record<string, unknown>> = [];
+
+  async consumeToolDailyLimit(input: Record<string, unknown>) {
+    this.quotaCalls.push(input);
+    return { allowed: true as const, currentCount: 1, limit: null };
+  }
 }
 
 export async function runRuntimeScheduledActionToolServiceTest(): Promise<void> {

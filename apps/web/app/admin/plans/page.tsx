@@ -1202,7 +1202,9 @@ export function ToolActivationsEdit({
                 </label>
               ) : (
                 <HelpText>
-                  Blank daily cap means this tool inherits the plan default behavior.
+                  Blank daily cap = no daily limit (calls are still counted for observability but
+                  never refused). Set a positive integer to enforce a hard daily ceiling per
+                  workspace; the call is rejected once the counter reaches it.
                 </HelpText>
               )}
             </div>
@@ -1224,7 +1226,10 @@ export function ToolActivationsEdit({
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <HelpText>
               Per-turn cap overrides the runtime default for this tool inside one turn. Blank =
-              inherit (web_fetch=5, web_search=3, image/video=1).
+              inherit. Defaults: web_fetch=5, web_search=3, image_generate=1 (each requested count
+              consumes one cap unit), image_edit=1, video_generate=1, tts=3, browser=3, exec=5,
+              shell=5, files=10, scheduled_action=5, knowledge_search=5, knowledge_fetch=10,
+              memory_write=10. Tools not listed have no per-turn cap.
             </HelpText>
             <label className="grid gap-1">
               <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">

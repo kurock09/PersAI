@@ -177,23 +177,22 @@ export class RuntimeFilesToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: "files",
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: this.createSkippedResult({
-              reason: quotaOutcome.code,
-              requestedAction: request.action,
-              warning: quotaOutcome.message
-            }),
-            artifacts: [],
-            isError: false
-          };
-        }
+      // ADR-074 L1.1 — always count for observability.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "files",
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: this.createSkippedResult({
+            reason: quotaOutcome.code,
+            requestedAction: request.action,
+            warning: quotaOutcome.message
+          }),
+          artifacts: [],
+          isError: false
+        };
       }
 
       switch (request.action) {

@@ -191,14 +191,32 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
 
       const text = typeof response.output_text === "string" ? response.output_text.trim() : "";
-      if (!text) {
-        throw new Error("OpenAI provider response did not contain text output.");
+      if (text.length === 0) {
+        // ADR-074 F2: a "no text + no tool_calls" response is a legitimate outcome
+        // of our proactive prompts ("Prefer silence over guessing") and of the
+        // assistant-side scheduled-action check turn. Throwing 500 here cascaded
+        // into Provider gateway request failed with status 500 → scheduler retried
+        // 5× → task disabled with no signal. We treat empty completions as a
+        // natural end-of-turn (text=null, stopReason=completed) and emit a single
+        // structured warn so we can still spot model glitches (e.g. truncated
+        // reasoning, refusals, content-filter blocks) in GKE.
+        this.logger.warn({
+          event: "openai_empty_completion",
+          model: input.model,
+          requestId: this.readMetadataRequestId(input),
+          outputItemTypes: this.summarizeOutputItemTypes(response.output),
+          outputItemCount: Array.isArray(response.output) ? response.output.length : 0,
+          hasOutputText: typeof response.output_text === "string",
+          finishReason: this.readNonStreamingFinishReason(response),
+          inputTokens: response.usage?.input_tokens ?? null,
+          outputTokens: response.usage?.output_tokens ?? null
+        });
       }
 
       return {
         provider: "openai",
         model: input.model,
-        text,
+        text: text.length === 0 ? null : text,
         respondedAt: new Date().toISOString(),
         usage:
           response.usage === undefined
@@ -622,13 +640,26 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
             this.normalizeOptionalText(response?.output_text) ??
             this.normalizeOptionalText(accumulatedText);
           if (text === null) {
-            const failedEvent: ProviderGatewayTextFailedEvent = {
-              type: "failed",
-              code: "provider_invalid_response",
-              message: "OpenAI provider stream completed without text output."
-            };
-            yield failedEvent;
-            return;
+            // ADR-074 F2: see generateText() — empty completion is a legit
+            // outcome of our proactive prompts; we no longer fail the stream.
+            this.logger.warn({
+              event: "openai_empty_completion",
+              transport: "stream",
+              model: input.model,
+              requestId: this.readMetadataRequestId(input),
+              outputItemTypes: this.summarizeOutputItemTypes(response?.output),
+              outputItemCount: Array.isArray(response?.output)
+                ? (response.output as unknown[]).length
+                : 0,
+              hasOutputText: typeof response?.output_text === "string",
+              accumulatedTextLength: accumulatedText.length,
+              inputTokens:
+                (response?.usage as OpenAI.Responses.ResponseUsage | undefined)?.input_tokens ??
+                null,
+              outputTokens:
+                (response?.usage as OpenAI.Responses.ResponseUsage | undefined)?.output_tokens ??
+                null
+            });
           }
 
           const completedEvent: ProviderGatewayTextCompletedEvent = {
@@ -904,6 +935,42 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
   private normalizeOptionalText(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  // ADR-074 F2: diagnostics for "openai_empty_completion" warns. We don't
+  // want a JSON.stringify of the entire response (PII + token bloat), just
+  // the SHAPE — which item types showed up, were they reasoning-only, etc.
+  private summarizeOutputItemTypes(output: unknown): string[] {
+    if (!Array.isArray(output)) {
+      return [];
+    }
+    const seen = new Set<string>();
+    for (const item of output) {
+      if (item !== null && typeof item === "object") {
+        const candidate = (item as { type?: unknown }).type;
+        seen.add(typeof candidate === "string" ? candidate : "unknown");
+      } else {
+        seen.add("non_object");
+      }
+    }
+    return Array.from(seen).sort();
+  }
+
+  private readNonStreamingFinishReason(response: unknown): string | null {
+    if (response === null || typeof response !== "object") {
+      return null;
+    }
+    const candidate = (response as { incomplete_details?: { reason?: unknown } }).incomplete_details
+      ?.reason;
+    if (typeof candidate === "string") {
+      return candidate;
+    }
+    const status = (response as { status?: unknown }).status;
+    return typeof status === "string" ? status : null;
+  }
+
+  private readMetadataRequestId(input: ProviderGatewayTextGenerateRequest): string | null {
+    return input.requestMetadata?.runtimeRequestId ?? null;
   }
 
   private readOpenAIStreamToolCall(event: unknown): {

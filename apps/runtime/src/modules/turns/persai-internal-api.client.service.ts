@@ -28,11 +28,19 @@ type JsonResponse = {
   body: unknown;
 };
 
+/**
+ * ADR-074 L1.1 — `limit` is now nullable on the success branch. The API
+ * counts every cost-tool call for observability even when the plan does
+ * not configure a daily cap, returning `limit: null` to signal "counted,
+ * no enforcement". This lets the founder dashboard show traffic for
+ * unlimited tools that were previously biller-visible but
+ * counter-invisible.
+ */
 export type ConsumeToolDailyLimitOutcome =
   | {
       allowed: true;
       currentCount: number;
-      limit: number;
+      limit: number | null;
     }
   | {
       allowed: false;
@@ -281,7 +289,22 @@ export class PersaiInternalApiClientService {
   async consumeToolDailyLimit(input: {
     assistantId: string;
     toolCode: string;
-    dailyCallLimit: number;
+    /**
+     * The daily-call-limit observed in the local runtime bundle when this
+     * call was scheduled. May be `null` for tools that the operator has
+     * not capped on the plan — the API still counts the call for
+     * observability (ADR-074 L1.1 always-count anchor) and returns
+     * `limit: null` to signal "counted, no enforcement".
+     */
+    dailyCallLimit: number | null;
+    /**
+     * Optional artifact-weight for cost tools that legitimately produce
+     * N artifacts per single tool call (canonical case:
+     * `image_generate({ count: N })`). Defaults to 1 server-side when
+     * absent, so older runtime workers that have not been upgraded
+     * remain wire-compatible.
+     */
+    units?: number;
   }): Promise<ConsumeToolDailyLimitOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -298,15 +321,18 @@ export class PersaiInternalApiClientService {
 
     if (response.ok) {
       const payload = this.asObject(response.body);
+      const limitValue = payload?.limit;
+      const limitParsed =
+        limitValue === null ? null : Number.isInteger(limitValue) ? Number(limitValue) : undefined;
       if (
         payload?.ok === true &&
         Number.isInteger(payload.currentCount) &&
-        Number.isInteger(payload.limit)
+        limitParsed !== undefined
       ) {
         return {
           allowed: true,
           currentCount: Number(payload.currentCount),
-          limit: Number(payload.limit)
+          limit: limitParsed
         };
       }
       throw new BadGatewayException(

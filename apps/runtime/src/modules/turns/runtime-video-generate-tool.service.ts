@@ -221,34 +221,35 @@ export class RuntimeVideoGenerateToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: VIDEO_GENERATE_TOOL_CODE,
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: {
-              toolCode: VIDEO_GENERATE_TOOL_CODE,
-              executionMode: "worker",
-              provider: providerId,
-              model: null,
-              prompt: request.prompt,
-              requestedSeconds: request.seconds,
-              size: request.size,
-              referenceImageIndex: selection.referenceImageIndex,
-              referenceFilename: selection.referenceFilename,
-              artifact: null,
-              usage: null,
-              action: "skipped",
-              reason: quotaOutcome.code,
-              warning: quotaOutcome.message
-            },
-            artifacts: [],
-            isError: false
-          };
-        }
+      // ADR-074 L1.1 — always count for observability (video generation
+      // is the most expensive tool we ship; the founder dashboard must
+      // see every render attempt regardless of plan cap).
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            requestedSeconds: request.seconds,
+            size: request.size,
+            referenceImageIndex: selection.referenceImageIndex,
+            referenceFilename: selection.referenceFilename,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          },
+          artifacts: [],
+          isError: false
+        };
       }
 
       const providerResult = await this.providerGatewayClientService.generateVideo(

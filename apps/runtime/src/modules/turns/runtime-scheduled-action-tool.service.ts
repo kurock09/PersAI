@@ -62,22 +62,21 @@ export class RuntimeScheduledActionToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: "scheduled_action",
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: this.createSkippedResult(
-              request.action,
-              quotaOutcome.code,
-              quotaOutcome.message
-            ),
-            isError: false
-          };
-        }
+      // ADR-074 L1.1 — always count for observability.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "scheduled_action",
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: this.createSkippedResult(
+            request.action,
+            quotaOutcome.code,
+            quotaOutcome.message
+          ),
+          isError: false
+        };
       }
 
       switch (request.action) {
@@ -138,6 +137,14 @@ export class RuntimeScheduledActionToolService {
             controlStatus: "active",
             nextRunAt: null
           };
+          // ADR-074 F2: backend may have coerced audience="assistant" → "user"
+          // for unconditional reminders (empty actionPayload). Surface a warning
+          // so the model self-corrects on the next turn.
+          const coercedFromAudience = this.readCoercedFromAudience(response);
+          const coercionWarning =
+            coercedFromAudience === null
+              ? null
+              : `Routed to audience="user" because actionPayload was empty. For unconditional reminders, call scheduled_action with audience="user" directly.`;
           return {
             payload: {
               toolCode: "scheduled_action",
@@ -145,7 +152,7 @@ export class RuntimeScheduledActionToolService {
               requestedAction: "create",
               action: "created",
               reason: null,
-              warning: null,
+              warning: coercionWarning,
               task,
               items: null
             },
@@ -453,6 +460,14 @@ export class RuntimeScheduledActionToolService {
       return null;
     }
     return policy;
+  }
+
+  private readCoercedFromAudience(value: unknown): "assistant" | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const coerced = (value as Record<string, unknown>).coercedFromAudience;
+    return coerced === "assistant" ? "assistant" : null;
   }
 
   private normalizeTaskFromControlResponse(value: unknown): RuntimeScheduledActionItem | null {

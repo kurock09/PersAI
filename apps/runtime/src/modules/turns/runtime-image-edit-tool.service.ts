@@ -249,36 +249,35 @@ export class RuntimeImageEditToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: "image_edit",
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: {
-              toolCode: "image_edit",
-              executionMode: "worker",
-              provider: providerId,
-              model: null,
-              prompt: request.prompt,
-              revisedPrompt: null,
-              sourceImageIndex: selection.sourceImageIndex,
-              referenceImageIndex: selection.referenceImageIndex,
-              sourceFilename: selection.sourceFilename,
-              referenceFilename: selection.referenceFilename,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: quotaOutcome.code,
-              warning: quotaOutcome.message
-            },
+      // ADR-074 L1.1 — always count for observability.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "image_edit",
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: {
+            toolCode: "image_edit",
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            revisedPrompt: null,
+            sourceImageIndex: selection.sourceImageIndex,
+            referenceImageIndex: selection.referenceImageIndex,
+            sourceFilename: selection.sourceFilename,
+            referenceFilename: selection.referenceFilename,
+            size: request.size,
             artifacts: [],
-            isError: false
-          };
-        }
+            usage: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          },
+          artifacts: [],
+          isError: false
+        };
       }
 
       const providerResult = await this.providerGatewayClientService.editImage({

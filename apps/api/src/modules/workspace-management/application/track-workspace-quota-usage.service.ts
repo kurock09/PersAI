@@ -285,8 +285,8 @@ export class TrackWorkspaceQuotaUsageService {
     };
   }
 
-  async incrementToolDailyUsage(workspaceId: string, toolCode: string): Promise<number> {
-    return this.toolDailyUsageRepository.incrementAndGet(workspaceId, toolCode);
+  async incrementToolDailyUsage(workspaceId: string, toolCode: string, units = 1): Promise<number> {
+    return this.toolDailyUsageRepository.incrementAndGet(workspaceId, toolCode, units);
   }
 
   async checkMediaStorageQuota(assistant: Assistant): Promise<{
@@ -576,11 +576,26 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant;
     toolCode: string;
     dailyCallLimit: number | null;
+    units?: number;
   }): Promise<{ allowed: boolean; currentCount: number; limit: number | null }> {
+    const units = params.units ?? 1;
+    // ADR-074 L1.1 — observability anchor. Even when no daily cap is
+    // configured, we still increment `tool_daily_usage` so the founder
+    // dashboard, the smoke harness, and the GKE log stream can answer
+    // "how many tts/image_generate/etc. did this assistant fire today?"
+    // Without this, blank-cap tools were biller-visible (provider charged
+    // us) but counter-invisible — exactly the second hole called out in
+    // the L1.1 audit. The increment is a single atomic upsert, no
+    // serializable transaction required.
     if (params.dailyCallLimit === null || params.dailyCallLimit <= 0) {
+      const currentCount = await this.toolDailyUsageRepository.incrementAndGet(
+        params.assistant.workspaceId,
+        params.toolCode,
+        units
+      );
       return {
         allowed: true,
-        currentCount: 0,
+        currentCount,
         limit: null
       };
     }
@@ -588,7 +603,8 @@ export class TrackWorkspaceQuotaUsageService {
     const result = await this.toolDailyUsageRepository.consumeWithinLimit(
       params.assistant.workspaceId,
       params.toolCode,
-      params.dailyCallLimit
+      params.dailyCallLimit,
+      units
     );
     return {
       allowed: result.allowed,

@@ -135,33 +135,40 @@ export class RuntimeImageGenerateToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: "image_generate",
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: {
-              toolCode: "image_generate",
-              executionMode: "worker",
-              provider: providerId,
-              model: null,
-              prompt: request.prompt,
-              revisedPrompt: null,
-              requestedCount: request.count,
-              size: request.size,
-              artifacts: [],
-              usage: null,
-              action: "skipped",
-              reason: quotaOutcome.code,
-              warning: quotaOutcome.message
-            },
+      // ADR-074 L1.1 — always call the consumer endpoint, even when the
+      // plan has no daily cap, so observability counts every billed
+      // image. `units = request.count` so a single
+      // `image_generate({ count: 4 })` advances the daily counter by 4
+      // (matching the four artifacts OpenAI bills us for), instead of
+      // by 1. The API rejects the *whole* batch if the requested count
+      // would push the counter past a configured cap; we surface that
+      // as a regular tool_quota_rejected outcome.
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "image_generate",
+        dailyCallLimit: policy.dailyCallLimit,
+        units: request.count
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: {
+            toolCode: "image_generate",
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            revisedPrompt: null,
+            requestedCount: request.count,
+            size: request.size,
             artifacts: [],
-            isError: false
-          };
-        }
+            usage: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          },
+          artifacts: [],
+          isError: false
+        };
       }
 
       const providerResult = await this.providerGatewayClientService.generateImage({

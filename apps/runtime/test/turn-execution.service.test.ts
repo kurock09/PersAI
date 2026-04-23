@@ -1088,7 +1088,12 @@ class FakeTurnFinalizationService {
 }
 
 class FakePersaiInternalApiClientService {
-  consumeCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number }> = [];
+  consumeCalls: Array<{
+    assistantId: string;
+    toolCode: string;
+    dailyCallLimit: number | null;
+    units?: number;
+  }> = [];
   quotaStatusCalls: Array<Record<string, unknown>> = [];
   reminderTaskListCalls: string[] = [];
   reminderTaskControlCalls: Array<Record<string, unknown>> = [];
@@ -1165,7 +1170,8 @@ class FakePersaiInternalApiClientService {
   async consumeToolDailyLimit(input: {
     assistantId: string;
     toolCode: string;
-    dailyCallLimit: number;
+    dailyCallLimit: number | null;
+    units?: number;
   }): Promise<ConsumeToolDailyLimitOutcome> {
     this.consumeCalls.push(input);
     if (this.error !== null) {
@@ -4449,7 +4455,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "image_generate",
-    dailyCallLimit: 3
+    dailyCallLimit: 3,
+    // ADR-074 L1.1: image_generate now sends `units = count` so the
+    // daily counter advances per produced artifact, not per call.
+    units: 1
   });
   assert.equal(mediaObjectStorage.saveCalls.length > 0, true);
   assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "image/png");

@@ -15,13 +15,16 @@
  *   2. `TOOL_HARD_CAP_PER_TURN` — the *default* maximum number of times a
  *      specific tool may execute within a single turn, regardless of the
  *      iteration limit. Tools not listed here have no per-tool cap by
- *      default (they are still bounded by the iteration limit). The
- *      founder-confirmed default shape is: `web_fetch ≤ 5`, `web_search ≤
- *      3`, `image_generate ≤ 1`, `image_edit ≤ 1`, `video_generate ≤ 1`.
- *      Memory and shared-compaction tools (`memory_write`,
- *      `summarize_context`, `compact_context`) and knowledge tools are
- *      intentionally absent so durable memory work cannot be choked off by
- *      the cap on browse/media tools.
+ *      default (they are still bounded by the iteration limit). The L1.1
+ *      default shape (revised from the original L1 anchor — see the table
+ *      docstring below for the founder-confirmed reasoning) is:
+ *      `web_fetch ≤ 5`, `web_search ≤ 3`, `image_generate ≤ 1`,
+ *      `image_edit ≤ 1`, `video_generate ≤ 1`, `tts ≤ 3`, `browser ≤ 3`,
+ *      `exec ≤ 5`, `shell ≤ 5`, `files ≤ 10`, `scheduled_action ≤ 5`,
+ *      `knowledge_search ≤ 5`, `knowledge_fetch ≤ 10`, `memory_write ≤
+ *      10`. The shared-compaction tools (`summarize_context`,
+ *      `compact_context`) remain intentionally absent because the runtime
+ *      drives them (not the model) at most once per turn.
  *
  * **Both budgets are now overridable per assistant.** The runtime treats the
  * constants in this file as last-resort defaults; the actual values used at
@@ -55,12 +58,61 @@ export const TOOL_LOOP_LIMIT_BY_MODE: Readonly<Record<ToolBudgetExecutionMode, n
   reasoning: 8
 };
 
+/**
+ * ADR-074 Slice L1.1 — extended defaults closing the cost-spam holes the
+ * original L1 left open (founder live observation: «я сказал сделай 3
+ * картинки, он сделал, хотя per-turn cap=1»). The 2026-04-23 audit found
+ * three classes of leak:
+ *
+ *   1. **count-batched tools** — `image_generate.count: 1..4` lets the
+ *      model produce N artifacts per single tool call, billed per artifact
+ *      by OpenAI but counted as ONE budget unit. Closed in L1.1 by:
+ *        - clamping the model-facing schema `count.maximum` to the
+ *          effective per-turn cap (so cap=1 ⇒ count=1 mechanically),
+ *        - and threading a `units` weight through `consumeToolDailyLimit`
+ *          so the daily counter advances by the requested count, not by
+ *          the number of tool invocations.
+ *
+ *   2. **uncapped cost tools** — `tts`, `browser`, `exec`, `shell`, and
+ *      `files` had **no** code default at all. A single iteration could
+ *      legitimately emit dozens of parallel tool calls (one OpenAI tts
+ *      audio each, one Browserbase session each, one Daytona sandbox
+ *      command each). L1.1 adds founder-confirmed defaults so an empty
+ *      `/admin/plans` per-turn cap means "use the safe default", not
+ *      "unlimited".
+ *
+ *   3. **founder-anchor revision (memory_write / knowledge_search /
+ *      knowledge_fetch).** The original L1 deliberately left these
+ *      uncapped so durable memory work would not be choked off by the cap
+ *      on browse/media tools. L1.1 keeps this *spirit* by setting
+ *      generous defaults (memory_write ≤ 10, knowledge_search ≤ 5,
+ *      knowledge_fetch ≤ 10) — large enough that normal memory/knowledge
+ *      loops finish unhindered, but tight enough that a runaway loop
+ *      cannot fan out to hundreds of writes/queries in one iteration.
+ *      Re-asked the founder in the 2026-04-23 interview ("делай FIX
+ *      L1.1") and got an explicit ack to revise. Documented as a
+ *      conscious revision of the original L1 anchor in ADR-074 §L1.1.
+ *
+ * `summarize_context` and `compact_context` remain absent from the cap
+ * table by design — these run at most once per turn from the runtime
+ * itself (not driven by the model), so capping them here would only
+ * complicate the loop without adding cost protection.
+ */
 export const TOOL_HARD_CAP_PER_TURN: Readonly<Record<string, number>> = {
   web_fetch: 5,
   web_search: 3,
   image_generate: 1,
   image_edit: 1,
-  video_generate: 1
+  video_generate: 1,
+  tts: 3,
+  browser: 3,
+  exec: 5,
+  shell: 5,
+  files: 10,
+  scheduled_action: 5,
+  knowledge_search: 5,
+  knowledge_fetch: 10,
+  memory_write: 10
 };
 
 export type ToolBudgetExhaustionReason = "loop_limit" | "per_tool_cap";

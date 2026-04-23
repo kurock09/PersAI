@@ -110,33 +110,35 @@ export class RuntimeTtsToolService {
       };
     }
 
-    if (policy.dailyCallLimit !== null) {
-      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-        assistantId: params.bundle.metadata.assistantId,
-        toolCode: "tts",
-        dailyCallLimit: policy.dailyCallLimit
-      });
-      if (!quotaOutcome.allowed) {
-        return {
-          payload: {
-            toolCode: "tts",
-            executionMode: "worker",
-            provider: credentialChain[0]?.providerId ?? null,
-            model: null,
-            requestedText: request.text,
-            toneTag: request.toneTag,
-            deliveryKind: request.deliveryKind,
-            artifact: null,
-            attemptedProviders: [],
-            usage: null,
-            action: "skipped",
-            reason: quotaOutcome.code,
-            warning: quotaOutcome.message
-          },
-          artifacts: [],
-          isError: false
-        };
-      }
+    // ADR-074 L1.1 — always count the call for observability, even when
+    // the plan does not configure a daily cap. The runtime forwards the
+    // locally-observed `dailyCallLimit` (which may be null) and the API
+    // both enforces the live plan and increments the daily counter.
+    const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      assistantId: params.bundle.metadata.assistantId,
+      toolCode: "tts",
+      dailyCallLimit: policy.dailyCallLimit
+    });
+    if (!quotaOutcome.allowed) {
+      return {
+        payload: {
+          toolCode: "tts",
+          executionMode: "worker",
+          provider: credentialChain[0]?.providerId ?? null,
+          model: null,
+          requestedText: request.text,
+          toneTag: request.toneTag,
+          deliveryKind: request.deliveryKind,
+          artifact: null,
+          attemptedProviders: [],
+          usage: null,
+          action: "skipped",
+          reason: quotaOutcome.code,
+          warning: quotaOutcome.message
+        },
+        artifacts: [],
+        isError: false
+      };
     }
 
     const attemptedProviders: PersaiRuntimeTtsProviderId[] = [];

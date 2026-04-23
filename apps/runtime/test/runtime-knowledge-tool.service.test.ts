@@ -253,6 +253,16 @@ class FakePersaiInternalApiClientService {
     metadata: { knowledgeSourceId: "source-1" }
   };
   searchError: Error | null = null;
+  // ADR-074 Slice L1.1 — knowledge_search/knowledge_fetch now consume
+  // the daily-quota counter for observability. Default to allowed.
+  quotaCalls: Array<Record<string, unknown>> = [];
+  quotaOutcome:
+    | { allowed: true; currentCount: number; limit: number | null }
+    | { allowed: false; code: string; message: string } = {
+    allowed: true,
+    currentCount: 1,
+    limit: null
+  };
 
   async searchKnowledge(input: Record<string, unknown>) {
     this.searchCalls.push(input);
@@ -265,6 +275,11 @@ class FakePersaiInternalApiClientService {
   async fetchKnowledge(input: Record<string, unknown>) {
     this.fetchCalls.push(input);
     return this.fetchedDocument;
+  }
+
+  async consumeToolDailyLimit(input: Record<string, unknown>) {
+    this.quotaCalls.push(input);
+    return this.quotaOutcome;
   }
 }
 

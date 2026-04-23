@@ -106,27 +106,27 @@ export class RuntimeBrowserToolService {
     }
 
     try {
-      if (policy.dailyCallLimit !== null) {
-        const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
-          assistantId: params.bundle.metadata.assistantId,
-          toolCode: "browser",
-          dailyCallLimit: policy.dailyCallLimit
-        });
-        if (!quotaOutcome.allowed) {
-          return {
-            payload: {
-              toolCode: "browser",
-              executionMode: "worker",
-              provider: providerId,
-              requestedAction: request.action,
-              page: null,
-              action: "skipped",
-              reason: quotaOutcome.code,
-              warning: quotaOutcome.message
-            },
-            isError: false
-          };
-        }
+      // ADR-074 L1.1 — always count for observability (Browserbase
+      // sessions are billed per-launch even when the plan has no cap).
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "browser",
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: {
+            toolCode: "browser",
+            executionMode: "worker",
+            provider: providerId,
+            requestedAction: request.action,
+            page: null,
+            action: "skipped",
+            reason: quotaOutcome.code,
+            warning: quotaOutcome.message
+          },
+          isError: false
+        };
       }
 
       const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");

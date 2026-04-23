@@ -4,7 +4,9 @@ import { runProviderImageGenerationServiceTest } from "./provider-image-generati
 import { runProviderSpeechGenerationServiceTest } from "./provider-speech-generation.service.test";
 import { runProviderVideoGenerationServiceTest } from "./provider-video-generation.service.test";
 import { runAnthropicProviderClientTest } from "./anthropic-provider.client.test";
+import { runAnthropicEmptyCompletionTest } from "./anthropic-empty-completion.test";
 import { runOpenAIProviderClientTest } from "./openai-provider.client.test";
+import { runOpenAIEmptyCompletionTest } from "./openai-empty-completion.test";
 import { runProviderGatewayConfigTest } from "./provider-gateway-config.test";
 import { runProviderTextGenerationControllerTest } from "./provider-text-generation.controller.test";
 import { runProviderTextGenerationServiceTest } from "./provider-text-generation.service.test";
@@ -16,7 +18,9 @@ import { runYandexProviderClientTest } from "./yandex-provider.client.test";
 async function run(): Promise<void> {
   await runProviderGatewayConfigTest();
   await runAnthropicProviderClientTest();
+  await runAnthropicEmptyCompletionTest();
   await runOpenAIProviderClientTest();
+  await runOpenAIEmptyCompletionTest();
   await runYandexProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
   await runProviderBrowserServiceTest();

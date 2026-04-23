@@ -56,6 +56,26 @@ export class RuntimeKnowledgeToolService {
       };
     }
 
+    // ADR-074 L1.1 — knowledge_search now counts against the daily quota
+    // (revises original L1 anchor). The founder spirit is preserved by
+    // the generous default cap of 5/turn (see `tool-budget-policy.ts`)
+    // and an unset `dailyCallLimit` still means "count, no enforcement".
+    const searchToolCode = params.bundle.runtime.knowledgeAccess.searchToolCode;
+    const quotaSkip = await this.consumeQuota(params.bundle, searchToolCode);
+    if (quotaSkip !== null) {
+      return {
+        payload: {
+          toolCode: searchToolCode,
+          source: request.source,
+          executionMode: "inline",
+          hits: [],
+          action: "skipped",
+          reason: quotaSkip.code
+        },
+        isError: false
+      };
+    }
+
     try {
       const hits = await this.persaiInternalApiClientService.searchKnowledge({
         assistantId: params.bundle.metadata.assistantId,
@@ -118,6 +138,24 @@ export class RuntimeKnowledgeToolService {
           document: null,
           action: "skipped",
           reason: "source_unavailable"
+        },
+        isError: false
+      };
+    }
+
+    // ADR-074 L1.1 — knowledge_fetch now counts against the daily quota
+    // (revises original L1 anchor; default cap 10/turn).
+    const fetchToolCode = params.bundle.runtime.knowledgeAccess.fetchToolCode;
+    const quotaSkip = await this.consumeQuota(params.bundle, fetchToolCode);
+    if (quotaSkip !== null) {
+      return {
+        payload: {
+          toolCode: fetchToolCode,
+          source: request.source,
+          executionMode: "inline",
+          document: null,
+          action: "skipped",
+          reason: quotaSkip.code
         },
         isError: false
       };
@@ -230,5 +268,41 @@ export class RuntimeKnowledgeToolService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  /**
+   * ADR-074 L1.1 — call the centralized daily-quota endpoint for a
+   * knowledge tool. Returns `null` on success (the call may proceed) or
+   * `{ code }` when the API rejected the call (so the caller can emit a
+   * `skipped` payload with the matching reason). When the assistant has
+   * no policy entry we silently skip tracking — the orchestrator would
+   * already have refused to dispatch the call. The API itself decides
+   * whether to enforce a cap or just count for observability based on
+   * the live plan.
+   */
+  private async consumeQuota(
+    bundle: AssistantRuntimeBundle,
+    toolCode: string
+  ): Promise<{ code: string } | null> {
+    const policy =
+      bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
+    if (
+      policy === null ||
+      policy.enabled !== true ||
+      policy.usageRule !== "allowed" ||
+      policy.executionMode !== "inline"
+    ) {
+      return null;
+    }
+
+    const outcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      assistantId: bundle.metadata.assistantId,
+      toolCode,
+      dailyCallLimit: policy.dailyCallLimit
+    });
+    if (!outcome.allowed) {
+      return { code: outcome.code };
+    }
+    return null;
   }
 }

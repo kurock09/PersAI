@@ -54,11 +54,60 @@ export class RuntimeMemoryWriteToolService {
       };
     }
 
+    // ADR-074 L1.1 — memory_write was previously invisible to the daily
+    // counter (the original L1 anchor explicitly left it uncounted so
+    // durable memory work would not be throttled). The L1.1 audit found
+    // this hid runaway memory loops from the founder dashboard. Now we
+    // count for observability + per-tool cap (default 10/turn): the
+    // founder anchor "memory work must not be throttled" is preserved by
+    // a generous cap, not by zero-tracking. The API still honours
+    // `dailyCallLimit: null` as "count, no enforcement".
+    const policy = this.resolveAllowedInlineToolPolicy(params.bundle, "memory_write");
+    if (policy !== null) {
+      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+        assistantId: params.bundle.metadata.assistantId,
+        toolCode: "memory_write",
+        dailyCallLimit: policy.dailyCallLimit
+      });
+      if (!quotaOutcome.allowed) {
+        return {
+          payload: this.createSkippedPayload(
+            request.action === "write" ? request.kind : null,
+            quotaOutcome.code,
+            quotaOutcome.message
+          ),
+          isError: false
+        };
+      }
+    }
+
     if (request.action === "close") {
       return this.executeClose(params, request);
     }
 
     return this.executeWrite(params, request);
+  }
+
+  /**
+   * ADR-074 L1.1 — local copy of `turn-execution`'s
+   * `resolveAllowedInlineToolPolicy` so this service can find its own
+   * `dailyCallLimit` without depending on the orchestrator. Returns null
+   * when the assistant has no policy entry for memory_write — in that
+   * case we silently skip quota tracking (the orchestrator would already
+   * have refused to dispatch the call).
+   */
+  private resolveAllowedInlineToolPolicy(bundle: AssistantRuntimeBundle, toolCode: string) {
+    const policy =
+      bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
+    if (
+      policy === null ||
+      policy.enabled !== true ||
+      policy.usageRule !== "allowed" ||
+      policy.executionMode !== "inline"
+    ) {
+      return null;
+    }
+    return policy;
   }
 
   private async executeClose(

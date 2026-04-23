@@ -60,7 +60,7 @@ const BASE_USER_MESSAGE_ID = `scheduled-action:${INPUT.externalRef}:${String(INP
 const SURFACE_THREAD_KEY = `system:scheduled-action:${INPUT.externalRef}`;
 
 describe("RunScheduledAssistantActionService", () => {
-  test("uses the base idempotency key and includes explicit conditional follow-up guidance", async () => {
+  test("renders an executor-style brief that forbids silence and action='list'", async () => {
     const { service, sendService } = createService();
 
     await service.execute(INPUT);
@@ -71,16 +71,33 @@ describe("RunScheduledAssistantActionService", () => {
     assert.equal(sendService.calls[0]?.modelRoleOverride, "system_tool");
     const userMessage = sendService.calls[0]?.userMessage;
     assert.equal(typeof userMessage, "string");
+    assert.match(userMessage as string, /Silence is not a valid outcome\./);
+    assert.match(userMessage as string, /MUST NOT use scheduled_action\(action="list"\)/);
     assert.match(
       userMessage as string,
-      /Background assistant actions MUST NOT directly message the user\./
+      /YES → call scheduled_action\(action="create", audience="user"/
     );
     assert.match(
       userMessage as string,
-      /you MUST create a separate scheduled_action with audience="user" and an immediate schedule such as delayMs=1/
+      /NO {2}→ call scheduled_action\(action="create", audience="assistant"/
     );
-    assert.match(userMessage as string, /USD\/RUB check:/);
-    assert.match(userMessage as string, /News digest:/);
+  });
+
+  test("renders the no-payload branch that mandates an audience='user' push", async () => {
+    const { service, sendService } = createService();
+
+    await service.execute({
+      ...INPUT,
+      actionPayload: null,
+      payloadText: "(no payload context — backend coercion did not run)"
+    });
+
+    const userMessage = sendService.calls[0]?.userMessage as string;
+    assert.match(userMessage, /This task has no actionPayload/);
+    assert.match(
+      userMessage,
+      /You MUST end this turn by calling scheduled_action\(action="create", audience="user"/
+    );
   });
 
   test("skips re-sending when the latest scheduled-action receipt already completed", async () => {

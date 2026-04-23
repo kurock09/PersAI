@@ -31,7 +31,7 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
     "ADR-074 L1 regression: TOOL_LOOP_LIMIT_BY_MODE.reasoning must be 8 (founder-confirmed in Q9-C part 1)."
   );
 
-  // ── Per-tool hard caps per turn (founder-confirmed Q9-C part 1) ──
+  // ── Per-tool hard caps per turn (L1 founder-confirmed + L1.1 revisions) ──
   assert.equal(
     TOOL_HARD_CAP_PER_TURN["web_fetch"],
     5,
@@ -57,20 +57,67 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
     1,
     "ADR-074 L1 regression: TOOL_HARD_CAP_PER_TURN.video_generate must be 1."
   );
+  // ── L1.1 additions (founder-confirmed 2026-04-23 «делай FIX L1.1») ──
+  // These caps close the spam holes left open by the original L1 (where
+  // tts / browser / exec / shell / files / knowledge_* / memory_write
+  // had NO code default and could be invoked unboundedly per turn).
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["tts"],
+    3,
+    "ADR-074 L1.1 regression: tts default cap must be 3 (cost: per-audio billing)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["browser"],
+    3,
+    "ADR-074 L1.1 regression: browser default cap must be 3 (cost: per-session billing)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["exec"],
+    5,
+    "ADR-074 L1.1 regression: exec default cap must be 5 (cost: sandbox CPU minutes)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["shell"],
+    5,
+    "ADR-074 L1.1 regression: shell default cap must be 5 (cost: sandbox CPU minutes)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["files"],
+    10,
+    "ADR-074 L1.1 regression: files default cap must be 10 (anti-spam, low cost)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["scheduled_action"],
+    5,
+    "ADR-074 L1.1 regression: scheduled_action default cap must be 5 (anti-spam)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["knowledge_search"],
+    5,
+    "ADR-074 L1.1 regression: knowledge_search default cap must be 5 (revises original L1 anchor — generous enough that normal knowledge loops finish unhindered)."
+  );
+  assert.equal(
+    TOOL_HARD_CAP_PER_TURN["knowledge_fetch"],
+    10,
+    "ADR-074 L1.1 regression: knowledge_fetch default cap must be 10."
+  );
   assert.equal(
     TOOL_HARD_CAP_PER_TURN["memory_write"],
-    undefined,
-    "ADR-074 L1 regression: memory_write MUST NOT have a per-turn cap (memory writes are unlimited within the loop budget)."
+    10,
+    "ADR-074 L1.1 regression: memory_write default cap must be 10 (revises original L1 anchor — large enough for normal durable-memory writes, tight enough to block runaway loops)."
   );
+  // The shared-compaction tools remain absent because the runtime drives
+  // them (not the model) at most once per turn — capping them would only
+  // complicate the loop without adding cost protection.
   assert.equal(
     TOOL_HARD_CAP_PER_TURN["compact_context"],
     undefined,
-    "ADR-074 L1 regression: compact_context MUST NOT have a per-turn cap."
+    "ADR-074 L1 regression: compact_context MUST NOT have a per-turn cap (runtime-driven, at most once per turn)."
   );
   assert.equal(
     TOOL_HARD_CAP_PER_TURN["summarize_context"],
     undefined,
-    "ADR-074 L1 regression: summarize_context MUST NOT have a per-turn cap."
+    "ADR-074 L1 regression: summarize_context MUST NOT have a per-turn cap (runtime-driven, at most once per turn)."
   );
 
   // ── ToolBudgetPolicy.loopLimit() reflects the resolved mode ──
@@ -78,11 +125,29 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
   assert.equal(new ToolBudgetPolicy("premium").loopLimit(), 4);
   assert.equal(new ToolBudgetPolicy("reasoning").loopLimit(), 8);
 
-  // ── perToolCap returns null for tools without an explicit cap ──
+  // ── perToolCap returns the L1.1 default for known tools, null for the rest ──
   const normalPolicy = new ToolBudgetPolicy("normal");
   assert.equal(normalPolicy.perToolCap("web_fetch"), 5);
-  assert.equal(normalPolicy.perToolCap("memory_write"), null);
-  assert.equal(normalPolicy.perToolCap("knowledge_search"), null);
+  assert.equal(
+    normalPolicy.perToolCap("memory_write"),
+    10,
+    "ADR-074 L1.1: memory_write now has a default cap of 10 (revised L1 anchor)."
+  );
+  assert.equal(
+    normalPolicy.perToolCap("knowledge_search"),
+    5,
+    "ADR-074 L1.1: knowledge_search now has a default cap of 5 (revised L1 anchor)."
+  );
+  assert.equal(
+    normalPolicy.perToolCap("compact_context"),
+    null,
+    "ADR-074 L1: shared-compaction tools remain uncapped (runtime-driven)."
+  );
+  assert.equal(
+    normalPolicy.perToolCap("never_seen_tool"),
+    null,
+    "ADR-074 L1: tools absent from the cap table return null (no cap, only loop-limit applies)."
+  );
 
   // ── Per-tool cap exhausts after `cap` successful reservations ──
   const webFetchPolicy = new ToolBudgetPolicy("reasoning"); // big loop budget so it is not the limiter

@@ -55,6 +55,26 @@ function appendPerTurnCapHint(base: string, toolCode: string, policy: RuntimeToo
   return hint === null ? base : `${base} ${hint}`;
 }
 
+/**
+ * ADR-074 Slice L1.1 — resolve the effective `image_generate.count.maximum`
+ * the model should see in its tool schema. Returns the smaller of the
+ * runtime hard cap (`MAX_RUNTIME_IMAGE_GENERATE_COUNT`) and the per-turn
+ * cap configured for this assistant. Falls back to the runtime hard cap
+ * when no per-turn cap is set. Always returns at least 1 so the schema
+ * never advertises an unreachable `maximum`.
+ */
+function resolveImageGenerateCountCap(policy: RuntimeToolPolicy): number {
+  const overrides = new Map<string, number | null>();
+  if (policy.perTurnCap !== undefined && policy.perTurnCap !== null) {
+    overrides.set("image_generate", policy.perTurnCap);
+  }
+  const cap = resolveAdvertisedPerTurnCap("image_generate", overrides);
+  if (cap === null) {
+    return MAX_RUNTIME_IMAGE_GENERATE_COUNT;
+  }
+  return Math.max(1, Math.min(MAX_RUNTIME_IMAGE_GENERATE_COUNT, cap));
+}
+
 export interface RuntimeNativeToolProjection {
   tools: ProviderGatewayToolDefinition[];
   knowledgeSearchSources: RuntimeKnowledgeAccessSourceConfig[];
@@ -545,12 +565,20 @@ function createBrowserToolDefinition(
 function createImageGenerateToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
+  // ADR-074 Slice L1.1: clamp the model-facing `count.maximum` to the
+  // effective per-turn cap (founder anchor: per-turn cap counts artifacts,
+  // not just invocations, because OpenAI bills per generated image). This
+  // closes the «I asked for 1 picture, model returned 3 by passing
+  // count: 3» bypass observed live on 2026-04-23. With cap=1 the schema
+  // now mechanically refuses count > 1; with cap=4 the model can still
+  // batch four images in one call (cheaper for the provider per request).
+  const effectiveCap = resolveImageGenerateCountCap(policy);
   return {
     name: "image_generate",
     description: resolveToolDefinitionDescription(
       policy,
       appendPerTurnCapHint(
-        "Generate brand-new images from a text prompt.",
+        "Generate brand-new images from a text prompt. Each requested image counts against the per-turn cap and the daily quota.",
         "image_generate",
         policy
       )
@@ -567,8 +595,8 @@ function createImageGenerateToolDefinition(
         count: {
           type: "integer",
           minimum: 1,
-          maximum: MAX_RUNTIME_IMAGE_GENERATE_COUNT,
-          description: "Optional number of images to generate."
+          maximum: effectiveCap,
+          description: `Optional number of images to generate (1..${String(effectiveCap)} on this assistant). Each image consumes one per-turn cap unit and one daily-quota unit.`
         },
         filename: {
           type: "string",

@@ -6,7 +6,16 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 export interface ConsumeInternalRuntimeToolDailyLimitRequest {
   assistantId: string;
   toolCode: string;
-  dailyCallLimit: number;
+  /**
+   * The daily-call-limit the *runtime* observed in its bundle when it
+   * decided to make this call. Reported back to the API for telemetry
+   * and conflict-error context only — the API always re-resolves the
+   * effective limit from the live plan as the source of truth. May be
+   * null when the runtime sees no limit; the call still counts for
+   * observability (ADR-074 L1.1 always-count anchor).
+   */
+  dailyCallLimit: number | null;
+  units: number;
 }
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
@@ -16,9 +25,32 @@ function normalizeRequiredString(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function normalizePositiveInteger(value: unknown, fieldName: string): number {
+function normalizeOptionalPositiveInteger(value: unknown, fieldName: string): number | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-    throw new BadRequestException(`${fieldName} must be a positive integer.`);
+    throw new BadRequestException(`${fieldName} must be a positive integer or null when provided.`);
+  }
+  return value;
+}
+
+/**
+ * ADR-074 L1.1 — `units` is the artifact-weight of this single tool call
+ * (defaults to 1 for backward-compatible callers). Cost tools that
+ * legitimately produce N artifacts per single call (canonical case:
+ * `image_generate({ count: N })`) advance the daily counter by N. The
+ * value is optional in the wire payload to keep older runtime workers
+ * compatible during a rolling deploy: an absent or null `units` field is
+ * treated as 1, while non-positive integers are rejected so a buggy
+ * caller cannot zero or reverse the counter.
+ */
+function normalizeOptionalUnits(value: unknown, fieldName: string): number {
+  if (value === undefined || value === null) {
+    return 1;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new BadRequestException(`${fieldName} must be a positive integer when provided.`);
   }
   return value;
 }
@@ -39,14 +71,15 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     return {
       assistantId: normalizeRequiredString(row.assistantId, "assistantId"),
       toolCode: normalizeRequiredString(row.toolCode, "toolCode"),
-      dailyCallLimit: normalizePositiveInteger(row.dailyCallLimit, "dailyCallLimit")
+      dailyCallLimit: normalizeOptionalPositiveInteger(row.dailyCallLimit, "dailyCallLimit"),
+      units: normalizeOptionalUnits(row.units, "units")
     };
   }
 
   async execute(input: ConsumeInternalRuntimeToolDailyLimitRequest): Promise<{
     ok: true;
     currentCount: number;
-    limit: number;
+    limit: number | null;
   }> {
     const resolved = await this.resolveInternalRuntimeToolDailyPolicyService.execute({
       assistantId: input.assistantId,
@@ -55,12 +88,13 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     const effectiveTool = resolved.tools[0];
     const effectiveLimit = effectiveTool?.dailyCallLimit ?? null;
 
-    if (
-      effectiveTool === undefined ||
-      effectiveTool.activationStatus !== "active" ||
-      effectiveLimit === null ||
-      effectiveLimit <= 0
-    ) {
+    // ADR-074 L1.1 — the only blocking condition here is "tool was
+    // deactivated on the plan after the runtime started its turn".
+    // A null/zero `effectiveLimit` is now legal: we still consume one
+    // observability unit per call so the founder dashboard sees
+    // unlimited-tool traffic, instead of treating "no cap" as "no
+    // counter" (the second hole the L1.1 audit closed).
+    if (effectiveTool === undefined || effectiveTool.activationStatus !== "active") {
       throw createAssistantInboundConflict(
         "tool_daily_limit_reached",
         `Daily tool usage policy for "${input.toolCode}" is no longer active on the effective plan.`,
@@ -75,7 +109,8 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     const result = await this.trackWorkspaceQuotaUsageService.consumeToolDailyLimit({
       assistant: resolved.assistant,
       toolCode: input.toolCode,
-      dailyCallLimit: effectiveLimit
+      dailyCallLimit: effectiveLimit,
+      units: input.units
     });
 
     if (!result.allowed) {
@@ -86,6 +121,7 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
           toolCode: input.toolCode,
           currentCount: result.currentCount,
           limit: result.limit,
+          requestedUnits: input.units,
           runtimeReportedLimit: input.dailyCallLimit
         }
       );
@@ -94,7 +130,7 @@ export class ConsumeInternalRuntimeToolDailyLimitService {
     return {
       ok: true,
       currentCount: result.currentCount,
-      limit: effectiveLimit
+      limit: result.limit
     };
   }
 }

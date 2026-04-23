@@ -12,14 +12,15 @@ function todayDate(): Date {
 export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDailyUsageRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
 
-  async incrementAndGet(workspaceId: string, toolCode: string): Promise<number> {
+  async incrementAndGet(workspaceId: string, toolCode: string, units = 1): Promise<number> {
+    const safeUnits = normalizeUnits(units);
     const date = todayDate();
     const record = await this.prisma.workspaceToolUsageDailyCounter.upsert({
       where: {
         workspaceId_toolCode_date: { workspaceId, toolCode, date }
       },
-      update: { callCount: { increment: 1 } },
-      create: { workspaceId, toolCode, date, callCount: 1 }
+      update: { callCount: { increment: safeUnits } },
+      create: { workspaceId, toolCode, date, callCount: safeUnits }
     });
     return record.callCount;
   }
@@ -36,15 +37,18 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
   async consumeWithinLimit(
     workspaceId: string,
     toolCode: string,
-    dailyCallLimit: number
+    dailyCallLimit: number,
+    units = 1
   ): Promise<{ allowed: boolean; currentCount: number }> {
+    const safeUnits = normalizeUnits(units);
     const date = todayDate();
     const maxRetries = 3;
 
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         return await this.prisma.$transaction(
-          async (tx) => this.consumeWithinLimitTx(tx, workspaceId, toolCode, date, dailyCallLimit),
+          async (tx) =>
+            this.consumeWithinLimitTx(tx, workspaceId, toolCode, date, dailyCallLimit, safeUnits),
           {
             isolationLevel: Prisma.TransactionIsolationLevel.Serializable
           }
@@ -67,7 +71,8 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
     workspaceId: string,
     toolCode: string,
     date: Date,
-    dailyCallLimit: number
+    dailyCallLimit: number,
+    units: number
   ): Promise<{ allowed: boolean; currentCount: number }> {
     const existing = await tx.workspaceToolUsageDailyCounter.findUnique({
       where: {
@@ -75,7 +80,12 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
       }
     });
     const currentCount = existing?.callCount ?? 0;
-    if (currentCount >= dailyCallLimit) {
+    // ADR-074 L1.1: reject the *whole* batch if any of the requested
+    // units would push the counter past the cap. Partial commits
+    // ("you asked for 4 images but you only had 2 budget left, here are
+    // 2") would surprise both billing and the founder dashboard, and the
+    // smoke harness would over-count `tool_budget_exhausted` substitutes.
+    if (currentCount + units > dailyCallLimit) {
       return {
         allowed: false,
         currentCount
@@ -89,7 +99,7 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
           },
           data: {
             callCount: {
-              increment: 1
+              increment: units
             }
           }
         })
@@ -98,7 +108,7 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
             workspaceId,
             toolCode,
             date,
-            callCount: 1
+            callCount: units
           }
         });
 
@@ -107,4 +117,18 @@ export class PrismaWorkspaceToolDailyUsageRepository implements WorkspaceToolDai
       currentCount: record.callCount
     };
   }
+}
+
+/**
+ * ADR-074 L1.1 — defensively floor the requested units to a positive
+ * integer so a misbehaving caller cannot zero or reverse the counter.
+ * `units = 0` and negatives are silently treated as 1 (the historical
+ * default), and fractional values are floored.
+ */
+function normalizeUnits(units: number): number {
+  if (!Number.isFinite(units)) {
+    return 1;
+  }
+  const floored = Math.floor(units);
+  return floored >= 1 ? floored : 1;
 }

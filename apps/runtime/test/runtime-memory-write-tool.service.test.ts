@@ -229,6 +229,18 @@ class FakePersaiInternalApiClientService {
     }
   };
   error: Error | null = null;
+  // ADR-074 Slice L1.1 — memory_write now consumes the daily-quota
+  // counter for observability. The fake records the calls and returns
+  // an `allowed: true` outcome by default; tests that need to exercise
+  // the rejection branch can override `quotaOutcome`.
+  quotaCalls: Array<Record<string, unknown>> = [];
+  quotaOutcome:
+    | { allowed: true; currentCount: number; limit: number | null }
+    | { allowed: false; code: string; message: string } = {
+    allowed: true,
+    currentCount: 1,
+    limit: null
+  };
 
   async writeMemory(input: Record<string, unknown>) {
     this.writeCalls.push(input);
@@ -236,6 +248,11 @@ class FakePersaiInternalApiClientService {
       throw this.error;
     }
     return this.outcome;
+  }
+
+  async consumeToolDailyLimit(input: Record<string, unknown>) {
+    this.quotaCalls.push(input);
+    return this.quotaOutcome;
   }
 
   async closeMostSimilarOpenLoop(input: Record<string, unknown>) {
