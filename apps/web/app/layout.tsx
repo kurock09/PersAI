@@ -13,6 +13,15 @@ export const metadata: Metadata = {
   description: "Your personal AI assistant. One mind. Everywhere."
 };
 
+/**
+ * Synchronous, pre-hydration theme bootstrap. Runs in <head> before the
+ * first paint to apply the user's stored choice (or, when the user is on
+ * "system", the current OS preference) so we never flash dark over light
+ * (or vice versa) on cold load. Mirrors the contract in
+ * apps/web/app/app/_components/use-theme.ts.
+ */
+const themeBootstrapScript = `(function(){try{var s=localStorage.getItem("persai-theme");var c=(s==="system"||s==="dark"||s==="light")?s:"system";var r=c==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):c;if(r==="light")document.documentElement.classList.add("light");document.documentElement.style.colorScheme=r;}catch(e){}})();`;
+
 const clerkAppearance = {
   variables: {
     colorPrimary: "var(--accent)",
@@ -49,7 +58,13 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const messages = await getMessages();
 
   return (
-    <html lang={locale} className="dark">
+    <html lang={locale} suppressHydrationWarning>
+      <head>
+        <meta name="color-scheme" content="dark light" />
+        <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#f7f6f1" media="(prefers-color-scheme: light)" />
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+      </head>
       <body className={`${inter.className} bg-bg text-text antialiased`}>
         <ClerkProvider appearance={clerkAppearance}>
           <NextIntlClientProvider locale={locale} messages={messages}>

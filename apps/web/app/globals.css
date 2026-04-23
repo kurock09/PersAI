@@ -13,6 +13,7 @@
    * destructive / success / warning are unchanged — only neutrals were
    * remapped per founder request to match the reference screenshot.
    */
+  color-scheme: dark;
   --bg: #212121;
   --surface: #181818;
   --surface-raised: #2f2f2f;
@@ -33,6 +34,7 @@
 }
 
 :root.light {
+  color-scheme: light;
   --bg: #f7f6f1;
   --surface: #ffffff;
   --surface-raised: #efefe8;

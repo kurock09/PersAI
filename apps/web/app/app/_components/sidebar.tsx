@@ -21,6 +21,7 @@ import {
   Sparkles,
   Sun,
   Moon,
+  Monitor,
   LogOut,
   Settings,
   Globe
@@ -491,14 +492,20 @@ function UserMenu() {
 function ThemeToggle() {
   const t = useTranslations("sidebar");
   const { theme, toggleTheme } = useTheme();
+  // Tooltip describes the CURRENT state (so the user knows what's active);
+  // a click cycles system → light → dark → system.
+  const Icon = theme === "system" ? Monitor : theme === "light" ? Sun : Moon;
+  const label =
+    theme === "system" ? t("themeSystem") : theme === "light" ? t("themeLight") : t("themeDark");
   return (
     <button
       type="button"
       onClick={toggleTheme}
       className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-      title={theme === "dark" ? t("switchLight") : t("switchDark")}
+      title={label}
+      aria-label={label}
     >
-      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      <Icon className="h-4 w-4" />
     </button>
   );
 }

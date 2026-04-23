@@ -564,13 +564,19 @@ function ChatModeToggle({
         className="inline-flex rounded-xl bg-bg/75 p-0.5 ring-1 ring-border/70"
         title={enabled ? t("modeDeepCaption") : t("modeNormalCaption")}
       >
+        {/*
+         * "Normal" pill is hidden on phones to keep the chat header narrow:
+         * on touch viewports the single "Smart" pill toggles on/off in one
+         * tap (off = normal mode). On desktop the two-pill segmented
+         * control is preserved.
+         */}
         <button
           type="button"
           aria-pressed={!enabled}
           disabled={disabled}
           onClick={() => onChange(false)}
           className={cn(
-            "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
+            "hidden items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:inline-flex md:text-[11px]",
             !enabled ? "bg-surface text-text shadow-sm" : "text-text-muted hover:text-text",
             disabled && "cursor-not-allowed opacity-50"
           )}
@@ -582,7 +588,7 @@ function ChatModeToggle({
           type="button"
           aria-pressed={enabled}
           disabled={disabled}
-          onClick={() => onChange(true)}
+          onClick={() => onChange(!enabled)}
           className={cn(
             "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
             enabled
