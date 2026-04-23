@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  type ReactNode,
-  Suspense,
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState
-} from "react";
+import { type ReactNode, Suspense, createContext, useContext, useEffect, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -18,7 +10,6 @@ import { SlideOver } from "./slide-over";
 import { AssistantSettings } from "./assistant-settings";
 import { TelegramConnect } from "./telegram-connect";
 import { useAppData, type AppData } from "./use-app-data";
-import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 const AppDataContext = createContext<AppData | null>(null);
 
@@ -71,11 +62,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     openSettings: () => setSettingsOpen(true),
     openTelegram: () => setTelegramOpen(true)
   };
-
-  // Wire mobile slide-out sidebar into the browser/Capacitor history
-  // stack so the system Back gesture closes it instead of leaving the app.
-  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
-  useHistoryBackToClose(sidebarOpen, closeSidebar);
 
   if (isSetup) {
     return (

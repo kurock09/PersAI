@@ -385,7 +385,7 @@ export function Sidebar({
           className="flex items-center gap-2 border-t border-border px-3 py-3"
           suppressHydrationWarning
         >
-          {mounted && <UserMenu />}
+          {mounted && <UserMenu {...(onClose ? { onNavigate: onClose } : {})} />}
           <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
             {user?.firstName ?? user?.username ?? "User"}
           </span>
@@ -401,7 +401,7 @@ export function Sidebar({
 /*  User menu                                                          */
 /* ------------------------------------------------------------------ */
 
-function UserMenu() {
+function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
   const t = useTranslations("sidebar");
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -464,6 +464,7 @@ function UserMenu() {
             type="button"
             onClick={() => {
               setOpen(false);
+              onNavigate?.();
               router.push("/app/profile" as Route);
             }}
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
@@ -473,7 +474,11 @@ function UserMenu() {
           </button>
           <button
             type="button"
-            onClick={() => void signOut({ redirectUrl: "/" })}
+            onClick={() => {
+              setOpen(false);
+              onNavigate?.();
+              void signOut({ redirectUrl: "/" });
+            }}
             className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-destructive transition-colors hover:bg-destructive/10"
           >
             <LogOut className="h-3.5 w-3.5" />
