@@ -106,6 +106,7 @@
     "code": "code",
     "lines": "{count} lines",
     "uploadFailed": "Upload failed",
+    "lightboxClose": "Close image",
     "defaultAssistant": "Your assistant",
     "greeting1": "Hey! What's on your mind?",
     "greeting2": "I'm here whenever you need me.",

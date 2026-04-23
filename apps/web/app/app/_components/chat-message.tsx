@@ -44,6 +44,7 @@ import {
   splitStreamingMarkdownContent
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
+import { ImageLightbox } from "./image-lightbox";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 
@@ -391,6 +392,9 @@ function AttachmentStrip({
   className?: string;
 }) {
   const t = useTranslations("chat");
+  // Lightbox state is keyed by attachment id so we can open/close
+  // independently per image without lifting the state to the message bubble.
+  const [openImageId, setOpenImageId] = useState<string | null>(null);
   if (attachments.length === 0) return null;
 
   return (
@@ -407,23 +411,37 @@ function AttachmentStrip({
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
 
         if (att.attachmentType === "image") {
+          const fullUrl = inlineUrl ?? previewUrl;
           return (
             <div key={att.id} className="relative">
               {previewUrl ? (
-                <a href={inlineUrl ?? "#"} target="_blank" rel="noopener noreferrer">
+                <button
+                  type="button"
+                  onClick={() => fullUrl && setOpenImageId(att.id)}
+                  disabled={!fullUrl}
+                  className="block overflow-hidden rounded-lg border border-border transition hover:border-border-strong focus:ring-2 focus:ring-accent focus:outline-none"
+                >
                   <img
                     src={previewUrl}
                     alt={att.originalFilename ?? "image"}
                     className={cn(
-                      "max-h-48 max-w-[240px] rounded-lg border border-border object-cover transition-opacity",
+                      "max-h-48 max-w-[240px] object-cover transition-opacity",
                       isPending && "opacity-50"
                     )}
                   />
-                </a>
+                </button>
               ) : (
                 <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-border bg-surface-raised">
                   <FileText className="h-6 w-6 text-text-subtle" />
                 </div>
+              )}
+              {fullUrl && (
+                <ImageLightbox
+                  open={openImageId === att.id}
+                  src={fullUrl}
+                  alt={att.originalFilename ?? undefined}
+                  onClose={() => setOpenImageId(null)}
+                />
               )}
               {isPending && (
                 <div className="absolute inset-0 flex items-center justify-center">

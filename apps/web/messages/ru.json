@@ -106,6 +106,7 @@
     "code": "код",
     "lines": "{count} строк",
     "uploadFailed": "Не удалось загрузить",
+    "lightboxClose": "Закрыть",
     "defaultAssistant": "Твой ассистент",
     "greeting1": "Привет! Что у тебя на уме?",
     "greeting2": "Я здесь, когда понадоблюсь.",
