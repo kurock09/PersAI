@@ -15,5 +15,10 @@ export interface AdminPlanToolActivation {
   active: boolean;
   /** @nullable */
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this tool's executions inside a single runtime turn. NULL means "use the runtime code default" (TOOL_HARD_CAP_PER_TURN in apps/runtime/src/modules/turns/tool-budget-policy.ts).
+   * @nullable
+   */
+  perTurnCap: number | null;
   visibleInPlanEditor: boolean;
 }

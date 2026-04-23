@@ -15,6 +15,13 @@ import {
 type ToolQuotaPolicyEntry = {
   toolCode: string;
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — per-plan override of the runtime per-turn hard cap
+   * for this tool. NULL means "use the runtime code default"
+   * (TOOL_HARD_CAP_PER_TURN in
+   * apps/runtime/src/modules/turns/tool-budget-policy.ts).
+   */
+  perTurnCap: number | null;
   activationStatus: string;
 };
 
@@ -267,7 +274,8 @@ function buildSyntheticSystemToolPolicy(
     enabled,
     visibleToModel: enabled,
     visibleInPlanEditor: false,
-    dailyCallLimit: null
+    dailyCallLimit: null,
+    perTurnCap: null
   };
 }
 
@@ -316,6 +324,9 @@ export function resolveRuntimeToolPolicies(params: {
   const dailyLimitByCode = new Map(
     params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.dailyCallLimit] as const)
   );
+  const perTurnCapByCode = new Map(
+    params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.perTurnCap] as const)
+  );
   const catalogPolicies = params.tools.map((tool): RuntimeToolPolicy => {
     const kind = resolveToolKind(tool.policyClass);
     const runtimeToolCode = resolveRuntimeToolCode(tool.code);
@@ -339,7 +350,8 @@ export function resolveRuntimeToolPolicies(params: {
       enabled,
       visibleToModel: kind !== "internal" && enabled,
       visibleInPlanEditor: tool.visibleInPlanEditor,
-      dailyCallLimit: dailyLimitByCode.get(tool.code) ?? null
+      dailyCallLimit: dailyLimitByCode.get(tool.code) ?? null,
+      perTurnCap: perTurnCapByCode.get(tool.code) ?? null
     };
   });
   const canonicalToolCodes = new Set(

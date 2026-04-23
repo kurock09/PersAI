@@ -236,22 +236,32 @@ export const CURRENT_TOOL_CODE_SET = new Set(CURRENT_TOOL_CODES);
 
 export const STARTER_TRIAL_TOOL_POLICY: Record<
   string,
-  { active: boolean; dailyCallLimit: number | null }
+  {
+    active: boolean;
+    dailyCallLimit: number | null;
+    /**
+     * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
+     * tool's executions inside a single runtime turn. NULL = "use the runtime
+     * code default" (TOOL_HARD_CAP_PER_TURN in
+     * apps/runtime/src/modules/turns/tool-budget-policy.ts).
+     */
+    perTurnCap: number | null;
+  }
 > = {
-  web_search: { active: true, dailyCallLimit: 30 },
-  web_fetch: { active: true, dailyCallLimit: 20 },
-  image_generate: { active: false, dailyCallLimit: null },
-  image_edit: { active: false, dailyCallLimit: null },
-  video_generate: { active: false, dailyCallLimit: null },
-  tts: { active: false, dailyCallLimit: null },
-  browser: { active: false, dailyCallLimit: null },
-  memory_search: { active: true, dailyCallLimit: null },
-  memory_get: { active: true, dailyCallLimit: null },
-  cron: { active: false, dailyCallLimit: null },
-  scheduled_action: { active: true, dailyCallLimit: null },
-  files: { active: true, dailyCallLimit: 20 },
-  exec: { active: false, dailyCallLimit: 5 },
-  shell: { active: false, dailyCallLimit: 5 }
+  web_search: { active: true, dailyCallLimit: 30, perTurnCap: null },
+  web_fetch: { active: true, dailyCallLimit: 20, perTurnCap: null },
+  image_generate: { active: false, dailyCallLimit: null, perTurnCap: null },
+  image_edit: { active: false, dailyCallLimit: null, perTurnCap: null },
+  video_generate: { active: false, dailyCallLimit: null, perTurnCap: null },
+  tts: { active: false, dailyCallLimit: null, perTurnCap: null },
+  browser: { active: false, dailyCallLimit: null, perTurnCap: null },
+  memory_search: { active: true, dailyCallLimit: null, perTurnCap: null },
+  memory_get: { active: true, dailyCallLimit: null, perTurnCap: null },
+  cron: { active: false, dailyCallLimit: null, perTurnCap: null },
+  scheduled_action: { active: true, dailyCallLimit: null, perTurnCap: null },
+  files: { active: true, dailyCallLimit: 20, perTurnCap: null },
+  exec: { active: false, dailyCallLimit: 5, perTurnCap: null },
+  shell: { active: false, dailyCallLimit: 5, perTurnCap: null }
 };
 
 const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));

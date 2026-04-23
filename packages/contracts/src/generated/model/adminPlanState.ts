@@ -14,6 +14,7 @@ import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
 import type { AdminPlanStateVideoGenerateModelKey } from "./adminPlanStateVideoGenerateModelKey";
 import type { AdminPlanStateRuntimeTierDefault } from "./adminPlanStateRuntimeTierDefault";
 import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
+import type { AdminPlanToolBudgets } from "./adminPlanToolBudgets";
 
 export interface AdminPlanState {
   code: string;
@@ -48,4 +49,5 @@ export interface AdminPlanState {
   createdAt: string;
   updatedAt: string;
   toolActivations?: AdminPlanToolActivation[];
+  toolBudgets?: AdminPlanToolBudgets;
 }

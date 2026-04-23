@@ -111,11 +111,13 @@ async function run(): Promise<void> {
       {
         toolCode: "web_search",
         dailyCallLimit: 20,
+        perTurnCap: 2,
         activationStatus: "active"
       },
       {
         toolCode: "image_generate",
         dailyCallLimit: 5,
+        perTurnCap: null,
         activationStatus: "inactive"
       }
     ],
@@ -152,6 +154,24 @@ async function run(): Promise<void> {
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "files" && tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "image_generate" && !tool.enabled));
   assert.ok(toolPolicies.some((tool) => tool.toolCode === "cron" && !tool.visibleToModel));
+
+  // ADR-074 Slice L1 — per-tool perTurnCap from PlanCatalogToolActivation is
+  // surfaced into the runtime tool policy so the bundle compile pipeline can
+  // ship it to the runtime, where it overrides TOOL_HARD_CAP_PER_TURN.
+  const webSearchPolicy = toolPolicies.find((tool) => tool.toolCode === "web_search");
+  assert.equal(webSearchPolicy?.perTurnCap, 2, "web_search perTurnCap is propagated");
+  const imageGeneratePolicy = toolPolicies.find((tool) => tool.toolCode === "image_generate");
+  assert.equal(
+    imageGeneratePolicy?.perTurnCap,
+    null,
+    "image_generate perTurnCap is null when not overridden"
+  );
+  // Synthetic / platform / hidden-internal policies never carry a perTurnCap;
+  // they fall back to TOOL_HARD_CAP_PER_TURN code defaults at runtime.
+  const compactPolicy = toolPolicies.find((tool) => tool.toolCode === "compact_context");
+  assert.equal(compactPolicy?.perTurnCap, null, "synthetic policies have null perTurnCap");
+  const cronPolicy = toolPolicies.find((tool) => tool.toolCode === "cron");
+  assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
   assert.match(filesPolicy?.description ?? "", /write-and-send/);
   assert.match(filesPolicy?.usageGuidance ?? "", /files\.write_and_send when the user asks/);

@@ -813,6 +813,13 @@ model PlanCatalogToolActivation {
   toolId           String                   @map("tool_id") @db.Uuid
   activationStatus PlanToolActivationStatus @default(inactive) @map("activation_status")
   dailyCallLimit   Int?                     @map("daily_call_limit")
+  /// ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
+  /// tool's executions inside a single runtime turn. NULL means "use the
+  /// runtime code default for this tool" (see TOOL_HARD_CAP_PER_TURN in
+  /// apps/runtime/src/modules/turns/tool-budget-policy.ts). Use 2147483647
+  /// (Number.MAX_SAFE_INTEGER fits in Int4) to make a normally-capped tool
+  /// effectively uncapped on this plan.
+  perTurnCap       Int?                     @map("per_turn_cap")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   plan             PlanCatalogPlan          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)

@@ -5,6 +5,13 @@ export type AssistantPlanCatalogToolActivation = {
   policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
   activationStatus: "active" | "inactive";
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
+   * tool's executions inside a single runtime turn. NULL means "fall back
+   * to the runtime code default" (TOOL_HARD_CAP_PER_TURN in
+   * apps/runtime/src/modules/turns/tool-budget-policy.ts).
+   */
+  perTurnCap: number | null;
 };
 
 export type AssistantPlanCatalog = {

@@ -438,6 +438,11 @@ export class MaterializeAssistantPublishedVersionService {
       effectivePlanCode,
       apiConfig.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT
     );
+    const planToolBudgets = await this.resolvePlanToolBudgets(effectivePlanCode);
+    const hasAnyLoopOverride =
+      planToolBudgets.loopLimitByMode.normal !== null ||
+      planToolBudgets.loopLimitByMode.premium !== null ||
+      planToolBudgets.loopLimitByMode.reasoning !== null;
 
     const assistantConfig = {
       schema: ASSISTANT_CONFIG_SCHEMA,
@@ -551,7 +556,14 @@ export class MaterializeAssistantPublishedVersionService {
         knowledgeAccess,
         workerTools,
         browser,
-        sandbox: sandboxPolicy
+        sandbox: sandboxPolicy,
+        ...(hasAnyLoopOverride
+          ? {
+              toolBudgets: {
+                loopLimitByMode: planToolBudgets.loopLimitByMode
+              }
+            }
+          : {})
       },
       governance: {
         capabilityEnvelope: governance.capabilityEnvelope,
@@ -875,9 +887,14 @@ export class MaterializeAssistantPublishedVersionService {
     return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : envDefault;
   }
 
-  private async resolveToolQuotaPolicy(
-    planCode: string | null
-  ): Promise<Array<{ toolCode: string; dailyCallLimit: number | null; activationStatus: string }>> {
+  private async resolveToolQuotaPolicy(planCode: string | null): Promise<
+    Array<{
+      toolCode: string;
+      dailyCallLimit: number | null;
+      perTurnCap: number | null;
+      activationStatus: string;
+    }>
+  > {
     if (planCode === null) {
       return [];
     }
@@ -893,6 +910,7 @@ export class MaterializeAssistantPublishedVersionService {
       select: {
         activationStatus: true,
         dailyCallLimit: true,
+        perTurnCap: true,
         tool: {
           select: { code: true }
         }
@@ -901,8 +919,52 @@ export class MaterializeAssistantPublishedVersionService {
     return activations.map((activation) => ({
       toolCode: activation.tool.code,
       dailyCallLimit: activation.dailyCallLimit,
+      perTurnCap: activation.perTurnCap,
       activationStatus: activation.activationStatus
     }));
+  }
+
+  /**
+   * ADR-074 Slice L1 — read per-plan tool-loop iteration limit overrides.
+   * Returns NULL leaves when the plan has no override; the runtime then
+   * falls back to TOOL_LOOP_LIMIT_BY_MODE code defaults. The whole
+   * `runtime.toolBudgets` object is omitted from the bundle when every
+   * leaf is NULL (see `buildRuntimeArtifacts`), keeping the bundle JSON
+   * compact for the common case.
+   */
+  private async resolvePlanToolBudgets(planCode: string | null): Promise<{
+    loopLimitByMode: { normal: number | null; premium: number | null; reasoning: number | null };
+  }> {
+    const empty = {
+      loopLimitByMode: { normal: null, premium: null, reasoning: null }
+    } as const;
+    if (planCode === null) return empty;
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: { billingProviderHints: true }
+    });
+    if (plan === null) return empty;
+    const hints = plan.billingProviderHints;
+    if (hints === null || typeof hints !== "object" || Array.isArray(hints)) return empty;
+    const record = hints as Record<string, unknown>;
+    const raw = record.toolBudgets;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return empty;
+    const rawLoop = (raw as Record<string, unknown>).loopLimitByMode;
+    if (rawLoop === null || typeof rawLoop !== "object" || Array.isArray(rawLoop)) return empty;
+    const loop = rawLoop as Record<string, unknown>;
+    const sanitize = (v: unknown): number | null => {
+      if (typeof v !== "number" || !Number.isFinite(v) || !Number.isInteger(v) || v <= 0) {
+        return null;
+      }
+      return v;
+    };
+    return {
+      loopLimitByMode: {
+        normal: sanitize(loop.normal),
+        premium: sanitize(loop.premium),
+        reasoning: sanitize(loop.reasoning)
+      }
+    };
   }
 
   private resolveRuntimeToolQuotaPolicy(

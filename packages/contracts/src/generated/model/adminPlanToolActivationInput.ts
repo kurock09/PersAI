@@ -10,4 +10,9 @@ export interface AdminPlanToolActivationInput {
   active: boolean;
   /** @nullable */
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — see AdminPlanToolActivation.perTurnCap.
+   * @nullable
+   */
+  perTurnCap?: number | null;
 }

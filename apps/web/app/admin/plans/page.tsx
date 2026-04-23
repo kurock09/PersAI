@@ -41,6 +41,12 @@ type ToolActivationDraft = {
   policyClass: "plan_managed" | "platform_managed" | "hidden_internal";
   active: boolean;
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
+   * tool. NULL = inherit the runtime code default
+   * (TOOL_HARD_CAP_PER_TURN). Set a positive integer to override.
+   */
+  perTurnCap: number | null;
 };
 
 type VideoGenerateModelDraft = "" | "sora-2" | "sora-2-pro";
@@ -116,6 +122,14 @@ export type PlanDraft = {
   videoGenerateModelKey: VideoGenerateModelDraft;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
+  /**
+   * ADR-074 Slice L1 — per-plan override of the runtime tool-loop iteration
+   * limit per execution mode. Empty string = "use runtime code default for
+   * this mode" (TOOL_LOOP_LIMIT_BY_MODE). A positive integer overrides.
+   */
+  toolLoopLimitNormal: string;
+  toolLoopLimitPremium: string;
+  toolLoopLimitReasoning: string;
 };
 
 type NumericDraftField =
@@ -505,7 +519,10 @@ function emptyDraft(): PlanDraft {
     embeddingModelKey: "",
     videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
-    toolActivations: []
+    toolActivations: [],
+    toolLoopLimitNormal: "",
+    toolLoopLimitPremium: "",
+    toolLoopLimitReasoning: ""
   };
 }
 
@@ -601,8 +618,12 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
         toolClass: ta.toolClass,
         policyClass: ta.policyClass,
         active: ta.active,
-        dailyCallLimit: ta.dailyCallLimit
-      }))
+        dailyCallLimit: ta.dailyCallLimit,
+        perTurnCap: ta.perTurnCap
+      })),
+    toolLoopLimitNormal: plan.toolBudgets?.loopLimitByMode?.normal?.toString() ?? "",
+    toolLoopLimitPremium: plan.toolBudgets?.loopLimitByMode?.premium?.toString() ?? "",
+    toolLoopLimitReasoning: plan.toolBudgets?.loopLimitByMode?.reasoning?.toString() ?? ""
   };
 }
 
@@ -847,8 +868,28 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
-      dailyCallLimit: ta.dailyCallLimit
-    }))
+      dailyCallLimit: ta.dailyCallLimit,
+      perTurnCap: ta.perTurnCap
+    })),
+    toolBudgets: {
+      loopLimitByMode: {
+        normal: parseStrictIntegerDraft(draft.toolLoopLimitNormal, {
+          label: "Tool loop limit (normal)",
+          min: 1,
+          allowBlank: true
+        }),
+        premium: parseStrictIntegerDraft(draft.toolLoopLimitPremium, {
+          label: "Tool loop limit (premium)",
+          min: 1,
+          allowBlank: true
+        }),
+        reasoning: parseStrictIntegerDraft(draft.toolLoopLimitReasoning, {
+          label: "Tool loop limit (reasoning)",
+          min: 1,
+          allowBlank: true
+        })
+      }
+    }
   };
 }
 
@@ -1099,6 +1140,13 @@ export function ToolActivationsEdit({
     onUpdate(next);
   }
 
+  function setPerTurnCap(idx: number, val: string) {
+    const next = activations.map((a, i) =>
+      i === idx ? { ...a, perTurnCap: val === "" ? null : Math.max(1, Math.floor(Number(val))) } : a
+    );
+    onUpdate(next);
+  }
+
   return (
     <div className="grid gap-2 md:grid-cols-2">
       {activations.map((ta, idx) => (
@@ -1167,6 +1215,26 @@ export function ToolActivationsEdit({
                 min={0}
                 value={ta.dailyCallLimit ?? ""}
                 onChange={(e) => setLimit(idx, e.target.value)}
+                placeholder="inherit"
+                className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+              />
+            </label>
+          </div>
+
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <HelpText>
+              Per-turn cap overrides the runtime default for this tool inside one turn. Blank =
+              inherit (web_fetch=5, web_search=3, image/video=1).
+            </HelpText>
+            <label className="grid gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                Per-turn cap
+              </span>
+              <input
+                type="number"
+                min={1}
+                value={ta.perTurnCap ?? ""}
+                onChange={(e) => setPerTurnCap(idx, e.target.value)}
                 placeholder="inherit"
                 className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
               />
@@ -2124,8 +2192,54 @@ function PlanForm({
         />
         <HelpText className="mt-2">
           Only plan-managed tools are editable here. Platform-managed and internal tools stay
-          read-only in summaries. `Limit/d` is a per-plan daily cap; leave it blank to inherit the
-          default runtime behavior.
+          read-only in summaries. `Limit/d` is a per-plan daily cap; `Per-turn cap` is the per-plan
+          override of the runtime per-turn hard cap. Leave either blank to inherit the runtime
+          defaults.
+        </HelpText>
+      </Sec>
+
+      {/* row 7: ADR-074 Slice L1 — tool budgets (loop limits) */}
+      <Sec label="Tool budgets (loop limits per execution mode)">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Loop limit · normal</span>
+            <Input
+              type="number"
+              min={1}
+              value={draft.toolLoopLimitNormal}
+              onValue={(value) => onPatch({ toolLoopLimitNormal: value })}
+              placeholder="2"
+            />
+            <HelpText>Blank = runtime default (2).</HelpText>
+          </label>
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Loop limit · premium</span>
+            <Input
+              type="number"
+              min={1}
+              value={draft.toolLoopLimitPremium}
+              onValue={(value) => onPatch({ toolLoopLimitPremium: value })}
+              placeholder="4"
+            />
+            <HelpText>Blank = runtime default (4).</HelpText>
+          </label>
+          <label className="space-y-1 text-[11px] font-medium text-text">
+            <span className="block">Loop limit · reasoning</span>
+            <Input
+              type="number"
+              min={1}
+              value={draft.toolLoopLimitReasoning}
+              onValue={(value) => onPatch({ toolLoopLimitReasoning: value })}
+              placeholder="8"
+            />
+            <HelpText>Blank = runtime default (8).</HelpText>
+          </label>
+        </div>
+        <HelpText className="mt-2">
+          ADR-074 Slice L1. Each value caps the maximum number of model→tool→model iterations inside
+          a single turn for the matching execution mode. After the cap, additional tool calls return
+          `tool_budget_exhausted` so the model can wrap up. Tune to balance cost/latency vs.
+          tool-using power.
         </HelpText>
       </Sec>
     </div>
@@ -2492,7 +2606,8 @@ export default function AdminPlansPage() {
           toolClass: ta.toolClass,
           policyClass: ta.policyClass,
           active: false,
-          dailyCallLimit: null
+          dailyCallLimit: null,
+          perTurnCap: null
         }));
     }
     setCreateDraft(draft);

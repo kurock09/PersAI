@@ -42,6 +42,13 @@ import {
   resolveStoredPlanSandboxPolicy,
   toPlanSandboxPolicyDocument
 } from "./sandbox-policy";
+import {
+  createDefaultPlanToolBudgets,
+  hasAnyToolBudgetOverride,
+  parsePlanToolBudgets,
+  resolveStoredPlanToolBudgets,
+  toPlanToolBudgetsDocument
+} from "./tool-budgets-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
 import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
@@ -505,6 +512,10 @@ export class ManageAdminPlansService {
       parsed.sandboxPolicy === undefined || parsed.sandboxPolicy === null
         ? createDefaultPlanSandboxPolicy()
         : parsePlanSandboxPolicy(parsed.sandboxPolicy, "sandboxPolicy");
+    const toolBudgets =
+      parsed.toolBudgets === undefined || parsed.toolBudgets === null
+        ? createDefaultPlanToolBudgets()
+        : parsePlanToolBudgets(parsed.toolBudgets, "toolBudgets");
 
     const toolActivations = this.parseToolActivations(parsed.toolActivations);
 
@@ -556,7 +567,8 @@ export class ManageAdminPlansService {
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(parsed.embeddingModelKey),
       videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
-      runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault)
+      runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
+      toolBudgets
     };
     if (toolActivations) {
       result.toolActivations = toolActivations;
@@ -606,7 +618,20 @@ export class ManageAdminPlansService {
         }
         dailyCallLimit = typed.dailyCallLimit;
       }
-      return { toolCode, active, dailyCallLimit };
+      let perTurnCap: number | null = null;
+      if (typed.perTurnCap !== undefined && typed.perTurnCap !== null) {
+        if (
+          typeof typed.perTurnCap !== "number" ||
+          !Number.isInteger(typed.perTurnCap) ||
+          typed.perTurnCap <= 0
+        ) {
+          throw new BadRequestException(
+            `toolActivations[${String(idx)}].perTurnCap must be a positive integer or null.`
+          );
+        }
+        perTurnCap = typed.perTurnCap;
+      }
+      return { toolCode, active, dailyCallLimit, perTurnCap };
     });
   }
 
@@ -650,6 +675,9 @@ export class ManageAdminPlansService {
           : {}),
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
+          : {}),
+        ...(hasAnyToolBudgetOverride(input.toolBudgets)
+          ? { toolBudgets: toPlanToolBudgetsDocument(input.toolBudgets) }
           : {})
       },
       entitlementModel: {
@@ -684,7 +712,8 @@ export class ManageAdminPlansService {
       toolActivationOverrides: this.toCanonicalToolActivationOverrides(input).map((ta) => ({
         toolCode: ta.toolCode,
         active: ta.active,
-        dailyCallLimit: ta.dailyCallLimit
+        dailyCallLimit: ta.dailyCallLimit,
+        perTurnCap: ta.perTurnCap
       }))
     };
   }
@@ -704,7 +733,8 @@ export class ManageAdminPlansService {
       return {
         toolCode: tool.toolCode,
         active: override?.active ?? activeByClass,
-        dailyCallLimit: override?.dailyCallLimit ?? null
+        dailyCallLimit: override?.dailyCallLimit ?? null,
+        perTurnCap: override?.perTurnCap ?? null
       };
     });
   }
@@ -747,6 +777,7 @@ export class ManageAdminPlansService {
     const contextPolicy = resolveStoredPlanContextHydrationPolicy(billingHints.contextPolicy);
     const retrievalPolicy = parseAdminPlanRetrievalPolicy(billingHints.retrievalPolicy);
     const sandboxPolicy = resolveStoredPlanSandboxPolicy(billingHints.sandboxPolicy);
+    const toolBudgets = resolveStoredPlanToolBudgets(billingHints.toolBudgets);
 
     return {
       code: plan.code,
@@ -807,8 +838,10 @@ export class ManageAdminPlansService {
         policyClass: ta.policyClass,
         active: ta.activationStatus === "active",
         dailyCallLimit: ta.dailyCallLimit,
+        perTurnCap: ta.perTurnCap,
         visibleInPlanEditor: ta.policyClass === "plan_managed"
       })),
+      toolBudgets,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString()
     };

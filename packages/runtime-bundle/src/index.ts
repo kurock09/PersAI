@@ -8,6 +8,7 @@ import {
   type RuntimeKnowledgeAccessConfig,
   type RuntimeSandboxPolicy,
   type RuntimeSharedCompactionConfig,
+  type RuntimeToolBudgetsConfig,
   type RuntimeToolPolicy,
   type RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
@@ -76,6 +77,13 @@ export interface AssistantRuntimeBundleRuntimeConfig {
   workerTools: RuntimeWorkerToolsConfig;
   browser: RuntimeBrowserConfig;
   sandbox?: RuntimeSandboxPolicy;
+  /**
+   * ADR-074 Slice L1 — per-assistant tool-loop budget overrides. Optional;
+   * the runtime falls back to `TOOL_LOOP_LIMIT_BY_MODE` code defaults when
+   * absent or when a leaf is `null`. Per-tool hard caps live on each
+   * `RuntimeToolPolicy.perTurnCap` so the cap travels with the tool itself.
+   */
+  toolBudgets?: RuntimeToolBudgetsConfig | null;
 }
 
 export interface AssistantRuntimeBundleGovernance {

@@ -330,6 +330,18 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
         `bundleDocument.governance.toolPolicies["${policy.toolCode}"].dailyCallLimit must be null or a non-negative integer`
       );
     }
+    // ADR-074 Slice L1 — perTurnCap is optional. If present it must be a
+    // strictly-positive integer. The runtime budget policy already silently
+    // ignores non-positive overrides (so a misconfigured 0 cannot disable
+    // the loop), but we want a hard parse-time error so the bundle compile
+    // pipeline cannot accidentally publish a meaningless cap.
+    if (policy.perTurnCap !== null && policy.perTurnCap !== undefined) {
+      if (!Number.isInteger(policy.perTurnCap) || policy.perTurnCap <= 0) {
+        throw new BadRequestException(
+          `bundleDocument.governance.toolPolicies["${policy.toolCode}"].perTurnCap must be null, omitted, or a strictly-positive integer`
+        );
+      }
+    }
     if (policy.kind === "internal" && policy.visibleToModel) {
       throw new BadRequestException(
         `bundleDocument.governance.toolPolicies["${policy.toolCode}"] cannot be internal and model-visible`
@@ -1023,7 +1035,52 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
     this.assertKnowledgeAccessConfig(bundle, toolPolicyByCode);
     this.assertWorkerToolsConfig(bundle, toolPolicyByCode);
     this.assertBrowserConfig(bundle, toolPolicyByCode);
+    this.assertToolBudgetsConfig(bundle);
     return bundle;
+  }
+
+  /**
+   * ADR-074 Slice L1 — `runtime.toolBudgets` is an optional per-assistant
+   * override of the tool-loop iteration limit per execution mode. The
+   * runtime budget policy is defensive (silently ignores non-positive
+   * leaves), but we hard-fail at parse time on type errors so a
+   * misconfigured bundle compile pipeline cannot publish meaningless data
+   * that obscures the loaded values when an operator inspects the bundle.
+   */
+  private assertToolBudgetsConfig(bundle: AssistantRuntimeBundle): void {
+    const runtime = bundle.runtime;
+    if (!this.isRecord(runtime)) {
+      return;
+    }
+    const toolBudgets = (runtime as Record<string, unknown>).toolBudgets;
+    if (toolBudgets === undefined || toolBudgets === null) {
+      return;
+    }
+    if (!this.isRecord(toolBudgets)) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.toolBudgets must be null, omitted, or an object"
+      );
+    }
+    const loop = (toolBudgets as Record<string, unknown>).loopLimitByMode;
+    if (loop === null || loop === undefined) {
+      return;
+    }
+    if (!this.isRecord(loop)) {
+      throw new BadRequestException(
+        "bundleDocument.runtime.toolBudgets.loopLimitByMode must be null or an object"
+      );
+    }
+    for (const mode of ["normal", "premium", "reasoning"] as const) {
+      const value = (loop as Record<string, unknown>)[mode];
+      if (value === null || value === undefined) {
+        continue;
+      }
+      if (!Number.isInteger(value) || (value as number) <= 0) {
+        throw new BadRequestException(
+          `bundleDocument.runtime.toolBudgets.loopLimitByMode.${mode} must be null or a strictly-positive integer`
+        );
+      }
+    }
   }
 
   private assertNonEmpty(value: unknown, field: string): void {

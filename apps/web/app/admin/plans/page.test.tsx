@@ -96,9 +96,17 @@ function createPlanState(): AdminPlanState {
         policyClass: "plan_managed",
         active: true,
         dailyCallLimit: 2,
+        perTurnCap: null,
         visibleInPlanEditor: true
       }
     ],
+    toolBudgets: {
+      loopLimitByMode: {
+        normal: null,
+        premium: null,
+        reasoning: null
+      }
+    },
     createdAt: "2026-04-14T12:00:00.000Z",
     updatedAt: "2026-04-14T12:00:00.000Z"
   };
@@ -163,7 +171,8 @@ describe("admin plans page helpers", () => {
             toolClass: "cost_driving",
             policyClass: "plan_managed",
             active: true,
-            dailyCallLimit: 2
+            dailyCallLimit: 2,
+            perTurnCap: null
           },
           {
             toolCode: "image_generate",
@@ -171,7 +180,8 @@ describe("admin plans page helpers", () => {
             toolClass: "cost_driving",
             policyClass: "plan_managed",
             active: true,
-            dailyCallLimit: 5
+            dailyCallLimit: 5,
+            perTurnCap: null
           }
         ]}
         onUpdate={() => {}}

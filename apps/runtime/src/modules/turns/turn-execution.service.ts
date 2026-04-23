@@ -82,6 +82,11 @@ import {
 } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
+import {
+  ToolBudgetPolicy,
+  createToolBudgetExhaustedResult,
+  type ToolBudgetExecutionMode
+} from "./tool-budget-policy";
 import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
@@ -169,7 +174,24 @@ class TurnExecutionError extends Error {
   }
 }
 
-const MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4;
+/**
+ * ADR-074 Slice L1: the hard ceiling on native-tool-loop iterations is
+ * `policy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS`, where
+ * `policy.loopLimit()` is mode-aware (`tool-budget-policy.ts`: normal=2,
+ * premium=4, reasoning=8). The `+ 2` buys two extra provider round-trips
+ * after the model has used up its real tool-execution budget: one substitute
+ * round (any tool call still emitted is replaced with a
+ * `tool_budget_exhausted` result via `policy.reserve(...)`) and one final
+ * reply round (the model now sees the substituted results and is expected to
+ * produce honest user-facing text). Only if the model also emits tool calls
+ * in that final reply round do we fail the turn with
+ * `native_tool_loop_exhausted` — exceedingly rare because the substituted
+ * results carry an explicit `hint` telling the model to wrap up. Pre-L1 this
+ * was a universal `MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4` that hard-failed the
+ * turn instead of giving the model a graceful exit; that constant is gone,
+ * do not reintroduce it.
+ */
+const NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS = 2;
 const BROWSER_TOOL_CODE = "browser";
 const WEB_SEARCH_TOOL_CODE = "web_search";
 const DEFAULT_NATIVE_WEB_SEARCH_PROVIDER_ID: PersaiRuntimeWebSearchProviderId = "tavily";
@@ -460,8 +482,11 @@ export class TurnExecutionService {
     };
     trace?.stage("stream.started_emitted");
 
+    const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
+    const maxToolLoopIterations =
+      toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     try {
-      for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
+      for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
         const iterationBaseText = assembledText;
         const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: iterationBaseText,
@@ -556,19 +581,30 @@ export class TurnExecutionService {
             for (const toolCall of event.result.toolCalls) {
               yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
               let outcome: ToolExecutionOutcome;
-              try {
-                outcome = await this.executeProjectedToolCall(
-                  execution,
-                  acceptedTurn,
-                  input,
+              const reservation = toolBudgetPolicy.reserve(toolCall.name, iteration);
+              if (reservation.exhausted) {
+                outcome = this.createToolBudgetExhaustedOutcome({
                   toolCall,
-                  input.idempotencyKey,
-                  turnState.artifacts,
-                  turnState.fileRefs
-                );
-              } catch (error) {
-                yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
-                throw error;
+                  reservation,
+                  trace,
+                  iteration,
+                  acceptedTurn
+                });
+              } else {
+                try {
+                  outcome = await this.executeProjectedToolCall(
+                    execution,
+                    acceptedTurn,
+                    input,
+                    toolCall,
+                    input.idempotencyKey,
+                    turnState.artifacts,
+                    turnState.fileRefs
+                  );
+                } catch (error) {
+                  yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
+                  throw error;
+                }
               }
               toolHistory.push(outcome.exchange);
               this.applyToolExecutionOutcome(turnState, outcome, iteration);
@@ -731,7 +767,7 @@ export class TurnExecutionService {
         requestId: acceptedTurn.receipt.requestId,
         sessionId: acceptedTurn.session.sessionId,
         code: "native_tool_loop_exhausted",
-        message: `Native tool loop exceeded ${String(MAX_NATIVE_TOOL_LOOP_ITERATIONS)} iterations.`,
+        message: `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`,
         willRetry: false,
         ...(trace === undefined ? {} : { trace: trace.build("failed") })
       });
@@ -1304,7 +1340,10 @@ export class TurnExecutionService {
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let accumulatedText = "";
-    for (let iteration = 0; iteration < MAX_NATIVE_TOOL_LOOP_ITERATIONS; iteration += 1) {
+    const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
+    const maxToolLoopIterations =
+      toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
+    for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
       const providerResult = await this.providerGatewayClientService.generateText(
         this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: accumulatedText,
@@ -1344,15 +1383,24 @@ export class TurnExecutionService {
       const exchanges: ProviderGatewayToolExchange[] = [];
       let durableCompactionExecuted = false;
       for (const toolCall of providerResult.toolCalls) {
-        const outcome = await this.executeProjectedToolCall(
-          execution,
-          acceptedTurn,
-          input,
-          toolCall,
-          input.idempotencyKey,
-          turnState.artifacts,
-          turnState.fileRefs
-        );
+        const reservation = toolBudgetPolicy.reserve(toolCall.name, iteration);
+        const outcome = reservation.exhausted
+          ? this.createToolBudgetExhaustedOutcome({
+              toolCall,
+              reservation,
+              trace: undefined,
+              iteration,
+              acceptedTurn
+            })
+          : await this.executeProjectedToolCall(
+              execution,
+              acceptedTurn,
+              input,
+              toolCall,
+              input.idempotencyKey,
+              turnState.artifacts,
+              turnState.fileRefs
+            );
         exchanges.push(outcome.exchange);
         this.applyToolExecutionOutcome(turnState, outcome, iteration);
         durableCompactionExecuted =
@@ -1367,7 +1415,7 @@ export class TurnExecutionService {
     throw new TurnExecutionError(
       "native_tool_loop_exhausted",
       new ServiceUnavailableException(
-        `Native tool loop exceeded ${String(MAX_NATIVE_TOOL_LOOP_ITERATIONS)} iterations.`
+        `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`
       )
     );
   }
@@ -2066,6 +2114,89 @@ export class TurnExecutionService {
       toolCallId: toolCall.id,
       toolName: toolCall.name
     };
+  }
+
+  /**
+   * ADR-074 Slice L1: build a per-turn `ToolBudgetPolicy` from the routing
+   * decision's resolved execution mode plus per-assistant overrides sourced
+   * from the runtime bundle. The policy captures the loop limit (defaults
+   * normal=2 / premium=4 / reasoning=8) and tracks per-tool counts within
+   * the turn so subsequent calls can be substituted with
+   * `tool_budget_exhausted` results once a cap is reached.
+   *
+   * Resolution order:
+   *
+   *   - Loop limit per mode: `bundle.runtime.toolBudgets.loopLimitByMode[mode]`
+   *     (per-assistant override) → `TOOL_LOOP_LIMIT_BY_MODE[mode]` code
+   *     default. Non-positive overrides are ignored so a misconfigured
+   *     bundle cannot accidentally turn the loop off.
+   *   - Per-tool cap: `RuntimeToolPolicy.perTurnCap` (per-tool override on
+   *     the assistant's tool policy) → `TOOL_HARD_CAP_PER_TURN[toolCode]`
+   *     code default → uncapped (still bounded by the loop limit).
+   */
+  private createToolBudgetPolicy(execution: PreparedTurnExecution): ToolBudgetPolicy {
+    const mode = execution.routeDecision.executionMode satisfies ToolBudgetExecutionMode;
+    const loopLimitOverrides = execution.bundle.runtime.toolBudgets?.loopLimitByMode ?? null;
+    const perToolCapOverrides = this.collectPerToolCapOverrides(execution);
+    return new ToolBudgetPolicy(mode, {
+      loopLimitOverrides,
+      perToolCapOverrides
+    });
+  }
+
+  /**
+   * ADR-074 Slice L1: collect every `RuntimeToolPolicy.perTurnCap` that is
+   * explicitly set on this assistant's bundle into a single map for the
+   * `ToolBudgetPolicy`. Tool policies without an explicit `perTurnCap` are
+   * skipped so the code default (`TOOL_HARD_CAP_PER_TURN[toolCode]`) keeps
+   * applying. Returns `null` when no overrides are present, so the policy
+   * can short-circuit the lookup.
+   */
+  private collectPerToolCapOverrides(
+    execution: PreparedTurnExecution
+  ): ReadonlyMap<string, number | null> | null {
+    const overrides = new Map<string, number | null>();
+    for (const policy of execution.bundle.governance.toolPolicies) {
+      const cap = policy.perTurnCap;
+      if (cap === undefined || cap === null) {
+        continue;
+      }
+      overrides.set(policy.toolCode, cap);
+    }
+    return overrides.size === 0 ? null : overrides;
+  }
+
+  /**
+   * ADR-074 Slice L1: when the budget rejects a tool call, build the
+   * structured `tool_budget_exhausted` outcome that flows through the same
+   * `toolHistory` / `applyToolExecutionOutcome` pipeline as a real tool
+   * result. The model reads it on the next iteration and is expected to
+   * wrap up with an honest text reply. Also emits a WARN log line and a
+   * trace stage so the smoke harness (S0) and live operators can detect the
+   * exhaustion event without parsing tool result bodies.
+   */
+  private createToolBudgetExhaustedOutcome(input: {
+    toolCall: ProviderGatewayToolCall;
+    reservation: Extract<ReturnType<ToolBudgetPolicy["reserve"]>, { exhausted: true }>;
+    trace: RuntimeStreamTraceCollector | undefined;
+    iteration: number;
+    acceptedTurn: AcceptedRuntimeTurn;
+  }): ToolExecutionOutcome {
+    const payload = createToolBudgetExhaustedResult({
+      toolName: input.toolCall.name,
+      reservation: input.reservation
+    });
+    this.logger.warn(
+      `[tool-budget-exhausted] requestId=${input.acceptedTurn.receipt.requestId} sessionId=${input.acceptedTurn.session.sessionId} tool=${input.toolCall.name} reason=${payload.budgetReason} limit=${String(payload.limit)} observed=${String(payload.observed)} iteration=${String(input.iteration)}`
+    );
+    input.trace?.stage(
+      `iter${String(input.iteration)}.tool_budget_exhausted.${input.toolCall.name}`
+    );
+    return this.createToolExecutionOutcome(
+      input.toolCall,
+      { ...payload } as Record<string, unknown>,
+      true
+    );
   }
 
   private createToolFinishedStreamEvent(

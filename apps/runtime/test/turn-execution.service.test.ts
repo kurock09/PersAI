@@ -5271,4 +5271,362 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.tools?.some((tool) => tool.name === "web_search"),
     false
   );
+
+  // ── ADR-074 Slice L1 — adaptive tool loop limits per execution mode ──
+  // These three integration scenarios assert the runtime wiring of
+  // `ToolBudgetPolicy`. The policy itself is unit-tested separately in
+  // `tool-budget-policy.test.ts`; these tests pin the *pipeline* end-to-end
+  // (provider tool call → budget reservation → synthesized
+  // `tool_budget_exhausted` outcome → next-iteration model wrap-up).
+  // Failure messages name the L1 bug class so a future regression points
+  // straight at the right slice.
+
+  // Re-seed credentials so web_fetch is projected and executable, since the
+  // earlier web_search test stripped surrounding state.
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_fetch = {
+      refKey: "tool_web_fetch",
+      configured: true,
+      providerId: "firecrawl",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_fetch",
+        id: "tool/web_fetch/api-key"
+      }
+    };
+  }
+
+  const buildWebFetchToolCallsResult = (
+    callIds: readonly string[],
+    respondedAt: string
+  ): ProviderGatewayTextGenerateResult => ({
+    provider: "openai",
+    model: "gpt-5.4",
+    text: null,
+    respondedAt,
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 18,
+      outputTokens: 0,
+      totalTokens: 18
+    },
+    stopReason: "tool_calls",
+    toolCalls: callIds.map<ProviderGatewayToolCall>((callId) => ({
+      id: callId,
+      name: "web_fetch",
+      arguments: {
+        url: "https://example.com/article",
+        extractMode: "text",
+        maxChars: 5000
+      }
+    }))
+  });
+  const buildCompletionResult = (
+    text: string,
+    respondedAt: string
+  ): ProviderGatewayTextGenerateResult => ({
+    provider: "openai",
+    model: "gpt-5.4",
+    text,
+    respondedAt,
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 22,
+      outputTokens: 8,
+      totalTokens: 30
+    },
+    stopReason: "completed",
+    toolCalls: []
+  });
+
+  // ── L1 Test 1 — normal mode loop limit (loopLimit=2) ──
+  // Model emits one web_fetch per iteration. In normal mode the loop
+  // budget allows iterations 0 and 1 to actually execute the tool; the
+  // 3rd iteration must be rejected with `tool_budget_exhausted` /
+  // `loop_limit` and the model must get a wrap-up iteration to reply
+  // honestly. Pre-L1 this would have either kept executing up to 4
+  // iterations (universal MAX_NATIVE_TOOL_LOOP_ITERATIONS) or failed
+  // the whole turn with `native_tool_loop_exhausted`.
+  persaiInternalApiClientService.consumeOutcome = {
+    allowed: true,
+    currentCount: 1,
+    limit: 10
+  };
+  const webFetchCallsBeforeNormalLoop = providerGatewayClient.webFetchCalls.length;
+  providerGatewayClient.resultQueue = [
+    buildWebFetchToolCallsResult(["l1-loop-1"], "2026-04-13T12:00:00.000Z"),
+    buildWebFetchToolCallsResult(["l1-loop-2"], "2026-04-13T12:00:01.000Z"),
+    buildWebFetchToolCallsResult(["l1-loop-3"], "2026-04-13T12:00:02.000Z"),
+    buildCompletionResult("normal-mode wrap-up reply", "2026-04-13T12:00:03.000Z")
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const normalLoopLimitCompleted = await service.createTurn(request);
+  assert.equal(
+    normalLoopLimitCompleted.assistantText,
+    "normal-mode wrap-up reply",
+    "ADR-074 L1 regression: after the loop budget is exhausted in normal mode the model must still get a wrap-up iteration and reply honestly (got no completion text)."
+  );
+  assert.equal(
+    providerGatewayClient.webFetchCalls.length - webFetchCallsBeforeNormalLoop,
+    2,
+    "ADR-074 L1 regression: normal-mode loopLimit=2 must allow exactly 2 real web_fetch executions (got a different count — either the limit regressed back to 4 or the budget policy did not skip the 3rd call)."
+  );
+  const normalLoopExhaustedHistory = providerGatewayClient.calls.at(-1)?.toolHistory ?? [];
+  const normalLoopExhaustedEntry = normalLoopExhaustedHistory.find((entry) =>
+    entry.toolResult.content.includes('"reason":"tool_budget_exhausted"')
+  );
+  assert.ok(
+    normalLoopExhaustedEntry !== undefined,
+    "ADR-074 L1 regression: the wrap-up iteration must include a synthetic tool_budget_exhausted entry in toolHistory so the model can read why it was cut off."
+  );
+  if (normalLoopExhaustedEntry !== undefined) {
+    const parsed = JSON.parse(normalLoopExhaustedEntry.toolResult.content) as {
+      toolCode?: string;
+      reason?: string;
+      budgetReason?: string;
+      limit?: number;
+      observed?: number;
+      action?: string;
+    };
+    assert.equal(parsed.toolCode, "web_fetch");
+    assert.equal(parsed.reason, "tool_budget_exhausted");
+    assert.equal(
+      parsed.budgetReason,
+      "loop_limit",
+      "ADR-074 L1 regression: normal-mode iteration past loopLimit=2 must report budgetReason=loop_limit (NOT per_tool_cap — web_fetch cap=5 is not the limiter here)."
+    );
+    assert.equal(parsed.limit, 2);
+    assert.equal(parsed.observed, 3);
+    assert.equal(parsed.action, "skipped");
+  }
+  await flushTaskQueue();
+
+  // ── L1 Test 2 — per-tool cap fires inside a single iteration ──
+  // Model emits 6 web_fetch calls in one turn iteration. web_fetch has a
+  // per-turn hard cap of 5, so the first 5 must execute and the 6th must
+  // be substituted with `tool_budget_exhausted` / `per_tool_cap`. This
+  // exercises the per-call (not per-iteration) branch of the policy. The
+  // loop budget (loopLimit=2 in normal mode) is *not* the limiter here —
+  // we are inside a single iteration, iteration index 0.
+  const webFetchCallsBeforePerToolCap = providerGatewayClient.webFetchCalls.length;
+  providerGatewayClient.resultQueue = [
+    buildWebFetchToolCallsResult(
+      ["l1-cap-1", "l1-cap-2", "l1-cap-3", "l1-cap-4", "l1-cap-5", "l1-cap-6"],
+      "2026-04-13T12:00:10.000Z"
+    ),
+    buildCompletionResult("per-tool-cap wrap-up reply", "2026-04-13T12:00:11.000Z")
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const perToolCapCompleted = await service.createTurn(request);
+  assert.equal(
+    perToolCapCompleted.assistantText,
+    "per-tool-cap wrap-up reply",
+    "ADR-074 L1 regression: after the per-tool cap is hit the model must still get a wrap-up iteration to reply honestly."
+  );
+  assert.equal(
+    providerGatewayClient.webFetchCalls.length - webFetchCallsBeforePerToolCap,
+    5,
+    "ADR-074 L1 regression: web_fetch per-turn cap=5 must allow exactly 5 real executions out of 6 emitted tool calls in a single iteration (got a different count)."
+  );
+  const perToolCapHistory = providerGatewayClient.calls.at(-1)?.toolHistory ?? [];
+  assert.equal(
+    perToolCapHistory.length,
+    6,
+    "ADR-074 L1 regression: every emitted tool call in the iteration must produce a toolHistory entry, including the 6th (synthesized tool_budget_exhausted)."
+  );
+  const perToolCapExhaustedEntries = perToolCapHistory.filter((entry) =>
+    entry.toolResult.content.includes('"reason":"tool_budget_exhausted"')
+  );
+  assert.equal(
+    perToolCapExhaustedEntries.length,
+    1,
+    "ADR-074 L1 regression: exactly one of the six toolHistory entries must be tool_budget_exhausted (got a different count — either the cap fired more than once per turn or it never fired)."
+  );
+  const perToolCapPayload = JSON.parse(
+    perToolCapExhaustedEntries[0]?.toolResult.content ?? "{}"
+  ) as {
+    budgetReason?: string;
+    limit?: number;
+    observed?: number;
+  };
+  assert.equal(
+    perToolCapPayload.budgetReason,
+    "per_tool_cap",
+    "ADR-074 L1 regression: 6th web_fetch in one iteration must be rejected as per_tool_cap (NOT loop_limit — iteration 0 is well inside the loop budget)."
+  );
+  assert.equal(perToolCapPayload.limit, 5);
+  assert.equal(perToolCapPayload.observed, 6);
+  await flushTaskQueue();
+
+  // ── L1 Test 3 — premium mode allows more iterations than normal ──
+  // With deepMode=true the routing service resolves executionMode=premium
+  // (loopLimit=4). 5 sequential web_fetch iterations should produce 4
+  // real executions + a 5th iteration that is loop-limit-exhausted, then
+  // a wrap-up iteration where the model replies. This proves the limit
+  // is mode-aware and is not stuck at the old universal value of 4
+  // executions in every mode (premium=4 happens to coincide with the
+  // pre-L1 universal cap, but the assertions here would fail if we
+  // accidentally clamped premium back down to 2).
+  if (bundleRegistry.entry !== null) {
+    // Premium needs the gpt-5.4-pro slot configured; restore it from the
+    // earlier test in case any later block mutated it.
+    const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
+      .runtimeProviderRouting as Record<string, unknown>;
+    bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting = {
+      ...runtimeProviderRouting,
+      modelSlots: {
+        normalReply: { providerKey: "openai", modelKey: "gpt-5.4" },
+        premiumReply: { providerKey: "openai", modelKey: "gpt-5.4-pro" },
+        reasoning: { providerKey: "openai", modelKey: "gpt-5.4-thinking" },
+        systemTool: { providerKey: "openai", modelKey: "gpt-4.1" },
+        retrieval: { providerKey: "openai", modelKey: "gpt-4.1-mini" }
+      }
+    };
+  }
+  const buildPremiumWebFetchToolCallsResult = (
+    callIds: readonly string[],
+    respondedAt: string
+  ): ProviderGatewayTextGenerateResult => ({
+    ...buildWebFetchToolCallsResult(callIds, respondedAt),
+    model: "gpt-5.4-pro"
+  });
+  const buildPremiumCompletionResult = (
+    text: string,
+    respondedAt: string
+  ): ProviderGatewayTextGenerateResult => ({
+    ...buildCompletionResult(text, respondedAt),
+    model: "gpt-5.4-pro"
+  });
+  const premiumLoopRequest = createRuntimeTurnRequest();
+  premiumLoopRequest.bundle.bundleHash = request.bundle.bundleHash;
+  premiumLoopRequest.deepMode = true;
+  const webFetchCallsBeforePremiumLoop = providerGatewayClient.webFetchCalls.length;
+  providerGatewayClient.resultQueue = [
+    buildPremiumWebFetchToolCallsResult(["l1-premium-1"], "2026-04-13T12:00:20.000Z"),
+    buildPremiumWebFetchToolCallsResult(["l1-premium-2"], "2026-04-13T12:00:21.000Z"),
+    buildPremiumWebFetchToolCallsResult(["l1-premium-3"], "2026-04-13T12:00:22.000Z"),
+    buildPremiumWebFetchToolCallsResult(["l1-premium-4"], "2026-04-13T12:00:23.000Z"),
+    buildPremiumWebFetchToolCallsResult(["l1-premium-5"], "2026-04-13T12:00:24.000Z"),
+    buildPremiumCompletionResult("premium wrap-up reply", "2026-04-13T12:00:25.000Z")
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const premiumLoopCompleted = await service.createTurn(premiumLoopRequest);
+  assert.equal(
+    premiumLoopCompleted.assistantText,
+    "premium wrap-up reply",
+    "ADR-074 L1 regression: premium-mode turn must wrap up gracefully after the loop budget is hit."
+  );
+  assert.equal(
+    providerGatewayClient.webFetchCalls.length - webFetchCallsBeforePremiumLoop,
+    4,
+    "ADR-074 L1 regression: premium-mode loopLimit=4 must allow exactly 4 real web_fetch executions (got a different count — either the per-mode lookup is broken or premium silently fell back to normal=2)."
+  );
+  const premiumLoopExhaustedEntry = (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).find(
+    (entry) => entry.toolResult.content.includes('"reason":"tool_budget_exhausted"')
+  );
+  assert.ok(
+    premiumLoopExhaustedEntry !== undefined,
+    "ADR-074 L1 regression: 5th web_fetch iteration in premium mode must be substituted with tool_budget_exhausted before the wrap-up reply."
+  );
+  if (premiumLoopExhaustedEntry !== undefined) {
+    const parsed = JSON.parse(premiumLoopExhaustedEntry.toolResult.content) as {
+      budgetReason?: string;
+      limit?: number;
+      observed?: number;
+    };
+    assert.equal(
+      parsed.budgetReason,
+      "loop_limit",
+      "ADR-074 L1 regression: premium iteration past loopLimit=4 must report budgetReason=loop_limit (per-tool cap of 5 is not the limiter at iteration 4)."
+    );
+    assert.equal(parsed.limit, 4);
+    assert.equal(parsed.observed, 5);
+  }
+  await flushTaskQueue();
+
+  // ── L1 Test 4 — per-assistant bundle override of loopLimitByMode ──
+  // Founder Q9-C revision (2026-04-23): the limits must be tunable per
+  // assistant (different plans/models ship different numbers). The bundle
+  // here pretends to be such an assistant by setting
+  // `runtime.toolBudgets.loopLimitByMode.normal = 5`. With the override in
+  // place, normal mode must allow 5 real iterations (not the code default
+  // of 2) before the synthetic tool_budget_exhausted fires on iteration 6.
+  // This pins the wiring from the bundle through `createToolBudgetPolicy`
+  // into the actual loop bound.
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.runtime.toolBudgets = {
+      loopLimitByMode: {
+        normal: 5,
+        premium: null,
+        reasoning: null
+      }
+    };
+  }
+  try {
+    const overrideRequest = createRuntimeTurnRequest();
+    overrideRequest.bundle.bundleHash = request.bundle.bundleHash;
+    const webFetchCallsBeforeOverride = providerGatewayClient.webFetchCalls.length;
+    providerGatewayClient.resultQueue = [
+      buildWebFetchToolCallsResult(["l1-override-1"], "2026-04-13T12:00:30.000Z"),
+      buildWebFetchToolCallsResult(["l1-override-2"], "2026-04-13T12:00:31.000Z"),
+      buildWebFetchToolCallsResult(["l1-override-3"], "2026-04-13T12:00:32.000Z"),
+      buildWebFetchToolCallsResult(["l1-override-4"], "2026-04-13T12:00:33.000Z"),
+      buildWebFetchToolCallsResult(["l1-override-5"], "2026-04-13T12:00:34.000Z"),
+      buildWebFetchToolCallsResult(["l1-override-6"], "2026-04-13T12:00:35.000Z"),
+      buildCompletionResult("override wrap-up reply", "2026-04-13T12:00:36.000Z")
+    ];
+    turnAcceptanceService.result = createAcceptedTurn();
+    (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+      request.bundle.bundleHash;
+    const overrideCompleted = await service.createTurn(overrideRequest);
+    assert.equal(
+      overrideCompleted.assistantText,
+      "override wrap-up reply",
+      "ADR-074 L1 regression: per-assistant loopLimit override must still allow a wrap-up reply after the override budget is exhausted."
+    );
+    assert.equal(
+      providerGatewayClient.webFetchCalls.length - webFetchCallsBeforeOverride,
+      5,
+      "ADR-074 L1 regression: bundle override loopLimitByMode.normal=5 must allow exactly 5 real web_fetch executions (got a different count — the runtime is ignoring the bundle override and using the code default of 2)."
+    );
+    const overrideHistory = providerGatewayClient.calls.at(-1)?.toolHistory ?? [];
+    const overrideExhaustedEntry = overrideHistory.find((entry) =>
+      entry.toolResult.content.includes('"reason":"tool_budget_exhausted"')
+    );
+    assert.ok(
+      overrideExhaustedEntry !== undefined,
+      "ADR-074 L1 regression: with override loopLimit=5 the 6th iteration must be substituted with tool_budget_exhausted, NOT silently truncated."
+    );
+    if (overrideExhaustedEntry !== undefined) {
+      const parsed = JSON.parse(overrideExhaustedEntry.toolResult.content) as {
+        budgetReason?: string;
+        limit?: number;
+        observed?: number;
+      };
+      assert.equal(
+        parsed.budgetReason,
+        "loop_limit",
+        "ADR-074 L1 regression: override-driven exhaustion must still report loop_limit."
+      );
+      assert.equal(
+        parsed.limit,
+        5,
+        "ADR-074 L1 regression: tool_budget_exhausted.limit must reflect the OVERRIDE value (5), not the code default (2)."
+      );
+      assert.equal(parsed.observed, 6);
+    }
+    await flushTaskQueue();
+  } finally {
+    if (bundleRegistry.entry !== null) {
+      bundleRegistry.entry.parsedBundle.runtime.toolBudgets = null;
+    }
+  }
 }

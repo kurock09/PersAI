@@ -14,6 +14,7 @@ import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
 import type { AdminPlanInputBaseVideoGenerateModelKey } from "./adminPlanInputBaseVideoGenerateModelKey";
 import type { AdminPlanInputBaseRuntimeTierDefault } from "./adminPlanInputBaseRuntimeTierDefault";
 import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
+import type { AdminPlanToolBudgets } from "./adminPlanToolBudgets";
 
 export interface AdminPlanInputBase {
   displayName: string;
@@ -45,4 +46,5 @@ export interface AdminPlanInputBase {
   /** @nullable */
   runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;
   toolActivations?: AdminPlanToolActivationInput[];
+  toolBudgets?: AdminPlanToolBudgets;
 }

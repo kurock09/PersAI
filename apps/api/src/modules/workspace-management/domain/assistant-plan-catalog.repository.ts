@@ -6,6 +6,11 @@ export type AssistantPlanCatalogToolActivationOverride = {
   toolCode: string;
   active: boolean;
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — see `AssistantPlanCatalogToolActivation.perTurnCap`.
+   * NULL = no per-plan override (use runtime code default).
+   */
+  perTurnCap: number | null;
 };
 
 export type AssistantPlanCatalogDeleteImpact = {

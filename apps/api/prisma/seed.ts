@@ -246,6 +246,7 @@ async function main(): Promise<void> {
           ? PlanToolActivationStatus.active
           : PlanToolActivationStatus.inactive;
       const dailyCallLimit = policy?.dailyCallLimit ?? null;
+      const perTurnCap = policy?.perTurnCap ?? null;
       await prisma.planCatalogToolActivation.upsert({
         where: {
           planId_toolId: {
@@ -255,13 +256,15 @@ async function main(): Promise<void> {
         },
         update: {
           activationStatus,
-          dailyCallLimit
+          dailyCallLimit,
+          perTurnCap
         },
         create: {
           planId: seedPlan.id,
           toolId: tool.id,
           activationStatus,
-          dailyCallLimit
+          dailyCallLimit,
+          perTurnCap
         }
       });
     }

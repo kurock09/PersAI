@@ -23,6 +23,37 @@ import {
   type RuntimeKnowledgeAccessSourceConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
+// ADR-074 Slice L1: per-turn hard caps live in `tool-budget-policy.ts` so
+// runtime enforcement and model-facing tool descriptions stay in sync. Do
+// not duplicate the numbers here; if the cap changes, edit one place.
+import { resolveAdvertisedPerTurnCap } from "./tool-budget-policy";
+
+/**
+ * ADR-074 Slice L1: render the per-turn cap hint that goes into a tool's
+ * model-facing description. The cap is now per-assistant (sourced from
+ * `RuntimeToolPolicy.perTurnCap` if set, otherwise the
+ * `TOOL_HARD_CAP_PER_TURN` code default), so the hint reflects what will
+ * actually fire at runtime — not a hard-coded global. Returns `null` when
+ * the tool has no effective cap (e.g. memory_write), in which case no hint
+ * is appended.
+ */
+function describePerTurnCap(toolCode: string, policy: RuntimeToolPolicy): string | null {
+  const overrides = new Map<string, number | null>();
+  if (policy.perTurnCap !== undefined && policy.perTurnCap !== null) {
+    overrides.set(toolCode, policy.perTurnCap);
+  }
+  const cap = resolveAdvertisedPerTurnCap(toolCode, overrides);
+  if (cap === null) {
+    return null;
+  }
+  const calls = cap === 1 ? "1 call" : `${String(cap)} calls`;
+  return `Per-turn cap: ${calls}; further calls return tool_budget_exhausted and you must reply with what you have.`;
+}
+
+function appendPerTurnCapHint(base: string, toolCode: string, policy: RuntimeToolPolicy): string {
+  const hint = describePerTurnCap(toolCode, policy);
+  return hint === null ? base : `${base} ${hint}`;
+}
 
 export interface RuntimeNativeToolProjection {
   tools: ProviderGatewayToolDefinition[];
@@ -309,7 +340,11 @@ function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     name: "web_search",
     description: resolveToolDefinitionDescription(
       policy,
-      "Search the public web through the currently configured search provider."
+      appendPerTurnCapHint(
+        "Search the public web through the currently configured search provider.",
+        "web_search",
+        policy
+      )
     ),
     inputSchema: {
       type: "object",
@@ -400,7 +435,11 @@ function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     name: "web_fetch",
     description: resolveToolDefinitionDescription(
       policy,
-      "Fetch and extract the main content of a public webpage through the current web-fetch provider."
+      appendPerTurnCapHint(
+        "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
+        "web_fetch",
+        policy
+      )
     ),
     inputSchema: {
       type: "object",
@@ -510,7 +549,11 @@ function createImageGenerateToolDefinition(
     name: "image_generate",
     description: resolveToolDefinitionDescription(
       policy,
-      "Generate brand-new images from a text prompt."
+      appendPerTurnCapHint(
+        "Generate brand-new images from a text prompt.",
+        "image_generate",
+        policy
+      )
     ),
     inputSchema: {
       type: "object",
@@ -547,7 +590,11 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     name: "image_edit",
     description: resolveToolDefinitionDescription(
       policy,
-      "Edit an existing user-referenced image according to the requested changes."
+      appendPerTurnCapHint(
+        "Edit an existing user-referenced image according to the requested changes.",
+        "image_edit",
+        policy
+      )
     ),
     inputSchema: {
       type: "object",
@@ -592,7 +639,11 @@ function createVideoGenerateToolDefinition(
     name: "video_generate",
     description: resolveToolDefinitionDescription(
       policy,
-      "Generate a short brand-new video clip from a text prompt."
+      appendPerTurnCapHint(
+        "Generate a short brand-new video clip from a text prompt.",
+        "video_generate",
+        policy
+      )
     ),
     inputSchema: {
       type: "object",

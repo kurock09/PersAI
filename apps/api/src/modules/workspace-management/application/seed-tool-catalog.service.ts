@@ -163,11 +163,12 @@ export class SeedToolCatalogService implements OnModuleInit {
           ? "active"
           : "inactive";
       const dailyCallLimit = isPlanManagedTool(tool.code) ? (policy?.dailyCallLimit ?? null) : null;
+      const perTurnCap = isPlanManagedTool(tool.code) ? (policy?.perTurnCap ?? null) : null;
 
       await this.prisma.planCatalogToolActivation.upsert({
         where: { planId_toolId: { planId, toolId: tool.id } },
-        update: { activationStatus, dailyCallLimit },
-        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
+        update: { activationStatus, dailyCallLimit, perTurnCap },
+        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit, perTurnCap }
       });
     }
   }

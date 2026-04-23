@@ -5749,6 +5749,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminPlanToolActivation"
+        toolBudgets:
+          $ref: "#/components/schemas/AdminPlanToolBudgets"
     AdminPlanToolActivation:
       type: object
       required:
@@ -5758,6 +5760,7 @@ components:
         - policyClass
         - active
         - dailyCallLimit
+        - perTurnCap
         - visibleInPlanEditor
       properties:
         toolCode:
@@ -5780,6 +5783,14 @@ components:
         dailyCallLimit:
           type: integer
           nullable: true
+        perTurnCap:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-074 Slice L1 — per-plan override of the per-turn hard cap on
+            this tool's executions inside a single runtime turn. NULL means
+            "use the runtime code default" (TOOL_HARD_CAP_PER_TURN in
+            apps/runtime/src/modules/turns/tool-budget-policy.ts).
         visibleInPlanEditor:
           type: boolean
     AdminPlanToolActivationInput:
@@ -5796,6 +5807,36 @@ components:
         dailyCallLimit:
           type: integer
           nullable: true
+        perTurnCap:
+          type: integer
+          nullable: true
+          description: >-
+            ADR-074 Slice L1 — see AdminPlanToolActivation.perTurnCap.
+    AdminPlanToolBudgets:
+      type: object
+      required:
+        - loopLimitByMode
+      properties:
+        loopLimitByMode:
+          type: object
+          required:
+            - normal
+            - premium
+            - reasoning
+          description: >-
+            ADR-074 Slice L1 — per-plan override of the runtime tool-loop
+            iteration limit per execution mode. NULL on a leaf means "use the
+            runtime code default for that mode" (TOOL_LOOP_LIMIT_BY_MODE).
+          properties:
+            normal:
+              type: integer
+              nullable: true
+            premium:
+              type: integer
+              nullable: true
+            reasoning:
+              type: integer
+              nullable: true
     AdminPlanInputBase:
       type: object
       required:
@@ -5869,6 +5910,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminPlanToolActivationInput"
+        toolBudgets:
+          $ref: "#/components/schemas/AdminPlanToolBudgets"
     AdminPlanCreateRequest:
       allOf:
         - $ref: "#/components/schemas/AdminPlanInputBase"

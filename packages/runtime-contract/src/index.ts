@@ -336,6 +336,40 @@ export interface RuntimeToolPolicy {
   visibleToModel: boolean;
   visibleInPlanEditor: boolean;
   dailyCallLimit: number | null;
+  /**
+   * ADR-074 Slice L1 — per-turn hard cap on this tool's executions inside a
+   * single runtime turn. Configurable per assistant via the bundle compile
+   * pipeline, so different plans/models can ship different caps. Resolution
+   * order in `ToolBudgetPolicy`:
+   *
+   *   tool policy `perTurnCap` (if set) →
+   *   `TOOL_HARD_CAP_PER_TURN[toolCode]` code default (if listed) →
+   *   no cap (still bounded by the per-mode loop limit).
+   *
+   * `null` (or omitted) means "no per-tool override on this policy"; the
+   * code default for the well-known browse/media tools then applies. Set to
+   * a positive number to override the default; set to `Number.MAX_SAFE_INTEGER`
+   * to make a normally-capped tool effectively uncapped on this assistant.
+   */
+  perTurnCap?: number | null;
+}
+
+/**
+ * ADR-074 Slice L1 — per-assistant overrides for the tool-loop budget. Lives
+ * on `AssistantRuntimeBundleRuntimeConfig.toolBudgets` so the API-side bundle
+ * compile pipeline (plan policy + admin UI) can hand a different budget to
+ * each assistant without a runtime code change. `null` on any leaf means
+ * "fall back to the `TOOL_LOOP_LIMIT_BY_MODE` code default for that mode".
+ *
+ * Per-tool caps are not in this struct — they live on each `RuntimeToolPolicy`
+ * via `perTurnCap` so the cap travels with the tool definition itself.
+ */
+export interface RuntimeToolBudgetsConfig {
+  loopLimitByMode: {
+    normal: number | null;
+    premium: number | null;
+    reasoning: number | null;
+  } | null;
 }
 
 export const PERSAI_RUNTIME_SHARED_COMPACTION_TOOL_CODES = [

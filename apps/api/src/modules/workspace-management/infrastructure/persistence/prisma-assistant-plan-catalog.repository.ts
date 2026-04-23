@@ -259,7 +259,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           policyClass: resolveToolPolicyClass(activation.tool.code),
           activationStatus:
             activation.activationStatus === "active" ? ("active" as const) : ("inactive" as const),
-          dailyCallLimit: activation.dailyCallLimit
+          dailyCallLimit: activation.dailyCallLimit,
+          perTurnCap: activation.perTurnCap
         })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
       isTrialPlan: plan.isTrialPlan,
@@ -395,13 +396,18 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
       const dailyCallLimit = isPlanManagedTool(tool.code)
         ? (override?.dailyCallLimit ?? null)
         : null;
+      // ADR-074 Slice L1 — perTurnCap may be set on cost-driving tools
+      // regardless of plan_managed/platform_managed since the runtime
+      // applies it uniformly. Hidden internal tools (memory, etc.) keep
+      // NULL and inherit the runtime default of "no cap".
+      const perTurnCap = override?.perTurnCap ?? null;
 
       await tx.planCatalogToolActivation.upsert({
         where: {
           planId_toolId: { planId, toolId: tool.id }
         },
-        update: { activationStatus, dailyCallLimit },
-        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit }
+        update: { activationStatus, dailyCallLimit, perTurnCap },
+        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit, perTurnCap }
       });
     }
   }

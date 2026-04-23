@@ -508,6 +508,44 @@ function createWarmInputQuotaStatusRemap() {
   };
 }
 
+function createWarmInputInvalidPerTurnCap() {
+  const input = createWarmInput(
+    "bundle-invalid-per-turn-cap",
+    "assistant-invalid-per-turn-cap",
+    "version-invalid-per-turn-cap"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    governance: { toolPolicies: Array<Record<string, unknown>> };
+  };
+  const target = bundleDocument.governance.toolPolicies[0];
+  if (!target) {
+    throw new Error("expected at least one tool policy in the warm input fixture");
+  }
+  target.perTurnCap = 0;
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
+function createWarmInputInvalidToolBudgets() {
+  const input = createWarmInput(
+    "bundle-invalid-tool-budgets",
+    "assistant-invalid-tool-budgets",
+    "version-invalid-tool-budgets"
+  );
+  const bundleDocument = JSON.parse(input.bundleDocument) as {
+    runtime: Record<string, unknown>;
+  };
+  bundleDocument.runtime.toolBudgets = {
+    loopLimitByMode: { normal: 0, premium: null, reasoning: null }
+  };
+  return {
+    ...input,
+    bundleDocument: JSON.stringify(bundleDocument)
+  };
+}
+
 function createWarmInputInvalidSharedCompaction() {
   const input = createWarmInput(
     "bundle-invalid-shared-compaction",
@@ -706,6 +744,19 @@ export async function runRuntimeBundleRegistryServiceTest(): Promise<void> {
   assert.throws(
     () => registryService.validateWarmBundleInput(createWarmInputInvalidBrowserCredentialRef()),
     /toolCredentialRefs\["browser"\]\.refKey must be "persai:persai-runtime:tool\/browser\/api-key"/
+  );
+  // ADR-074 Slice L1 — warm-path rejects misconfigured perTurnCap on a tool
+  // policy. Zero / negative / fractional / non-numeric all collapse to "use
+  // code default" silently at runtime, but they are still a misconfiguration
+  // upstream and must be caught at compile-time so admins notice.
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidPerTurnCap()),
+    /perTurnCap must be null, omitted, or a strictly-positive integer/
+  );
+  // ADR-074 Slice L1 — warm-path rejects misconfigured per-mode loop limits.
+  assert.throws(
+    () => registryService.validateWarmBundleInput(createWarmInputInvalidToolBudgets()),
+    /toolBudgets\.loopLimitByMode\.normal must be null or a strictly-positive integer/
   );
 
   const overriddenWarm = registryService.warmBundle(

@@ -747,6 +747,250 @@ async function run(): Promise<void> {
       error.message.includes("workspace subscription") &&
       error.message.includes("assistant fallback binding")
   );
+
+  // ADR-074 Slice L1 — admin can override per-tool perTurnCap and per-mode
+  // tool-loop limits. Both parsed-input shape and on-disk billingProviderHints
+  // shape are part of the contract that the runtime bundle compile pipeline
+  // and admin UI both depend on, so we lock them down here.
+  const parsedWithToolBudgets = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    metadata: {
+      commercialTag: "trial",
+      notes: null
+    },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: {
+        webChat: true,
+        telegram: true,
+        whatsapp: false,
+        max: false
+      },
+      mediaClasses: {
+        image: false,
+        audio: false,
+        video: false,
+        file: false
+      }
+    },
+    quotaLimits: {
+      tokenBudgetLimit: 1000
+    },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted",
+    toolActivations: [
+      {
+        toolCode: "web_fetch",
+        active: true,
+        dailyCallLimit: 10,
+        perTurnCap: 7
+      }
+    ],
+    toolBudgets: {
+      loopLimitByMode: { normal: 3, premium: null, reasoning: 9 }
+    }
+  });
+  assert.equal(
+    parsedWithToolBudgets.toolActivations?.[0]?.perTurnCap,
+    7,
+    "perTurnCap survives parseUpdateInput"
+  );
+  assert.deepEqual(parsedWithToolBudgets.toolBudgets, {
+    loopLimitByMode: { normal: 3, premium: null, reasoning: 9 }
+  });
+
+  const writeInputWithToolBudgets = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedWithToolBudgets): {
+        billingProviderHints: Record<string, unknown>;
+        toolActivationOverrides: Array<{
+          toolCode: string;
+          active: boolean;
+          dailyCallLimit: number | null;
+          perTurnCap: number | null;
+        }>;
+      };
+    }
+  ).toWriteInput(parsedWithToolBudgets);
+  const webFetchOverride = writeInputWithToolBudgets.toolActivationOverrides.find(
+    (entry) => entry.toolCode === "web_fetch"
+  );
+  assert.ok(webFetchOverride, "web_fetch override is emitted");
+  assert.equal(webFetchOverride.perTurnCap, 7);
+  assert.equal(webFetchOverride.dailyCallLimit, 10);
+  assert.deepEqual(writeInputWithToolBudgets.billingProviderHints.toolBudgets, {
+    schema: "persai.toolBudgets.v1",
+    loopLimitByMode: { normal: 3, premium: null, reasoning: 9 }
+  });
+
+  // When all loop limits are null we deliberately omit the toolBudgets key
+  // so the runtime bundle stays minimal (runtime treats absence and all-null
+  // identically).
+  const parsedNoBudgets = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    metadata: { commercialTag: "trial", notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: false,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
+      mediaClasses: { image: false, audio: false, video: false, file: false }
+    },
+    quotaLimits: { tokenBudgetLimit: 1000 },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted"
+  });
+  const writeInputNoBudgets = (
+    service as unknown as {
+      toWriteInput(input: typeof parsedNoBudgets): {
+        billingProviderHints: Record<string, unknown>;
+      };
+    }
+  ).toWriteInput(parsedNoBudgets);
+  assert.equal(
+    "toolBudgets" in writeInputNoBudgets.billingProviderHints,
+    false,
+    "billingProviderHints.toolBudgets is omitted when there is no override"
+  );
+
+  // Strict parser rejects non-positive perTurnCap on a tool activation.
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        metadata: { commercialTag: "trial", notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
+          mediaClasses: { image: false, audio: false, video: false, file: false }
+        },
+        quotaLimits: { tokenBudgetLimit: 1000 },
+        contextPolicy,
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted",
+        toolActivations: [
+          {
+            toolCode: "web_fetch",
+            active: true,
+            dailyCallLimit: null,
+            perTurnCap: 0
+          }
+        ]
+      }),
+    (error) => error instanceof BadRequestException && /perTurnCap/i.test(error.message)
+  );
+
+  // Strict parser rejects non-positive loop limit.
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        metadata: { commercialTag: "trial", notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: false,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false },
+          mediaClasses: { image: false, audio: false, video: false, file: false }
+        },
+        quotaLimits: { tokenBudgetLimit: 1000 },
+        contextPolicy,
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted",
+        toolBudgets: {
+          loopLimitByMode: { normal: -1, premium: null, reasoning: null }
+        }
+      }),
+    (error) => error instanceof BadRequestException && /loopLimitByMode\.normal/.test(error.message)
+  );
+
+  // Round-trip from on-disk billingHints back to AdminPlanState includes the
+  // resolved toolBudgets and the per-tool perTurnCap.
+  const stateWithToolBudgets = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        toolBudgets: { loopLimitByMode: Record<string, number | null> };
+        toolActivations: Array<{ toolCode: string; perTurnCap: number | null }>;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-3",
+    code: "starter",
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    billingProviderHints: {
+      toolBudgets: {
+        schema: "persai.toolBudgets.v1",
+        loopLimitByMode: { normal: 3, premium: null, reasoning: 9 }
+      }
+    },
+    entitlementModel: null,
+    toolActivations: [
+      {
+        toolCode: "web_fetch",
+        displayName: "Web Fetch",
+        toolClass: "cost_driving",
+        policyClass: "plan_managed",
+        activationStatus: "active",
+        dailyCallLimit: 10,
+        perTurnCap: 7
+      }
+    ],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-04-14T12:00:00.000Z"),
+    updatedAt: new Date("2026-04-14T12:00:00.000Z")
+  });
+  assert.deepEqual(stateWithToolBudgets.toolBudgets.loopLimitByMode, {
+    normal: 3,
+    premium: null,
+    reasoning: 9
+  });
+  const webFetchState = stateWithToolBudgets.toolActivations.find(
+    (entry) => entry.toolCode === "web_fetch"
+  );
+  assert.ok(webFetchState, "web_fetch activation is surfaced");
+  assert.equal(webFetchState.perTurnCap, 7);
 }
 
 void run();

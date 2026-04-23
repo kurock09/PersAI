@@ -1,5 +1,198 @@
 # SESSION-HANDOFF
 
+## 2026-04-23 (very late evening) — ADR-074 Slice L1 turnkey closeout — API-side bundle compile + admin PATCH + admin UI for the L1 tool-loop budgets (founder Q9-C closeout; code-landed; verification gate green)
+
+### Why this session
+
+Right after the L1 follow-up (next entry below) shipped the runtime read for `runtime.toolBudgets` and `RuntimeToolPolicy.perTurnCap`, the founder said: **«Что НЕ сделано - так делай до ума уже все под ключ»**. The previous slice deliberately stopped at the runtime side and left the API-side compile pipeline + admin UI for "a follow-up". This closeout wires the API end-to-end so the founder can edit the per-mode loop limits and per-tool hard caps from `/admin/plans` and have them flow through `MaterializeAssistantPublishedVersionService` into every freshly-published bundle without a runtime release.
+
+### What changed
+
+- **Schema.** New nullable `Int? per_turn_cap` column on `plan_catalog_tool_activations` via reversible additive migration `apps/api/prisma/migrations/20260423030000_adr074_l1_plan_per_turn_cap/migration.sql` (NULL = inherit code default; `Number.MAX_SAFE_INTEGER` = uncap on this plan). The per-mode loop-limit overrides reuse the existing `PlanCatalogPlan.billingProviderHints` JSON column under a versioned `toolBudgets` block (`{ schema: "persai.toolBudgets.v1", loopLimitByMode: { normal, premium, reasoning } }`) — no new column for them.
+- **Domain + repo.** `AssistantPlanCatalogToolActivation` (domain) and `AssistantPlanCatalogToolActivationOverride` (repo write input) gain a non-optional `perTurnCap: number | null` field; `PrismaAssistantPlanCatalogRepository.mapToDomain` and `syncToolActivationsForPlan` carry the column through the upsert.
+- **API parser / serializer.** New helper `apps/api/src/modules/workspace-management/application/tool-budgets-policy.ts` with `createDefaultPlanToolBudgets` / `parsePlanToolBudgets` (strict — `BadRequestException` on 0 / -1 / fractional / non-numeric per leaf with the right field path) / `resolveStoredPlanToolBudgets` (lenient — garbage degrades to NULL so an old/garbage row never blocks compile) / `toPlanToolBudgetsDocument` (emits the `persai.toolBudgets.v1` schema marker) / `hasAnyToolBudgetOverride` (used to skip the JSON block when every leaf is NULL).
+- **Admin DTO.** `AdminPlanToolActivation`, `AdminPlanToolActivationInput`, `AdminPlanInput`, `AdminPlanState` carry `perTurnCap` and `toolBudgets`. `ManageAdminPlansService.parsePlanInput` reads `parsed.toolBudgets`; `parseToolActivations` validates `typed.perTurnCap`; `toWriteInput` only emits the `toolBudgets` JSON block when there is at least one override (compact bundles for the common case); `toCanonicalToolActivationOverrides` propagates `perTurnCap` into the repo write; `toAdminPlanState` round-trips both fields back via `resolveStoredPlanToolBudgets`.
+- **Bundle compile.** `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts:ToolQuotaPolicyEntry` gains `perTurnCap: number | null`; `resolveRuntimeToolPolicies` builds a `perTurnCapByCode` map mirroring `dailyLimitByCode` and stamps the value onto every `RuntimeToolPolicy` it constructs (synthetic system tools and hidden-internal tools always emit `perTurnCap: null`). `MaterializeAssistantPublishedVersionService.resolveToolQuotaPolicy` now selects `perTurnCap` from `prisma.planCatalogToolActivation` and forwards it; new private `resolvePlanToolBudgets(planCode)` reads `PlanCatalogPlan.billingProviderHints.toolBudgets.loopLimitByMode`, sanitizes each leaf (positive integers only), and `buildRuntimeArtifacts` only injects `runtime.toolBudgets: { loopLimitByMode }` into the compile input when at least one leaf is non-null (`hasAnyLoopOverride`).
+- **Warm-path validation.** `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts:assertValidToolPolicy` rejects `perTurnCap` that is neither null nor a strictly-positive integer; new `assertToolBudgetsConfig` rejects malformed `runtime.toolBudgets.loopLimitByMode.{normal,premium,reasoning}` with the same rule. So a misconfigured override aborts at warm-path-load instead of silently falling back to the code default.
+- **Seeding.** `apps/api/prisma/tool-catalog-data.ts:STARTER_TRIAL_TOOL_POLICY` gains an explicit `perTurnCap: number | null` field on every entry (every starter row is `null` so the seeded plan inherits the runtime defaults); `apps/api/prisma/seed.ts` and `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts:syncToolActivations` carry the column through their respective `planCatalogToolActivation.upsert` calls.
+- **Public API contract.** `packages/contracts/openapi.yaml` adds `perTurnCap` (nullable integer with prose) to `AdminPlanToolActivation` / `AdminPlanToolActivationInput` and a new `AdminPlanToolBudgets` schema (`{ loopLimitByMode: { normal, premium, reasoning } }`, all nullable integers) referenced from `AdminPlanState` / `AdminPlanInputBase`. The orval client was regenerated (`pnpm --filter @persai/contracts run generate`); the regenerated `packages/contracts/src/generated/**` is checked in and prettier-formatted.
+- **Admin UI.** `apps/web/app/admin/plans/page.tsx` gains a new "Per-turn cap" input next to the existing "Daily cap" on every editable tool row in `ToolActivationsEdit` (with `setPerTurnCap` mirroring `setLimit`; blank means "use code default"), and a new `Sec` panel "Tool budgets (loop limits per execution mode)" with three integer inputs for `normal` / `premium` / `reasoning` plus help text explaining the resolution order. `ToolActivationDraft` and `PlanDraft` are extended; `planToDraft` populates from `AdminPlanState.toolBudgets.loopLimitByMode` defensively (null → ""), `draftToPayload` parses each blank → `null` and each filled value through `parseStrictIntegerDraft` so 0 / negative is caught at submit-time on the client. `apps/web/app/admin/plans/page.test.tsx` fixture seeds `perTurnCap: null` and a defaulted `toolBudgets` block.
+- **Tests.** New `apps/api/test/tool-budgets-policy.test.ts` exhaustively covers default + parser + resolver paths (round-trip schema marker, all-null = no-override, partial overrides survive, strict parser rejects 0 / -1 / 1.5 / NaN / "5" / true with `BadRequestException`, lenient resolver always returns defaults for garbage and keeps valid leaves while degrading bad ones to null). `apps/api/test/manage-admin-plans.service.test.ts` extended with a Slice L1 block (`parseUpdateInput` carries `perTurnCap`; `toWriteInput` writes the `persai.toolBudgets.v1` block only when there is an override; the override is omitted when every loop limit is null; strict parser rejects non-positive `perTurnCap` and loop limits with field-path in the error; `toAdminPlanState` round-trips both fields). `apps/api/test/runtime-tool-policy.test.ts` adds `perTurnCap` to its `planToolQuotaPolicy` fixture and asserts the runtime tool policy carries it for `web_search` (= 2), keeps `null` for `image_generate`, and keeps `null` for synthetic (`compact_context`) and hidden-internal (`cron`) policies. `apps/runtime/test/runtime-bundle-registry.service.test.ts` adds two new fixtures + assertions: `perTurnCap = 0` on a tool policy is rejected (`/perTurnCap must be null, omitted, or a strictly-positive integer/`), and `toolBudgets.loopLimitByMode.normal = 0` is rejected (`/toolBudgets\.loopLimitByMode\.normal must be null or a strictly-positive integer/`).
+
+### Files touched
+
+- `apps/api/prisma/schema.prisma` (new `perTurnCap Int?` column on `PlanCatalogToolActivation`)
+- `apps/api/prisma/migrations/20260423030000_adr074_l1_plan_per_turn_cap/migration.sql` (NEW — additive, reversible)
+- `apps/api/prisma/seed.ts`, `apps/api/prisma/tool-catalog-data.ts` (carry `perTurnCap` through seeding)
+- `apps/api/src/modules/workspace-management/application/tool-budgets-policy.ts` (NEW — parser / serializer / resolver / `hasAnyToolBudgetOverride`)
+- `apps/api/src/modules/workspace-management/application/admin-plan-management.types.ts` (new `AdminPlanToolBudgets`, `perTurnCap` on activations)
+- `apps/api/src/modules/workspace-management/application/manage-admin-plans.service.ts` (parse/write/round-trip `toolBudgets` + `perTurnCap`)
+- `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts` (`perTurnCap` on `ToolQuotaPolicyEntry` + `RuntimeToolPolicy`)
+- `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` (new `resolvePlanToolBudgets`; conditional `runtime.toolBudgets` emit)
+- `apps/api/src/modules/workspace-management/application/seed-tool-catalog.service.ts` (carry `perTurnCap` through `syncToolActivations`)
+- `apps/api/src/modules/workspace-management/domain/assistant-plan-catalog.entity.ts`, `…/repository.ts`, `…/infrastructure/persistence/prisma-assistant-plan-catalog.repository.ts` (domain + repo carry `perTurnCap`)
+- `apps/runtime/src/modules/bundles/runtime-bundle-registry.service.ts` (`assertValidToolPolicy` validates `perTurnCap`; new `assertToolBudgetsConfig`)
+- `packages/contracts/openapi.yaml` (new `AdminPlanToolBudgets`, `perTurnCap` on activations)
+- `packages/contracts/src/generated/**` (regenerated orval client; prettier-formatted)
+- `apps/web/app/admin/plans/page.tsx` (Per-turn cap input + Tool budgets panel + draft/payload wiring)
+- `apps/web/app/admin/plans/page.test.tsx` (fixture updated to satisfy the new required fields)
+- `apps/api/test/tool-budgets-policy.test.ts` (NEW)
+- `apps/api/test/manage-admin-plans.service.test.ts` (Slice L1 block added)
+- `apps/api/test/runtime-tool-policy.test.ts` (`perTurnCap` propagation assertions)
+- `apps/runtime/test/runtime-bundle-registry.service.test.ts` (warm-path rejection assertions)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `docs/ADR/074-humanity-and-cost-polish-program.md`
+
+### Verification gate
+
+- `pnpm lint` — clean across all 14 workspace projects
+- `pnpm format:check` — clean (after re-formatting the regenerated orval output and the new files)
+- `pnpm typecheck` — clean across all 14 workspace projects (runtime-contract / runtime-bundle / runtime / api / web all compile against the new fields)
+- `pnpm --filter @persai/api test` — green
+- `pnpm --filter @persai/runtime test` — green
+- `pnpm --filter @persai/web test` — green (19 files, 92 tests)
+
+### What is still pending
+
+- **`persai-dev` deploy + 6 founder live UI gates.** The original 4 L1 gates from the previous entry (chitchat-short ≤1 tool call, tool-heavy-search completes within new limits, long-session-200 unchanged, budget exhaustion visible in trace) **plus** 2 new gates for this closeout: (5) on `/admin/plans`, edit `web_fetch` "Per-turn cap" to 7 → save → re-open → cap persists, and a fresh assistant turn that emits 8 sequential `web_fetch` calls substitutes `tool_budget_exhausted` with `limit: 7, observed: 8`. (6) on `/admin/plans`, set "Tool budgets / normal" to 5 → save → re-open → value persists, and a fresh assistant turn in normal mode runs exactly 5 `web_fetch` iterations before substitution (visible via WARN line `[tool-budget-exhausted] reason=loop_limit limit=5 observed=6`).
+- **No backfill migration** on existing `plan_catalog_tool_activations` rows (legacy rows stay NULL = inherit code defaults; deploy is byte-for-byte identical until an admin actually saves a per-turn cap from the UI).
+
+### Risks and residuals
+
+- **Bundle JSON growth.** The compile pipeline only emits `runtime.toolBudgets` when at least one leaf is non-null and only emits `perTurnCap` per tool policy when explicitly set (NULL is omitted by Prisma → `RuntimeToolPolicy`). So bundles for plans that don't override anything stay the same size as before the closeout.
+- **Schema marker discipline.** The `toolBudgets` JSON block carries `schema: "persai.toolBudgets.v1"`. Future schema revisions must bump this marker, and `resolveStoredPlanToolBudgets` must remain forward-compatible (degrade unknown leaves to defaults instead of throwing) so an old API can read a new bundle without crashing during a rollout window.
+- **UI defensive parsing.** `draftToPayload` rejects `0` / negative / fractional via `parseStrictIntegerDraft` at submit-time, _and_ the API parser rejects them again, _and_ the warm-path validator rejects them a third time. Three layers is intentional — each layer covers a different operator workflow (UI direct edit, API curl, manual Postgres edit).
+
+### What is NOT in this slice
+
+- Backfill migration on existing rows.
+- R1 (model-supplied per-call budget hints) / R2 (parallel tool dispatch) / R3 (compound tools) — still out of scope.
+
+---
+
+## 2026-04-23 (late evening) — ADR-074 Slice L1 follow-up — limits made tunable per assistant via the runtime bundle (founder Q9-C revision; code-landed; verification gate green)
+
+### Why this session
+
+Immediately after the L1 implementation landed earlier today, the founder pushed back on the original ADR wording ("Limits are constants in `tool-budget-policy.ts`, not user-tunable"): **«Числа подобраны под текущие модели (gpt-5.4, claude и т.д.) - я их меняю. Нельзя хардкодить эти лимиты это тупо»**. Different plans ship different models, and tool-loop budgets need to travel with the model/plan, not be baked into runtime code. This follow-up keeps L1's defaults intact but adds two override surfaces so the API-side bundle compile pipeline (and a future admin UI) can change them per assistant without a runtime release.
+
+### What changed
+
+- **Per-assistant loop-limit override on the bundle.** New optional `RuntimeToolBudgetsConfig` interface in `packages/runtime-contract/src/index.ts` (`{ loopLimitByMode: { normal, premium, reasoning } | null }`) is now part of `AssistantRuntimeBundleRuntimeConfig` in `packages/runtime-bundle/src/index.ts` as `runtime.toolBudgets?: RuntimeToolBudgetsConfig | null`. The runtime treats any `null` / missing / non-positive leaf as "fall back to the code default", so a misconfigured bundle cannot accidentally turn the tool loop off (loopLimit=0 would silently break every tool-using turn).
+- **Per-tool cap override on each `RuntimeToolPolicy`.** New optional `perTurnCap?: number | null` field on `RuntimeToolPolicy` in `packages/runtime-contract/src/index.ts`, sitting next to the existing `dailyCallLimit`. Set it to a positive number to override the code default (`TOOL_HARD_CAP_PER_TURN[toolCode]`); set it to `Number.MAX_SAFE_INTEGER` to make a normally-capped tool effectively uncapped on this assistant; leave it null/omitted to keep the code default. Bundles can also use this to _add_ a cap to a tool that has no code default (e.g. throttle `knowledge_search` per turn for a particular plan).
+- **`apps/runtime/src/modules/turns/tool-budget-policy.ts` refactored.** `ToolBudgetPolicy` constructor now accepts an `options: { loopLimitOverrides?, perToolCapOverrides? }` bag. New private `resolveLoopLimit` / `resolvePerToolCap` helpers pick the override → code default → `null` (or default mode value) in one consistent order. Defensive guard rejects non-positive overrides. New exported `resolveAdvertisedPerTurnCap(toolName, overrides)` is used by the projection layer so model-facing tool descriptions show the cap that will actually fire at runtime, not the bare code default.
+- **`apps/runtime/src/modules/turns/turn-execution.service.ts`.** `createToolBudgetPolicy(execution)` now reads `bundle.runtime.toolBudgets?.loopLimitByMode ?? null` and walks `bundle.governance.toolPolicies` to collect every explicit `perTurnCap` into a `Map<string, number | null>`, then hands both to the new `ToolBudgetPolicy(mode, options)` constructor. `collectPerToolCapOverrides(execution)` short-circuits to `null` when no policies set an override, so the policy can keep the lookup hot-path cheap.
+- **`apps/runtime/src/modules/turns/native-tool-projection.ts`.** Replaced the inline `TOOL_HARD_CAP_PER_TURN[name]` reads inside each tool-definition factory with a small `appendPerTurnCapHint(base, toolCode, policy)` / `describePerTurnCap(toolCode, policy)` helper pair that consults `policy.perTurnCap` first, then the code default. The model now sees the resolved per-assistant cap in `web_search`, `web_fetch`, `image_generate`, `image_edit`, and `video_generate` descriptions; tools that resolve to "no cap" (e.g. when a bundle uncapped them) now correctly omit the suffix instead of advertising a stale number.
+- **`apps/runtime/test/tool-budget-policy.test.ts`.** Added override-path scenarios: bundle override `loopLimitByMode.normal=5` replaces the default of 2; `null` / `0` / `-3` overrides are ignored (defensive guard); per-tool override on `web_fetch` lifts the cap to 10 and proves 10 reservations succeed before exhaustion at 11; per-tool override can _add_ a cap to a normally-uncapped `knowledge_search`; `Number.MAX_SAFE_INTEGER` override on `image_generate` makes 50 calls succeed without per-tool exhaustion.
+- **`apps/runtime/test/turn-execution.service.test.ts`.** Added a 4th L1 integration scenario (`L1 Test 4 — per-assistant bundle override of loopLimitByMode`). Mutates `bundleRegistry.entry.parsedBundle.runtime.toolBudgets` to `{ loopLimitByMode: { normal: 5, premium: null, reasoning: null } }`, runs a normal-mode turn that emits 6 sequential `web_fetch` iterations, and asserts exactly 5 real `web_fetch` executions plus a synthesized `tool_budget_exhausted` toolHistory entry with `budgetReason: "loop_limit"`, `limit: 5`, `observed: 6`. The test resets `toolBudgets = null` in a `finally` so the override does not leak into later blocks.
+
+### Files touched
+
+- `packages/runtime-contract/src/index.ts` (new `RuntimeToolBudgetsConfig`, new `RuntimeToolPolicy.perTurnCap`)
+- `packages/runtime-bundle/src/index.ts` (new `runtime.toolBudgets?` field; import wire-up)
+- `apps/runtime/src/modules/turns/tool-budget-policy.ts` (constructor options, override resolution, `resolveAdvertisedPerTurnCap`)
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` (`createToolBudgetPolicy` reads bundle, `collectPerToolCapOverrides`)
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` (`appendPerTurnCapHint` / `describePerTurnCap` helpers)
+- `apps/runtime/test/tool-budget-policy.test.ts` (override scenarios)
+- `apps/runtime/test/turn-execution.service.test.ts` (L1 Test 4 — bundle override end-to-end)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`, `docs/ADR/074-humanity-and-cost-polish-program.md`
+
+### Verification gate
+
+- `pnpm -r --if-present run lint` — clean across all 14 workspace projects
+- `pnpm format:check` — clean (after a single `prettier --write` round on the regenerated `tool-budget-policy.ts` and `turn-execution.service.ts`)
+- `pnpm -w typecheck` — clean (runtime-contract / runtime-bundle / runtime / api / web all compile against the new `perTurnCap` and `toolBudgets` fields without changes elsewhere because both fields are optional)
+- `pnpm --filter @persai/runtime test` — full suite passes; the test log now shows four L1 `[tool-budget-exhausted]` WARN lines including the new override-driven `reason=loop_limit limit=5 observed=6 iteration=5` from L1 Test 4, proving the bundle override actually replaced the code default at runtime
+
+### What is still pending
+
+- **API-side bundle compile pipeline.** This slice only adds the _contract_ and the _runtime read_ for the override fields. The compiler in `apps/api` still needs to learn how to populate `runtime.toolBudgets` and `RuntimeToolPolicy.perTurnCap` (e.g. from a per-plan template, a per-assistant override row, or a bundle-author-only field). Until that lands, every published bundle has both fields absent and the runtime falls back to the unchanged code defaults — so production behaviour is byte-for-byte identical to the pre-revision L1 landing.
+- **Admin UI.** No surface yet to edit either field. Founder approved deferring that to a separate slice.
+- **Per-model defaults.** The founder hinted at "у разных планов разные модели будут предлогай"; the most natural way to express that is plan-templated bundle compile (see above), not a hard-coded model→budget mapping in code.
+
+### Risks and residuals
+
+- The override is **per-assistant via bundle**, not per-turn. A model-supplied per-call budget hint is a separate slice (R1 — `requestedBudget`). L1's resolution order is `bundle override → code default → null`, which means a future R1 will need to compose with this layer (R1 = upper bound on top of the L1 result), not replace it.
+- Tool-description text now reflects the resolved cap, so changing `perTurnCap` on a bundle will change what the model sees on the very next turn after deploy. This is intentional (otherwise the model would self-pace incorrectly), but operators should be aware that lowering a cap on a hot bundle has an immediate behavioural effect.
+- The defensive guard against non-positive overrides means an operator who sets `loopLimitByMode.normal = 0` will silently get the code default instead of zero. That is the correct fail-safe (zero would disable the loop entirely), but anyone debugging "why did my zero override not apply" should look at the policy's `resolveLoopLimit` first.
+
+### What is NOT in this slice
+
+- Persistence of the new fields in any API-side data store (Prisma schema unchanged).
+- Bundle compile pipeline changes in `apps/api`.
+- Admin UI surface.
+- R1 / R2 / R3 — still out of scope (see prior L1 entry below).
+
+---
+
+## 2026-04-23 (evening) — ADR-074 Slice L1 — Adaptive tool loop limits per execution mode (code-landed; verification gate green; awaiting `persai-dev` deploy + 4 founder live UI gates)
+
+### Why this session
+
+Phase 4 of ADR-074 starts with **L1 — Adaptive tool loop limits per execution mode**. Prerequisite slice S0 is closed and live-accepted, so L1 was the highest-priority unfinished slice today. Goal in one sentence: replace the universal pre-L1 cap of `MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4` (which would fail any tool-heavy turn with `native_tool_loop_exhausted`) with mode-aware limits (`normal=2`, `premium=4`, `reasoning=8`) plus per-tool hard caps (`web_fetch ≤ 5`, `web_search ≤ 3`, `image_generate / image_edit / video_generate ≤ 1`, `memory_*` / `summarize_context` / `compact_context` / `knowledge_*` unlimited within the loop budget), surfaced as structured `tool_budget_exhausted` results so the model can wrap up honestly when a budget is hit.
+
+### What I found
+
+- Pre-L1, `apps/runtime/src/modules/turns/turn-execution.service.ts` had a single hardcoded `MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4` constant guarding both the streaming and non-streaming tool loops, and a hard failure (`native_tool_loop_exhausted`) when the cap was hit. There was no notion of per-tool budgets, no graceful exhaustion outcome the model could read, and no way for downstream slices (R1 `requestedBudget`, R2 parallel calls, R3 compound tools) to attach their own budget signals.
+- Routing already exposes `executionMode: "normal" | "premium" | "reasoning"` via `TurnRouteDecision` from `apps/runtime/src/modules/turns/turn-routing.service.ts`, so L1 only needs to consume an existing decision; it does not need to re-route. This kept the slice scoped exactly to "tune, don't rebuild" (Principle 3 / Q9-C part 1 in the ADR).
+- The default tool descriptions in `apps/runtime/src/modules/turns/native-tool-projection.ts` are visible to the model on every turn but did not advertise any per-turn cap, so without an update the model would have no way of self-pacing inside the new caps.
+- `apps/runtime/test/turn-execution.service.test.ts` is a single 5,200+-line orchestrated test with shared mock state across blocks; new scenarios needed to be appended at the very end and re-seed `web_fetch` credentials defensively (the preceding `web_search` block had stripped surrounding credential state).
+
+### What changed
+
+- **New file `apps/runtime/src/modules/turns/tool-budget-policy.ts`.** Defines `TOOL_LOOP_LIMIT_BY_MODE = { normal: 2, premium: 4, reasoning: 8 }` and `TOOL_HARD_CAP_PER_TURN = { web_fetch: 5, web_search: 3, image_generate: 1, image_edit: 1, video_generate: 1 }` (memory and shared-compaction tools deliberately absent so durable-memory work is never choked off). Exports `ToolBudgetPolicy` (per-turn mutable tracker with `loopLimit()`, `perToolCap(name)`, `observedToolCount(name)`, `reserve(toolName, iterationIndex)`), `ToolBudgetReservation` (a discriminated union with `exhausted: false` or `{ exhausted: true, reason: "loop_limit" | "per_tool_cap", limit, observed }`), `ToolBudgetExhaustedResult` (the structured tool-result shape returned to the model), and `createToolBudgetExhaustedResult({ toolName, reservation })`. The `reserve` method is the single source of truth for budget decisions and intentionally does **not** mutate the per-tool counter on an exhausted reservation, so the smoke harness does not over-count exhaustion attempts.
+- **Wired into both branches of `apps/runtime/src/modules/turns/turn-execution.service.ts`.** The pre-L1 `MAX_NATIVE_TOOL_LOOP_ITERATIONS = 4` constant is replaced by `NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS = 2` and a per-turn `ToolBudgetPolicy` instantiated via `createToolBudgetPolicy(execution)`. The iteration cap is now `toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS` (the wrap-up window reserves room for substituted-result delivery + final text reply). Inside both `streamAcceptedTurn` and `executeProviderToolLoop`, every emitted tool call now passes through `toolBudgetPolicy.reserve(toolCall.name, iteration)` before any external execution; on `exhausted: true` the runtime substitutes a `tool_budget_exhausted` outcome built by `createToolBudgetExhaustedOutcome`, which routes through the same `applyToolExecutionOutcome` / `toolHistory` pipeline as a real tool result. The `native_tool_loop_exhausted` failure message now reads `Native tool loop exceeded N iterations (mode=<mode>, loopLimit=<n>, wrapUp=2).` Each substitution emits a WARN line (`[tool-budget-exhausted] requestId=… sessionId=… tool=… reason=… limit=… observed=… iteration=…`) and a trace stage (`iter<n>.tool_budget_exhausted.<tool>`).
+- **`apps/runtime/src/modules/turns/native-tool-projection.ts`.** Imports `TOOL_HARD_CAP_PER_TURN` from the new policy module and suffixes the per-turn cap inline into the model-facing default descriptions for `web_search`, `web_fetch`, `image_generate`, `image_edit`, and `video_generate`, so the cap stays DRY between runtime enforcement and the model's projected tool list.
+- **New test `apps/runtime/test/tool-budget-policy.test.ts`** (registered in `apps/runtime/test/run-suite.ts`). Locks every founder-confirmed numeric (loop limits per mode, per-tool caps, the deliberate absence of `memory_write` / `summarize_context` / `compact_context` from the cap table), the `loopLimit()` per-mode lookup, the per-tool counter's exhaust-then-don't-bump invariant on both the `per_tool_cap` and `loop_limit` branches, and the `createToolBudgetExhaustedResult` shape including the per-tool hint that names the tool. Failure messages name the L1 bug class.
+- **Three new integration scenarios appended to `apps/runtime/test/turn-execution.service.test.ts`.** (a) Normal-mode loop limit — three sequential `web_fetch` iterations produce exactly two real `webFetchCalls` and a synthesized `tool_budget_exhausted` toolHistory entry with `budgetReason: "loop_limit"`, `limit: 2`, `observed: 3`, then the model wraps up. (b) Per-tool cap inside a single iteration — six `web_fetch` calls in iteration 0 produce exactly five real executions and one synthesized entry with `budgetReason: "per_tool_cap"`, `limit: 5`, `observed: 6`. (c) Premium mode (`deepMode: true`) — five sequential `web_fetch` iterations produce four real executions before a `loop_limit` substitution at iteration 4, proving the per-mode lookup works and that premium does not silently fall back to normal=2.
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/tool-budget-policy.ts` (new)
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/runtime/test/tool-budget-policy.test.ts` (new)
+- `apps/runtime/test/run-suite.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/ADR/074-humanity-and-cost-polish-program.md` (Slice L1 Status)
+
+### Verification gate
+
+- `pnpm -r --if-present run lint` — clean across all 14 workspace projects
+- `pnpm format:check` — clean (after one `prettier --write` round on the two edited runtime files)
+- `pnpm --filter @persai/runtime run typecheck` — clean
+- `pnpm --filter @persai/api typecheck` — clean
+- `pnpm --filter @persai/web typecheck` — clean
+- `pnpm --filter @persai/runtime exec tsx test/run-suite.ts` — full runtime suite passes; the three new `[tool-budget-exhausted]` WARN lines appear in the test log (`reason=loop_limit limit=2 observed=3 iteration=2`, `reason=per_tool_cap limit=5 observed=6 iteration=0`, `reason=loop_limit limit=4 observed=5 iteration=4`), confirming all three exhaustion code paths fire.
+
+### Acceptance signals (still pending)
+
+The four founder live UI gates from the L1 acceptance section of `docs/ADR/074-humanity-and-cost-polish-program.md` are still pending against `persai-dev`:
+
+1. `chitchat-short` smoke scenario still uses ≤ 1 tool call (no regression from S0 baselines).
+2. `tool-heavy-search` smoke scenario completes within the new mode-aware limits (no `native_tool_loop_exhausted` failure).
+3. Budget exhaustion is observable in trace output / smoke report — i.e. a turn that hits a cap shows a `iter<n>.tool_budget_exhausted.<tool>` trace stage and/or a `tool_budget_exhausted` toolHistory entry.
+4. Founder live runs of the standard tool-heavy prompts on `persai-dev` confirm the assistant wraps up with an honest "I hit my budget" reply rather than failing the turn.
+
+### Risks and residuals
+
+- The slice changes a runtime invariant (loop budget) that affects every turn. The mitigation is that pre-L1's hard cap of 4 maps to premium's loopLimit=4, so premium-mode turns are functionally identical; only `normal` (now 2) and `reasoning` (now 8) shift in opposite directions. The smoke harness should detect any regression in `chitchat-short` (normal mode → fewer iterations) and `tool-heavy-search` (used to fail with exhaustion → should now wrap up gracefully).
+- Memory/compaction tools are intentionally uncapped per turn but still bounded by the loop limit. In normal mode (loopLimit=2) a turn that wants both a `summarize_context` and a `memory_write` plus a real reply has exactly enough headroom; if a future product surface needs more, that is an R-slice or a separate ADR change, not a quiet L1 tweak.
+- Tool-description suffixes (`Per-turn cap: N calls; further calls return tool_budget_exhausted and you must reply with what you have.`) only land on the **default** tool descriptions in `native-tool-projection.ts`. If a `RuntimeToolPolicy` ships its own explicit `description`, the suffix is overridden — runtime enforcement still applies, but the model is not told the cap. This is acceptable for L1 and is logged as a residual to consider when overriding policies appear in admin UIs.
+- The classifier-driven `reasoning` execution mode is exercised only by the policy-level unit tests, not by an end-to-end integration test, because wiring the routing classifier mock for a single scenario inside the 5,200-line `turn-execution.service.test.ts` was disproportionately fragile. The policy unit tests cover the reasoning loopLimit=8 numeric, and the premium-mode integration test exercises the per-mode dispatch end-to-end.
+
+### What is NOT in this slice
+
+L1 is the foundation; downstream slices in Phase 4 layer on top of it and are explicitly **out of scope** here:
+
+- **R1 — model-requested per-call budget hints.** L1 ignores any model-supplied budget hint; R1 will read it and apply it as an upper bound on top of L1's caps.
+- **R2 — parallel tool dispatch within a single iteration.** L1 still iterates emitted tool calls sequentially inside `event.result.toolCalls`.
+- **R3 — compound / reusable tools.** L1 treats every tool call as a single unit for budget purposes.
+- **Routing changes.** L1 only reads the existing `executionMode`; it does not re-route or recompute the routing decision.
+
+---
+
 ## 2026-04-23 (later) - ADR-074 Memory Center "Session expired" — actual root cause: `close-open-loop` POST was missing from `ClerkAuthMiddleware.forRoutes(...)`
 
 ### Why this session
@@ -313,6 +506,7 @@ The five constants live in code (`apps/api/src/modules/workspace-management/appl
 ### Files touched (grouped by area)
 
 **Presence side**
+
 - `apps/runtime/src/modules/turns/relative-time-formatter.ts` (NEW) — shared bilingual `humanizeAge` + `resolveRelativeTimeLocale`.
 - `apps/runtime/src/modules/turns/cross-session-carry-over-renderer.ts` — extract + re-export `humanizeAge`; M3 keeps using the helper without a locale arg.
 - `apps/runtime/src/modules/turns/presence-renderer.ts` (NEW) — pure `renderPresenceBlock` interpolating the four placeholders, with graceful fallbacks for null timestamps ("never" / "никогда"), bad timezones (UTC fallback), and unknown placeholders (left untouched).
@@ -325,6 +519,7 @@ The five constants live in code (`apps/api/src/modules/workspace-management/appl
 - `apps/web/app/admin/presets/page.tsx` — `presence` added to `ORDINARY_TEMPLATE_IDS`, `PRESET_META`, and `SAMPLE_VARIABLES` so it shows up in the admin Prompts presets editor with a meaningful preview.
 
 **Safeguards side**
+
 - `apps/api/prisma/schema.prisma` — three additive columns on `AssistantTaskRegistryItem`.
 - `apps/api/prisma/migrations/20260423000000_adr074_t1_proactive_push_safeguards/migration.sql` (NEW) — additive `ALTER TABLE` for the three columns.
 - `apps/api/src/modules/workspace-management/application/proactive-push-policy.constants.ts` (NEW) — the five (six counting `ANSWERED_WINDOW_HOURS`) policy constants.
@@ -333,6 +528,7 @@ The five constants live in code (`apps/api/src/modules/workspace-management/appl
 - `apps/api/src/modules/workspace-management/workspace-management.module.ts` — `ProactivePushPolicyService` provider registration (value `import`, not `import type` — M2 DI footgun precedent).
 
 **Tests**
+
 - `apps/api/test/compile-prompt-constructor.service.test.ts` — new `runPresenceCachedPrefixInvariant` locks the P1 invariant for the new template (system prompt byte-stable when only `presence` changes; placeholders never leak into the system prompt; the per-turn `presence` document still varies and stays unresolved).
 - `apps/runtime/test/relative-time-formatter.test.ts` (NEW) — English + Russian + locale-resolution + edge-case coverage.
 - `apps/runtime/test/presence-renderer.test.ts` (NEW) — English + Russian rendering, "never" fallback for null timestamps, blank-template returns null, bad-timezone falls back to UTC, unknown placeholders left alone.
@@ -342,24 +538,25 @@ The five constants live in code (`apps/api/src/modules/workspace-management/appl
 - `apps/runtime/test/turn-execution.service.test.ts` — `FakeTurnContextHydrationService` extended with a `computePresenceBlock` stub returning `null` by default (mirrors a bundle without a presence template).
 
 **Docs**
+
 - `docs/SESSION-HANDOFF.md` — this entry.
 - `docs/CHANGELOG.md` — new "Unreleased" bullet.
 - `docs/ADR/074-humanity-and-cost-polish-program.md` — Slice T1 status flipped to `code-landed in code (2026-04-23), awaiting persai-dev deploy + founder live UI gates`.
 
 ### Verification gate
 
-| # | Command | Result |
-|---|---------|--------|
-| 1 | `corepack pnpm --filter @persai/api prisma:generate` | ✅ pass |
-| 2 | `corepack pnpm --filter @persai/contracts build` | n/a — T1 does not regenerate any contract |
-| 3 | `corepack pnpm -r --if-present run lint` | ✅ pass (0 warnings on touched files) |
-| 4 | `corepack pnpm run format:check` | ✅ pass (4 newly-touched files were prettier-written before the check) |
-| 5 | `corepack pnpm --filter @persai/api run typecheck` | ✅ pass |
-| 6 | `corepack pnpm --filter @persai/web run typecheck` | ✅ pass |
-| 7 | `corepack pnpm --filter @persai/runtime run typecheck` | ✅ pass |
-| 8 | `corepack pnpm --filter @persai/runtime-contract run typecheck` | ✅ pass |
-| 9 | `corepack pnpm --filter @persai/api test` | ✅ pass (full suite, including the 13 new policy tests + 4 new scheduler-integration tests + 1 new compile-prompt-constructor invariant test) |
-| 10 | `corepack pnpm --filter @persai/runtime test` | ✅ pass (full suite, including the 2 new presence test files; existing turn-execution suite extended with the `computePresenceBlock` stub) |
+| #   | Command                                                         | Result                                                                                                                                        |
+| --- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `corepack pnpm --filter @persai/api prisma:generate`            | ✅ pass                                                                                                                                       |
+| 2   | `corepack pnpm --filter @persai/contracts build`                | n/a — T1 does not regenerate any contract                                                                                                     |
+| 3   | `corepack pnpm -r --if-present run lint`                        | ✅ pass (0 warnings on touched files)                                                                                                         |
+| 4   | `corepack pnpm run format:check`                                | ✅ pass (4 newly-touched files were prettier-written before the check)                                                                        |
+| 5   | `corepack pnpm --filter @persai/api run typecheck`              | ✅ pass                                                                                                                                       |
+| 6   | `corepack pnpm --filter @persai/web run typecheck`              | ✅ pass                                                                                                                                       |
+| 7   | `corepack pnpm --filter @persai/runtime run typecheck`          | ✅ pass                                                                                                                                       |
+| 8   | `corepack pnpm --filter @persai/runtime-contract run typecheck` | ✅ pass                                                                                                                                       |
+| 9   | `corepack pnpm --filter @persai/api test`                       | ✅ pass (full suite, including the 13 new policy tests + 4 new scheduler-integration tests + 1 new compile-prompt-constructor invariant test) |
+| 10  | `corepack pnpm --filter @persai/runtime test`                   | ✅ pass (full suite, including the 2 new presence test files; existing turn-execution suite extended with the `computePresenceBlock` stub)    |
 
 ### Risks / residuals
 
