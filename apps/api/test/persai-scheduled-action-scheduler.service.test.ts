@@ -32,6 +32,10 @@ type SchedulerRow = {
   lastAnsweredCheckAt: Date | null;
   consecutiveUnanswered: number;
   workspaceTimezone: string | null;
+  // ADR-074 F1: shared per-task attempt counter for backoff + dead-letter.
+  attemptCount: number;
+  lastErrorMessage?: string | null;
+  lastErrorAt?: Date | null;
 };
 
 // ADR-074 Slice T1: a tiny fake that records every policy invocation so the
@@ -59,6 +63,9 @@ function defaultRowFields(): {
   lastAnsweredCheckAt: Date | null;
   consecutiveUnanswered: number;
   workspaceTimezone: string | null;
+  attemptCount: number;
+  lastErrorMessage: string | null;
+  lastErrorAt: Date | null;
 } {
   return {
     userId: "user-1",
@@ -66,7 +73,10 @@ function defaultRowFields(): {
     lastFiredAt: null,
     lastAnsweredCheckAt: null,
     consecutiveUnanswered: 0,
-    workspaceTimezone: "UTC"
+    workspaceTimezone: "UTC",
+    attemptCount: 0,
+    lastErrorMessage: null,
+    lastErrorAt: null
   };
 }
 
@@ -109,10 +119,6 @@ class FakeBumpConfigGenerationService {
 }
 
 class FakeWorkspaceManagementPrismaService {
-  runtimeTurnReceipt: {
-    count: (params: { where: { externalThreadKey: string } }) => Promise<number>;
-  };
-
   // ADR-074 Slice T1: scheduler now reads `assistantChatMessage.findFirst`
   // for the latest user-authored message when evaluating the proactive-push
   // policy gate. Tests can override `latestUserMessageAt` to exercise the
@@ -128,16 +134,8 @@ class FakeWorkspaceManagementPrismaService {
 
   constructor(
     public rows: SchedulerRow[],
-    private readonly getCurrentEpoch: () => number,
-    private readonly failedReceiptsByExternalRef: Record<string, number> = {}
-  ) {
-    this.runtimeTurnReceipt = {
-      count: async ({ where }: { where: { externalThreadKey: string } }) => {
-        const externalRef = where.externalThreadKey.replace("system:scheduled-action:", "");
-        return this.failedReceiptsByExternalRef[externalRef] ?? 0;
-      }
-    };
-  }
+    private readonly getCurrentEpoch: () => number
+  ) {}
 
   assistantTaskRegistryItem = {
     updateMany: async ({
@@ -237,7 +235,8 @@ class FakeWorkspaceManagementPrismaService {
             lastFiredAt: row.lastFiredAt,
             lastAnsweredCheckAt: row.lastAnsweredCheckAt,
             consecutiveUnanswered: row.consecutiveUnanswered,
-            workspaceTimezone: row.workspaceTimezone
+            workspaceTimezone: row.workspaceTimezone,
+            attemptCount: row.attemptCount
           }));
       },
       assistantTaskRegistryItem: {
@@ -681,13 +680,13 @@ async function runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest(): Pro
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
         ...defaultRowFields(),
+        // ADR-074 F1: even at the new dead-letter limit, a recurring assistant
+        // task must NOT disable — it advances to the next slot instead.
+        attemptCount: 4,
         createdAt: new Date(dueAt.getTime() - everyMs)
       }
     ],
-    () => epochs.currentEpoch,
-    {
-      "job-assistant-recurring-cap": 5
-    }
+    () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
   const assistantRunner = new FakeRunScheduledAssistantActionService();
@@ -715,6 +714,10 @@ async function runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest(): Pro
 async function runAssistantFailureExhaustionTest(): Promise<void> {
   const dueAt = new Date(Date.now() - 60_000);
   const epochs = new FakeBumpConfigGenerationService(3);
+  // ADR-074 F1: previously this test plumbed `failedReceiptsByExternalRef: 5`
+  // to flip the receipt-counting branch; the new contract is a single
+  // per-task `attemptCount` column and we disable when `nextAttempt >= 5`,
+  // so this row already has 4 prior attempts (the 5th is about to be bumped).
   const prisma = new FakeWorkspaceManagementPrismaService(
     [
       {
@@ -738,13 +741,11 @@ async function runAssistantFailureExhaustionTest(): Promise<void> {
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
         ...defaultRowFields(),
+        attemptCount: 4,
         createdAt: new Date(dueAt.getTime() - 60_000)
       }
     ],
-    () => epochs.currentEpoch,
-    {
-      "job-assistant-stop": 5
-    }
+    () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
   const assistantRunner = new FakeRunScheduledAssistantActionService();

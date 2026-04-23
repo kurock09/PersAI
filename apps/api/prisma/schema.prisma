@@ -1256,6 +1256,17 @@ model AssistantTaskRegistryItem {
   lastFiredAt          DateTime? @map("last_fired_at") @db.Timestamptz(6)
   lastAnsweredCheckAt  DateTime? @map("last_answered_check_at") @db.Timestamptz(6)
   consecutiveUnanswered Int      @default(0) @map("consecutive_unanswered")
+  // ADR-074 F1 (background-task hygiene): the scheduler used to retry a
+  // failing scheduled action ~5 times in 1.5 min by counting `RuntimeTurnReceipt`
+  // rows (multiple iterations per turn → counter saturated almost immediately
+  // with no exponential backoff and no observable signal). `attemptCount` is
+  // bumped exactly once per `processClaimedTask` invocation that ends in a
+  // failure-and-retry decision; the scheduler now uses it both to gate
+  // exponential backoff and to disable a task after MAX_ATTEMPTS. `lastErrorMessage`
+  // captures the last failure reason so the admin task-list can surface it.
+  attemptCount      Int       @default(0) @map("attempt_count")
+  lastErrorMessage  String?   @map("last_error_message") @db.VarChar(2000)
+  lastErrorAt       DateTime? @map("last_error_at") @db.Timestamptz(6)
   createdAt       DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
   assistant       Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)

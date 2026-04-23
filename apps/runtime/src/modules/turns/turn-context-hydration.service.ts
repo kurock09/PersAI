@@ -39,6 +39,15 @@ const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
+// ADR-074 F1: Postgres uuid columns reject any non-UUID literal in `WHERE`
+// clauses with `Inconsistent column data: Error creating UUID, …`. We use this
+// guard before passing `RuntimeTurnRequest.idempotencyKey` (free-form string)
+// into a Prisma uuid column comparison. Exported for the regression unit
+// test that pins the exact set of rejected shapes.
+const UUID_LIKE_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuidLikeIdempotencyKey(value: string | null | undefined): value is string {
+  return typeof value === "string" && UUID_LIKE_REGEX.test(value);
+}
 type HydratedCanonicalSurface = Extract<
   RuntimeTurnRequest["conversation"]["channel"],
   "web" | "telegram"
@@ -492,6 +501,20 @@ export class TurnContextHydrationService {
     }
     let lastUserMessageInThreadAt: Date | null = null;
     let lastUserMessageAnywhereAt: Date | null = null;
+    // ADR-074 F1: `AssistantChatMessage.id` is a Postgres `uuid` column, but
+    // `RuntimeTurnRequest.idempotencyKey` is a free-form string — for example
+    // scheduled actions pass `"scheduled-action:<externalRef>:<runAtMs>"`. The
+    // previous `id: { not: input.idempotencyKey }` clause crashed with
+    // `Inconsistent column data: Error creating UUID, … found 's' at 1` on
+    // EVERY non-UUID idempotency key (i.e. essentially every turn driven by a
+    // scheduled action), the catch swallowed it, and the presence block silently
+    // rendered with null timestamps — fully defeating T1 sense-of-time. Only
+    // apply the exclusion when the key is actually shaped like a UUID; the
+    // column-by-column comparison stays safe for the legitimate web-chat case
+    // where the user message ID is a UUID created upstream.
+    const excludeInboundMessageId = isUuidLikeIdempotencyKey(input.idempotencyKey)
+      ? input.idempotencyKey
+      : null;
     try {
       const chat = await this.prisma.assistantChat.findFirst({
         where: {
@@ -507,7 +530,7 @@ export class TurnContextHydrationService {
             chatId: chat.id,
             assistantId: input.conversation.assistantId,
             author: "user",
-            id: { not: input.idempotencyKey }
+            ...(excludeInboundMessageId === null ? {} : { id: { not: excludeInboundMessageId } })
           },
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           select: { createdAt: true }
@@ -518,7 +541,7 @@ export class TurnContextHydrationService {
         where: {
           assistantId: input.conversation.assistantId,
           author: "user",
-          id: { not: input.idempotencyKey }
+          ...(excludeInboundMessageId === null ? {} : { id: { not: excludeInboundMessageId } })
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: { createdAt: true }

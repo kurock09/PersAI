@@ -39,6 +39,10 @@ function buildScheduledActionPrompt(input: {
     "3. That user-visible scheduled_action should include a short reminderText in the user's language that explains what changed and why the follow-up may help.",
     "4. If the condition is not met, the user is already doing well, or the evidence is too weak, do not create a user-visible scheduled_action.",
     "5. Prefer silence over guessing, guilt-tripping, or low-confidence nudges.",
+    // ADR-074 F1: prevent the assistant from cloning the same hidden task back
+    // onto itself ("recursive self-schedule"). The work belongs to THIS turn;
+    // at most ONE audience=user follow-up may be created downstream of it.
+    '6. You MUST NOT create another audience="assistant" scheduled_action that mirrors this same task — do the work in this turn and, only if conditions warrant, create exactly one audience="user" follow-up.',
     "Examples:",
     " - USD/RUB check: fetch the rate; if it is above the requested threshold, create an immediate audience=user scheduled_action; otherwise create nothing for the user.",
     " - News digest: fetch the latest stories; if the task asks for a user-facing summary, create an immediate audience=user scheduled_action with a concise summary in the user's language.",

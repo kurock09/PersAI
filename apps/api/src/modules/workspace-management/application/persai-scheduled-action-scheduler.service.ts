@@ -15,9 +15,16 @@ import { ProactivePushPolicyService } from "./proactive-push-policy.service";
 const SCHEDULED_ACTION_POLL_INTERVAL_MS = 5_000;
 const SCHEDULED_ACTION_BATCH_SIZE = 8;
 const SCHEDULED_ACTION_CLAIM_TTL_MS = 120_000;
-const SCHEDULED_ACTION_RETRY_DELAY_MS = 30_000;
-const ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS = 5;
-const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
+// ADR-074 F1 (background-task hygiene): the previous flat 30 s retry +
+// `RuntimeTurnReceipt`-counted exhaustion saturated within ~1.5 min on a
+// stable upstream failure (multiple receipts per turn) and gave the user no
+// observable signal. Replaced by a per-task `attemptCount` (single bump per
+// `processClaimedTask` invocation) with exponential backoff capped at 1 h
+// and a hard MAX_ATTEMPTS dead-letter for both audiences.
+const SCHEDULED_ACTION_RETRY_BASE_DELAY_MS = 30_000;
+const SCHEDULED_ACTION_RETRY_MAX_DELAY_MS = 60 * 60_000;
+const SCHEDULED_ACTION_MAX_ATTEMPTS = 5;
+const SCHEDULED_ACTION_LAST_ERROR_MESSAGE_MAX_CHARS = 2000;
 
 type ClaimedScheduledAction = {
   id: string;
@@ -39,6 +46,8 @@ type ClaimedScheduledAction = {
   lastAnsweredCheckAt: Date | null;
   consecutiveUnanswered: number;
   workspaceTimezone: string | null;
+  // ADR-074 F1: per-task attempt counter for backoff + dead-letter.
+  attemptCount: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,6 +159,7 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           lastAnsweredCheckAt: Date | null;
           consecutiveUnanswered: number;
           workspaceTimezone: string | null;
+          attemptCount: number;
         }>
       >(Prisma.sql`
         SELECT
@@ -168,6 +178,7 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           t."last_fired_at" AS "lastFiredAt",
           t."last_answered_check_at" AS "lastAnsweredCheckAt",
           t."consecutive_unanswered" AS "consecutiveUnanswered",
+          t."attempt_count" AS "attemptCount",
           w."timezone" AS "workspaceTimezone"
         FROM "assistant_task_registry_items" t
         LEFT JOIN "workspaces" w ON w."id" = t."workspace_id"
@@ -222,7 +233,8 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
           lastFiredAt: row.lastFiredAt,
           lastAnsweredCheckAt: row.lastAnsweredCheckAt,
           consecutiveUnanswered: row.consecutiveUnanswered,
-          workspaceTimezone: row.workspaceTimezone
+          workspaceTimezone: row.workspaceTimezone,
+          attemptCount: row.attemptCount
         });
       }
       return claimed;
@@ -302,54 +314,100 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         lastAnsweredCheckAtAfter: policyDecision.lastAnsweredCheckAtAfter
       });
     } catch (error) {
-      if (task.audience === "assistant") {
-        const failedReceipts = await this.countFailedAssistantActionReceipts(task.externalRef);
-        if (
-          task.schedule.kind === "at" &&
-          failedReceipts >= ASSISTANT_SCHEDULED_ACTION_MAX_FAILED_RECEIPTS
-        ) {
-          await this.disableAfterExhaustedRetries(task.id, task.claimToken, task.claimEpoch);
-          this.logger.error(
-            `Scheduled action ${task.id} disabled after ${failedReceipts} failed delivery attempts.`
+      // ADR-074 F1: ALL audiences now share one attempt-counter / backoff /
+      // dead-letter contract; previously assistant-side counted failed
+      // `RuntimeTurnReceipt` rows (saturated in 3 wall-clock minutes) and
+      // user-side had no cap at all (could retry forever every 30 s with no
+      // signal). Single contract: bump attemptCount once per failure, defer
+      // with exponential backoff up to MAX_ATTEMPTS, then disable + emit a
+      // structured `task_disabled_after_exhausted_retries` log.
+      const nextAttempt = task.attemptCount + 1;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : "UnknownError";
+      const truncatedErrorMessage = truncateForLastError(errorMessage);
+      const stillProcessing =
+        task.audience === "assistant" && this.isAssistantActionStillProcessingError(error);
+      // Recurring assistant tasks continue to advance to their next slot on a
+      // non-"still processing" failure (preserves the prior intent of "do not
+      // re-fire the same instant of a recurring schedule"). Everything else
+      // shares the unified attempt-counter path.
+      if (task.audience === "assistant" && !stillProcessing && task.schedule.kind !== "at") {
+        const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
+          task.schedule,
+          dueAtMs,
+          Date.now()
+        );
+        if (resolvedNextRunAtMs !== undefined) {
+          await this.completeAssistantActionRun(
+            task.id,
+            task.claimToken,
+            task.claimEpoch,
+            resolvedNextRunAtMs
           );
+          this.logger.error({
+            event: "scheduled_action_failed_advanced_to_next_recurring_run",
+            taskId: task.id,
+            externalRef: task.externalRef,
+            audience: task.audience,
+            scheduleKind: task.schedule.kind,
+            attemptCount: nextAttempt,
+            decision: "advance_recurring",
+            errorName,
+            errorMessage
+          });
           return;
         }
-        if (!this.isAssistantActionStillProcessingError(error)) {
-          const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
-            task.schedule,
-            dueAtMs,
-            Date.now()
-          );
-          if (resolvedNextRunAtMs !== undefined) {
-            await this.completeAssistantActionRun(
-              task.id,
-              task.claimToken,
-              task.claimEpoch,
-              resolvedNextRunAtMs
-            );
-            this.logger.error(
-              `Scheduled action ${task.id} failed and advanced to the next recurring run: ${error instanceof Error ? error.message : String(error)}`
-            );
-            return;
-          }
-        }
       }
-      await this.deferRetry(task.id, task.claimToken, task.claimEpoch);
-      this.logger.error(
-        `Scheduled action ${task.id} failed: ${error instanceof Error ? error.message : String(error)}`
+      if (nextAttempt >= SCHEDULED_ACTION_MAX_ATTEMPTS) {
+        await this.disableAfterExhaustedRetries(
+          task.id,
+          task.claimToken,
+          task.claimEpoch,
+          truncatedErrorMessage
+        );
+        this.logger.error({
+          event: "task_disabled_after_exhausted_retries",
+          taskId: task.id,
+          externalRef: task.externalRef,
+          audience: task.audience,
+          scheduleKind: task.schedule.kind,
+          attemptCount: nextAttempt,
+          decision: "disable",
+          errorName,
+          errorMessage
+        });
+        return;
+      }
+      const backoffMs = computeRetryBackoffMs(nextAttempt);
+      await this.deferRetryWithBackoff(
+        task.id,
+        task.claimToken,
+        task.claimEpoch,
+        backoffMs,
+        nextAttempt,
+        truncatedErrorMessage
       );
+      this.logger.error({
+        event: "scheduled_action_failed_deferred",
+        taskId: task.id,
+        externalRef: task.externalRef,
+        audience: task.audience,
+        scheduleKind: task.schedule.kind,
+        attemptCount: nextAttempt,
+        backoffMs,
+        decision: "defer",
+        errorName,
+        errorMessage
+      });
     }
   }
 
-  private async countFailedAssistantActionReceipts(externalRef: string): Promise<number> {
-    const externalThreadKey = `${SCHEDULED_ACTION_THREAD_PREFIX}${externalRef}`;
-    return this.prisma.runtimeTurnReceipt.count({
-      where: {
-        externalThreadKey,
-        status: { in: ["failed", "interrupted"] }
-      }
-    });
-  }
+  // ADR-074 F1: `countFailedAssistantActionReceipts` removed — the unified
+  // `attemptCount` column on `AssistantTaskRegistryItem` is the single source
+  // of truth for retry exhaustion now. The previous receipt-count approach
+  // saturated on a single failing turn whose tool loop iterated more than once
+  // (each iteration produced its own receipt row), giving us a deceptive
+  // "5 failed delivery attempts" signal after 3 wall-clock retries.
 
   private async clearClaim(id: string, claimToken: string, claimEpoch: number): Promise<void> {
     await this.prisma.assistantTaskRegistryItem.updateMany({
@@ -364,11 +422,24 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     });
   }
 
-  private async deferRetry(id: string, claimToken: string, claimEpoch: number): Promise<void> {
+  // ADR-074 F1: bump attemptCount + persist last error breadcrumb +
+  // exponential backoff retry. All failure paths now go through this method.
+  private async deferRetryWithBackoff(
+    id: string,
+    claimToken: string,
+    claimEpoch: number,
+    backoffMs: number,
+    nextAttempt: number,
+    lastErrorMessage: string
+  ): Promise<void> {
+    const now = new Date();
     await this.prisma.assistantTaskRegistryItem.updateMany({
       where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
       data: {
-        retryAfterAt: new Date(Date.now() + SCHEDULED_ACTION_RETRY_DELAY_MS),
+        retryAfterAt: new Date(now.getTime() + backoffMs),
+        attemptCount: nextAttempt,
+        lastErrorMessage,
+        lastErrorAt: now,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
@@ -380,16 +451,21 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
   private async disableAfterExhaustedRetries(
     id: string,
     claimToken: string,
-    claimEpoch: number
+    claimEpoch: number,
+    lastErrorMessage: string
   ): Promise<void> {
+    const now = new Date();
     await this.prisma.assistantTaskRegistryItem.updateMany({
       where: { id, schedulerClaimToken: claimToken, schedulerClaimEpoch: claimEpoch },
       data: {
         controlStatus: "disabled",
         nextRunAt: null,
-        disabledAt: new Date(),
+        disabledAt: now,
         cancelledAt: null,
         retryAfterAt: null,
+        attemptCount: SCHEDULED_ACTION_MAX_ATTEMPTS,
+        lastErrorMessage,
+        lastErrorAt: now,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
@@ -511,6 +587,10 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         lastFiredAt: update.firedAt,
         consecutiveUnanswered: update.consecutiveUnansweredAfter,
         lastAnsweredCheckAt: update.lastAnsweredCheckAtAfter,
+        // ADR-074 F1: success resets the F1 attempt-counter / error breadcrumb.
+        attemptCount: 0,
+        lastErrorMessage: null,
+        lastErrorAt: null,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
@@ -547,6 +627,10 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         disabledAt: null,
         cancelledAt: null,
         retryAfterAt: null,
+        // ADR-074 F1: success resets the F1 attempt-counter / error breadcrumb.
+        attemptCount: 0,
+        lastErrorMessage: null,
+        lastErrorAt: null,
         schedulerClaimToken: null,
         schedulerClaimEpoch: null,
         schedulerClaimedAt: null,
@@ -554,4 +638,21 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       }
     });
   }
+}
+
+// ADR-074 F1: exponential backoff with a 1 h ceiling. Attempt 1 → 30 s, 2 → 1 m,
+// 3 → 2 m, 4 → 4 m, 5 → 8 m (capped at 60 m). Anchored on `nextAttempt` (the
+// counter value AFTER bumping for the just-failed attempt); see
+// `processClaimedTask`'s catch branch.
+export function computeRetryBackoffMs(nextAttempt: number): number {
+  const safeAttempt = Math.max(1, Math.floor(nextAttempt));
+  const exponential = SCHEDULED_ACTION_RETRY_BASE_DELAY_MS * 2 ** (safeAttempt - 1);
+  return Math.min(SCHEDULED_ACTION_RETRY_MAX_DELAY_MS, exponential);
+}
+
+function truncateForLastError(message: string): string {
+  if (message.length <= SCHEDULED_ACTION_LAST_ERROR_MESSAGE_MAX_CHARS) {
+    return message;
+  }
+  return `${message.slice(0, SCHEDULED_ACTION_LAST_ERROR_MESSAGE_MAX_CHARS - 1)}…`;
 }

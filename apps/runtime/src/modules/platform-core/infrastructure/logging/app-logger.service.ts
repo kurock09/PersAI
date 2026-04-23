@@ -1,5 +1,5 @@
 import { Injectable, LoggerService } from "@nestjs/common";
-import { createAppLogger } from "@persai/logger";
+import { createAppLogger, normalizeErrorLogPayload } from "@persai/logger";
 
 @Injectable()
 export class AppLoggerService implements LoggerService {
@@ -9,8 +9,12 @@ export class AppLoggerService implements LoggerService {
     this.logger.info({ context }, message);
   }
 
-  error(message: string, trace?: string, context?: string): void {
-    this.logger.error({ context, trace }, message);
+  // ADR-074 F1: Nest's ExceptionsHandler hands us the raw Error as `message`;
+  // serialize it via the shared helper so name/message/stack survive in GKE
+  // logs instead of pino emitting `msg:{}`.
+  error(message: unknown, trace?: unknown, context?: string): void {
+    const payload = normalizeErrorLogPayload(message, trace);
+    this.logger.error({ context, ...payload }, payload.msg);
   }
 
   warn(message: string, context?: string): void {
@@ -25,7 +29,8 @@ export class AppLoggerService implements LoggerService {
     this.logger.trace({ context }, message);
   }
 
-  fatal(message: string, trace?: string, context?: string): void {
-    this.logger.fatal({ context, trace }, message);
+  fatal(message: unknown, trace?: unknown, context?: string): void {
+    const payload = normalizeErrorLogPayload(message, trace);
+    this.logger.fatal({ context, ...payload }, payload.msg);
   }
 }

@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
@@ -326,8 +327,22 @@ function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSche
   };
 }
 
+// ADR-074 F1: window for the soft "duplicate audience create" guard. If the
+// model creates two scheduled_actions with the same normalized title and
+// opposite audiences within this window we emit a structured warn — diagnostic
+// only, the rows are still created so we don't cause regressions on legitimate
+// edge cases (e.g. a real assistant-side probe that happens to share a title
+// with an unrelated user reminder).
+const DUPLICATE_AUDIENCE_CREATE_WINDOW_MS = 60_000;
+
+function normalizeTitleForDuplicateCheck(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 @Injectable()
 export class ControlInternalScheduledActionService {
+  private readonly logger = new Logger(ControlInternalScheduledActionService.name);
+
   constructor(
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
@@ -584,6 +599,12 @@ export class ControlInternalScheduledActionService {
         input.contextSessionKey
       );
     }
+    await this.warnIfDuplicateAudienceCreate({
+      assistantId: assistant.id,
+      newTaskId: created.id,
+      title: input.title,
+      audience: input.audience
+    });
 
     return {
       ok: true,
@@ -708,6 +729,56 @@ export class ControlInternalScheduledActionService {
       "telegram_bot",
       { reminderTaskTargets }
     );
+  }
+
+  // ADR-074 F1: soft "duplicate audience create" guard. The model has been
+  // observed to create both audience="user" + audience="assistant" in a single
+  // turn for the same intent (e.g. "поставь себе задачу пнуть меня через 2 мин").
+  // The new prompt + catalog guidance forbid that, but we still emit a
+  // structured warn here so we can spot regressions in GKE without scraping
+  // raw `assistant_task_registry_items`. We DO NOT block the second create —
+  // false positives would silently break legitimate cases (an assistant probe
+  // that incidentally shares a title with an unrelated user reminder).
+  private async warnIfDuplicateAudienceCreate(input: {
+    assistantId: string;
+    newTaskId: string;
+    title: string;
+    audience: ScheduledActionAudience;
+  }): Promise<void> {
+    const oppositeAudience: ScheduledActionAudience =
+      input.audience === "user" ? "assistant" : "user";
+    const since = new Date(Date.now() - DUPLICATE_AUDIENCE_CREATE_WINDOW_MS);
+    const normalizedTitle = normalizeTitleForDuplicateCheck(input.title);
+    let recent: Array<{ id: string; title: string; audience: ScheduledActionAudience }>;
+    try {
+      recent = await this.prisma.assistantTaskRegistryItem.findMany({
+        where: {
+          assistantId: input.assistantId,
+          audience: oppositeAudience,
+          createdAt: { gte: since },
+          id: { not: input.newTaskId }
+        },
+        select: { id: true, title: true, audience: true },
+        take: 10
+      });
+    } catch {
+      return;
+    }
+    const match = recent.find(
+      (row) => normalizeTitleForDuplicateCheck(row.title) === normalizedTitle
+    );
+    if (match === undefined) {
+      return;
+    }
+    this.logger.warn({
+      event: "duplicate_audience_create_detected",
+      assistantId: input.assistantId,
+      newTaskId: input.newTaskId,
+      newTaskAudience: input.audience,
+      siblingTaskId: match.id,
+      siblingAudience: match.audience,
+      normalizedTitle
+    });
   }
 
   private async deleteTelegramReminderTarget(
