@@ -16,6 +16,10 @@ export function useTouchDevice(): boolean {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // jsdom (used by vitest) doesn't implement matchMedia. Defaulting to
+    // `false` in that environment matches the SSR contract above and keeps
+    // touch-specific branches off in tests, which want desktop behaviour.
+    if (typeof window.matchMedia !== "function") return;
     const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
     const update = () => setIsTouch(mq.matches);
     update();
