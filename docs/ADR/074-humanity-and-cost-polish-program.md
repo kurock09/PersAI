@@ -65,7 +65,7 @@ The interview yielded the following bound decisions. Each decision is implemente
 | Q7  | Time awareness + proactive push | Phased: time/safeguards then multichannel                                        | T1, T2     | T3 (web push)                 |
 | Q8  | Turn routing                    | Keep current precheck + classifier on ambiguity                                  | (no slice) | (sticky-routing C dropped)    |
 | Q9  | Tool loop limits                | Adaptive per mode + per-tool hard caps                                           | L1         | —                             |
-| Q10 | Round-trip reduction            | Smart budgets + parallel calls + compound tools (with discipline)                | R1, R2, R3 | —                             |
+| Q10 | Round-trip reduction            | Smart budgets + parallel calls + compound tools (with discipline)                | R2, R3     | R1 cancelled (see slice note) |
 | Q11 | Smoke harness                   | Scenario catalog + JSON report + diff mode + agent-runnable                      | S0         | LLM-judge layer (Q11-C)       |
 | Q12 | Stable prefix / cache           | Heartbeat to tail, routing to developer message, drop tools markdown duplication | P1         | Multi-level cache key (Q12-C) |
 | Q13 | Persona quality                 | Voice DNA scaffold + 3–4 archetypes                                              | V1         | Living USER.md (Q13-C)        |
@@ -131,13 +131,13 @@ S0 was implemented and validated end-to-end against `persai-dev`. All six starte
 - **Run artifacts:** per-run `trace.json` + `summary.json` + human-readable `console.txt` live under `scripts/smoke/artifacts/<scenario>-<runId>/` (not `scripts/smoke/out/<run-id>.{json,md}`). A standalone Markdown summary file was deferred — `console.txt` already covers the human view, and re-rendering Markdown from `summary.json` is cheap to add later if a slice actually needs it.
 - **Transport:** turns go through the same web client path as production — `POST /api/v1/assistant/chat/web` and `/api/v1/assistant/chat/web/stream` from `apps/api` — not through `POST /v1/turns/create` directly to runtime. This keeps the harness honest about full API → runtime → provider → API path the user actually sees.
 - **CLI shape:** `pnpm smoke:run --scenario <id>` (repeatable, not positional) and `pnpm smoke:run-all`. Baseline mode is `--update-baseline` (writes a new baseline) — there is no `--baseline=<scenario>` flag; baseline diff vs the committed `<id>.summary.json` runs automatically on every run when a baseline exists, and a regression simply prints a non-zero delta in `console.txt` (the run still exits 0; non-zero exit is reserved for `failed > 0` turns). Hard-thresholded regression gating (±10% tokens / ±20% latency) was deferred — slices in P/M/L phases will set their own per-slice acceptance bars rather than one global bar.
-- **Receipt correlation:** the harness does **not** correlate by `requestId`. The HTTP-level `requestId` returned by the public chat endpoint is a tracing id, not the value persisted on `runtime_turn_receipts.requestId`. Correlation runs through `/api/v1/internal/smoke/turn-receipts?assistantId=...&afterCursor=...` filtered by `externalThreadKey == surfaceThreadKey` with a `now − 1s` cursor captured before send. This is unambiguous because the harness sends turns sequentially per thread, and it is the contract every later slice (P1/M1/M2/V1/L1/R1/R2/R3) must rely on.
+- **Receipt correlation:** the harness does **not** correlate by `requestId`. The HTTP-level `requestId` returned by the public chat endpoint is a tracing id, not the value persisted on `runtime_turn_receipts.requestId`. Correlation runs through `/api/v1/internal/smoke/turn-receipts?assistantId=...&afterCursor=...` filtered by `externalThreadKey == surfaceThreadKey` with a `now − 1s` cursor captured before send. This is unambiguous because the harness sends turns sequentially per thread, and it is the contract every later slice (P1/M1/M2/V1/L1/R2/R3) must rely on.
 - **Internal endpoint listener split:** the internal smoke-receipts route is served only on `API_INTERNAL_PORT=3002` (`svc/api-internal`), enforced by `routeByListenerPort` middleware in `apps/api/src/main.ts`. Live-dev runs require **two** port-forwards (`svc/api 3001:3001` and `svc/api-internal 3002:3002`), driven by `SMOKE_API_BASE_URL` (default `http://127.0.0.1:3001`) and `SMOKE_API_INTERNAL_BASE_URL` (default `http://127.0.0.1:3002`).
 - **Pacing:** every starter scenario uses `defaultThinkAfterMs: 8000` and `harness.ts` honors it (skipping the pause after the last turn of each session). This keeps user-perceived traffic at ≤ ~5.4 turns/min, safely under dev's `ABUSE_USER_SLOWDOWN_REQUESTS_PER_MINUTE=8`. Slices that need to push faster must lift the limit at the workspace level rather than shorten the harness pause.
 - **Tool-call accounting:** smoke tool counts now prefer `RuntimeTurnResult.toolInvocations[]`, surfaced through receipts as `toolCallsSource=tool_invocations`, and only fall back to billable `usage.entries[].toolCode` when invocation data is absent. This closes the earlier blind spot where inline tools such as `web_search` / `web_fetch` could execute in real chats but still show up as `Tools: <none>` in `tool-heavy-search`.
 - **Scenario encoding:** starter JSON scenarios are canonical UTF-8 files and may contain Cyrillic text directly. Keep edits in UTF-8; do not round-trip them through ANSI / cp1251, or the browser transcript will show mojibake in user bubbles during smoke runs.
 
-Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the cross-link from `docs/LIVE-TEST-HYBRID.md` "Smoke harness (ADR-074)" section is the canonical entry point for live-dev runs). Later slices in this ADR (P1/V1/M1/M2/M3/T1/T2/L1/R1/R2/R3) must read those two documents instead of re-reading the original plan text above when wiring acceptance commands.
+Operator and per-slice usage instructions live in `scripts/smoke/README.md` (the cross-link from `docs/LIVE-TEST-HYBRID.md` "Smoke harness (ADR-074)" section is the canonical entry point for live-dev runs). Later slices in this ADR (P1/V1/M1/M2/M3/T1/T2/L1/R2/R3) must read those two documents instead of re-reading the original plan text above when wiring acceptance commands.
 
 **Slice S0 handoff prompt:**
 
@@ -1089,7 +1089,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 **Out of scope (L1):**
 
-- Plurality detection (R1).
+- Plurality detection (R1 — later cancelled and superseded by L1.1; see Slice R1 section).
 - Parallel calls (R2).
 - Compound tools (R3).
 
@@ -1137,7 +1137,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 **Out of scope (L1.1):**
 
-- Plurality detection (still R1).
+- Plurality detection — was R1, **cancelled** as a follow-up call after this slice landed (L1.1 absorbed the real motivation; see the cancelled Slice R1 section for the full rationale).
 - Parallel-call accounting beyond what L1 already does (still R2 for true wall-clock parallelism).
 - Compound tools (still R3).
 - Adding daily caps to existing plans — this slice only fixes the *measurement* layer; cap values stay where the operator has set them.
@@ -1148,38 +1148,22 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 ---
 
-### Slice R1 — Plurality detection + requestedBudget hint
+### Slice R1 — Plurality detection + requestedBudget hint (CANCELLED — superseded by L1.1)
 
-- **Goal:** When user asks for N items ("find 3 links", "show me 5 options"), the model can request a budget bump for the relevant tool, allowing legitimate multi-call patterns without weakening the default cap.
-- **Founder anchor:** From Q10-A.
+- **Status (2026-04-23, late evening — founder call after L1.1 closeout):** **Cancelled. Will not be implemented.** The original motivation ("user asks for N items, model needs to bump per-turn cap to do them") evaporated once L1.1 landed. Concretely: (a) `web_search` already returns up to 20 results in a single tool call (`count` parameter), so "find 5 / 10 / 20 links" is one call within the existing `perTurnCap=3` default with cap to spare; (b) `image_generate({ count: N })` is now schema-clamped to `min(MAX_RUNTIME_IMAGE_GENERATE_COUNT, perTurnCap)` and bills `units=N` against the daily quota — the operator decides "how many images per turn" directly in `/admin/plans`, no runtime protocol needed; (c) every other cost tool now has a default `perTurnCap` plus daily-usage tracking, so the operator-side knob is honest and tunable per plan. The remaining sliver (user wants more than the operator's per-turn cap allows) is best solved by tuning the plan or upgrading the user, not by inventing a model-side `requestedBudget` protocol with the matching server-side validation, audit trail, and abuse prevention. Keeping this section as an archaeology marker so a future reader does not re-propose the same idea without first re-reading L1.1.
 
-**Touch points:**
+- **What L1.1 actually closed (vs. the original R1 scope):**
+  - `count`-batched cost tools: covered (schema clamp + `units=N` daily-usage).
+  - "Cap is too low for legitimate plurality": covered by tunable per-plan `perTurnCap` and per-mode `loopLimit` in `/admin/plans`.
+  - Honest cost accounting: covered (daily counter always increments, even when no daily ceiling is set).
 
-- System prompt augmentation in `apps/api/prisma/bootstrap-preset-data.ts` (add a short rule: "If the user asks for N items, set `requestedBudget: N` on the first tool call so the runtime can allow N parallel calls of that tool.").
-- `apps/runtime/src/modules/turns/native-tool-projection.ts` — add optional `requestedBudget` field to relevant tool input schemas (`web_fetch`, `web_search`, `knowledge_search`).
-- `apps/runtime/src/modules/turns/tool-budget-policy.ts` (from L1) — accept `requestedBudget` and grant `min(requestedBudget, hardCap)`.
+- **Why we are not deferring (just cancelling):**
+  - Adds a new model-side protocol surface (`requestedBudget` on tool schemas) that needs prompt rules, schema additions, runtime enforcement, server validation, and an abuse-prevention story.
+  - Adds a UX problem: "model just asked for +N — should we approve?" with no clean human-in-the-loop today.
+  - Solves an edge case ("user wants more than the plan allows") that already has a cleaner answer (operator tunes the plan).
+  - Re-opening this is cheaper than carrying the section as deferred forever; if a real cost-counted scenario surfaces later that L1.1 cannot reach, write a fresh slice with the live evidence.
 
-**Implementation outline:**
-
-1. Add the prompt rule to the appropriate template (likely `agents` or a new compact `policies` block at end of stable prefix). Keep it ≤60 tokens.
-2. Add `requestedBudget: { type: "integer", minimum: 1 }` (optional) to the relevant tool input schemas.
-3. In `tool-budget-policy.ts`, when a tool call carries `requestedBudget`, raise the per-turn cap for that tool to `min(requestedBudget, hardCap)`.
-4. Tests: "find 3 links" scenario — runtime allows 3 web_fetches; "find 50 links" — runtime allows hardCap (5); request without `requestedBudget` — default unchanged.
-
-**Acceptance criteria:**
-
-- S0 scenario `tool-heavy-search` with explicit "3 links" prompt completes with 3 fetches.
-- Existing chitchat-short behavior unchanged (no `requestedBudget` emitted).
-- Test asserting hardCap clamp works.
-
-**Out of scope (R1):**
-
-- Parallel execution (R2).
-- Compound tools (R3).
-
-**Slice R1 handoff prompt:**
-
-> You are implementing ADR-074 Slice R1 (Plurality detection + requestedBudget). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice R1 section in full. Slices S0, L1 must be landed. The prompt rule is a single short paragraph; do not write a long instruction. `requestedBudget` is optional on tool schemas. Hard cap is the ceiling. Do not implement parallelism here. Acceptance: 3-link scenario passes, 50-link clamps to hardCap, no regression on chitchat. When done, SESSION-HANDOFF + CHANGELOG.
+- **Founder anchor (preserved for context):** From Q10-A — "User просит «найди 5 ссылок» → в normal режиме - ну он за один loop может их найти же." Founder's own reading after L1.1 closeout.
 
 ---
 
@@ -1206,7 +1190,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 **Acceptance criteria:**
 
 - S0 scenario `tool-heavy-search` shows: ≤2 round-trips for "3 fetches in one go" (one model call returns 3, runtime executes parallel, second model call wraps up).
-- Wall-clock latency on tool-heavy-search drops by ≥30% versus L1+R1 baseline.
+- Wall-clock latency on tool-heavy-search drops by ≥30% versus the L1 / L1.1 baseline (R1 was cancelled, so there is no R1 number to compare against).
 - No regression in memory_write integrity (all writes succeed in deterministic order).
 
 **Out of scope (R2):**
@@ -1216,7 +1200,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 **Slice R2 handoff prompt:**
 
-> You are implementing ADR-074 Slice R2 (Parallel tool calls + diagnostic). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice R2 section in full. Slices S0, L1, R1 must be landed. Safe-parallel partition list is exact: read-only tools only. Memory writes and any state-mutating or ordering-sensitive tool stay serial. Set OpenAI `parallel_tool_calls: true` explicitly. Add only the single short prompt hint and 3–4 tool description tweaks specified. Do not implement compound tools. Acceptance: tool-heavy-search drops to ≤2 round-trips for batched fetches, latency drops ≥30%, memory_write remains serial. When done, SESSION-HANDOFF + CHANGELOG.
+> You are implementing ADR-074 Slice R2 (Parallel tool calls + diagnostic). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice R2 section in full. Slices S0 and L1 (with L1.1 follow-through) must be landed. Slice R1 was cancelled — there is no `requestedBudget` plurality protocol to integrate with; rely on the per-plan `perTurnCap` and per-mode `loopLimit` knobs that L1 / L1.1 already exposed in `/admin/plans`. Safe-parallel partition list is exact: read-only tools only. Memory writes and any state-mutating or ordering-sensitive tool stay serial. Set OpenAI `parallel_tool_calls: true` explicitly. Add only the single short prompt hint and 3–4 tool description tweaks specified. Do not implement compound tools. Acceptance: tool-heavy-search drops to ≤2 round-trips for batched fetches, latency drops ≥30%, memory_write remains serial. When done, SESSION-HANDOFF + CHANGELOG.
 
 ---
 
@@ -1258,7 +1242,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 **Slice R3 handoff prompt:**
 
-> You are implementing ADR-074 Slice R3 (First wave compound tools). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice R3 section in full. Slices S0, L1, R1, R2 must be landed. Add exactly 3 compound tools listed; do not invent more. Each compound respects per-tool hard caps from L1. Underlying single tools remain available. Acceptance: tool-heavy-search shows ≥30% loop reduction, single tools still work, ≤5 compound tools total in the catalog. When done, SESSION-HANDOFF + CHANGELOG.
+> You are implementing ADR-074 Slice R3 (First wave compound tools). Read `docs/ADR/074-humanity-and-cost-polish-program.md` Slice R3 section in full. Slices S0, L1 (with L1.1 follow-through), and R2 must be landed. Slice R1 was cancelled — see its section for context; do not depend on `requestedBudget`. Add exactly 3 compound tools listed; do not invent more. Each compound respects per-tool hard caps from L1. Underlying single tools remain available. Acceptance: tool-heavy-search shows ≥30% loop reduction, single tools still work, ≤5 compound tools total in the catalog. When done, SESSION-HANDOFF + CHANGELOG.
 
 ---
 
@@ -1287,8 +1271,8 @@ Phase 3 (proactive presence):
 Phase 4 (tool loop tuning):
   L1 (Adaptive limits)        ← depends on S0
   L1.1 (Cost-counting holes)  ← depends on L1; conscious revision of L1 anchor
-  R1 (Plurality)              ← depends on L1
-  R2 (Parallel calls)         ← depends on R1
+  R1 (Plurality)              ← CANCELLED, superseded by L1.1
+  R2 (Parallel calls)         ← depends on L1 (R1 dependency dropped)
   R3 (Compound tools)         ← depends on R2
 ```
 
@@ -1305,7 +1289,7 @@ Phase 1 should be completed before Phase 2 (cache discipline before adding more 
 
 ## Universal agent handoff prompt
 
-> You are picking up implementation work on PersAI's ADR-074 humanity-and-cost polish program. ADR-074 lives at `docs/ADR/074-humanity-and-cost-polish-program.md`. The program is decomposed into 12 slices (S0, P1, V1, M1, M2, M3, T1, T2, L1, R1, R2, R3) organized in 4 phases. Each slice in the ADR is self-contained: goal, touch points, implementation outline, acceptance criteria, out of scope, and a per-slice handoff prompt.
+> You are picking up implementation work on PersAI's ADR-074 humanity-and-cost polish program. ADR-074 lives at `docs/ADR/074-humanity-and-cost-polish-program.md`. The program currently ships 12 active slices (S0, P1, V1, M1, M2, M3, T1, T2, L1, L1.1, R2, R3) plus M3 spin-offs (M3.1 / M3.2 / M3.3) organized in 4 phases. Slice R1 was cancelled — superseded by L1.1; do not implement it. Each slice in the ADR is self-contained: goal, touch points, implementation outline, acceptance criteria, out of scope, and a per-slice handoff prompt.
 >
 > Before changing any code:
 >
