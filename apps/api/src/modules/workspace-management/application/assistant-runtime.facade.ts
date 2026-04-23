@@ -1,6 +1,9 @@
 import type { RuntimeTier } from "./runtime-assignment";
-import type { RuntimeTurnAutoCompactionState } from "@persai/runtime-contract";
-import type { RuntimeOutputArtifact } from "@persai/runtime-contract";
+import type {
+  RuntimeOutputArtifact,
+  RuntimeTurnAutoCompactionState,
+  RuntimeTurnToolInvocation
+} from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
   | "runtime_unreachable"
@@ -92,6 +95,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  toolInvocations?: RuntimeTurnToolInvocation[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   runtimeTrace?: {

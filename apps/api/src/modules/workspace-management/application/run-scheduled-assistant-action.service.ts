@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException
 } from "@nestjs/common";
 import type { RuntimeTurnReceiptStatus } from "@prisma/client";
+import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
@@ -25,6 +26,41 @@ function stringifyPayload(value: Record<string, unknown> | null): string {
     return "{}";
   }
   return JSON.stringify(value, null, 2);
+}
+
+function hasExplicitNoOpAcknowledgement(message: string): boolean {
+  return message.trim().length > 0;
+}
+
+function hasSuccessfulReminderCreation(
+  toolInvocations: RuntimeTurnToolInvocation[] | undefined
+): boolean {
+  return (
+    toolInvocations?.some(
+      (invocation) => invocation.name === "scheduled_action" && invocation.ok === true
+    ) ?? false
+  );
+}
+
+function hasFailedReminderCreation(
+  toolInvocations: RuntimeTurnToolInvocation[] | undefined
+): boolean {
+  return (
+    toolInvocations?.some(
+      (invocation) => invocation.name === "scheduled_action" && invocation.ok === false
+    ) ?? false
+  );
+}
+
+function summarizeToolInvocations(
+  toolInvocations: RuntimeTurnToolInvocation[] | undefined
+): string {
+  if (toolInvocations === undefined || toolInvocations.length === 0) {
+    return "none";
+  }
+  return toolInvocations
+    .map((invocation) => `${invocation.name}:${invocation.ok ? "ok" : "error"}`)
+    .join(", ");
 }
 
 // Scheduled assistant actions now have a strict contract: only
@@ -121,8 +157,10 @@ export class RunScheduledAssistantActionService {
       return;
     }
     const startedAtMs = Date.now();
+    let toolInvocationsSummary = "none";
+    let terminalOutcome: "reminder_created" | "explicit_noop" | null = null;
     try {
-      await this.sendNativeWebChatTurnService.execute({
+      const runtimeResult = await this.sendNativeWebChatTurnService.execute({
         assistantId: assistant.id,
         publishedVersionId,
         runtimeTier,
@@ -140,6 +178,22 @@ export class RunScheduledAssistantActionService {
         modelRoleOverride: "system_tool",
         currentTimeIso: new Date(input.runAtMs).toISOString()
       });
+      toolInvocationsSummary = summarizeToolInvocations(runtimeResult.toolInvocations);
+      const reminderCreated = hasSuccessfulReminderCreation(runtimeResult.toolInvocations);
+      const explicitNoOpAcknowledgement = hasExplicitNoOpAcknowledgement(
+        runtimeResult.assistantMessage
+      );
+      if (hasFailedReminderCreation(runtimeResult.toolInvocations)) {
+        throw new ServiceUnavailableException(
+          "Scheduled assistant action reached a failed reminder creation attempt."
+        );
+      }
+      if (!reminderCreated && !explicitNoOpAcknowledgement) {
+        throw new ServiceUnavailableException(
+          "Scheduled assistant action finished without creating a user reminder or returning an explicit internal acknowledgement."
+        );
+      }
+      terminalOutcome = reminderCreated ? "reminder_created" : "explicit_noop";
     } catch (error) {
       // ADR-074 F4: failure is already retried/disabled by the scheduler's
       // exhaustion path, but we add a structured log here so the cause is
@@ -150,6 +204,7 @@ export class RunScheduledAssistantActionService {
         externalRef: input.externalRef,
         actionType: input.actionType,
         durationMs: Date.now() - startedAtMs,
+        toolInvocationsSummary,
         errorName: error instanceof Error ? error.name : "UnknownError",
         errorMessage: error instanceof Error ? error.message : String(error)
       });
@@ -169,6 +224,8 @@ export class RunScheduledAssistantActionService {
       externalRef: input.externalRef,
       actionType: input.actionType,
       durationMs: Date.now() - startedAtMs,
+      toolInvocationsSummary,
+      terminalOutcome,
       runAtIso: new Date(input.runAtMs).toISOString()
     });
   }

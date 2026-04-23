@@ -54,6 +54,14 @@ describe("SendNativeWebChatTurnService", () => {
           ],
           respondedAt: "2026-04-11T13:00:00.000Z",
           usage: null,
+          toolInvocations: [
+            {
+              name: "web_search",
+              iteration: 0,
+              ok: true,
+              executionMode: "worker"
+            }
+          ],
           trace: {
             scope: "turn",
             status: "completed",
@@ -137,6 +145,14 @@ describe("SendNativeWebChatTurnService", () => {
         }
       ]);
       assert.equal(result.runtimeTrace?.status, "completed");
+      assert.deepEqual(result.toolInvocations, [
+        {
+          name: "web_search",
+          iteration: 0,
+          ok: true,
+          executionMode: "worker"
+        }
+      ]);
     } finally {
       globalThis.fetch = originalFetch;
     }
