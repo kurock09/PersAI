@@ -20,11 +20,23 @@ export function useTouchDevice(): boolean {
     // `false` in that environment matches the SSR contract above and keeps
     // touch-specific branches off in tests, which want desktop behaviour.
     if (typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
-    const update = () => setIsTouch(mq.matches);
+    /*
+     * 2026-04-25 robustness fix: Samsung's WebView on the Z Fold series in
+     * unfolded (tablet-like) mode returns `(hover: hover)` even though the
+     * primary input is still a finger. Combining `pointer: coarse` AND
+     * `hover: none` therefore mis-classifies the device as desktop, and the
+     * hold-to-record mic handler never gets attached. We now treat the
+     * device as touch-capable when EITHER `pointer: coarse` matches OR
+     * `navigator.maxTouchPoints > 0` is reported. That matches Telegram's
+     * own touch detection and keeps the desktop branch intact for true
+     * mouse-only browsers (where both signals are absent).
+     */
+    const coarseMq = window.matchMedia("(pointer: coarse)");
+    const hasTouchPoints = typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0;
+    const update = () => setIsTouch(coarseMq.matches || hasTouchPoints);
     update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    coarseMq.addEventListener("change", update);
+    return () => coarseMq.removeEventListener("change", update);
   }, []);
 
   return isTouch;

@@ -52,6 +52,11 @@ type ProviderCatalogState = {
   catalogSource: ProviderCatalogSource;
 };
 
+const MANAGED_PROVIDER_SECRET_IDS: Record<ProviderGatewayProvider, string> = {
+  openai: "openai/api-key",
+  anthropic: "anthropic/api-key"
+};
+
 @Injectable()
 export class ProviderWarmupService implements OnModuleInit {
   private readonly clients: ProviderWarmableClient[];
@@ -101,18 +106,6 @@ export class ProviderWarmupService implements OnModuleInit {
 
     for (const client of this.clients) {
       const catalogState = this.resolveCatalogState(client, controlPlaneRequest);
-      if (!client.isConfigured()) {
-        this.providerState.set(client.provider, {
-          provider: client.provider,
-          configured: false,
-          state: "unconfigured",
-          catalogModels: catalogState.catalogModels,
-          catalogSource: catalogState.catalogSource,
-          warmedAt: null,
-          error: null
-        });
-        continue;
-      }
 
       this.providerState.set(client.provider, {
         provider: client.provider,
@@ -125,7 +118,20 @@ export class ProviderWarmupService implements OnModuleInit {
       });
 
       try {
-        await client.warm();
+        const managedApiKey = await this.resolveManagedApiKey(client.provider, client);
+        if (!client.isConfigured() && managedApiKey === null) {
+          this.providerState.set(client.provider, {
+            provider: client.provider,
+            configured: false,
+            state: "unconfigured",
+            catalogModels: catalogState.catalogModels,
+            catalogSource: catalogState.catalogSource,
+            warmedAt: null,
+            error: null
+          });
+          continue;
+        }
+        await client.warm(managedApiKey ?? undefined);
         this.providerState.set(client.provider, {
           provider: client.provider,
           configured: true,
@@ -247,6 +253,28 @@ export class ProviderWarmupService implements OnModuleInit {
     };
   }
 
+  private async resolveManagedApiKey(
+    provider: ProviderGatewayProvider,
+    client: ProviderWarmableClient
+  ): Promise<string | null> {
+    if (client.isConfigured() || !this.persaiInternalApiClientService.isConfigured()) {
+      return null;
+    }
+
+    try {
+      const value = await this.persaiInternalApiClientService.resolveSecretValue(
+        MANAGED_PROVIDER_SECRET_IDS[provider]
+      );
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    } catch (error) {
+      if (this.isMissingManagedSecretError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   private parseWarmupRequest(input: unknown): ProviderGatewayWarmupRequest | null {
     if (input === undefined || input === null) {
       return null;
@@ -299,6 +327,16 @@ export class ProviderWarmupService implements OnModuleInit {
       return error.message;
     }
     return String(error);
+  }
+
+  private isMissingManagedSecretError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+    return (
+      error.message.includes("PersAI-managed runtime secret") &&
+      error.message.includes("is not configured")
+    );
   }
 
   private matchesRequest(state: ProviderWarmStatus | undefined, model: string): boolean {

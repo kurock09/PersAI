@@ -12,7 +12,14 @@ type RuntimeProviderSelectionDraft = {
 };
 
 type RuntimeProviderProviderKeyDraft = Record<ManagedRuntimeProvider, string>;
-type RuntimeProviderAvailableModelsTextDraft = Record<ManagedRuntimeProvider, string>;
+type RuntimeProviderAvailableModelsTextDraft = Record<
+  ManagedRuntimeProvider,
+  {
+    chat: string;
+    image: string;
+    video: string;
+  }
+>;
 type RuntimeProviderProviderKeyState = NonNullable<
   AdminRuntimeProviderSettingsState["providerKeys"]
 >;
@@ -60,8 +67,8 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
       model: ""
     },
     availableModelsTextByProvider: {
-      openai: "",
-      anthropic: ""
+      openai: { chat: "", image: "", video: "" },
+      anthropic: { chat: "", image: "", video: "" }
     },
     providerKeys: {
       openai: "",
@@ -98,7 +105,9 @@ function hasListedModel(params: {
   model: string;
   availableModelsByProvider: RuntimeProviderAvailableModelsTextDraft;
 }): boolean {
-  const listedModels = parseModelCatalogText(params.availableModelsByProvider[params.provider]);
+  const listedModels = parseModelCatalogText(
+    params.availableModelsByProvider[params.provider].chat
+  );
   return listedModels.includes(params.model.trim());
 }
 
@@ -125,8 +134,16 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     model: settings.fallback?.model ?? draft.fallback.model
   };
   draft.availableModelsTextByProvider = {
-    openai: toMultilineValue(settings.availableModelsByProvider.openai),
-    anthropic: toMultilineValue(settings.availableModelsByProvider.anthropic)
+    openai: {
+      chat: toMultilineValue(settings.availableModelCatalogByProvider.openai.chat),
+      image: toMultilineValue(settings.availableModelCatalogByProvider.openai.image),
+      video: toMultilineValue(settings.availableModelCatalogByProvider.openai.video)
+    },
+    anthropic: {
+      chat: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.chat),
+      image: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.image),
+      video: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.video)
+    }
   };
 
   return {
@@ -189,8 +206,20 @@ export function buildRuntimeProviderSettingsRequest(params: {
     : null;
 
   const availableModelsByProvider = {
-    openai: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai),
-    anthropic: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic)
+    openai: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.chat),
+    anthropic: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.chat)
+  };
+  const availableModelCatalogByProvider = {
+    openai: {
+      chat: availableModelsByProvider.openai,
+      image: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.image),
+      video: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.video)
+    },
+    anthropic: {
+      chat: availableModelsByProvider.anthropic,
+      image: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.image),
+      video: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.video)
+    }
   };
 
   const providerKeys: Partial<Record<ManagedRuntimeProvider, string>> = {};
@@ -214,6 +243,7 @@ export function buildRuntimeProviderSettingsRequest(params: {
   const request: AdminRuntimeProviderSettingsRequest = {
     primary,
     availableModelsByProvider,
+    availableModelCatalogByProvider,
     fallback,
     routingFastModelKey: null,
     routerPolicy: {

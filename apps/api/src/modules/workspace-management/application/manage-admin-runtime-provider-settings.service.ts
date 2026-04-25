@@ -75,6 +75,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         routingFastModelKey: input.routingFastModelKey,
         routerPolicy: input.routerPolicy as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
+        availableModelCatalogByProvider:
+          input.availableModelCatalogByProvider as Prisma.InputJsonValue,
         updatedByUserId: userId
       },
       update: {
@@ -85,6 +87,8 @@ export class ManageAdminRuntimeProviderSettingsService {
         routingFastModelKey: input.routingFastModelKey,
         routerPolicy: input.routerPolicy as Prisma.InputJsonValue,
         availableModelsByProvider: input.availableModelsByProvider as Prisma.InputJsonValue,
+        availableModelCatalogByProvider:
+          input.availableModelCatalogByProvider as Prisma.InputJsonValue,
         updatedByUserId: userId
       }
     });

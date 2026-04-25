@@ -16,6 +16,7 @@ Primary public API surface:
 - admin routes under `/api/v1/admin/*`
 - Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
+- admin runtime-provider settings expose both the legacy chat-model alias `availableModelsByProvider` and the capability-aware `availableModelCatalogByProvider` (`chat`, `image`, `video` per provider). Plan admin payloads may select `primaryModelKey`, `imageGenerateModelKey`, `imageEditModelKey`, and `videoGenerateModelKey`; media model keys are validated against the runtime-provider catalog during plan writes and materialized into runtime tool credential refs.
 - single-batch web bootstrap: `GET /api/v1/app/bootstrap` (ADR-076 Slice 3) — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
 - Telegram webhook under `/telegram-webhook/*`
 
@@ -43,6 +44,7 @@ Primary public API surface:
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping
 - `apps/runtime` owns request-time execution
 - SSE socket close on the stream route does **not** abort the runtime turn. Only an explicit POST to the hard-stop route flips the runtime's abort signal. A passive disconnect (tab background, screen lock, network drop) lets the runtime finish, persists the full assistant message, and is recoverable on next history fetch — see ADR-073 § "Slice 1.2 — server-side soft-detach" for rationale.
+- The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent and returns 204 whether or not a matching in-flight turn exists; the client treats it as fire-and-forget
 
 ## Knowledge boundaries
@@ -120,7 +122,8 @@ Current runtime/provider path:
 
 1. `apps/api` resolves the active runtime bundle and forwards request-time execution to `apps/runtime`
 2. `apps/runtime` uses `apps/provider-gateway` for provider calls
-3. `apps/provider-gateway` uses platform-managed secret wiring from `persai-runtime-secrets`
+3. `apps/provider-gateway` prewarms text-generation providers from `persai-runtime-secrets` env vars when present, and falls back to PersAI-managed runtime provider keys stored by the admin runtime-provider settings flow through `POST /api/v1/internal/runtime/provider-secrets/resolve`
+4. tool credentials continue to resolve through the same internal secret resolver when tool calls need per-provider keys
 
 ## Deploy truth
 

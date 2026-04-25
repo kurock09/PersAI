@@ -11,7 +11,6 @@ import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanContextPolicy } from "./adminPlanContextPolicy";
 import type { AdminPlanRetrievalPolicy } from "./adminPlanRetrievalPolicy";
 import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
-import type { AdminPlanInputBaseVideoGenerateModelKey } from "./adminPlanInputBaseVideoGenerateModelKey";
 import type { AdminPlanInputBaseRuntimeTierDefault } from "./adminPlanInputBaseRuntimeTierDefault";
 import type { AdminPlanToolActivationInput } from "./adminPlanToolActivationInput";
 import type { AdminPlanToolBudgets } from "./adminPlanToolBudgets";
@@ -42,7 +41,11 @@ export interface AdminPlanInputBase {
   /** @nullable */
   embeddingModelKey?: string | null;
   /** @nullable */
-  videoGenerateModelKey?: AdminPlanInputBaseVideoGenerateModelKey;
+  imageGenerateModelKey?: string | null;
+  /** @nullable */
+  imageEditModelKey?: string | null;
+  /** @nullable */
+  videoGenerateModelKey?: string | null;
   /** @nullable */
   runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;
   toolActivations?: AdminPlanToolActivationInput[];

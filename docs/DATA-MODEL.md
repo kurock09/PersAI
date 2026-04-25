@@ -72,6 +72,16 @@ Current active Voice DNA persistence includes:
 
 Materialization prefers the live `persona_archetypes` row when it exists, and only falls back to `snapshot_voice_dna` if the referenced archetype is no longer present.
 
+## Runtime provider and plan model state
+
+Current active runtime-provider settings persistence includes:
+
+- `platform_runtime_provider_settings.available_models_by_provider` as the legacy chat-model alias used by existing text-routing/provider warmup paths.
+- `platform_runtime_provider_settings.available_model_catalog_by_provider` as the capability-aware provider catalog. Each provider owns `chat`, `image`, and `video` model key lists.
+- admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageEditModelKey`, and `videoGenerateModelKey`.
+
+Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved key into each runtime bundle tool credential ref. Runtime tool execution treats that `modelKey` as request-time truth for `image_generate`, `image_edit`, and `video_generate`.
+
 ## Secret ownership
 
 Current secret wiring is split between:

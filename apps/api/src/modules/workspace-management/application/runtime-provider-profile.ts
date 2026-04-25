@@ -23,6 +23,12 @@ export type RuntimeProviderProfileSelection = {
 };
 
 export type RuntimeProviderAvailableModelsByProvider = Record<ManagedRuntimeProvider, string[]>;
+export type RuntimeProviderModelCapability = "chat" | "image" | "video";
+export type RuntimeProviderModelCatalog = Record<RuntimeProviderModelCapability, string[]>;
+export type RuntimeProviderModelCatalogByProvider = Record<
+  ManagedRuntimeProvider,
+  RuntimeProviderModelCatalog
+>;
 
 export type AdminManagedRuntimeProviderProfileState = {
   schema: typeof RUNTIME_PROVIDER_PROFILE_SCHEMA;
@@ -33,6 +39,7 @@ export type AdminManagedRuntimeProviderProfileState = {
   };
   allowedProviders: ManagedRuntimeProvider[];
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   primary: RuntimeProviderProfileSelection & {
     credentialRef: RuntimeProviderCredentialRefState;
   };
@@ -53,6 +60,7 @@ export type LegacyRuntimeProviderProfileState = {
   };
   allowedProviders: ManagedRuntimeProvider[];
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   primary: null;
   fallback: null;
   notes: string[];
@@ -70,6 +78,7 @@ type RuntimeProviderCredentialRefsEnvelope = {
 type RuntimeProviderProfilePolicy = {
   schema: typeof RUNTIME_PROVIDER_PROFILE_SCHEMA;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   primary: RuntimeProviderProfileSelection;
   fallback: RuntimeProviderProfileSelection | null;
 };
@@ -141,6 +150,13 @@ function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsB
   };
 }
 
+function createEmptyModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
+  return {
+    openai: { chat: [], image: [], video: [] },
+    anthropic: { chat: [], image: [], video: [] }
+  };
+}
+
 function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailableModelsByProvider {
   const result = createEmptyAvailableModelsByProvider();
   const row = asObject(value);
@@ -164,6 +180,54 @@ function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailabl
       deduped.add(normalizeModelKey(model));
     }
     result[provider] = Array.from(deduped);
+  }
+  return result;
+}
+
+function normalizeCatalogList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const deduped = new Set<string>();
+  for (const entry of value) {
+    const model = toNormalizedNonEmptyModelKey(entry);
+    if (model === null) {
+      continue;
+    }
+    if (model.length > MAX_MODEL_LENGTH || containsControlCharacters(model)) {
+      continue;
+    }
+    deduped.add(normalizeModelKey(model));
+  }
+  return Array.from(deduped);
+}
+
+function parseModelCatalogByProvider(
+  value: unknown,
+  chatFallback: RuntimeProviderAvailableModelsByProvider
+): RuntimeProviderModelCatalogByProvider {
+  const result = createEmptyModelCatalogByProvider();
+  const row = asObject(value);
+  if (row === null) {
+    return {
+      openai: { ...result.openai, chat: chatFallback.openai },
+      anthropic: { ...result.anthropic, chat: chatFallback.anthropic }
+    };
+  }
+  for (const provider of ALLOWED_RUNTIME_PROVIDERS) {
+    const providerRow = asObject(row[provider]);
+    if (providerRow === null) {
+      result[provider].chat = chatFallback[provider];
+      continue;
+    }
+    result[provider] = {
+      chat: normalizeCatalogList(providerRow.chat),
+      image: normalizeCatalogList(providerRow.image),
+      video: normalizeCatalogList(providerRow.video)
+    };
+    if (result[provider].chat.length === 0) {
+      result[provider].chat = chatFallback[provider];
+    }
   }
   return result;
 }
@@ -301,9 +365,16 @@ function parseRuntimeProviderProfilePolicy(
           fallbackRaw,
           "policyEnvelope.runtimeProviderProfile.fallback"
         );
+  const availableModelsByProvider = parseAvailableModelsByProvider(
+    profile.availableModelsByProvider
+  );
   return {
     schema: RUNTIME_PROVIDER_PROFILE_SCHEMA,
-    availableModelsByProvider: parseAvailableModelsByProvider(profile.availableModelsByProvider),
+    availableModelsByProvider,
+    availableModelCatalogByProvider: parseModelCatalogByProvider(
+      profile.availableModelCatalogByProvider,
+      availableModelsByProvider
+    ),
     primary,
     fallback
   };
@@ -349,6 +420,7 @@ export function resolveRuntimeProviderProfileState(params: {
       },
       allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
+      availableModelCatalogByProvider: createEmptyModelCatalogByProvider(),
       primary: null,
       fallback: null,
       notes: [
@@ -392,6 +464,7 @@ export function resolveRuntimeProviderProfileState(params: {
     },
     allowedProviders: [...ALLOWED_RUNTIME_PROVIDERS],
     availableModelsByProvider: profile.availableModelsByProvider,
+    availableModelCatalogByProvider: profile.availableModelCatalogByProvider,
     primary: {
       provider: profile.primary.provider,
       model: profile.primary.model,

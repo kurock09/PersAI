@@ -88,8 +88,8 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     return [...this.config.PROVIDER_GATEWAY_ANTHROPIC_MODELS];
   }
 
-  async warm(): Promise<void> {
-    const apiKey = this.config.PROVIDER_GATEWAY_ANTHROPIC_API_KEY;
+  async warm(apiKeyOverride?: string): Promise<void> {
+    const apiKey = apiKeyOverride ?? this.config.PROVIDER_GATEWAY_ANTHROPIC_API_KEY;
     if (!apiKey) {
       this.client = null;
       return;

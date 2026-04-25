@@ -3,6 +3,7 @@ import {
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
   type ManagedRuntimeProvider,
   type RuntimeProviderAvailableModelsByProvider,
+  type RuntimeProviderModelCatalogByProvider,
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
@@ -72,6 +73,7 @@ export type PlatformRuntimeProviderSettingsState = {
   routingFastModelKey: string | null;
   routerPolicy: PlatformRuntimeRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
   notes: string[];
 };
@@ -84,6 +86,7 @@ export type PlatformRuntimeProviderSettingsRecord = {
   routingFastModelKey: string | null;
   routerPolicy: unknown;
   availableModelsByProvider: unknown;
+  availableModelCatalogByProvider: unknown;
 };
 
 export type UpdatePlatformRuntimeProviderSettingsInput = {
@@ -92,6 +95,7 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
   routingFastModelKey: string | null;
   routerPolicy: PlatformRuntimeRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Partial<Record<ManagedRuntimeProvider, string>>;
 };
 
@@ -124,6 +128,13 @@ export function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailable
   return {
     openai: [],
     anthropic: []
+  };
+}
+
+export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
+  return {
+    openai: { chat: [], image: [], video: [] },
+    anthropic: { chat: [], image: [], video: [] }
   };
 }
 
@@ -208,6 +219,48 @@ export function normalizeAvailableModelsByProvider(
     anthropic: Array.isArray(row.anthropic)
       ? normalizeAvailableModelList(row.anthropic, `${path}.anthropic`)
       : []
+  };
+}
+
+function normalizeCapabilityCatalog(value: unknown, fallback: string[], path: string): string[] {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+  return normalizeAvailableModelList(value, path);
+}
+
+export function normalizeAvailableModelCatalogByProvider(
+  value: unknown,
+  chatFallback: RuntimeProviderAvailableModelsByProvider,
+  path = "availableModelCatalogByProvider"
+): RuntimeProviderModelCatalogByProvider {
+  const row = asObject(value);
+  if (row === null) {
+    return {
+      openai: { chat: chatFallback.openai, image: [], video: [] },
+      anthropic: { chat: chatFallback.anthropic, image: [], video: [] }
+    };
+  }
+  const normalizeProviderCatalog = (
+    provider: ManagedRuntimeProvider
+  ): RuntimeProviderModelCatalogByProvider[ManagedRuntimeProvider] => {
+    const providerRow = asObject(row[provider]);
+    if (providerRow === null) {
+      return { chat: chatFallback[provider], image: [], video: [] };
+    }
+    return {
+      chat: normalizeCapabilityCatalog(
+        providerRow.chat,
+        chatFallback[provider],
+        `${path}.${provider}.chat`
+      ),
+      image: normalizeCapabilityCatalog(providerRow.image, [], `${path}.${provider}.image`),
+      video: normalizeCapabilityCatalog(providerRow.video, [], `${path}.${provider}.video`)
+    };
+  };
+  return {
+    openai: normalizeProviderCatalog("openai"),
+    anthropic: normalizeProviderCatalog("anthropic")
   };
 }
 
@@ -390,6 +443,10 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
   const availableModelsByProvider = normalizeAvailableModelsByProvider(
     row.availableModelsByProvider
   );
+  const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
+    row.availableModelCatalogByProvider,
+    availableModelsByProvider
+  );
   assertSelectionInCatalog({
     selection: primary,
     availableModelsByProvider,
@@ -433,6 +490,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     routingFastModelKey,
     routerPolicy,
     availableModelsByProvider,
+    availableModelCatalogByProvider,
     providerKeys
   };
 }
@@ -450,6 +508,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       routingFastModelKey: null,
       routerPolicy: createDefaultPlatformRuntimeRouterPolicy(),
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
+      availableModelCatalogByProvider: createEmptyAvailableModelCatalogByProvider(),
       providerKeys: params.providerKeys,
       notes: [
         "Global runtime provider settings are not configured yet.",
@@ -473,6 +532,10 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
   const availableModelsByProvider = normalizeAvailableModelsByProvider(
     params.settings.availableModelsByProvider
   );
+  const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
+    params.settings.availableModelCatalogByProvider,
+    availableModelsByProvider
+  );
   const routingFastModelKey = normalizeOptionalModel(
     params.settings.routingFastModelKey,
     "routingFastModelKey"
@@ -487,6 +550,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     routingFastModelKey,
     routerPolicy,
     availableModelsByProvider,
+    availableModelCatalogByProvider,
     providerKeys: params.providerKeys,
     notes: [
       "Provider keys are managed as one global platform setting for all assistants.",
@@ -549,6 +613,7 @@ export function buildPlatformRuntimeProviderProfileState(
       },
       allowedProviders: [...MANAGED_RUNTIME_PROVIDERS],
       availableModelsByProvider: settings.availableModelsByProvider,
+      availableModelCatalogByProvider: settings.availableModelCatalogByProvider,
       primary: null,
       fallback: null,
       notes: [
@@ -580,6 +645,7 @@ export function buildPlatformRuntimeProviderProfileState(
     },
     allowedProviders: [...MANAGED_RUNTIME_PROVIDERS],
     availableModelsByProvider: settings.availableModelsByProvider,
+    availableModelCatalogByProvider: settings.availableModelCatalogByProvider,
     primary: {
       provider: settings.primary.provider,
       model: settings.primary.model,

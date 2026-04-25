@@ -40,10 +40,21 @@ function ChatPageInner() {
   const existingChat = appData.chats.find((c) => c.chat.surfaceThreadKey === threadKey);
 
   useEffect(() => {
-    if (!existingChat?.chat.id) return;
+    if (!existingChat?.chat.id) {
+      // No existing chat row matches this threadKey — this is a fresh
+      // conversation with no history to fetch. Clear the optimistic
+      // historyLoading flag set by useChat's threadKey-change reset, so the
+      // EmptyState can render immediately instead of waiting for a fetch
+      // that will never happen.
+      chat.markHistoryEmpty();
+      return;
+    }
     // The chat we just created in this session already has its messages in
     // memory; reloading history would race with the live stream and clobber it.
-    if (existingChat.chat.id === chat.chatId) return;
+    if (existingChat.chat.id === chat.chatId) {
+      chat.markHistoryEmpty();
+      return;
+    }
     void chat.loadHistory(existingChat.chat.id);
   }, [existingChat?.chat.id, chat.chatId]); // eslint-disable-line
 

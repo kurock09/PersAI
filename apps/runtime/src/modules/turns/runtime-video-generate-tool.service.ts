@@ -5,7 +5,6 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
-  isPersaiRuntimeVideoGenerateModelKey,
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
@@ -633,10 +632,8 @@ export class RuntimeVideoGenerateToolService {
   private resolveVideoGenerateModelKey(
     credential: AssistantRuntimeBundleToolCredentialRef
   ): ProviderGatewayVideoGenerateRequest["model"] {
-    return credential.modelKey !== undefined &&
-      credential.modelKey !== null &&
-      isPersaiRuntimeVideoGenerateModelKey(credential.modelKey)
-      ? credential.modelKey
+    return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
+      ? credential.modelKey.trim()
       : null;
   }
 

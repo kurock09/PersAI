@@ -30,6 +30,18 @@ describe("runtime-provider-settings-admin", () => {
         openai: ["gpt-5.4", "gpt-4.1"],
         anthropic: ["claude-sonnet-4-5"]
       },
+      availableModelCatalogByProvider: {
+        openai: {
+          chat: ["gpt-5.4", "gpt-4.1"],
+          image: ["gpt-image-1.5"],
+          video: ["sora-2"]
+        },
+        anthropic: {
+          chat: ["claude-sonnet-4-5"],
+          image: [],
+          video: []
+        }
+      },
       providerKeys: {
         openai: {
           configured: true,
@@ -51,7 +63,8 @@ describe("runtime-provider-settings-admin", () => {
       model: "gpt-5.4"
     });
     expect(state.draft.fallbackEnabled).toBe(true);
-    expect(state.draft.availableModelsTextByProvider.openai).toBe("gpt-5.4\ngpt-4.1");
+    expect(state.draft.availableModelsTextByProvider.openai.chat).toBe("gpt-5.4\ngpt-4.1");
+    expect(state.draft.availableModelsTextByProvider.openai.image).toBe("gpt-image-1.5");
     expect(state.providerKeyState.openai.lastFour).toBe("1234");
     expect(state.draft.providerKeys.openai).toBe("");
   });
@@ -69,8 +82,16 @@ describe("runtime-provider-settings-admin", () => {
           model: "claude-sonnet-4-5"
         },
         availableModelsTextByProvider: {
-          openai: "gpt-4.1\ngpt-5.4",
-          anthropic: "claude-sonnet-4-5"
+          openai: {
+            chat: "gpt-4.1\ngpt-5.4",
+            image: "gpt-image-1.5",
+            video: "sora-2"
+          },
+          anthropic: {
+            chat: "claude-sonnet-4-5",
+            image: "",
+            video: ""
+          }
         },
         providerKeys: {
           openai: "",
@@ -101,6 +122,8 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(request.availableModelsByProvider.openai).toEqual(["gpt-4.1", "gpt-5.4"]);
     expect(request.availableModelsByProvider.anthropic).toEqual(["claude-sonnet-4-5"]);
+    expect(request.availableModelCatalogByProvider.openai.image).toEqual(["gpt-image-1.5"]);
+    expect(request.availableModelCatalogByProvider.openai.video).toEqual(["sora-2"]);
     expect(request.providerKeys).toEqual({
       anthropic: "sk-ant-new"
     });
@@ -119,8 +142,8 @@ describe("runtime-provider-settings-admin", () => {
           model: ""
         },
         availableModelsTextByProvider: {
-          openai: "gpt-4.1",
-          anthropic: ""
+          openai: { chat: "gpt-4.1", image: "", video: "" },
+          anthropic: { chat: "", image: "", video: "" }
         },
         providerKeys: {
           openai: "",
@@ -144,8 +167,8 @@ describe("runtime-provider-settings-admin", () => {
             model: ""
           },
           availableModelsTextByProvider: {
-            openai: "gpt-5.4",
-            anthropic: ""
+            openai: { chat: "gpt-5.4", image: "", video: "" },
+            anthropic: { chat: "", image: "", video: "" }
           },
           providerKeys: {
             openai: "",
@@ -181,8 +204,8 @@ describe("runtime-provider-settings-admin", () => {
           model: ""
         },
         availableModelsTextByProvider: {
-          openai: "",
-          anthropic: ""
+          openai: { chat: "", image: "", video: "" },
+          anthropic: { chat: "", image: "", video: "" }
         },
         providerKeys: {
           openai: "",

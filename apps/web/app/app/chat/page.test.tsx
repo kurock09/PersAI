@@ -10,6 +10,7 @@ const navigationMocks = vi.hoisted(() => ({
 const chatHookMocks = vi.hoisted(() => ({
   sendWelcome: vi.fn(),
   loadHistory: vi.fn(),
+  markHistoryEmpty: vi.fn(),
   isStreaming: false,
   chatId: null
 }));
@@ -59,6 +60,7 @@ describe("ChatPage", () => {
   it("does not auto-create a welcome chat just because the chat list is empty", async () => {
     navigationMocks.searchParams = new URLSearchParams();
     chatHookMocks.sendWelcome.mockReset();
+    chatHookMocks.markHistoryEmpty.mockReset();
     navigationMocks.replace.mockReset();
     appDataMocks.chats = [];
     appDataMocks.reloadChats.mockReset();
@@ -75,6 +77,7 @@ describe("ChatPage", () => {
     navigationMocks.searchParams = new URLSearchParams("thread=welcome&welcome=1");
     chatHookMocks.sendWelcome.mockReset();
     chatHookMocks.sendWelcome.mockResolvedValue(undefined);
+    chatHookMocks.markHistoryEmpty.mockReset();
     navigationMocks.replace.mockReset();
     appDataMocks.chats = [];
     appDataMocks.reloadChats.mockReset();

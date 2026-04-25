@@ -352,12 +352,19 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const startRecording = useCallback(async () => {
     try {
+      // 2026-04-25 diagnostic — see [mic] in logcat to trace where startRecording fails on Samsung Z Fold.
+      // eslint-disable-next-line no-console
+      console.log("[mic] startRecording: requesting getUserMedia");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      // eslint-disable-next-line no-console
+      console.log("[mic] startRecording: getUserMedia OK, picking mimeType");
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
+      // eslint-disable-next-line no-console
+      console.log(`[mic] startRecording: mimeType=${mimeType}`);
       const recorder = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = recorder;
       chunksRef.current = [];
@@ -412,10 +419,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       recordingStartTimeRef.current = Date.now();
       setRecordingState("recording");
       setRecordingSeconds(0);
+      // eslint-disable-next-line no-console
+      console.log("[mic] startRecording: recorder.start() OK, state=recording");
       timerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
-    } catch {
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[mic] startRecording FAILED:", err);
       setRecordingState("idle");
     }
   }, [onSend, onTranscribeVoice, onVoiceTranscriptionError, stopRecordingCleanup]);
@@ -470,8 +481,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleMicPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
+      // 2026-04-25 diagnostic: surface the exit reason via Capacitor/Console
+      // so logcat shows why the recorder didn't start on a real device.
+      // Cheap, single-line, removed once the Samsung Z Fold flow is verified.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[mic] pointerdown type=${e.pointerType} touch=${isTouchDevice} disabled=${disabled} streaming=${isStreaming}`
+      );
       if (!isTouchDevice) return;
-      if (e.pointerType !== "touch") return;
+      // Accept touch + pen + unknown ("" on older WebViews). Reject only mouse,
+      // because the desktop branch already handles click-to-toggle for mice.
+      if (e.pointerType === "mouse") return;
       if (disabled || isStreaming) return;
       e.preventDefault();
       holdActiveRef.current = true;

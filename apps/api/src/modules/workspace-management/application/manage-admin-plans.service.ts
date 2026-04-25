@@ -6,11 +6,6 @@ import {
   NotFoundException
 } from "@nestjs/common";
 import {
-  PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS,
-  isPersaiRuntimeVideoGenerateModelKey,
-  type PersaiRuntimeVideoGenerateModelKey
-} from "@persai/runtime-contract";
-import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
   type AssistantPlanCatalogRepository,
   type AssistantPlanCatalogWriteInput
@@ -96,25 +91,15 @@ function parseRuntimeTier(value: unknown): AdminPlanRuntimeTier | null {
   );
 }
 
-function toVideoGenerateModelKey(value: unknown): PersaiRuntimeVideoGenerateModelKey | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return isPersaiRuntimeVideoGenerateModelKey(trimmed) ? trimmed : null;
-}
-
-function parseVideoGenerateModelKey(value: unknown): PersaiRuntimeVideoGenerateModelKey | null {
+function parseOptionalPlanModelKey(value: unknown, fieldName: string): string | null {
   if (value === null || value === undefined || value === "") {
     return null;
   }
-  const modelKey = toVideoGenerateModelKey(value);
-  if (modelKey !== null) {
-    return modelKey;
+  const modelKey = toNormalizedNonEmptyModelKey(value);
+  if (modelKey === null) {
+    throw new BadRequestException(`${fieldName} must be a non-empty string or null.`);
   }
-  throw new BadRequestException(
-    `videoGenerateModelKey must be one of ${PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS.join(", ")}, or null.`
-  );
+  return modelKey;
 }
 
 function parseTrialDuration(value: unknown, trialEnabled: boolean): number | null {
@@ -358,6 +343,11 @@ export class ManageAdminPlansService {
       input.retrievalModelKey,
       input.embeddingModelKey
     ]);
+    await this.assertCapabilityModelKeysAvailable([
+      { modelKey: input.imageGenerateModelKey, capability: "image" },
+      { modelKey: input.imageEditModelKey, capability: "image" },
+      { modelKey: input.videoGenerateModelKey, capability: "video" }
+    ]);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
     await this.bumpConfigGenerationService.execute();
@@ -407,6 +397,11 @@ export class ManageAdminPlansService {
       mergedInput.reasoningModelKey,
       mergedInput.retrievalModelKey,
       mergedInput.embeddingModelKey
+    ]);
+    await this.assertCapabilityModelKeysAvailable([
+      { modelKey: mergedInput.imageGenerateModelKey, capability: "image" },
+      { modelKey: mergedInput.imageEditModelKey, capability: "image" },
+      { modelKey: mergedInput.videoGenerateModelKey, capability: "video" }
     ]);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
@@ -566,7 +561,15 @@ export class ManageAdminPlansService {
       reasoningModelKey: toNormalizedNonEmptyModelKey(parsed.reasoningModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(parsed.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(parsed.embeddingModelKey),
-      videoGenerateModelKey: parseVideoGenerateModelKey(parsed.videoGenerateModelKey),
+      imageGenerateModelKey: parseOptionalPlanModelKey(
+        parsed.imageGenerateModelKey,
+        "imageGenerateModelKey"
+      ),
+      imageEditModelKey: parseOptionalPlanModelKey(parsed.imageEditModelKey, "imageEditModelKey"),
+      videoGenerateModelKey: parseOptionalPlanModelKey(
+        parsed.videoGenerateModelKey,
+        "videoGenerateModelKey"
+      ),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
       toolBudgets
     };
@@ -670,6 +673,10 @@ export class ManageAdminPlansService {
         ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
         ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
         ...(input.embeddingModelKey !== null ? { embeddingModelKey: input.embeddingModelKey } : {}),
+        ...(input.imageGenerateModelKey !== null
+          ? { imageGenerateModelKey: input.imageGenerateModelKey }
+          : {}),
+        ...(input.imageEditModelKey !== null ? { imageEditModelKey: input.imageEditModelKey } : {}),
         ...(input.videoGenerateModelKey !== null
           ? { videoGenerateModelKey: input.videoGenerateModelKey }
           : {}),
@@ -757,6 +764,27 @@ export class ManageAdminPlansService {
     }
   }
 
+  private async assertCapabilityModelKeysAvailable(
+    entries: Array<{ modelKey: string | null; capability: "image" | "video" }>
+  ): Promise<void> {
+    const settings = await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const catalogs = settings.availableModelCatalogByProvider;
+    for (const entry of entries) {
+      if (entry.modelKey === null) {
+        continue;
+      }
+      const catalog = [
+        ...catalogs.openai[entry.capability],
+        ...catalogs.anthropic[entry.capability]
+      ];
+      if (!catalog.includes(entry.modelKey)) {
+        throw new BadRequestException(
+          `"${entry.modelKey}" must be selected from Runtime Admin ${entry.capability} models.`
+        );
+      }
+    }
+  }
+
   private toAdminPlanState(plan: AssistantPlanCatalog): AdminPlanState {
     const billingHints =
       plan.billingProviderHints !== null &&
@@ -829,7 +857,9 @@ export class ManageAdminPlansService {
       reasoningModelKey: toNormalizedNonEmptyModelKey(billingHints.reasoningModelKey),
       retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(billingHints.embeddingModelKey),
-      videoGenerateModelKey: toVideoGenerateModelKey(billingHints.videoGenerateModelKey),
+      imageGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.imageGenerateModelKey),
+      imageEditModelKey: toNormalizedNonEmptyModelKey(billingHints.imageEditModelKey),
+      videoGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.videoGenerateModelKey),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,

@@ -7,7 +7,8 @@ import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
   ManagedRuntimeProvider,
-  RuntimeProviderAvailableModelsByProviderState
+  RuntimeProviderAvailableModelsByProviderState,
+  RuntimeProviderModelCatalogByProviderState
 } from "@persai/contracts";
 import {
   getAdminRuntimeProviderSettings,
@@ -24,6 +25,10 @@ function parseModelCatalogInput(value: string): string[] {
         .filter(Boolean)
     )
   );
+}
+
+function formatModelCatalogInput(value: string[] | undefined): string {
+  return (value ?? []).join("\n");
 }
 
 export function parseRouterTriggerTerms(value: string): string[] {
@@ -99,8 +104,12 @@ export default function AdminRuntimePage() {
       openai: [],
       anthropic: []
     });
-  const [openaiModelsText, setOpenaiModelsText] = useState("");
-  const [anthropicModelsText, setAnthropicModelsText] = useState("");
+  const [openaiChatModelsText, setOpenaiChatModelsText] = useState("");
+  const [openaiImageModelsText, setOpenaiImageModelsText] = useState("");
+  const [openaiVideoModelsText, setOpenaiVideoModelsText] = useState("");
+  const [anthropicChatModelsText, setAnthropicChatModelsText] = useState("");
+  const [anthropicImageModelsText, setAnthropicImageModelsText] = useState("");
+  const [anthropicVideoModelsText, setAnthropicVideoModelsText] = useState("");
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -144,8 +153,24 @@ export default function AdminRuntimePage() {
         formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.toolTerms)
       );
       setAvailableModels(res.availableModelsByProvider);
-      setOpenaiModelsText(res.availableModelsByProvider.openai.join("\n"));
-      setAnthropicModelsText(res.availableModelsByProvider.anthropic.join("\n"));
+      const catalog = res.availableModelCatalogByProvider ?? {
+        openai: {
+          chat: res.availableModelsByProvider.openai,
+          image: [],
+          video: []
+        },
+        anthropic: {
+          chat: res.availableModelsByProvider.anthropic,
+          image: [],
+          video: []
+        }
+      };
+      setOpenaiChatModelsText(formatModelCatalogInput(catalog.openai.chat));
+      setOpenaiImageModelsText(formatModelCatalogInput(catalog.openai.image));
+      setOpenaiVideoModelsText(formatModelCatalogInput(catalog.openai.video));
+      setAnthropicChatModelsText(formatModelCatalogInput(catalog.anthropic.chat));
+      setAnthropicImageModelsText(formatModelCatalogInput(catalog.anthropic.image));
+      setAnthropicVideoModelsText(formatModelCatalogInput(catalog.anthropic.video));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load runtime settings.");
     }
@@ -164,9 +189,21 @@ export default function AdminRuntimePage() {
     setSaving(true);
     setFeedback(null);
     try {
+      const parsedModelCatalog = {
+        openai: {
+          chat: parseModelCatalogInput(openaiChatModelsText),
+          image: parseModelCatalogInput(openaiImageModelsText),
+          video: parseModelCatalogInput(openaiVideoModelsText)
+        },
+        anthropic: {
+          chat: parseModelCatalogInput(anthropicChatModelsText),
+          image: parseModelCatalogInput(anthropicImageModelsText),
+          video: parseModelCatalogInput(anthropicVideoModelsText)
+        }
+      } satisfies RuntimeProviderModelCatalogByProviderState;
       const parsedCatalog = {
-        openai: parseModelCatalogInput(openaiModelsText),
-        anthropic: parseModelCatalogInput(anthropicModelsText)
+        openai: parsedModelCatalog.openai.chat,
+        anthropic: parsedModelCatalog.anthropic.chat
       } satisfies RuntimeProviderAvailableModelsByProviderState;
 
       if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
@@ -214,6 +251,7 @@ export default function AdminRuntimePage() {
           precheckRuleOverrides
         },
         availableModelsByProvider: parsedCatalog,
+        availableModelCatalogByProvider: parsedModelCatalog,
         providerKeys: {
           ...(openaiKey ? { openai: openaiKey } : {}),
           ...(anthropicKey ? { anthropic: anthropicKey } : {})
@@ -230,7 +268,9 @@ export default function AdminRuntimePage() {
     setSaving(false);
   }, [
     anthropicKey,
-    anthropicModelsText,
+    anthropicChatModelsText,
+    anthropicImageModelsText,
+    anthropicVideoModelsText,
     fallbackEnabled,
     fallbackModel,
     fallbackProvider,
@@ -247,7 +287,9 @@ export default function AdminRuntimePage() {
     routerToolTermsText,
     routingFastModelKey,
     openaiKey,
-    openaiModelsText,
+    openaiChatModelsText,
+    openaiImageModelsText,
+    openaiVideoModelsText,
     primaryModel,
     primaryProvider,
     settings
@@ -336,18 +378,42 @@ export default function AdminRuntimePage() {
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <Card title="OpenAI">
             <TextareaField
-              label="One model id per line"
-              value={openaiModelsText}
-              onChange={setOpenaiModelsText}
+              label="CHAT models"
+              value={openaiChatModelsText}
+              onChange={setOpenaiChatModelsText}
               placeholder={"gpt-5.4\ngpt-4.1"}
+            />
+            <TextareaField
+              label="IMAGE models"
+              value={openaiImageModelsText}
+              onChange={setOpenaiImageModelsText}
+              placeholder={"gpt-image-1\ngpt-image-1.5\ngpt-image-2"}
+            />
+            <TextareaField
+              label="VIDEO models"
+              value={openaiVideoModelsText}
+              onChange={setOpenaiVideoModelsText}
+              placeholder={"sora-2\nsora-2-pro"}
             />
           </Card>
           <Card title="Anthropic">
             <TextareaField
-              label="One model id per line"
-              value={anthropicModelsText}
-              onChange={setAnthropicModelsText}
+              label="CHAT models"
+              value={anthropicChatModelsText}
+              onChange={setAnthropicChatModelsText}
               placeholder="claude-sonnet-4-5"
+            />
+            <TextareaField
+              label="IMAGE models"
+              value={anthropicImageModelsText}
+              onChange={setAnthropicImageModelsText}
+              placeholder="Leave blank until provider supports image generation"
+            />
+            <TextareaField
+              label="VIDEO models"
+              value={anthropicVideoModelsText}
+              onChange={setAnthropicVideoModelsText}
+              placeholder="Leave blank until provider supports video generation"
             />
           </Card>
         </div>

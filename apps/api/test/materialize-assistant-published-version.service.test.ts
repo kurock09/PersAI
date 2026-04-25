@@ -1,20 +1,4 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
-import { resolveAllowedPlanVideoGenerateModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
-
-describe("resolveAllowedPlanVideoGenerateModelKey", () => {
-  test("keeps supported plan video models", () => {
-    assert.equal(resolveAllowedPlanVideoGenerateModelKey("sora-2"), "sora-2");
-    assert.equal(resolveAllowedPlanVideoGenerateModelKey("  sora-2-pro  "), "sora-2-pro");
-  });
-
-  test("drops unsupported or empty plan video models", () => {
-    assert.equal(resolveAllowedPlanVideoGenerateModelKey(null), null);
-    assert.equal(resolveAllowedPlanVideoGenerateModelKey(""), null);
-    assert.equal(resolveAllowedPlanVideoGenerateModelKey("sora-3"), null);
-  });
-});
-import assert from "node:assert/strict";
 import { resolveAllowedPlanPrimaryModelKey } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 
 async function run(): Promise<void> {
@@ -29,6 +13,18 @@ async function run(): Promise<void> {
     availableModelsByProvider: {
       openai: ["gpt-5.4"],
       anthropic: ["claude-sonnet-4-5"]
+    },
+    availableModelCatalogByProvider: {
+      openai: {
+        chat: ["gpt-5.4"],
+        image: ["gpt-image-1.5"],
+        video: ["sora-2-pro"]
+      },
+      anthropic: {
+        chat: ["claude-sonnet-4-5"],
+        image: [],
+        video: []
+      }
     },
     primary: {
       provider: "openai" as const,
@@ -75,6 +71,10 @@ async function run(): Promise<void> {
         availableModelsByProvider: {
           openai: [],
           anthropic: []
+        },
+        availableModelCatalogByProvider: {
+          openai: { chat: [], image: [], video: [] },
+          anthropic: { chat: [], image: [], video: [] }
         },
         primary: null,
         fallback: null,

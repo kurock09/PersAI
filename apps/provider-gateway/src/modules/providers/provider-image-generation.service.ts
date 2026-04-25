@@ -90,6 +90,7 @@ export class ProviderImageGenerationService {
 
     return {
       prompt: input.prompt.trim(),
+      model: this.normalizeOptionalModel(input.model, "model"),
       count: input.count,
       size: input.size,
       credential: {
@@ -148,6 +149,7 @@ export class ProviderImageGenerationService {
 
     return {
       prompt: input.prompt.trim(),
+      model: this.normalizeOptionalModel(input.model, "model"),
       size: input.size,
       sourceImage,
       referenceImage,
@@ -192,5 +194,15 @@ export class ProviderImageGenerationService {
       mimeType: input.mimeType.trim(),
       filename
     };
+  }
+
+  private normalizeOptionalModel(value: unknown, path: string): string | null {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(`${path} must be a non-empty string or null`);
+    }
+    return value.trim();
   }
 }

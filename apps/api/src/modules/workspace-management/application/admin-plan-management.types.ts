@@ -1,8 +1,4 @@
-import type {
-  PersaiRuntimeVideoGenerateModelKey,
-  RuntimeContextHydrationConfig,
-  RuntimeSandboxPolicy
-} from "@persai/runtime-contract";
+import type { RuntimeContextHydrationConfig, RuntimeSandboxPolicy } from "@persai/runtime-contract";
 
 export type AdminPlanStatus = "active" | "inactive";
 export type AdminPlanRuntimeTier =
@@ -113,7 +109,9 @@ export type AdminPlanInput = {
   reasoningModelKey: string | null;
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
-  videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
+  imageGenerateModelKey: string | null;
+  imageEditModelKey: string | null;
+  videoGenerateModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
   /**
@@ -155,7 +153,9 @@ export type AdminPlanState = {
   reasoningModelKey: string | null;
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
-  videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
+  imageGenerateModelKey: string | null;
+  imageEditModelKey: string | null;
+  videoGenerateModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];
   /** ADR-074 Slice L1 — see `AdminPlanInput.toolBudgets`. */

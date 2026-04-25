@@ -49,7 +49,6 @@ type ToolActivationDraft = {
   perTurnCap: number | null;
 };
 
-type VideoGenerateModelDraft = "" | "sora-2" | "sora-2-pro";
 type ContextPolicyPresetDraft = AdminPlanState["contextPolicy"]["preset"];
 type ContextPolicyPresetWithDefaults = Exclude<ContextPolicyPresetDraft, "custom">;
 
@@ -119,7 +118,9 @@ export type PlanDraft = {
   reasoningModelKey: string;
   retrievalModelKey: string;
   embeddingModelKey: string;
-  videoGenerateModelKey: VideoGenerateModelDraft;
+  imageGenerateModelKey: string;
+  imageEditModelKey: string;
+  videoGenerateModelKey: string;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
   /**
@@ -178,15 +179,6 @@ type NumericDraftRule = {
   max?: number;
   allowBlank?: boolean;
 };
-
-export const VIDEO_GENERATE_MODEL_OPTIONS: Array<{
-  value: VideoGenerateModelDraft;
-  label: string;
-}> = [
-  { value: "", label: "default (sora-2)" },
-  { value: "sora-2", label: "sora-2" },
-  { value: "sora-2-pro", label: "sora-2-pro" }
-];
 
 const CONTEXT_POLICY_PRESET_OPTIONS: Array<{
   value: ContextPolicyPresetDraft;
@@ -313,12 +305,6 @@ const CONTEXT_POLICY_PRESET_DEFAULTS: Record<
 function toNullable(value: string): string | null {
   const t = value.trim();
   return t.length > 0 ? t : null;
-}
-
-function toVideoGenerateModelDraft(
-  value: AdminPlanState["videoGenerateModelKey"] | null | undefined
-): VideoGenerateModelDraft {
-  return value === "sora-2" || value === "sora-2-pro" ? value : "";
 }
 
 function applyContextPolicyPreset(
@@ -569,6 +555,8 @@ function emptyDraft(): PlanDraft {
     reasoningModelKey: "",
     retrievalModelKey: "",
     embeddingModelKey: "",
+    imageGenerateModelKey: "",
+    imageEditModelKey: "",
     videoGenerateModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [],
@@ -660,7 +648,9 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     reasoningModelKey: plan.reasoningModelKey ?? "",
     retrievalModelKey: plan.retrievalModelKey ?? "",
     embeddingModelKey: plan.embeddingModelKey ?? "",
-    videoGenerateModelKey: toVideoGenerateModelDraft(plan.videoGenerateModelKey),
+    imageGenerateModelKey: plan.imageGenerateModelKey ?? "",
+    imageEditModelKey: plan.imageEditModelKey ?? "",
+    videoGenerateModelKey: plan.videoGenerateModelKey ?? "",
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
       .filter((ta) => ta.visibleInPlanEditor)
@@ -916,7 +906,9 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     reasoningModelKey: toNullable(draft.reasoningModelKey),
     retrievalModelKey: toNullable(draft.retrievalModelKey),
     embeddingModelKey: toNullable(draft.embeddingModelKey),
-    videoGenerateModelKey: draft.videoGenerateModelKey === "" ? null : draft.videoGenerateModelKey,
+    imageGenerateModelKey: toNullable(draft.imageGenerateModelKey),
+    imageEditModelKey: toNullable(draft.imageEditModelKey),
+    videoGenerateModelKey: toNullable(draft.videoGenerateModelKey),
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -1188,13 +1180,25 @@ function ToolActivationsInline({ activations }: { activations: AdminPlanToolActi
 export function ToolActivationsEdit({
   activations,
   onUpdate,
+  imageGenerateModelKey,
+  onImageGenerateModelKeyChange,
+  imageEditModelKey,
+  onImageEditModelKeyChange,
   videoGenerateModelKey,
-  onVideoGenerateModelKeyChange
+  onVideoGenerateModelKeyChange,
+  availableImageModelKeys,
+  availableVideoModelKeys
 }: {
   activations: ToolActivationDraft[];
   onUpdate: (updated: ToolActivationDraft[]) => void;
-  videoGenerateModelKey: VideoGenerateModelDraft;
-  onVideoGenerateModelKeyChange: (value: VideoGenerateModelDraft) => void;
+  imageGenerateModelKey: string;
+  onImageGenerateModelKeyChange: (value: string) => void;
+  imageEditModelKey: string;
+  onImageEditModelKeyChange: (value: string) => void;
+  videoGenerateModelKey: string;
+  onVideoGenerateModelKeyChange: (value: string) => void;
+  availableImageModelKeys: { provider: string; model: string }[];
+  availableVideoModelKeys: { provider: string; model: string }[];
 }) {
   if (activations.length === 0) {
     return (
@@ -1227,6 +1231,9 @@ export function ToolActivationsEdit({
 
   const numericInputClasses =
     "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]";
+
+  const modelSelectClasses =
+    "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50";
 
   return (
     <div className="grid gap-2 md:grid-cols-2">
@@ -1272,21 +1279,43 @@ export function ToolActivationsEdit({
 
               {/* RIGHT: stacked fields, each on its own row with `?` tooltip */}
               <div className="grid gap-1.5">
+                {ta.toolCode === "image_generate" ? (
+                  <FieldRow
+                    label="Model"
+                    tip="Provider model used for image generation. Empty = provider default."
+                  >
+                    <ModelOptionSelect
+                      value={imageGenerateModelKey}
+                      onChange={onImageGenerateModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                ) : null}
+                {ta.toolCode === "image_edit" ? (
+                  <FieldRow
+                    label="Model"
+                    tip="Provider model used for image edits. Empty = provider default."
+                  >
+                    <ModelOptionSelect
+                      value={imageEditModelKey}
+                      onChange={onImageEditModelKeyChange}
+                      options={availableImageModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
+                    />
+                  </FieldRow>
+                ) : null}
                 {ta.toolCode === "video_generate" ? (
                   <FieldRow label="Model" tip={TOOL_FIELD_HELP.videoModel}>
-                    <select
+                    <ModelOptionSelect
                       value={videoGenerateModelKey}
-                      onChange={(e) =>
-                        onVideoGenerateModelKeyChange(e.target.value as VideoGenerateModelDraft)
-                      }
-                      className="w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
-                    >
-                      {VIDEO_GENERATE_MODEL_OPTIONS.map((option) => (
-                        <option key={option.label} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={onVideoGenerateModelKeyChange}
+                      options={availableVideoModelKeys}
+                      placeholder="default (provider)"
+                      className={modelSelectClasses}
+                    />
                   </FieldRow>
                 ) : null}
                 <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
@@ -1315,6 +1344,39 @@ export function ToolActivationsEdit({
         );
       })}
     </div>
+  );
+}
+
+function ModelOptionSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  className
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { provider: string; model: string }[];
+  placeholder: string;
+  className: string;
+}) {
+  const grouped = options.reduce<Record<string, string[]>>((acc, { provider, model }) => {
+    (acc[provider] ??= []).push(model);
+    return acc;
+  }, {});
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={className}>
+      <option value="">{placeholder}</option>
+      {Object.entries(grouped).map(([provider, models]) => (
+        <optgroup key={provider} label={provider}>
+          {models.map((model) => (
+            <option key={`${provider}-${model}`} value={model}>
+              {model}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
   );
 }
 
@@ -1365,7 +1427,9 @@ function PlanForm({
   showCode,
   code,
   onCodeChange,
-  availableModelKeys = []
+  availableModelKeys = [],
+  availableImageModelKeys = [],
+  availableVideoModelKeys = []
 }: {
   draft: PlanDraft;
   onPatch: (p: Partial<PlanDraft>) => void;
@@ -1374,6 +1438,8 @@ function PlanForm({
   code: string;
   onCodeChange: (v: string) => void;
   availableModelKeys?: { provider: string; model: string }[];
+  availableImageModelKeys?: { provider: string; model: string }[];
+  availableVideoModelKeys?: { provider: string; model: string }[];
 }) {
   const editableActivations = draft.toolActivations.filter(
     (ta) => ta.policyClass === "plan_managed"
@@ -2228,10 +2294,18 @@ function PlanForm({
         <ToolActivationsEdit
           activations={editableActivations}
           onUpdate={(updated) => onPatch({ toolActivations: updated })}
+          imageGenerateModelKey={draft.imageGenerateModelKey}
+          onImageGenerateModelKeyChange={(imageGenerateModelKey) =>
+            onPatch({ imageGenerateModelKey })
+          }
+          imageEditModelKey={draft.imageEditModelKey}
+          onImageEditModelKeyChange={(imageEditModelKey) => onPatch({ imageEditModelKey })}
           videoGenerateModelKey={draft.videoGenerateModelKey}
           onVideoGenerateModelKeyChange={(videoGenerateModelKey) =>
             onPatch({ videoGenerateModelKey })
           }
+          availableImageModelKeys={availableImageModelKeys}
+          availableVideoModelKeys={availableVideoModelKeys}
         />
         <HelpText className="mt-2">
           Only plan-managed tools are editable here. Platform-managed and internal tools stay
@@ -2474,10 +2548,12 @@ function PlanCardReadOnly({
                   </div>
                 </div>
               </Sec>
-              <Sec label="Video model">
-                <span className="text-[10px] text-text-subtle">
-                  {plan.videoGenerateModelKey ?? "sora-2 (default)"}
-                </span>
+              <Sec label="Media models">
+                <div className="space-y-0.5 text-[10px] text-text-subtle">
+                  <div>Image generate: {plan.imageGenerateModelKey ?? "provider default"}</div>
+                  <div>Image edit: {plan.imageEditModelKey ?? "provider default"}</div>
+                  <div>Video generate: {plan.videoGenerateModelKey ?? "provider default"}</div>
+                </div>
               </Sec>
               <Sec label="Context policy">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
@@ -2547,6 +2623,12 @@ export default function AdminPlansPage() {
   const [availableModelKeys, setAvailableModelKeys] = useState<
     { provider: string; model: string }[]
   >([]);
+  const [availableImageModelKeys, setAvailableImageModelKeys] = useState<
+    { provider: string; model: string }[]
+  >([]);
+  const [availableVideoModelKeys, setAvailableVideoModelKeys] = useState<
+    { provider: string; model: string }[]
+  >([]);
   const [reapplying, setReapplying] = useState(false);
   const [reapplySummary, setReapplySummary] = useState<ForceReapplyAllSummary | null>(null);
 
@@ -2575,6 +2657,25 @@ export default function AdminPlansPage() {
           }
         }
         setAvailableModelKeys(keys);
+      }
+      if (runtimeData?.availableModelCatalogByProvider) {
+        const imageKeys: { provider: string; model: string }[] = [];
+        const videoKeys: { provider: string; model: string }[] = [];
+        for (const [provider, catalog] of Object.entries(
+          runtimeData.availableModelCatalogByProvider as unknown as Record<
+            string,
+            { image: string[]; video: string[] }
+          >
+        )) {
+          for (const model of catalog.image ?? []) {
+            imageKeys.push({ provider, model });
+          }
+          for (const model of catalog.video ?? []) {
+            videoKeys.push({ provider, model });
+          }
+        }
+        setAvailableImageModelKeys(imageKeys);
+        setAvailableVideoModelKeys(videoKeys);
       }
     } catch (err) {
       setFeedback({
@@ -2873,6 +2974,8 @@ export default function AdminPlansPage() {
             code={createCode}
             onCodeChange={setCreateCode}
             availableModelKeys={availableModelKeys}
+            availableImageModelKeys={availableImageModelKeys}
+            availableVideoModelKeys={availableVideoModelKeys}
           />
           <div className="mt-3 flex gap-2">
             <button
@@ -2933,6 +3036,8 @@ export default function AdminPlansPage() {
                     code=""
                     onCodeChange={() => {}}
                     availableModelKeys={availableModelKeys}
+                    availableImageModelKeys={availableImageModelKeys}
+                    availableVideoModelKeys={availableVideoModelKeys}
                   />
                   <div className="mt-3 flex gap-2">
                     <button

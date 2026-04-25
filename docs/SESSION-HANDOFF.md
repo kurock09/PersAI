@@ -1,5 +1,100 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (admin-managed media model catalog) — Runtime provider settings now define CHAT / IMAGE / VIDEO model catalogs per provider and admin plans can select image generate/edit + video models from that catalog (`apps/api` + `apps/web` + `apps/runtime` + `apps/provider-gateway`; focused tests/typechecks green; no push per founder instruction)
+
+### Why this session
+
+Founder pointed out that `Admin > Plans` already had a video generation model selector, but image generate/edit were still effectively hardcoded to OpenAI defaults. Founder also chose the clean UI shape: each provider on `Admin > Runtime` gets three separate textarea sections (`CHAT`, `IMAGE`, `VIDEO`) instead of tagged delimiters in one textarea.
+
+### What changed
+
+- `packages/contracts/openapi.yaml` now exposes `availableModelCatalogByProvider` with capability buckets (`chat`, `image`, `video`) and plan-level nullable `imageGenerateModelKey`, `imageEditModelKey`, and string `videoGenerateModelKey`.
+- `apps/api/prisma/schema.prisma` plus migration `20260425190000_runtime_provider_model_catalog_capabilities` add `platform_runtime_provider_settings.available_model_catalog_by_provider`, backfilled from the old chat model list where possible.
+- Runtime provider profile/settings parsing now carries the capability-aware catalog while keeping `availableModelsByProvider` as the chat-model compatibility alias.
+- Admin plan parsing/validation persists `imageGenerateModelKey`, `imageEditModelKey`, and dynamic `videoGenerateModelKey` in billing provider hints, validating selected keys against the provider/capability catalog.
+- Published assistant materialization writes the selected media model key into each relevant runtime tool credential ref: `image_generate`, `image_edit`, and `video_generate`.
+- Runtime image/video tools pass the credential `modelKey` to provider-gateway. Provider-gateway image generation/edit normalization now accepts an optional model string, and the OpenAI image client uses that model instead of the hardcoded default when provided.
+- `apps/web/app/admin/runtime/page.tsx` renders three model textarea sections per provider. `apps/web/app/admin/plans/page.tsx` renders catalog-backed model selectors for image generate, image edit, and video generate.
+
+### Tests run
+
+- Typechecks: `@persai/api`, `@persai/web`, `@persai/runtime`, and `@persai/provider-gateway` — clean.
+- Focused API tests: `platform-runtime-provider-settings`, `manage-admin-plans`, and `materialize-assistant-published-version` — clean.
+- Focused web tests: `runtime-provider-settings-admin` and `admin/plans/page` — clean.
+- Focused runtime/provider-gateway tests: runtime provider-gateway client, runtime turn execution, provider image-generation service, OpenAI provider client — clean.
+- Full commit gate is green: generated contracts/Prisma client refreshed, then lint, format, API/web/runtime/provider-gateway typecheck, and recursive workspace tests all passed before commit.
+
+### Risks / residuals
+
+- Existing plans with no selected image/video model keys keep runtime fallback behavior. Operators should add image/video model keys in `Admin > Runtime`, then select them per plan before expecting non-default media routing.
+- `availableModelsByProvider` remains a chat-only compatibility alias for existing text-routing code. Long-term cleanup can remove it once every consumer uses the capability-aware catalog directly.
+- This stores operator-maintained model catalogs; it does not call OpenAI/Anthropic to auto-discover available models.
+
+### Next recommended step
+
+Commit and push the verified bundle once founder confirms the final remote target.
+
+## 2026-04-25 (soft-detach browser resume reconciliation) — Web chat now refreshes latest active-thread history on focus/visible/pageshow so phone-lock/tab-switch disconnects reconcile committed images/messages without manual reload (`apps/web`; focused use-chat test + web lint/typecheck green; repo-wide format gate blocked by unrelated pre-existing generated-contract/admin-plan diffs)
+
+### Why this session
+
+Founder retested the Slice 1.2 soft-detach behavior on GKE after the provider-gateway rollout. Backend logs showed the important part was working: image-generation turns continued after phone lock / tab background, committed successfully, and the generated attachments returned `200` after a manual refresh. The remaining bug was client-side: after unlock or tab return, the local SSE/request state could show a stale "chat could not complete" issue even though the server had already persisted the final assistant message and images.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` adds `refreshLatestHistory(...)`, a latest-page history reconciliation path that is separate from the existing one-shot `loadHistory(...)` guard.
+- The hook now listens for browser resume signals: `window.focus`, `window.pageshow`, and `document.visibilitychange` back to `visible`. The refresh is debounced to avoid duplicate bursts from one resume event.
+- When committed server messages arrive, optimistic `local-user-*` / `local-assistant-*` bubbles are removed, server messages and attachments are merged in, stale issue state is cleared, and the active chat id/ref is refreshed.
+- Stream `onStarted` now updates `activeChatIdRef` immediately, so a turn that started in a newly-created chat can still be reconciled on browser resume before `onCompleted` arrives.
+
+### Tests run
+
+- `corepack pnpm exec vitest run app/app/_components/use-chat.test.tsx --config vitest.config.ts` from `apps/web` — clean, 21 tests.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run lint` — clean.
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/use-chat.ts" "apps/web/app/app/_components/use-chat.test.tsx" "docs/API-BOUNDARY.md" "docs/ADR/073-post-adr072-residue-and-polish-program.md" "docs/SESSION-HANDOFF.md" "docs/CHANGELOG.md"` — clean after formatting the touched ADR file.
+- Earlier attempted package-level vitest invocation accidentally ran the whole web suite; it exposed unrelated/generated-contract failures in admin plan tests, then the focused direct vitest command above was used for this slice.
+- Repo-wide `corepack pnpm run format:check` is not clean in the current working tree because of unrelated pre-existing generated-contract/admin-plan/runtime-provider catalog diffs across ~300 files (including deleted generated `adminPlan*VideoGenerateModelKey` files). Those files were already outside this slice and were not reformatted here.
+
+### Risks / residuals
+
+- This is history reconciliation, not live SSE re-attach. If the user returns while the long tool turn is still running, the refresh may not show new content yet; the next focus/pageshow or manual refresh will reconcile once the server commits. A real in-flight SSE reattach endpoint remains a separate future slice.
+- Successful resume refresh clears the stale issue banner for the active chat. That is intentional for soft-detach recovery, but it means an unrelated transient issue can disappear if the latest history page loads successfully.
+
+### Next recommended step
+
+Deploy the web image, then repeat the live phone-lock/tab-background image-generation smoke. Expected behavior: no manual page reload required after the turn commits; images appear after returning to the tab/screen, or on the next browser resume event if the first resume happened before commit.
+
+## 2026-04-25 (provider-gateway managed text-provider keys) — Admin-saved OpenAI/Anthropic keys now warm text-generation clients even when Kubernetes env vars are absent (`apps/provider-gateway`; provider-gateway suite + required verification gate green)
+
+### Why this session
+
+Founder switched the dev runtime provider settings to Anthropic through the admin surface and immediately hit: "Chat runtime is temporarily unreachable. Retry in a moment. Your chat history is preserved." GKE showed all pods healthy, but the failing turn went `api -> runtime -> provider-gateway` with `provider=anthropic model=claude-opus-4-7` and provider-gateway returned `503` before dispatch. Root cause: the Anthropic key saved in the admin settings flow lives in PersAI's encrypted `platform_runtime_provider_secrets` table, while `AnthropicProviderClient.isConfigured()` only checked `PROVIDER_GATEWAY_ANTHROPIC_API_KEY` from pod env. The Kubernetes secret had `OPENAI_API_KEY` but no `ANTHROPIC_API_KEY`, so provider-gateway kept Anthropic `unconfigured` even though admin settings accepted the key.
+
+### What changed
+
+- `apps/provider-gateway/src/modules/providers/provider-warmup.service.ts` now resolves `openai/api-key` and `anthropic/api-key` through the existing internal API secret resolver when a provider has no static env key. Missing managed keys still leave that provider `unconfigured`; resolver/decryption failures still mark warmup failed.
+- `apps/provider-gateway/src/modules/providers/openai/openai-provider.client.ts` and `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` accept an optional warmup key override, preserving env-first behavior while allowing admin-managed keys to initialize the SDK clients.
+- `apps/provider-gateway/src/modules/providers/provider-client.types.ts` reflects the optional warmup key override.
+- `apps/provider-gateway/test/provider-warmup.service.test.ts` covers the live failure shape: Anthropic has no env key, internal API is configured, `anthropic/api-key` resolves from PersAI, and `ensureReadyForRequest({ provider: "anthropic", model: "claude-opus-4-7" })` returns ready with the control-plane catalog.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-warmup.service.test.ts` — clean.
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` — clean.
+- `corepack pnpm --filter @persai/provider-gateway test` — clean (only the expected existing empty-completion WARN logs).
+- Required verification gate: `corepack pnpm -r --if-present run lint` — clean; `corepack pnpm run format:check` — clean; `corepack pnpm --filter @persai/api run typecheck` — clean; `corepack pnpm --filter @persai/web run typecheck` — clean.
+
+### Risks / residuals
+
+- Static env keys still win over managed keys. This is intentional for bootstrap/backward compatibility, but the admin UI should eventually surface which key source is active so operators are not surprised.
+- Provider readiness now depends on the internal API secret resolver when env keys are absent. If `PERSAI_INTERNAL_API_TOKEN` or `PERSAI_API_BASE_URL` is broken, providers without env keys remain `unconfigured` instead of warming.
+- This fixes text-generation warmup only. STT, embeddings, image/video generation, and other tool-specific providers keep their existing credential paths.
+
+### Next recommended step
+
+Deploy this slice, restart `provider-gateway`, then live-smoke Anthropic chat from the admin-selected provider. After that, add an admin preflight check that blocks switching primary/fallback to a provider unless provider-gateway reports that provider `ready`.
+
 ## 2026-04-25 (chat image attachment normalization) — Server-side `sharp` pipeline now applies EXIF rotate + 2048 px cap + JPEG q85 to every chat image attachment so OpenAI vision and `gpt-image-1` edits never get oversized iPhone uploads (`apps/api` only; verification gate green; deploy waiting on the previous push)
 
 ### Why this session

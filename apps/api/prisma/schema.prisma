@@ -616,6 +616,7 @@ model PlatformRuntimeProviderSettings {
   routingFastModelKey       String?                         @map("routing_fast_model_key") @db.VarChar(256)
   routerPolicy              Json                            @default("{}") @map("router_policy") @db.JsonB
   availableModelsByProvider Json                            @map("available_models_by_provider") @db.JsonB
+  availableModelCatalogByProvider Json                       @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
   updatedByUserId           String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                 DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                 DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)

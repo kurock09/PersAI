@@ -21,6 +21,18 @@ async function run(): Promise<void> {
       openai: ["gpt‑5.4", "gpt‑5.4-mini"],
       anthropic: ["claude-sonnet-4-5"]
     },
+    availableModelCatalogByProvider: {
+      openai: {
+        chat: ["gpt‑5.4", "gpt‑5.4-mini"],
+        image: ["gpt-image-1", "gpt-image-1.5"],
+        video: ["sora-2", "sora-2-pro"]
+      },
+      anthropic: {
+        chat: ["claude-sonnet-4-5"],
+        image: [],
+        video: []
+      }
+    },
     routingFastModelKey: "gpt‑5.4-mini",
     routerPolicy: {
       enabled: true,
@@ -51,6 +63,11 @@ async function run(): Promise<void> {
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
+  assert.deepEqual(parsed.availableModelCatalogByProvider.openai.image, [
+    "gpt-image-1",
+    "gpt-image-1.5"
+  ]);
+  assert.deepEqual(parsed.availableModelCatalogByProvider.openai.video, ["sora-2", "sora-2-pro"]);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
 
   assert.throws(
@@ -96,6 +113,18 @@ async function run(): Promise<void> {
       availableModelsByProvider: {
         openai: ["gpt‑5.4", "gpt‑5.4-mini"],
         anthropic: ["claude-sonnet-4-5"]
+      },
+      availableModelCatalogByProvider: {
+        openai: {
+          chat: ["gpt‑5.4", "gpt‑5.4-mini"],
+          image: ["gpt-image-1.5"],
+          video: ["sora-2-pro"]
+        },
+        anthropic: {
+          chat: ["claude-sonnet-4-5"],
+          image: [],
+          video: []
+        }
       }
     },
     providerKeys
@@ -107,6 +136,8 @@ async function run(): Promise<void> {
   assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
+  assert.deepEqual(settings.availableModelCatalogByProvider.openai.image, ["gpt-image-1.5"]);
+  assert.deepEqual(settings.availableModelCatalogByProvider.openai.video, ["sora-2-pro"]);
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);
   assert.equal(profile.mode, "admin_managed");
@@ -114,6 +145,7 @@ async function run(): Promise<void> {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"]
   });
+  assert.deepEqual(profile.availableModelCatalogByProvider.openai.image, ["gpt-image-1.5"]);
   assert.equal(profile.primary.provider, "openai");
   assert.equal(profile.primary.credentialRef.secretRef.source, "persai");
   assert.equal(profile.primary.credentialRef.secretRef.provider, "persai-runtime");

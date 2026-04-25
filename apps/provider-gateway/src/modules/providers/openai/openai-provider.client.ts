@@ -116,8 +116,8 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return [...this.config.PROVIDER_GATEWAY_OPENAI_MODELS];
   }
 
-  async warm(): Promise<void> {
-    const apiKey = this.config.PROVIDER_GATEWAY_OPENAI_API_KEY;
+  async warm(apiKeyOverride?: string): Promise<void> {
+    const apiKey = apiKeyOverride ?? this.config.PROVIDER_GATEWAY_OPENAI_API_KEY;
     if (!apiKey) {
       this.client = null;
       return;
@@ -287,8 +287,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     try {
+      const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
       const payload: OpenAIImageGenerateParams = {
-        model: OPENAI_IMAGE_GENERATION_MODEL,
+        model,
         prompt: input.prompt,
         n: input.count,
         output_format: "png",
@@ -321,7 +322,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
       return {
         provider: "openai",
-        model: OPENAI_IMAGE_GENERATION_MODEL,
+        model,
         prompt: input.prompt,
         size: input.size,
         images: images.map((image) => ({
@@ -330,7 +331,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           revisedPrompt: image.revisedPrompt
         })),
         respondedAt: new Date().toISOString(),
-        usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
+        usage: this.toImageUsageSnapshot(model, response.usage),
         warning: null
       };
     } finally {
@@ -347,6 +348,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
     );
     try {
+      const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
       const providerPrompt = this.buildImageEditPrompt(input);
       const sourceImage = await toFile(
         Buffer.from(input.sourceImage.bytesBase64, "base64"),
@@ -367,7 +369,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
                 : undefined
             );
       const payload: OpenAIImageEditParams = {
-        model: OPENAI_IMAGE_GENERATION_MODEL,
+        model,
         prompt: providerPrompt,
         image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
         output_format: "png",
@@ -400,7 +402,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
 
       return {
         provider: "openai",
-        model: OPENAI_IMAGE_GENERATION_MODEL,
+        model,
         prompt: input.prompt,
         size: input.size,
         images: images.map((image) => ({
@@ -409,7 +411,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
           revisedPrompt: image.revisedPrompt
         })),
         respondedAt: new Date().toISOString(),
-        usage: this.toImageUsageSnapshot(OPENAI_IMAGE_GENERATION_MODEL, response.usage),
+        usage: this.toImageUsageSnapshot(model, response.usage),
         warning: null
       };
     } finally {

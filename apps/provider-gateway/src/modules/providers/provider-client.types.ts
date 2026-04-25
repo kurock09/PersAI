@@ -59,5 +59,5 @@ export interface ProviderWarmableClient {
   readonly catalogSource: ProviderCatalogSource;
   isConfigured(): boolean;
   getCatalogModels(): string[];
-  warm(): Promise<void>;
+  warm(apiKeyOverride?: string): Promise<void>;
 }

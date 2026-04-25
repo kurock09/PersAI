@@ -77,11 +77,7 @@ import {
 import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
-import {
-  isPersaiRuntimeVideoGenerateModelKey,
-  type PersaiRuntimeTtsProviderId,
-  type PersaiRuntimeVideoGenerateModelKey
-} from "@persai/runtime-contract";
+import { type PersaiRuntimeTtsProviderId } from "@persai/runtime-contract";
 
 const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
@@ -156,14 +152,21 @@ export function resolveAllowedPlanPrimaryModelKey(params: {
   });
 }
 
-export function resolveAllowedPlanVideoGenerateModelKey(
-  planVideoGenerateModelKey: string | null
-): PersaiRuntimeVideoGenerateModelKey | null {
-  const normalized = planVideoGenerateModelKey?.trim() || null;
+function resolveAllowedPlanCapabilityModelKey(params: {
+  runtimeProviderProfile: RuntimeProviderProfileState;
+  planModelKey: string | null;
+  capability: "image" | "video";
+}): string | null {
+  const normalized = params.planModelKey?.trim() || null;
   if (normalized === null) {
     return null;
   }
-  return isPersaiRuntimeVideoGenerateModelKey(normalized) ? normalized : null;
+  if (params.runtimeProviderProfile.mode !== "admin_managed") {
+    return normalized;
+  }
+  const catalog = params.runtimeProviderProfile.availableModelCatalogByProvider;
+  const models = [...catalog.openai[params.capability], ...catalog.anthropic[params.capability]];
+  return models.includes(normalized) ? normalized : null;
 }
 
 @Injectable()
@@ -295,12 +298,30 @@ export class MaterializeAssistantPublishedVersionService {
       runtimeProviderProfile,
       planModelKey: rawPlanRetrievalModelKey
     });
+    const rawPlanImageGenerateModelKey = await this.resolvePlanImageGenerateModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planImageGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanImageGenerateModelKey,
+      capability: "image"
+    });
+    const rawPlanImageEditModelKey = await this.resolvePlanImageEditModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const planImageEditModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanImageEditModelKey,
+      capability: "image"
+    });
     const rawPlanVideoGenerateModelKey = await this.resolvePlanVideoGenerateModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
-    const planVideoGenerateModelKey = resolveAllowedPlanVideoGenerateModelKey(
-      rawPlanVideoGenerateModelKey
-    );
+    const planVideoGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanVideoGenerateModelKey,
+      capability: "video"
+    });
     if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
       this.logger.warn(
         `Skipping stale plan primary model "${rawPlanPrimaryModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
@@ -319,6 +340,16 @@ export class MaterializeAssistantPublishedVersionService {
     if (rawPlanRetrievalModelKey !== null && planRetrievalModelKey === null) {
       this.logger.warn(
         `Skipping stale plan retrieval model "${rawPlanRetrievalModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime provider catalog.`
+      );
+    }
+    if (rawPlanImageGenerateModelKey !== null && planImageGenerateModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan image-generate model "${rawPlanImageGenerateModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
+      );
+    }
+    if (rawPlanImageEditModelKey !== null && planImageEditModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan image-edit model "${rawPlanImageEditModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
       );
     }
     if (rawPlanVideoGenerateModelKey !== null && planVideoGenerateModelKey === null) {
@@ -404,6 +435,8 @@ export class MaterializeAssistantPublishedVersionService {
     });
     const toolCredentialRefs = await this.resolveToolCredentialRefs({
       voiceProfile,
+      imageGenerateModelKey: planImageGenerateModelKey,
+      imageEditModelKey: planImageEditModelKey,
       videoGenerateModelKey: planVideoGenerateModelKey
     });
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
@@ -642,7 +675,9 @@ export class MaterializeAssistantPublishedVersionService {
 
   private async resolveToolCredentialRefs(input: {
     voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"];
-    videoGenerateModelKey: PersaiRuntimeVideoGenerateModelKey | null;
+    imageGenerateModelKey: string | null;
+    imageEditModelKey: string | null;
+    videoGenerateModelKey: string | null;
   }): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
@@ -672,7 +707,14 @@ export class MaterializeAssistantPublishedVersionService {
     }
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {
-      refs.image_edit = this.cloneToolCredentialRef(imageCredentialRef);
+      refs.image_generate = {
+        ...imageCredentialRef,
+        ...(input.imageGenerateModelKey !== null ? { modelKey: input.imageGenerateModelKey } : {})
+      };
+      refs.image_edit = {
+        ...this.cloneToolCredentialRef(imageCredentialRef),
+        ...(input.imageEditModelKey !== null ? { modelKey: input.imageEditModelKey } : {})
+      };
       refs.video_generate = {
         ...this.cloneToolCredentialRef(imageCredentialRef),
         ...(input.videoGenerateModelKey !== null ? { modelKey: input.videoGenerateModelKey } : {})
@@ -772,6 +814,8 @@ export class MaterializeAssistantPublishedVersionService {
       | "premiumModelKey"
       | "reasoningModelKey"
       | "retrievalModelKey"
+      | "imageGenerateModelKey"
+      | "imageEditModelKey"
       | "videoGenerateModelKey"
   ): Promise<string | null> {
     if (planCode === null) {
@@ -792,6 +836,14 @@ export class MaterializeAssistantPublishedVersionService {
     return typeof record[key] === "string" && record[key].trim().length > 0
       ? record[key].trim()
       : null;
+  }
+
+  private async resolvePlanImageGenerateModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "imageGenerateModelKey");
+  }
+
+  private async resolvePlanImageEditModelKey(planCode: string | null): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "imageEditModelKey");
   }
 
   private async resolvePlanVideoGenerateModelKey(planCode: string | null): Promise<string | null> {

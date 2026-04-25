@@ -203,7 +203,17 @@ export function ChatArea({
     return () => observer.disconnect();
   }, [chat.hasOlderMessages, chat.olderMessagesLoading, chat.loadOlderMessages]);
 
-  const isEmpty = chat.messages.length === 0;
+  /*
+   * Empty-state gating: while history is being fetched (or the
+   * threadKey-change reset has just run and the post-render effect hasn't
+   * yet had a chance to either start a fetch or call `markHistoryEmpty`),
+   * we render nothing in the messages slot rather than the EmptyState. The
+   * old behaviour flashed the EmptyState for the entire 0.5–1s history
+   * fetch every time the user switched chats, which felt especially bad on
+   * mobile. Fetch typically completes before the user perceives a void, so
+   * a transient empty pane is far less noisy than a full empty-state hero.
+   */
+  const isEmpty = !chat.historyLoading && chat.messages.length === 0;
   const displayTitle = title ?? t("newChat");
   const canEdit = !!chat.chatId;
 

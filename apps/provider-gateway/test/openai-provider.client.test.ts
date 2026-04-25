@@ -103,6 +103,7 @@ function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
 function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
   return {
     prompt: "Generate a serene lake at dusk",
+    model: "gpt-image-1.5",
     count: 2,
     size: "1024x1024",
     credential: {
@@ -118,6 +119,7 @@ function createImageEditRequest(options?: {
 }): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
+    model: "gpt-image-2",
     size: "1024x1024",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",
@@ -808,7 +810,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const imageResult = await client.generateImage(createImageGenerateRequest(), {
     apiKey: "tool-openai-key"
   });
-  assert.equal(imageResult.model, "gpt-image-1");
+  assert.equal(imageResult.model, "gpt-image-1.5");
   assert.equal(imageResult.images.length, 2);
   assert.equal(imageResult.images[0]?.mimeType, "image/png");
   assert.equal(
@@ -816,7 +818,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     "A serene lake at dusk with soft reflections."
   );
   assert.deepEqual(capturedImagePayload, {
-    model: "gpt-image-1",
+    model: "gpt-image-1.5",
     prompt: "Generate a serene lake at dusk",
     n: 2,
     output_format: "png",
@@ -825,7 +827,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(capturedToolApiKey, "tool-openai-key");
   assert.deepEqual(imageResult.usage, {
     providerKey: "openai",
-    modelKey: "gpt-image-1",
+    modelKey: "gpt-image-1.5",
     inputTokens: 30,
     cachedInputTokens: null,
     outputTokens: 60,
@@ -838,14 +840,14 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
       apiKey: "tool-openai-key"
     }
   );
-  assert.equal(imageEditResult.model, "gpt-image-1");
+  assert.equal(imageEditResult.model, "gpt-image-2");
   assert.equal(imageEditResult.images.length, 1);
   assert.equal(imageEditResult.prompt, "Replace the couch with a red chair");
   assert.equal(
     imageEditResult.images[0]?.revisedPrompt,
     "Replace the couch with a red chair while keeping the same room."
   );
-  assert.equal((capturedImageEditPayload as { model?: string } | null)?.model, "gpt-image-1");
+  assert.equal((capturedImageEditPayload as { model?: string } | null)?.model, "gpt-image-2");
   assert.equal(
     (capturedImageEditPayload as { output_format?: string } | null)?.output_format,
     "png"
@@ -867,7 +869,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   assert.equal(((capturedImageEditPayload as { image?: unknown[] } | null)?.image ?? []).length, 2);
   assert.deepEqual(imageEditResult.usage, {
     providerKey: "openai",
-    modelKey: "gpt-image-1",
+    modelKey: "gpt-image-2",
     inputTokens: 24,
     cachedInputTokens: null,
     outputTokens: 48,

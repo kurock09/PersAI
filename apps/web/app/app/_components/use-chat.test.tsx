@@ -1135,4 +1135,95 @@ describe("useChat", () => {
       expect(observedSignal?.aborted).toBe(true);
     });
   });
+
+  describe("soft-detach resume refresh", () => {
+    it("reconciles committed server history on focus after a post-headers stream disconnect", async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible"
+      });
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-1" },
+            userMessage: { id: "server-user-1", chatId: "chat-1", attachments: [] }
+          });
+          throw new TypeError("network disconnected while tab was backgrounded");
+        }
+      );
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        messages: [
+          {
+            id: "server-user-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "make images",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          {
+            id: "server-assistant-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Done.",
+            attachments: [
+              {
+                id: "att-1",
+                attachmentType: "image",
+                originalFilename: "image.png",
+                mimeType: "image/png",
+                sizeBytes: 123,
+                processingStatus: "ready",
+                createdAt: "2026-04-25T17:48:03.000Z"
+              }
+            ],
+            createdAt: "2026-04-25T17:48:03.000Z"
+          }
+        ]
+      });
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("make images");
+      });
+
+      expect(result.current.issue).not.toBeNull();
+      expect(result.current.messages.some((message) => message.id.startsWith("local-"))).toBe(true);
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getChatMessages).toHaveBeenCalledWith(
+          "token-1",
+          "chat-1",
+          undefined,
+          20
+        );
+      });
+      await waitFor(() => {
+        expect(result.current.issue).toBeNull();
+      });
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-1",
+        "server-assistant-1"
+      ]);
+      expect(result.current.messages[1]?.attachments?.[0]?.id).toBe("att-1");
+    });
+  });
 });

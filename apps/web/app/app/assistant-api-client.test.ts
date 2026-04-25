@@ -91,6 +91,10 @@ describe("admin rollout client", () => {
             openai: ["gpt-5.4"],
             anthropic: ["claude-sonnet-4-5"]
           },
+          availableModelCatalogByProvider: {
+            openai: { chat: ["gpt-5.4"], image: [], video: [] },
+            anthropic: { chat: ["claude-sonnet-4-5"], image: [], video: [] }
+          },
           providerKeys: {
             openai: {
               configured: true,
@@ -149,6 +153,10 @@ describe("admin rollout client", () => {
             openai: ["gpt-5.4"],
             anthropic: []
           },
+          availableModelCatalogByProvider: {
+            openai: { chat: ["gpt-5.4"], image: ["gpt-image-1.5"], video: ["sora-2"] },
+            anthropic: { chat: [], image: [], video: [] }
+          },
           providerKeys: {
             openai: {
               configured: true,
@@ -185,6 +193,10 @@ describe("admin rollout client", () => {
         availableModelsByProvider: {
           openai: ["gpt-5.4"],
           anthropic: []
+        },
+        availableModelCatalogByProvider: {
+          openai: { chat: ["gpt-5.4"], image: ["gpt-image-1.5"], video: ["sora-2"] },
+          anthropic: { chat: [], image: [], video: [] }
         },
         providerKeys: {
           openai: "sk-openai-new"

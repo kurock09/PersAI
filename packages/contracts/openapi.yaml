@@ -5908,11 +5908,14 @@ components:
         embeddingModelKey:
           type: string
           nullable: true
+        imageGenerateModelKey:
+          type: string
+          nullable: true
+        imageEditModelKey:
+          type: string
+          nullable: true
         videoGenerateModelKey:
           type: string
-          enum:
-            - sora-2
-            - sora-2-pro
           nullable: true
         runtimeTierDefault:
           allOf:
@@ -6075,11 +6078,14 @@ components:
         embeddingModelKey:
           type: string
           nullable: true
+        imageGenerateModelKey:
+          type: string
+          nullable: true
+        imageEditModelKey:
+          type: string
+          nullable: true
         videoGenerateModelKey:
           type: string
-          enum:
-            - sora-2
-            - sora-2-pro
           nullable: true
         runtimeTierDefault:
           allOf:
@@ -6766,6 +6772,35 @@ components:
           type: array
           items:
             type: string
+    RuntimeProviderModelCatalogState:
+      type: object
+      required:
+        - chat
+        - image
+        - video
+      properties:
+        chat:
+          type: array
+          items:
+            type: string
+        image:
+          type: array
+          items:
+            type: string
+        video:
+          type: array
+          items:
+            type: string
+    RuntimeProviderModelCatalogByProviderState:
+      type: object
+      required:
+        - openai
+        - anthropic
+      properties:
+        openai:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
+        anthropic:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogState"
     AdminRuntimeProviderSettingsMode:
       type: string
       enum:
@@ -6854,6 +6889,7 @@ components:
         - routingFastModelKey
         - routerPolicy
         - availableModelsByProvider
+        - availableModelCatalogByProvider
         - providerKeys
         - notes
       properties:
@@ -6928,6 +6964,8 @@ components:
                     type: string
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        availableModelCatalogByProvider:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogByProviderState"
         providerKeys:
           type: object
           required:
@@ -6956,6 +6994,7 @@ components:
         - routingFastModelKey
         - routerPolicy
         - availableModelsByProvider
+        - availableModelCatalogByProvider
       properties:
         primary:
           $ref: "#/components/schemas/RuntimeProviderSelection"
@@ -7022,6 +7061,8 @@ components:
                     type: string
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
+        availableModelCatalogByProvider:
+          $ref: "#/components/schemas/RuntimeProviderModelCatalogByProviderState"
         providerKeys:
           $ref: "#/components/schemas/AdminRuntimeProviderSettingsProviderKeysInput"
     GetAdminRuntimeProviderSettingsResponse:

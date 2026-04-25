@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
@@ -20,6 +20,7 @@ import {
   XhrStallError,
   XhrTimeoutError,
   type ChatHistoryAttachment,
+  type ChatHistoryMessage,
   type ChatCompactionResult,
   type ChatCompactionState,
   type WebChatUxIssue
@@ -40,6 +41,8 @@ const HEADERS_TIMEOUT_MS = 10_000;
 const STAGE_STALL_TIMEOUT_MS = 15_000;
 /** Hard upper bound for a single attachment upload. */
 const STAGE_HARD_TIMEOUT_MS = 5 * 60_000;
+/** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */
+const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 
 export type ChatMessageRole = "user" | "assistant";
 /**
@@ -110,6 +113,14 @@ export interface UseChatReturn {
   clearIssue: () => void;
   reportIssue: (error: unknown) => void;
   loadHistory: (chatId: string) => Promise<void>;
+  /**
+   * Mark the active thread as "no history will be loaded" so the empty-state
+   * UI can render. Used by `chat/page.tsx` when the active threadKey does not
+   * correspond to any existing chat row (i.e. it's a brand-new conversation).
+   * See the `historyLoading` optimistic-true reset in the threadKey-change
+   * branch below for the rationale.
+   */
+  markHistoryEmpty: () => void;
   loadOlderMessages: () => Promise<void>;
   /**
    * Current pending-send slot state, or null when no message is awaiting
@@ -331,6 +342,24 @@ function buildKnowledgeUploadActivity(params: {
   };
 }
 
+function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null {
+  if (message.content === WELCOME_TURN_SENTINEL) {
+    return null;
+  }
+  return {
+    id: message.id,
+    role: message.author === "system" ? "assistant" : message.author,
+    content: message.content,
+    status: "committed",
+    attachments:
+      message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
+  };
+}
+
+function isOptimisticLocalMessage(message: ChatMessage): boolean {
+  return message.id.startsWith("local-user-") || message.id.startsWith("local-assistant-");
+}
+
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -381,6 +410,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
   const prevThreadKeyRef = useRef(threadKey);
+  const lastResumeRefreshAtRef = useRef(0);
   // Single-slot pending send (ADR-075). Holds enough info to either retry the
   // exact same payload or cancel and restore the draft text.
   const pendingSendRef = useRef<{
@@ -408,6 +438,19 @@ export function useChat(threadKey: string): UseChatReturn {
     setRecentAutoCompaction(null);
     setCompactionRunning(false);
     setHasOlderMessages(false);
+    /*
+     * Optimistically flip historyLoading to true the moment the user
+     * navigates to a different thread. Without this, there is one render
+     * frame between the synchronous reset above and the post-render effect
+     * in `chat/page.tsx` that triggers `loadHistory()` — and during that
+     * frame `messages.length === 0 && historyLoading === false`, which
+     * renders the EmptyState. On a slow fetch the EmptyState then flickers
+     * for the entire 0.5–1s the history takes to arrive (founder report
+     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back
+     * to false when the active thread is brand-new and has no history to
+     * load.
+     */
+    setHistoryLoading(true);
     historyLoadedRef.current = new Set();
     olderCursorRef.current = null;
     activeChatIdRef.current = null;
@@ -490,6 +533,62 @@ export function useChat(threadKey: string): UseChatReturn {
     [getToken]
   );
 
+  const refreshLatestHistory = useCallback(
+    async (targetChatId: string, options?: { clearIssueOnReconcile?: boolean }) => {
+      const token = await getToken();
+      if (!token) return;
+
+      try {
+        const page = await getChatMessages(token, targetChatId, undefined, 20);
+        const loaded = page.messages
+          .map(toCommittedChatMessage)
+          .filter((message): message is ChatMessage => message !== null);
+        if (loaded.length === 0) {
+          return;
+        }
+
+        setMessages((prev) => {
+          const loadedById = new Map(loaded.map((message) => [message.id, message]));
+          const prevIds = new Set(prev.map((message) => message.id));
+          const hasNewServerMessages = loaded.some((message) => !prevIds.has(message.id));
+          const next = prev.flatMap((message) => {
+            const replacement = loadedById.get(message.id);
+            if (replacement !== undefined) {
+              return [replacement];
+            }
+            if (hasNewServerMessages && isOptimisticLocalMessage(message)) {
+              for (const attachment of message.attachments ?? []) {
+                if (attachment.localPreviewUrl !== undefined) {
+                  URL.revokeObjectURL(attachment.localPreviewUrl);
+                }
+              }
+              return [];
+            }
+            return [message];
+          });
+          const nextIds = new Set(next.map((message) => message.id));
+          const missing = loaded.filter((message) => !nextIds.has(message.id));
+          return [...next, ...missing];
+        });
+
+        olderCursorRef.current = page.nextCursor;
+        activeChatIdRef.current = targetChatId;
+        setHasOlderMessages(page.nextCursor !== null);
+        setChatId(targetChatId);
+        historyLoadedRef.current.add(targetChatId);
+        void refreshCompactionState(targetChatId);
+        if (options?.clearIssueOnReconcile === true) {
+          setIssue(null);
+          pendingSendRef.current = null;
+          setPendingSendStatus(null);
+        }
+      } catch {
+        /* non-critical resume refresh */
+      }
+    },
+    [getToken, refreshCompactionState, setPendingSendStatus]
+  );
+
   const compactNow = useCallback(
     async (instructions?: string): Promise<ChatCompactionResult | null> => {
       const targetChatId = activeChatIdRef.current ?? chatId;
@@ -537,6 +636,43 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [chatId, compactionRunning, getToken, isStreaming, messages, t]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const refreshOnResume = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      const targetChatId = activeChatIdRef.current ?? chatId;
+      if (!targetChatId) {
+        return;
+      }
+      const now = Date.now();
+      if (now - lastResumeRefreshAtRef.current < RESUME_REFRESH_DEBOUNCE_MS) {
+        return;
+      }
+      lastResumeRefreshAtRef.current = now;
+      void refreshLatestHistory(targetChatId, { clearIssueOnReconcile: true });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshOnResume();
+      }
+    };
+
+    window.addEventListener("focus", refreshOnResume);
+    window.addEventListener("pageshow", refreshOnResume);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", refreshOnResume);
+      window.removeEventListener("pageshow", refreshOnResume);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [chatId, refreshLatestHistory]);
 
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
@@ -867,7 +1003,10 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onStarted: ({ chat }) => {
               const c = chat as { id?: string } | null;
-              if (typeof c?.id === "string") setChatId(c.id);
+              if (typeof c?.id === "string") {
+                setChatId(c.id);
+                activeChatIdRef.current = c.id;
+              }
             },
             onThinking: ({ accumulated }) => {
               pendingThought.text = accumulated;
@@ -1284,7 +1423,10 @@ export function useChat(threadKey: string): UseChatReturn {
           {
             onStarted: ({ chat }) => {
               const c = chat as { id?: string } | null;
-              if (typeof c?.id === "string") setChatId(c.id);
+              if (typeof c?.id === "string") {
+                setChatId(c.id);
+                activeChatIdRef.current = c.id;
+              }
             },
             onDelta: ({ delta }) => {
               pendingDelta.text += delta;
@@ -1493,6 +1635,10 @@ export function useChat(threadKey: string): UseChatReturn {
     return restoredText;
   }, [setPendingSendStatus]);
 
+  const markHistoryEmpty = useCallback(() => {
+    setHistoryLoading(false);
+  }, []);
+
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       if (historyLoadedRef.current.has(targetChatId)) return;
@@ -1503,14 +1649,8 @@ export function useChat(threadKey: string): UseChatReturn {
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
         const loaded: ChatMessage[] = page.messages
-          .filter((m) => m.content !== WELCOME_TURN_SENTINEL)
-          .map((m) => ({
-            id: m.id,
-            role: m.author === "system" ? "assistant" : m.author,
-            content: m.content,
-            status: "committed" as const,
-            attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
-          }));
+          .map(toCommittedChatMessage)
+          .filter((message): message is ChatMessage => message !== null);
 
         if (loaded.length > 0) {
           setMessages((prev) => {
@@ -1531,7 +1671,7 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       setHistoryLoading(false);
     },
-    [getToken]
+    [getToken, refreshCompactionState]
   );
 
   const loadOlderMessages = useCallback(async () => {
@@ -1545,13 +1685,9 @@ export function useChat(threadKey: string): UseChatReturn {
     setOlderMessagesLoading(true);
     try {
       const page = await getChatMessages(token, targetChatId, cursor, 20);
-      const loaded: ChatMessage[] = page.messages.map((m) => ({
-        id: m.id,
-        role: m.author === "system" ? "assistant" : m.author,
-        content: m.content,
-        status: "committed" as const,
-        attachments: m.attachments.length > 0 ? (m.attachments as ChatAttachment[]) : undefined
-      }));
+      const loaded: ChatMessage[] = page.messages
+        .map(toCommittedChatMessage)
+        .filter((message): message is ChatMessage => message !== null);
 
       if (loaded.length > 0) {
         setMessages((prev) => {
@@ -1621,6 +1757,7 @@ export function useChat(threadKey: string): UseChatReturn {
     clearIssue,
     reportIssue,
     loadHistory,
+    markHistoryEmpty,
     loadOlderMessages,
     pendingSendStatus,
     retryPendingSend,

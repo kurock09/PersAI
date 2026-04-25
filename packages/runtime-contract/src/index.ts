@@ -1556,6 +1556,7 @@ export interface ProviderGatewaySpeechGenerateResult {
 
 export interface ProviderGatewayImageGenerateRequest {
   prompt: string;
+  model: string | null;
   count: number;
   size: PersaiRuntimeImageGenerateSize | null;
   credential: {
@@ -1584,6 +1585,7 @@ export interface ProviderGatewayImageGenerateResult {
 
 export interface ProviderGatewayImageEditRequest {
   prompt: string;
+  model: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   sourceImage: {
     bytesBase64: string;
@@ -1615,7 +1617,7 @@ export interface ProviderGatewayImageEditResult {
 
 export interface ProviderGatewayVideoGenerateRequest {
   prompt: string;
-  model: PersaiRuntimeVideoGenerateModelKey | null;
+  model: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   seconds: PersaiRuntimeVideoGenerateSeconds;
   referenceImage: {

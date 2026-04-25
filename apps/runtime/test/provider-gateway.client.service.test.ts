@@ -103,6 +103,7 @@ function createWebSearchRequest(): ProviderGatewayWebSearchRequest {
 function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
   return {
     prompt: "Draw a calm blue horizon",
+    model: "gpt-image-1.5",
     count: 1,
     size: "1024x1024",
     credential: {
@@ -116,6 +117,7 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
 function createImageEditRequest(): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
+    model: "gpt-image-2",
     size: "1024x1024",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",

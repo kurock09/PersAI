@@ -37,7 +37,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
         fallbackModel: true,
         routingFastModelKey: true,
         routerPolicy: true,
-        availableModelsByProvider: true
+        availableModelsByProvider: true,
+        availableModelCatalogByProvider: true
       }
     });
     if (row === null) {
@@ -51,7 +52,8 @@ export class ResolvePlatformRuntimeProviderSettingsService {
       fallbackModel: row.fallbackModel,
       routingFastModelKey: row.routingFastModelKey,
       routerPolicy: row.routerPolicy,
-      availableModelsByProvider: row.availableModelsByProvider
+      availableModelsByProvider: row.availableModelsByProvider,
+      availableModelCatalogByProvider: row.availableModelCatalogByProvider
     };
   }
 

@@ -110,6 +110,7 @@ function createChat(
     clearIssue: vi.fn(),
     reportIssue: vi.fn(),
     loadHistory: vi.fn(async () => undefined),
+    markHistoryEmpty: vi.fn(),
     loadOlderMessages: options?.loadOlderMessages ?? vi.fn(async () => undefined),
     pendingSendStatus: null,
     retryPendingSend: vi.fn(async () => undefined),

@@ -8,6 +8,7 @@ import type { RuntimeProviderSelection } from "./runtimeProviderSelection";
 import type { AdminRuntimeProviderSettingsRequestFallback } from "./adminRuntimeProviderSettingsRequestFallback";
 import type { AdminRuntimeProviderSettingsRequestRouterPolicy } from "./adminRuntimeProviderSettingsRequestRouterPolicy";
 import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
+import type { RuntimeProviderModelCatalogByProviderState } from "./runtimeProviderModelCatalogByProviderState";
 import type { AdminRuntimeProviderSettingsProviderKeysInput } from "./adminRuntimeProviderSettingsProviderKeysInput";
 
 export interface AdminRuntimeProviderSettingsRequest {
@@ -18,5 +19,6 @@ export interface AdminRuntimeProviderSettingsRequest {
   routingFastModelKey: string | null;
   routerPolicy: AdminRuntimeProviderSettingsRequestRouterPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
+  availableModelCatalogByProvider: RuntimeProviderModelCatalogByProviderState;
   providerKeys?: AdminRuntimeProviderSettingsProviderKeysInput;
 }

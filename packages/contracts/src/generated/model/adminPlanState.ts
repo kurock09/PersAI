@@ -11,7 +11,6 @@ import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanContextPolicy } from "./adminPlanContextPolicy";
 import type { AdminPlanRetrievalPolicy } from "./adminPlanRetrievalPolicy";
 import type { AdminPlanSandboxPolicy } from "./adminPlanSandboxPolicy";
-import type { AdminPlanStateVideoGenerateModelKey } from "./adminPlanStateVideoGenerateModelKey";
 import type { AdminPlanStateRuntimeTierDefault } from "./adminPlanStateRuntimeTierDefault";
 import type { AdminPlanToolActivation } from "./adminPlanToolActivation";
 import type { AdminPlanToolBudgets } from "./adminPlanToolBudgets";
@@ -43,7 +42,11 @@ export interface AdminPlanState {
   /** @nullable */
   embeddingModelKey?: string | null;
   /** @nullable */
-  videoGenerateModelKey?: AdminPlanStateVideoGenerateModelKey;
+  imageGenerateModelKey?: string | null;
+  /** @nullable */
+  imageEditModelKey?: string | null;
+  /** @nullable */
+  videoGenerateModelKey?: string | null;
   /** @nullable */
   runtimeTierDefault?: AdminPlanStateRuntimeTierDefault;
   createdAt: string;

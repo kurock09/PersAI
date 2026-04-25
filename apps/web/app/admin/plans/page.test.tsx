@@ -159,7 +159,9 @@ describe("admin plans page helpers", () => {
     expect(() => draftToPayload(invalid)).toThrow(/Default results is required/);
   });
 
-  it("renders a video model select only for the video row", () => {
+  it("renders media model selects for image and video rows", () => {
+    const onImageGenerateModelKeyChange = vi.fn();
+    const onImageEditModelKeyChange = vi.fn();
     const onVideoGenerateModelKeyChange = vi.fn();
 
     render(
@@ -185,12 +187,24 @@ describe("admin plans page helpers", () => {
           }
         ]}
         onUpdate={() => {}}
+        imageGenerateModelKey="gpt-image-1.5"
+        onImageGenerateModelKeyChange={onImageGenerateModelKeyChange}
+        imageEditModelKey=""
+        onImageEditModelKeyChange={onImageEditModelKeyChange}
         videoGenerateModelKey="sora-2-pro"
         onVideoGenerateModelKeyChange={onVideoGenerateModelKeyChange}
+        availableImageModelKeys={[{ provider: "openai", model: "gpt-image-1.5" }]}
+        availableVideoModelKeys={[
+          { provider: "openai", model: "sora-2" },
+          { provider: "openai", model: "sora-2-pro" }
+        ]}
       />
     );
 
-    expect(screen.getAllByText("Model")).toHaveLength(1);
+    expect(screen.getAllByText("Model")).toHaveLength(2);
+    const imageSelect = screen.getByDisplayValue("gpt-image-1.5");
+    fireEvent.change(imageSelect, { target: { value: "" } });
+    expect(onImageGenerateModelKeyChange).toHaveBeenCalledWith("");
     const select = screen.getByDisplayValue("sora-2-pro");
     fireEvent.change(select, { target: { value: "sora-2" } });
     expect(onVideoGenerateModelKeyChange).toHaveBeenCalledWith("sora-2");

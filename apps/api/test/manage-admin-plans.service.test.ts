@@ -417,6 +417,10 @@ async function run(): Promise<void> {
           availableModelsByProvider: {
             openai: [],
             anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: { chat: [], image: [], video: [] },
+            anthropic: { chat: [], image: [], video: [] }
           }
         };
       }
@@ -564,7 +568,7 @@ async function run(): Promise<void> {
         },
         contextPolicy,
         primaryModelKey: null,
-        videoGenerateModelKey: "sora-3",
+        videoGenerateModelKey: 42,
         runtimeTierDefault: "free_shared_restricted"
       }),
     (error) =>

@@ -282,6 +282,7 @@ export class RuntimeImageEditToolService {
 
       const providerResult = await this.providerGatewayClientService.editImage({
         prompt: request.prompt,
+        model: this.resolveToolModelKey(credential),
         size: request.size,
         sourceImage: selection.sourceImage,
         referenceImage: selection.referenceImage,
@@ -715,6 +716,12 @@ export class RuntimeImageEditToolService {
       return null;
     }
     return credential;
+  }
+
+  private resolveToolModelKey(credential: AssistantRuntimeBundleToolCredentialRef): string | null {
+    return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
+      ? credential.modelKey.trim()
+      : null;
   }
 
   private resolveImageEditProviderId(

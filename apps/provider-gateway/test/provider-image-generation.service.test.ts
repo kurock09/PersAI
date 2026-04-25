@@ -12,6 +12,7 @@ import type { PersaiInternalApiClientService } from "../src/modules/providers/pe
 function createRequest(): ProviderGatewayImageGenerateRequest {
   return {
     prompt: "Generate a paper-cut forest scene",
+    model: "gpt-image-1.5",
     count: 2,
     size: "1024x1536",
     credential: {
@@ -27,6 +28,7 @@ function createEditRequest(options?: {
 }): ProviderGatewayImageEditRequest {
   return {
     prompt: "Replace the couch with a red chair",
+    model: "gpt-image-2",
     size: "1024x1024",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",

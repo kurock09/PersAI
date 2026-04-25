@@ -4450,6 +4450,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.deepEqual(providerGatewayClient.imageGenerateCalls.at(-1), {
     prompt: "Draw a serene poster",
+    model: null,
     count: 1,
     size: "1024x1024",
     credential: {
@@ -4751,6 +4752,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
     prompt: "Replace the couch with a red chair",
+    model: null,
     size: "1024x1024",
     sourceImage: {
       bytesBase64: referenceImageBuffer.toString("base64"),
@@ -4888,6 +4890,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReferencedImageEdit + 2);
   assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
     prompt: "Place the car from image #2 into the yard in image #1",
+    model: null,
     size: null,
     sourceImage: {
       bytesBase64: yardImageBuffer.toString("base64"),
@@ -4986,6 +4989,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
     prompt: "Restyle image #1 like the second photo",
+    model: null,
     size: null,
     sourceImage: {
       bytesBase64: yardImageBuffer.toString("base64"),

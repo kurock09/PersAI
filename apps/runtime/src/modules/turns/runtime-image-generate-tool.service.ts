@@ -173,6 +173,7 @@ export class RuntimeImageGenerateToolService {
 
       const providerResult = await this.providerGatewayClientService.generateImage({
         prompt: request.prompt,
+        model: this.resolveToolModelKey(credential),
         count: request.count,
         size: request.size,
         credential: {
@@ -392,6 +393,12 @@ export class RuntimeImageGenerateToolService {
       return null;
     }
     return credential;
+  }
+
+  private resolveToolModelKey(credential: AssistantRuntimeBundleToolCredentialRef): string | null {
+    return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
+      ? credential.modelKey.trim()
+      : null;
   }
 
   private resolveImageGenerateProviderId(

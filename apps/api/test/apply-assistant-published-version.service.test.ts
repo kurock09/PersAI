@@ -63,6 +63,10 @@ const materializedSpec: AssistantMaterializedSpec = {
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
             anthropic: ["claude-sonnet-4-5"]
+          },
+          availableModelCatalogByProvider: {
+            openai: { chat: ["gpt-5.4"], image: [], video: [] },
+            anthropic: { chat: ["claude-sonnet-4-5"], image: [], video: [] }
           }
         },
         runtimeAssignment: {

@@ -123,6 +123,9 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
       isConfigured() {
         return true;
       },
+      async resolveSecretValue(secretId: string) {
+        throw new Error(`PersAI-managed runtime secret "${secretId}" is not configured.`);
+      },
       async getDefaultProviderSettings() {
         internalRefreshCalls += 1;
         return {
@@ -152,4 +155,45 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(refreshed.state, "ready");
   assert.equal(refreshed.catalogSource, "control_plane_apply");
   assert.deepEqual(refreshed.catalogModels, ["gpt-5.4-mini", "gpt-5.4"]);
+
+  let resolvedSecretId: string | null = null;
+  const managedAnthropicService = new ProviderWarmupService(
+    config,
+    {
+      isConfigured() {
+        return true;
+      },
+      async resolveSecretValue(secretId: string) {
+        resolvedSecretId = secretId;
+        return "anthropic-managed-test-key";
+      },
+      async getDefaultProviderSettings() {
+        return {
+          generation: 8,
+          mode: "global_settings",
+          primary: { provider: "anthropic", model: "claude-opus-4-7" },
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: ["claude-opus-4-7"]
+          }
+        };
+      }
+    } as Pick<
+      PersaiInternalApiClientService,
+      "isConfigured" | "resolveSecretValue" | "getDefaultProviderSettings"
+    > as PersaiInternalApiClientService,
+    new OpenAIProviderClient(config),
+    new AnthropicProviderClient(config)
+  );
+
+  const managedAnthropic = await managedAnthropicService.ensureReadyForRequest({
+    provider: "anthropic",
+    model: "claude-opus-4-7"
+  });
+  assert.equal(resolvedSecretId, "anthropic/api-key");
+  assert.equal(managedAnthropic.provider, "anthropic");
+  assert.equal(managedAnthropic.configured, true);
+  assert.equal(managedAnthropic.state, "ready");
+  assert.equal(managedAnthropic.catalogSource, "control_plane_apply");
+  assert.deepEqual(managedAnthropic.catalogModels, ["claude-opus-4-7"]);
 }
