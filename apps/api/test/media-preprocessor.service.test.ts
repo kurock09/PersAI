@@ -207,6 +207,126 @@ async function run(): Promise<void> {
   );
   assert.equal(noFallback.textExtract, null);
   assert.equal(noFallbackCalls.length, 0);
+
+  await runImageProcessingTests();
+}
+
+async function runImageProcessingTests(): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const sharp = require("sharp") as typeof import("sharp");
+  const noopPdfTextExtractor = {
+    async extractText() {
+      return null;
+    }
+  } as never;
+  const imageService = new MediaPreprocessorService(
+    {
+      async transcribe() {
+        return {
+          provider: "openai",
+          model: "gpt-4o-mini-transcribe",
+          text: "unused",
+          respondedAt: "2026-04-12T12:00:01.000Z"
+        };
+      }
+    } as never,
+    new PlatformHttpMetricsService(),
+    noopPdfTextExtractor
+  );
+
+  const oversizedJpeg = await sharp({
+    create: {
+      width: 4000,
+      height: 3000,
+      channels: 3,
+      background: { r: 200, g: 100, b: 50 }
+    }
+  })
+    .jpeg({ quality: 100 })
+    .toBuffer();
+  const oversizedResult = await imageService.process(oversizedJpeg, "image/jpeg", "big.jpg");
+  assert.equal(oversizedResult.normalizedMime, "image/jpeg");
+  assert.equal(oversizedResult.normalizedExtension, "jpg");
+  assert.equal(oversizedResult.width, 2048);
+  assert.equal(oversizedResult.height, 1536);
+  assert.ok(
+    oversizedResult.normalizedBuffer.length < oversizedJpeg.length,
+    "oversized JPEG should be smaller after normalization"
+  );
+
+  const portraitWithExif = await sharp({
+    create: {
+      width: 200,
+      height: 100,
+      channels: 3,
+      background: { r: 0, g: 128, b: 255 }
+    }
+  })
+    .withMetadata({ orientation: 6 })
+    .jpeg()
+    .toBuffer();
+  const portraitResult = await imageService.process(portraitWithExif, "image/jpeg", "portrait.jpg");
+  assert.equal(portraitResult.width, 100, "EXIF orientation 6 should swap width to short side");
+  assert.equal(portraitResult.height, 200, "EXIF orientation 6 should swap height to long side");
+  const portraitMeta = await sharp(portraitResult.normalizedBuffer).metadata();
+  assert.equal(
+    portraitMeta.orientation ?? 1,
+    1,
+    "EXIF orientation tag should be stripped after rotation"
+  );
+
+  const transparentPng = await sharp({
+    create: {
+      width: 320,
+      height: 240,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 }
+    }
+  })
+    .png()
+    .toBuffer();
+  const pngResult = await imageService.process(transparentPng, "image/png", "alpha.png");
+  assert.equal(pngResult.normalizedMime, "image/png");
+  assert.equal(pngResult.normalizedExtension, "png");
+  const pngMeta = await sharp(pngResult.normalizedBuffer).metadata();
+  assert.equal(pngMeta.format, "png", "PNG should keep its format to preserve transparency");
+  assert.equal(pngMeta.channels, 4, "PNG alpha channel should survive normalization");
+
+  // Smallest possible single-frame GIF (89a, 1×1 transparent). The pipeline
+  // must NOT touch GIF buffers so animation survives end-to-end.
+  const singleFrameGif = Buffer.from([
+    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xff, 0xff, 0xff, 0x21, 0xf9, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00, 0x3b
+  ]);
+  const gifResult = await imageService.process(singleFrameGif, "image/gif", "anim.gif");
+  assert.equal(gifResult.normalizedMime, "image/gif");
+  assert.equal(gifResult.normalizedExtension, "gif");
+  assert.equal(
+    gifResult.normalizedBuffer,
+    singleFrameGif,
+    "GIF buffer must pass through unchanged to preserve animation"
+  );
+
+  // Untouched-size JPEG should still be re-encoded so EXIF rotation always
+  // lands and quality settles on q85 — the original buffer must change.
+  const smallHeavyJpeg = await sharp({
+    create: {
+      width: 800,
+      height: 600,
+      channels: 3,
+      background: { r: 10, g: 200, b: 10 }
+    }
+  })
+    .jpeg({ quality: 100 })
+    .toBuffer();
+  const smallResult = await imageService.process(smallHeavyJpeg, "image/jpeg", "small.jpg");
+  assert.equal(smallResult.width, 800);
+  assert.equal(smallResult.height, 600);
+  assert.ok(
+    smallResult.normalizedBuffer.length < smallHeavyJpeg.length,
+    "small high-quality JPEG should shrink at q85 mozjpeg"
+  );
 }
 
 void run();

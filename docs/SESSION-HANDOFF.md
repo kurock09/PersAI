@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (chat image attachment normalization) — Server-side `sharp` pipeline now applies EXIF rotate + 2048 px cap + JPEG q85 to every chat image attachment so OpenAI vision and `gpt-image-1` edits never get oversized iPhone uploads (`apps/api` only; verification gate green; deploy waiting on the previous push)
+
+### Why this session
+
+Founder asked while waiting for the previous deploy: «при отправке фото и картинок в чат их можно оптимизировать потому что даже если я кидаю фото для ретуши openai какие разрешения возвращает?». Two real wins on the table:
+
+1. **Bandwidth + storage.** A 12 MP iPhone JPEG (~5–8 MB, ~4032×3024) gets stored byte-for-byte today and re-streamed to OpenAI on every vision call. OpenAI vision rescales to 2048 long side internally regardless, so anything bigger is pure waste on every retrieval and on every model call.
+2. **Correctness — EXIF orientation.** iPhone portrait photos carry orientation=6/8 in EXIF. The bytes are landscape; phone galleries auto-rotate, but `<img>` in the browser does not, and OpenAI vision sees the un-rotated bytes too. Today the chat side-rendered iPhone portraits sideways and "vision sees them sideways" is a silent-failure footgun.
+
+The avatar pipeline already had this exact `sharp` shape (added in the post-076 hotfix wave), so generalising it onto chat attachments was a small, contained slice that landed in one session.
+
+### Root cause / gap
+
+`MediaPreprocessorService.processImage` in `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts` already loaded `sharp` lazily and already had `MAX_IMAGE_DIMENSION = 2048`, but:
+
+- It never called `.rotate()`. EXIF orientation was passed through to storage. iPhone portraits rendered sideways.
+- Resize only ran when `width > 2048 OR height > 2048`. A 1500×1500 PNG at 5 MB passed through untouched. Re-encoding cost was avoided but bandwidth wasn't.
+- JPEG quality was 90 only on the HEIC→JPEG conversion path; native JPEGs that needed resize went through `.toBuffer()` without an explicit `.jpeg(...)` step.
+- Output `width`/`height` came from pre-rotation `metadata()`, so an orientation-6 photo persisted with swapped dimensions in the DB even when the bytes themselves had been rotated by the resize step.
+- GIF was implicitly handled the same as PNG/JPEG; sharp's default behaviour without `{ animated: true }` collapses an animated GIF to a single still frame, so `processImage` would silently destroy animation if it ever needed to resize.
+
+### What changed
+
+**`apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts`** — `processImage` rewritten on top of the existing constants:
+
+1. **GIF short-circuit.** `mime === "image/gif"` returns the buffer untouched (no sharp). Animation survives.
+2. **EXIF rotate first.** Pipeline starts as `sharpFn(buffer).rotate()`. The orientation tag is applied physically and stripped from output.
+3. **Always resize.** `.resize(2048, 2048, { fit: "inside", withoutEnlargement: true })` is unconditional; small images become a no-op resize but still flow through the pipeline so rotation lands.
+4. **Vision-friendly JPEG quality.** HEIC/HEIF and JPEG inputs are encoded via `.jpeg({ quality: 85, mozjpeg: true })` — same as the avatar pipeline. PNG/WEBP keep their format so transparency and lossless guarantees survive.
+5. **Post-rotation dimensions.** `pipeline.toBuffer({ resolveWithObject: true })` returns rotated `info.width/height`; those are what we store in the DB. Closes the bug where orientation-6 photos persisted with swapped dimensions.
+
+The 2048 cap matches OpenAI's vision tile pipeline exactly and stays above `gpt-image-1`'s 1536×1024 edit ceiling, so a single normalised asset serves both vision-analyze and image-edit code paths without further on-the-fly downscaling.
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/media/media-preprocessor.service.ts` — `processImage` rewritten (rotate + always-resize + q85 mozjpeg + GIF short-circuit + post-rotation dims).
+- `apps/api/test/media-preprocessor.service.test.ts` — appended a dedicated `runImageProcessingTests()` block. Generates synthetic test images via `sharp` and asserts: (1) oversized 4000×3000 JPEG → 2048×1536 JPEG, output strictly smaller; (2) 200×100 JPEG with EXIF orientation 6 → output 100×200 with orientation tag stripped; (3) 320×240 PNG with alpha → format preserved + 4-channel alpha intact; (4) minimal single-frame GIF → reference-equal pass-through; (5) 800×600 q100 JPEG → re-encoded smaller at q85 (proves quality cap always lands).
+
+### Tests run
+
+- Targeted: `corepack pnpm --filter @persai/api exec tsx test/media-preprocessor.service.test.ts` → exit 0, only the deliberate STT-failure WARN line.
+- Verification gate (full): `corepack pnpm -r --if-present run lint` → clean across all 14 workspaces; `corepack pnpm run format:check` → clean (one auto-format pass on the edited service after first run); `corepack pnpm --filter @persai/api run typecheck` → clean; `corepack pnpm --filter @persai/web run typecheck` → clean; `corepack pnpm -r --if-present run test` → all `# fail 0`, all suites green incl. the 5 new image cases.
+
+### Risks / residuals
+
+- Re-encoding small JPEGs that previously passed through untouched costs ~30–80 ms CPU per image on Node. Acceptable trade-off for guaranteed orientation correctness; the pipeline is already in the inbound-media hot path so latency is dominated by storage I/O, not sharp.
+- Animated WEBP collapses to a single still frame (sharp limitation without `{ animated: true }`, which we do not currently set). Very rare in chat uploads; documented inline. Animated GIF is fine because of the explicit short-circuit.
+- Existing chat attachments stored before this slice are untouched. Backfill is out of scope; only forward uploads benefit. Acceptable because the storage layer already serves them as-is and the user-visible win is on new uploads.
+- Dimensions in the DB are now post-rotation for new uploads but pre-rotation for historical uploads. No consumer reads them as a sort key, so this is informational drift, not a contract change.
+
+### Next recommended step
+
+Per the founder-confirmed plan, the immediate next bounded slice is the admin-managed image/video model catalog: three textareas per provider on the admin runtime page (CHAT / IMAGE / VIDEO) plus plan-level `imageGenerateModelKey` / `imageEditModelKey` selectors that mirror the existing `videoGenerateModelKey` flow. That slice touches OpenAPI regen + a Prisma JSONB column, so it is the right size for a fresh session and not a fit for "while the deploy is in flight" work like the current one.
+
 ## 2026-04-25 (post-ADR-076 hotfix wave) — Avatar pipeline hardening: validator accepts content-addressed paths, server-side `sharp` normalization for any uploaded format, raised upload limit, Telegram bot photo dispatch fixed, middleware allowlist closed for parameterized GET, Clerk default-avatar customization made resilient (`apps/api` + `apps/web`; verification gate green)
 
 ### Why this session

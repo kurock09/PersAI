@@ -142,34 +142,56 @@ export class MediaPreprocessorService {
     let width: number | null = null;
     let height: number | null = null;
 
+    // GIFs may be animated; sharp by default collapses them to the first frame.
+    // Skip the pipeline entirely so animation survives the chat upload path.
+    if (mime === "image/gif") {
+      return {
+        normalizedBuffer,
+        normalizedMime,
+        normalizedExtension,
+        transcription: null,
+        textExtract: null,
+        durationMs: null,
+        width,
+        height
+      };
+    }
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sharpFn = (await this.loadSharp()) as any;
       if (sharpFn) {
+        // `.rotate()` applies the EXIF orientation tag (iPhone portrait photos
+        // otherwise display rotated 90° in browsers) and strips the tag from
+        // the output so the rendered bytes always match their pixel order.
+        // `.resize(..., { fit: inside, withoutEnlargement: true })` caps the
+        // long side to MAX_IMAGE_DIMENSION (2048 px) — OpenAI vision rescales
+        // anything larger internally and `gpt-image-1` edits cap output at
+        // 1536×1024, so larger source pixels are pure upload cost.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        let pipeline: any = sharpFn(buffer);
-        const metadata = await pipeline.metadata();
-        width = (metadata.width as number) ?? null;
-        height = (metadata.height as number) ?? null;
+        let pipeline: any = sharpFn(buffer)
+          .rotate()
+          .resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
+            fit: "inside",
+            withoutEnlargement: true
+          });
 
-        if (IMAGE_MIMES_NEEDING_CONVERSION.has(mime)) {
-          pipeline = pipeline.jpeg({ quality: 90 });
+        // Re-encode HEIC/HEIF (browsers cannot render natively) and JPEGs
+        // (apply the EXIF rotation we just baked in + drop quality to a
+        // vision-friendly 85 with mozjpeg). PNG/WEBP keep their format so
+        // alpha + lossless guarantees survive; they still flow through the
+        // pipeline so rotation + resize land.
+        const targetIsJpeg = IMAGE_MIMES_NEEDING_CONVERSION.has(mime) || mime === "image/jpeg";
+        if (targetIsJpeg) {
+          pipeline = pipeline.jpeg({ quality: 85, mozjpeg: true });
           normalizedMime = "image/jpeg";
           normalizedExtension = "jpg";
         }
 
-        if ((width && width > MAX_IMAGE_DIMENSION) || (height && height > MAX_IMAGE_DIMENSION)) {
-          pipeline = pipeline.resize(MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION, {
-            fit: "inside",
-            withoutEnlargement: true
-          });
-          const resizedMeta = await pipeline.toBuffer({ resolveWithObject: true });
-          width = resizedMeta.info.width as number;
-          height = resizedMeta.info.height as number;
-          normalizedBuffer = resizedMeta.data as Buffer;
-        } else if (IMAGE_MIMES_NEEDING_CONVERSION.has(mime)) {
-          normalizedBuffer = (await pipeline.toBuffer()) as Buffer;
-        }
+        const result = await pipeline.toBuffer({ resolveWithObject: true });
+        normalizedBuffer = result.data as Buffer;
+        width = (result.info.width as number) ?? null;
+        height = (result.info.height as number) ?? null;
       }
     } catch (err) {
       this.logger.warn(`Image processing failed, keeping original: ${String(err)}`);
