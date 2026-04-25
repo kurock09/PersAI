@@ -15,6 +15,7 @@ PersAI is the source of truth for:
 - canonical assistant chat attachments and media metadata
 - assistant/global knowledge source metadata and indexed chunks
 - persisted assistant workspace files through `assistant_files`
+- assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
 - plan-owned retrieval policy and admin-managed knowledge governance
 - durable retrieval observability rollups/events
 - governance, quota, audit, and admin state
@@ -61,6 +62,16 @@ Active durable memory persistence lives in `assistant_memory_registry_items` and
 Per-turn hydration runs through `POST /api/v1/internal/runtime/memory/hydrate-for-turn` on the `API_INTERNAL_PORT=3002` listener (`HydrateMemoryForTurnService`). The service returns the active `core` block (always all of it, ordered oldest-first, hard-capped at 15) plus a relevance-retrieved `contextual` tail (lexical search over `summary`, default top-8). The runtime renders these as two distinct prompt blocks (`durable_memory_core`, `durable_memory_contextual`); only the `core` block participates in the cached prompt prefix family registered in `apps/runtime/src/modules/turns/prompt-cache-stable-blocks.ts`, so contextual rotation per turn does not invalidate ADR-074 P1's cached prefix.
 
 Memory Center surfaces both `memoryClass` and `kind` as read-only badges through `AssistantMemoryRegistryItemState` (`packages/contracts/openapi.yaml`); promote/demote between classes is intentionally not exposed to users (founder principle 1: classification is a coded outcome, not a setting).
+
+## Assistant tasks and background actions (ADR-077)
+
+Active task persistence is split by product meaning:
+
+- `assistant_task_registry_items` remains the current user-reminder registry for the assistant settings "Задачи для тебя" card. It owns user-visible reminders and scheduled messages.
+- `assistant_background_tasks` is the new current-state table for assistant-side quiet background actions shown under "Действия ассистента".
+- `assistant_background_task_runs` stores per-fire history for those assistant actions: checked/no-push, pushed, completed, skipped, or failed, with evaluator decision JSON, push text, delivery result, and usage/error breadcrumbs.
+
+`scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the ADR-077 background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
 
 ## Persona / Voice DNA state
 

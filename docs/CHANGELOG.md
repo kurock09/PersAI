@@ -81,6 +81,8 @@
 
 ### Added
 
+- **ADR-077 assistant background-task runtime foundation (`apps/api` schema + scheduler + runtime contract):** accepted the clean replacement architecture for assistant-side background work: `scheduled_action` stays for user-visible reminders only, while assistant quiet actions move to a new `background_task` runtime with direct preferred-channel push and first-class run history. The first code slices add `assistant_background_tasks` plus `assistant_background_task_runs`, internal background-task create/list/pause/resume/cancel APIs, the runtime `background_task` worker tool, runtime structured evaluator endpoint, API scheduler/claim/retry executor, preferred-channel push/no_push recording, tool-catalog/preset guidance cleanup, and runtime removal of new `assistant_check` creation through `scheduled_action`. The UI target remains the existing assistant settings cards: "Задачи для тебя" backed by reminders and "Действия ассистента" backed by background tasks plus expandable recent-run history. No legacy `assistant_check` compatibility is introduced in the target architecture.
+
 - **Password reveal control (`apps/web`; focused tests/typecheck green):** custom auth password fields and profile password-change fields now have a calm eye toggle so users can verify what they typed. The shared `PasswordField` component keeps the reveal UI consistent across sign-in, sign-up, reset-password, and profile password forms.
 
 - **Telegram settings system notes localization (`apps/web`; focused typecheck green):** the Telegram settings panel now maps the three API-provided architecture notes to localized RU/EN strings instead of rendering the raw English backend text under `System notes`. Unknown future notes still fall back to their server-provided text.
@@ -97,6 +99,8 @@
 
 ### Changed
 
+- **Desktop chat jump-to-latest placement (`apps/web`; focused test/typecheck green):** on desktop web, the `↓ К последним` floating pill now sits centered above the composer instead of hiding near the right edge. Mobile keeps the existing placement.
+
 - **Landing CTA simplification (`apps/web`; focused tests/typecheck green):** the welcome hero now has one dominant primary CTA, while `Plans` and `Sign in` are quiet same-weight text links. This removes the three-different-buttons feel and keeps the public gateway more minimal and premium.
 
 - **Telegram settings simplification + Markdown default (`apps/api` + `apps/web`; focused tests/typechecks green):** new Telegram bot connections now default to `Markdown` parse mode instead of plain text, so formatted replies work out of the box. The Telegram settings panel copy was shortened and de-noised, with less explanatory text in the central config block. The public welcome center copy was shortened further, while the footer returned to the smaller quiet style.
@@ -104,6 +108,10 @@
 - **Public welcome screen noise reduction (`apps/web`; focused typecheck green):** the central hero area is quieter: the three capability cards became a single low-contrast inline capability line, platform pills were visually softened, and the footer links now sit in a clearer compact footer rail with better contrast. The page stays one-screen and keeps the existing CTA hierarchy.
 
 ### Fixed
+
+- **Admin presets reset-to-default reliability (`apps/api` + `apps/web`; focused tests/typechecks green):** prompt-template reset now uses an API-backed factory-default endpoint instead of a stale frontend copy of defaults, and the content-editable editor immediately refreshes its local text after reset. This fixes `/admin/presets` resets appearing to do nothing from the top prompt blocks through the tool prompt area.
+
+- **Admin presets use-code-default persistence (`apps/api`; focused tests/typecheck green):** the tool catalog boot sync no longer writes code-default model descriptions/guidance into `providerHints` as manual overrides. Explicit `null` / use-code-default choices now survive API deploy/reseed, legacy rows that stored the exact code default are normalized back to `null`, and real custom overrides are preserved.
 
 - **Telegram owner-claim return sync + mobile mic short-tap visual polish (`apps/web`; focused tests/typecheck green):** the Telegram settings panel now performs a narrow, event-driven refresh after the user explicitly taps `Find bot` and returns from Telegram, with one delayed follow-up check to catch claim propagation. This avoids a global app focus refresh while removing the need for a manual page reload after owner claim. The mobile voice button no longer ships desktop `hover:*` styling on touch devices and blurs after pointer-up/cancel, preventing the mic icon from staying visually hovered after a short tap. Focused verification: `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`, `corepack pnpm --filter @persai/web run typecheck`, targeted `prettier --check`.
 

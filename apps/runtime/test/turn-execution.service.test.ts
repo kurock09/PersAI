@@ -55,6 +55,7 @@ import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-im
 import { RuntimeKnowledgeToolService } from "../src/modules/turns/runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "../src/modules/turns/runtime-memory-write-tool.service";
 import { RuntimeQuotaStatusToolService } from "../src/modules/turns/runtime-quota-status-tool.service";
+import { RuntimeBackgroundTaskToolService } from "../src/modules/turns/runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
@@ -1815,6 +1816,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
   );
+  const runtimeBackgroundTaskToolService = new RuntimeBackgroundTaskToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeTtsToolService = new RuntimeTtsToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
@@ -1850,6 +1854,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
@@ -1955,6 +1960,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService
@@ -2023,6 +2029,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     runtimeMemoryWriteToolService,
     runtimeQuotaStatusToolService,
     runtimeSandboxToolService as never,
+    runtimeBackgroundTaskToolService,
     runtimeScheduledActionToolService,
     runtimeTtsToolService,
     runtimeVideoGenerateToolService

@@ -93,18 +93,6 @@ class FakeHandleInternalCronFireService {
   }
 }
 
-class FakeRunScheduledAssistantActionService {
-  calls: unknown[] = [];
-  shouldThrow = false;
-
-  async execute(input: unknown) {
-    this.calls.push(input);
-    if (this.shouldThrow) {
-      throw new Error("assistant action failed");
-    }
-  }
-}
-
 class FakeBumpConfigGenerationService {
   constructor(public currentEpoch = 1) {}
 
@@ -292,13 +280,11 @@ async function runSuccessBatchTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -306,7 +292,6 @@ async function runSuccessBatchTest(): Promise<void> {
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
-  assert.equal(assistantRunner.calls.length, 0);
   assert.deepEqual(handler.calls[0], {
     assistantId: "assistant-1",
     jobId: "job-1",
@@ -357,13 +342,11 @@ async function runRecurringBoundaryAdvanceTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -415,13 +398,11 @@ async function runOneTimeUserReminderDeletedAfterDeliveryTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -429,7 +410,6 @@ async function runOneTimeUserReminderDeletedAfterDeliveryTest(): Promise<void> {
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
-  assert.equal(assistantRunner.calls.length, 0);
   assert.equal(prisma.rows.length, 0);
 }
 
@@ -466,13 +446,11 @@ async function runFailureRetryTest(): Promise<void> {
   );
   const handler = new FakeHandleInternalCronFireService();
   handler.shouldThrow = true;
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -480,294 +458,10 @@ async function runFailureRetryTest(): Promise<void> {
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
-  assert.equal(assistantRunner.calls.length, 0);
   assert.equal(prisma.rows[0]?.schedulerClaimToken, null);
   assert.equal(prisma.rows[0]?.schedulerClaimEpoch, null);
   assert.ok(prisma.rows[0]?.retryAfterAt instanceof Date);
   assert.ok((prisma.rows[0]?.retryAfterAt?.getTime() ?? 0) > Date.now());
-}
-
-async function runAssistantFailureRetryTest(): Promise<void> {
-  const dueAt = new Date(Date.now() - 60_000);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-assistant-retry",
-        assistantId: "assistant-1",
-        externalRef: "job-assistant-retry",
-        title: "Assistant retry reminder",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: null,
-        nextRunAt: dueAt,
-        payloadText: "Assistant action should retry while below limit.",
-        scheduleJson: {
-          kind: "at",
-          at: dueAt.toISOString()
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        createdAt: new Date(dueAt.getTime() - 60_000)
-      }
-    ],
-    () => epochs.currentEpoch,
-    {
-      "job-assistant-retry": 2
-    }
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  assistantRunner.shouldThrow = true;
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.equal(prisma.rows[0]?.controlStatus, "active");
-  assert.ok(prisma.rows[0]?.retryAfterAt instanceof Date);
-}
-
-async function runRecurringAssistantSuccessSkipsPastIntervalsTest(): Promise<void> {
-  const everyMs = 60_000;
-  const dueAt = new Date(Date.now() - 5 * everyMs);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-assistant-recurring-success",
-        assistantId: "assistant-1",
-        externalRef: "job-assistant-recurring-success",
-        title: "Assistant recurring success",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: null,
-        nextRunAt: dueAt,
-        payloadText: "Assistant recurring action should skip missed slots after success.",
-        scheduleJson: {
-          kind: "every",
-          everyMs
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        createdAt: new Date(dueAt.getTime() - everyMs)
-      }
-    ],
-    () => epochs.currentEpoch
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.equal(prisma.rows[0]?.controlStatus, "active");
-  assert.equal(prisma.rows[0]?.retryAfterAt, null);
-  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
-}
-
-async function runRecurringAssistantFailureAdvancesTest(): Promise<void> {
-  const everyMs = 60_000;
-  const dueAt = new Date(Date.now() - 5 * everyMs);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-assistant-recurring-failure",
-        assistantId: "assistant-1",
-        externalRef: "job-assistant-recurring-failure",
-        title: "Assistant recurring failure",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: null,
-        nextRunAt: dueAt,
-        payloadText: "Assistant recurring action should advance after a failed fire.",
-        scheduleJson: {
-          kind: "every",
-          everyMs
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        createdAt: new Date(dueAt.getTime() - everyMs)
-      }
-    ],
-    () => epochs.currentEpoch,
-    {
-      "job-assistant-recurring-failure": 1
-    }
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  assistantRunner.shouldThrow = true;
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.equal(prisma.rows[0]?.controlStatus, "active");
-  assert.equal(prisma.rows[0]?.retryAfterAt, null);
-  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
-}
-
-async function runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest(): Promise<void> {
-  const everyMs = 60_000;
-  const dueAt = new Date(Date.now() - 5 * everyMs);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-assistant-recurring-cap",
-        assistantId: "assistant-1",
-        externalRef: "job-assistant-recurring-cap",
-        title: "Assistant recurring cap",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: null,
-        nextRunAt: dueAt,
-        payloadText:
-          "Recurring assistant action should not auto-disable at the one-shot receipt cap.",
-        scheduleJson: {
-          kind: "every",
-          everyMs
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        // ADR-074 F1: even at the new dead-letter limit, a recurring assistant
-        // task must NOT disable — it advances to the next slot instead.
-        attemptCount: 4,
-        createdAt: new Date(dueAt.getTime() - everyMs)
-      }
-    ],
-    () => epochs.currentEpoch
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  assistantRunner.shouldThrow = true;
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.equal(prisma.rows[0]?.controlStatus, "active");
-  assert.equal(prisma.rows[0]?.disabledAt ?? null, null);
-  assert.equal(prisma.rows[0]?.retryAfterAt, null);
-  assert.ok((prisma.rows[0]?.nextRunAt?.getTime() ?? 0) > Date.now());
-}
-
-async function runAssistantFailureExhaustionTest(): Promise<void> {
-  const dueAt = new Date(Date.now() - 60_000);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  // ADR-074 F1: previously this test plumbed `failedReceiptsByExternalRef: 5`
-  // to flip the receipt-counting branch; the new contract is a single
-  // per-task `attemptCount` column and we disable when `nextAttempt >= 5`,
-  // so this row already has 4 prior attempts (the 5th is about to be bumped).
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-assistant-stop",
-        assistantId: "assistant-1",
-        externalRef: "job-assistant-stop",
-        title: "Assistant exhausted reminder",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: null,
-        nextRunAt: dueAt,
-        payloadText: "Assistant action should stop after failed retries.",
-        scheduleJson: {
-          kind: "at",
-          at: dueAt.toISOString()
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        attemptCount: 4,
-        createdAt: new Date(dueAt.getTime() - 60_000)
-      }
-    ],
-    () => epochs.currentEpoch
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  assistantRunner.shouldThrow = true;
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.equal(prisma.rows[0]?.controlStatus, "disabled");
-  assert.equal(prisma.rows[0]?.nextRunAt, null);
-  assert.equal(prisma.rows[0]?.retryAfterAt, null);
-  assert.ok(prisma.rows[0]?.disabledAt instanceof Date);
 }
 
 async function runEpochResetReclaimTest(): Promise<void> {
@@ -803,13 +497,11 @@ async function runEpochResetReclaimTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -817,7 +509,6 @@ async function runEpochResetReclaimTest(): Promise<void> {
 
   assert.equal(count, 1);
   assert.equal(handler.calls.length, 1);
-  assert.equal(assistantRunner.calls.length, 0);
   assert.equal(prisma.rows[0]?.schedulerClaimToken, null);
   assert.equal(prisma.rows[0]?.schedulerClaimEpoch, null);
 }
@@ -855,13 +546,11 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -905,92 +594,8 @@ async function runEpochBumpSkipsOldWorkerTest(): Promise<void> {
   });
 
   assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 0);
 }
 
-async function runAssistantActionBatchTest(): Promise<void> {
-  const dueAt = new Date(Date.now() - 60_000);
-  const epochs = new FakeBumpConfigGenerationService(3);
-  const prisma = new FakeWorkspaceManagementPrismaService(
-    [
-      {
-        id: "task-5",
-        assistantId: "assistant-1",
-        externalRef: "job-5",
-        title: "Project follow-up",
-        audience: "assistant",
-        actionType: "follow_up",
-        actionPayloadJson: { topic: "project" },
-        nextRunAt: dueAt,
-        payloadText: "Check whether a project follow-up would be useful.",
-        scheduleJson: {
-          kind: "at",
-          at: dueAt.toISOString()
-        },
-        controlStatus: "active",
-        retryAfterAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null,
-        ...defaultRowFields(),
-        createdAt: new Date(dueAt.getTime() - 60_000)
-      }
-    ],
-    () => epochs.currentEpoch
-  );
-  const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
-  const policy = new FakeProactivePushPolicyService();
-  const service = new PersaiScheduledActionSchedulerService(
-    prisma as never,
-    handler as never,
-    epochs as never,
-    assistantRunner as never,
-    policy as unknown as ProactivePushPolicyService
-  );
-
-  const count = await service.processDueJobsBatch();
-
-  assert.equal(count, 1);
-  assert.equal(handler.calls.length, 0);
-  assert.equal(assistantRunner.calls.length, 1);
-  assert.deepEqual(assistantRunner.calls[0], {
-    assistantId: "assistant-1",
-    externalRef: "job-5",
-    title: "Project follow-up",
-    actionType: "follow_up",
-    actionPayload: { topic: "project" },
-    payloadText: "Check whether a project follow-up would be useful.",
-    runAtMs: dueAt.getTime()
-  });
-  // ADR-074 F4 (no-silent-hidden-run): the row is now KEPT and flipped to
-  // controlStatus="disabled" instead of being hard-deleted, so a completed
-  // one-shot assistant_check stays visible in the admin task list.
-  assert.equal(prisma.rows.length, 1);
-  const completedRow = prisma.rows[0];
-  assert.ok(completedRow !== undefined, "expected the one-shot row to remain after completion");
-  assert.equal(completedRow.id, "task-5");
-  assert.equal(completedRow.controlStatus, "disabled");
-  assert.equal(completedRow.nextRunAt, null);
-  assert.ok(
-    completedRow.disabledAt instanceof Date,
-    "disabledAt must be set as a completion breadcrumb"
-  );
-  assert.equal(
-    completedRow.attemptCount,
-    0,
-    "attemptCount=0 distinguishes 'completed' from 'disabled-after-exhausted'"
-  );
-  assert.equal(
-    completedRow.lastErrorMessage,
-    null,
-    "lastErrorMessage must remain null on a clean completion"
-  );
-}
-
-// ADR-074 Slice T1 hard constraint #11 + #12: assistant audience is
-// unrestricted — the policy mock MUST NOT be invoked for it.
 async function runAssistantAudienceSkipsPolicyGateTest(): Promise<void> {
   const dueAt = new Date(Date.now() - 60_000);
   const epochs = new FakeBumpConfigGenerationService(3);
@@ -1020,25 +625,25 @@ async function runAssistantAudienceSkipsPolicyGateTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const service = new PersaiScheduledActionSchedulerService(
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
   const count = await service.processDueJobsBatch();
 
   assert.equal(count, 1);
-  assert.equal(assistantRunner.calls.length, 1, "assistant-side action runs");
   assert.equal(
     handler.calls.length,
     0,
     "handleInternalCronFire is not invoked for assistant audience"
   );
+  assert.equal(prisma.rows[0]?.controlStatus, "disabled");
+  assert.equal(prisma.rows[0]?.disabledAt instanceof Date, true);
+  assert.equal(prisma.rows[0]?.nextRunAt, null);
   assert.equal(
     policy.calls.length,
     0,
@@ -1079,7 +684,6 @@ async function runUserAudienceDeferredByPolicyTest(): Promise<void> {
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   const deferUntil = new Date(Date.now() + 6 * 60 * 60 * 1000);
   policy.nextDecision = {
@@ -1093,7 +697,6 @@ async function runUserAudienceDeferredByPolicyTest(): Promise<void> {
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -1144,7 +747,6 @@ async function runUserAudienceAllowedBumpsLastFiredAtAtomicallyTest(): Promise<v
     () => epochs.currentEpoch
   );
   const handler = new FakeHandleInternalCronFireService();
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   policy.nextDecision = {
     action: "allow",
@@ -1156,7 +758,6 @@ async function runUserAudienceAllowedBumpsLastFiredAtAtomicallyTest(): Promise<v
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -1205,7 +806,6 @@ async function runUserAudienceFailedDispatchSkipsLastFiredBumpTest(): Promise<vo
   );
   const handler = new FakeHandleInternalCronFireService();
   handler.shouldThrow = true;
-  const assistantRunner = new FakeRunScheduledAssistantActionService();
   const policy = new FakeProactivePushPolicyService();
   policy.nextDecision = {
     action: "allow",
@@ -1216,7 +816,6 @@ async function runUserAudienceFailedDispatchSkipsLastFiredBumpTest(): Promise<vo
     prisma as never,
     handler as never,
     epochs as never,
-    assistantRunner as never,
     policy as unknown as ProactivePushPolicyService
   );
 
@@ -1232,14 +831,8 @@ async function run(): Promise<void> {
   await runRecurringBoundaryAdvanceTest();
   await runOneTimeUserReminderDeletedAfterDeliveryTest();
   await runFailureRetryTest();
-  await runAssistantFailureRetryTest();
-  await runRecurringAssistantSuccessSkipsPastIntervalsTest();
-  await runRecurringAssistantFailureAdvancesTest();
-  await runRecurringAssistantFailureDoesNotDisableAtReceiptCapTest();
-  await runAssistantFailureExhaustionTest();
   await runEpochResetReclaimTest();
   await runEpochBumpSkipsOldWorkerTest();
-  await runAssistantActionBatchTest();
   await runAssistantAudienceSkipsPolicyGateTest();
   await runUserAudienceDeferredByPolicyTest();
   await runUserAudienceAllowedBumpsLastFiredAtAtomicallyTest();

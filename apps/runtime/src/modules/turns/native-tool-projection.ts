@@ -229,6 +229,14 @@ export function projectRuntimeNativeTools(
   if (scheduledActionPolicy !== null) {
     projectedTools.push(createScheduledActionToolDefinition(scheduledActionPolicy));
   }
+  const backgroundTaskPolicy = resolveAllowedModelVisibleToolPolicy(
+    bundle,
+    "background_task",
+    "worker"
+  );
+  if (backgroundTaskPolicy !== null) {
+    projectedTools.push(createBackgroundTaskToolDefinition(backgroundTaskPolicy));
+  }
   const filesPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "files", "inline");
   if (filesPolicy !== null) {
     projectedTools.push(createFilesToolDefinition(filesPolicy));
@@ -748,7 +756,7 @@ function createScheduledActionToolDefinition(
     name: "scheduled_action",
     description: resolveToolDefinitionDescription(
       policy,
-      "Schedule actions for both user-visible reminders and hidden assistant follow-ups."
+      "Schedule simple unconditional user-visible reminders. Use background_task for assistant-side checks."
     ),
     inputSchema: {
       type: "object",
@@ -762,9 +770,9 @@ function createScheduledActionToolDefinition(
         },
         kind: {
           type: "string",
-          enum: ["user_reminder", "assistant_check"],
+          enum: ["user_reminder"],
           description:
-            'Required for create. Use "user_reminder" for an unconditional user-visible reminder. Use "assistant_check" for a hidden conditional background check, especially for requests like "поставь себе фоновую задачу", "тихо проверь", or "if/если ... then ping me".'
+            'Required for create. Only "user_reminder" is supported; use background_task for assistant-side conditional background checks.'
         },
         title: {
           type: "string",
@@ -774,17 +782,6 @@ function createScheduledActionToolDefinition(
           type: "string",
           description:
             'Required for kind="user_reminder". This is the exact short message the user will later receive.'
-        },
-        actionType: {
-          type: "string",
-          description:
-            'Required for kind="assistant_check". Short machine-readable action kind such as "follow_up" or "check_status".'
-        },
-        actionPayload: {
-          type: "object",
-          additionalProperties: true,
-          description:
-            'Required for kind="assistant_check". Structured non-empty JSON payload describing what the background check must evaluate.'
         },
         taskId: {
           type: "string",
@@ -830,6 +827,86 @@ function createScheduledActionToolDefinition(
           maximum: REMINDER_CONTEXT_MESSAGES_MAX,
           description:
             "Optional number of recent chat messages to snapshot into the scheduled action context."
+        }
+      }
+    }
+  };
+}
+
+function createBackgroundTaskToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
+  return {
+    name: "background_task",
+    description: resolveToolDefinitionDescription(
+      policy,
+      appendPerTurnCapHint(
+        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted.",
+        "background_task",
+        policy
+      )
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action"],
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "list", "pause", "resume", "cancel"],
+          description: "Background-task operation to perform."
+        },
+        title: {
+          type: "string",
+          description: "Required for create. Short title shown in Assistant actions."
+        },
+        brief: {
+          type: "string",
+          description:
+            "Required for create. Precise evaluator brief: what to check, when to notify, and what should count as no_push."
+        },
+        taskId: {
+          type: "string",
+          description:
+            "Preferred background-task identifier for pause, resume, or cancel. Use the id returned by list or create."
+        },
+        titleMatch: {
+          type: "string",
+          description:
+            "Fallback partial title match for pause, resume, or cancel when taskId is unavailable."
+        },
+        runAt: {
+          type: "string",
+          description: "Absolute future ISO datetime for a one-time background task."
+        },
+        delayMs: {
+          type: "number",
+          minimum: 1,
+          description: "Relative delay in milliseconds for a one-time background task."
+        },
+        everyMs: {
+          type: "number",
+          minimum: 60000,
+          description:
+            "Recurring interval in milliseconds. Values below 60000 are raised by the API."
+        },
+        anchorAt: {
+          type: "string",
+          description: "Optional ISO anchor time for recurring interval schedules."
+        },
+        cronExpr: {
+          type: "string",
+          description: "Cron expression for recurring background tasks."
+        },
+        timezone: {
+          type: "string",
+          description: "Optional IANA timezone for cron-based schedules."
+        },
+        pushPolicy: {
+          type: "object",
+          additionalProperties: true,
+          description:
+            "Optional structured push policy. Do not put channel selection here; delivery uses the assistant's preferred notification channel."
         }
       }
     }

@@ -118,7 +118,7 @@ export default async function HomePage() {
             </span>
           </div>
 
-          <div className="animate-fade-in-up-delay mt-6 flex flex-col items-center gap-3 sm:flex-row sm:gap-5">
+          <div className="animate-fade-in-up-delay mt-6 flex flex-col items-center gap-3">
             <Link
               href={"/sign-up" as Route}
               className="group relative cursor-pointer overflow-hidden rounded-2xl bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)] sm:px-8"
@@ -131,21 +131,12 @@ export default async function HomePage() {
               />
               <span className="relative">{t("cta")}</span>
             </Link>
-            <div className="flex items-center gap-4 text-sm font-medium text-text-muted">
-              <Link
-                href={"/sign-up" as Route}
-                className="cursor-pointer transition-colors hover:text-text"
-              >
-                {t("plans")}
-              </Link>
-              <span aria-hidden="true" className="h-1 w-1 rounded-full bg-text-subtle/35" />
-              <Link
-                href={"/sign-in" as Route}
-                className="cursor-pointer transition-colors hover:text-text"
-              >
-                {t("ctaSecondary")} →
-              </Link>
-            </div>
+            <Link
+              href={"/sign-in" as Route}
+              className="cursor-pointer rounded-2xl border border-border/60 bg-surface-raised/20 px-6 py-2.5 text-sm font-medium text-text-muted backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface-raised/35 hover:text-text"
+            >
+              {t("ctaSecondary")} →
+            </Link>
           </div>
         </main>
 

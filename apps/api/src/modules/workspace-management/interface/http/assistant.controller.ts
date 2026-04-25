@@ -53,6 +53,9 @@ import { CloseAssistantMemoryByRefService } from "../../application/close-assist
 import { ListAssistantMemoryItemsService } from "../../application/list-assistant-memory-items.service";
 import type { AssistantMemoryRegistryItemState } from "../../application/assistant-memory.types";
 import { ListAssistantTaskItemsService } from "../../application/list-assistant-task-items.service";
+import { ListAssistantBackgroundTaskItemsService } from "../../application/list-assistant-background-task-items.service";
+import { ControlAssistantBackgroundTaskService } from "../../application/control-assistant-background-task.service";
+import type { InternalBackgroundTaskItemState } from "../../application/list-internal-background-task-items.service";
 import { DisableAssistantTaskRegistryItemService } from "../../application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "../../application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "../../application/cancel-assistant-task-registry-item.service";
@@ -106,6 +109,8 @@ export class AssistantController {
     private readonly closeAssistantMemoryByRefService: CloseAssistantMemoryByRefService,
     private readonly doNotRememberAssistantMemoryService: DoNotRememberAssistantMemoryService,
     private readonly listAssistantTaskItemsService: ListAssistantTaskItemsService,
+    private readonly listAssistantBackgroundTaskItemsService: ListAssistantBackgroundTaskItemsService,
+    private readonly controlAssistantBackgroundTaskService: ControlAssistantBackgroundTaskService,
     private readonly disableAssistantTaskRegistryItemService: DisableAssistantTaskRegistryItemService,
     private readonly enableAssistantTaskRegistryItemService: EnableAssistantTaskRegistryItemService,
     private readonly cancelAssistantTaskRegistryItemService: CancelAssistantTaskRegistryItemService,
@@ -722,6 +727,49 @@ export class AssistantController {
       requestId: req.requestId ?? null,
       cancelled: result.cancelled
     };
+  }
+
+  @Get("assistant/background-tasks/items")
+  async listBackgroundTaskItems(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    items: InternalBackgroundTaskItemState[];
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const items = await this.listAssistantBackgroundTaskItemsService.execute(userId);
+    return {
+      requestId: req.requestId ?? null,
+      items
+    };
+  }
+
+  @Post("assistant/background-tasks/items/:itemId/disable")
+  async disableBackgroundTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{ requestId: string | null; disabled: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.controlAssistantBackgroundTaskService.execute(userId, itemId, "pause");
+    return { requestId: req.requestId ?? null, disabled: true };
+  }
+
+  @Post("assistant/background-tasks/items/:itemId/enable")
+  async enableBackgroundTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{ requestId: string | null; enabled: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.controlAssistantBackgroundTaskService.execute(userId, itemId, "resume");
+    return { requestId: req.requestId ?? null, enabled: true };
+  }
+
+  @Post("assistant/background-tasks/items/:itemId/cancel")
+  async cancelBackgroundTaskItem(
+    @Req() req: RequestWithPlatformContext,
+    @Param("itemId") itemId: string
+  ): Promise<{ requestId: string | null; cancelled: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.controlAssistantBackgroundTaskService.execute(userId, itemId, "cancel");
+    return { requestId: req.requestId ?? null, cancelled: true };
   }
 
   @Post("assistant/memory/do-not-remember")

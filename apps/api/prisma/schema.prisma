@@ -81,6 +81,27 @@ enum AssistantTaskRegistryAudience {
   assistant
 }
 
+enum AssistantBackgroundTaskStatus {
+  active
+  disabled
+  completed
+  failed
+  cancelled
+}
+
+enum AssistantBackgroundTaskMode {
+  llm_evaluate
+}
+
+enum AssistantBackgroundTaskRunStatus {
+  running
+  no_push
+  pushed
+  completed
+  failed
+  skipped
+}
+
 enum AssistantPreferredNotificationChannel {
   web
   telegram
@@ -330,40 +351,42 @@ model AppUser {
 }
 
 model Workspace {
-  id                          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                        String
-  locale                      String
-  timezone                    String
-  status                      WorkspaceStatus
-  createdAt                   DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                   DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistants                  Assistant[]
-  members                     WorkspaceMember[]
-  subscription                WorkspaceSubscription?
-  quotaAccountingState        WorkspaceQuotaAccountingState?
-  quotaUsageEvents            WorkspaceQuotaUsageEvent[]
-  assistantAuditEvents        AssistantAuditEvent[]
-  adminRoles                  AppUserAdminRole[]
-  adminNotificationChannels   WorkspaceAdminNotificationChannel[]
-  adminNotificationDeliveries AdminNotificationDelivery[]
-  platformRollouts            AssistantPlatformRollout[]
-  abuseGuardStates            AssistantAbuseGuardState[]
-  toolUsageDailyCounters      WorkspaceToolUsageDailyCounter[]
-  chatMessageAttachments      AssistantChatMessageAttachment[]
-  knowledgeSources            AssistantKnowledgeSource[]
-  knowledgeSourceChunks       AssistantKnowledgeSourceChunk[]
-  globalKnowledgeSources      GlobalKnowledgeSource[]
-  globalKnowledgeSourceChunks GlobalKnowledgeSourceChunk[]
-  knowledgeRetrievalEvents    KnowledgeRetrievalEvent[]
-  knowledgeRetrievalRollups   KnowledgeRetrievalRollup[]
-  runtimeBundleStates         RuntimeBundleState[]
-  runtimeSessions             RuntimeSession[]
-  runtimeSessionCompactions   RuntimeSessionCompaction[]
-  runtimeTurnReceipts         RuntimeTurnReceipt[]
-  sandboxJobs                 SandboxJob[]
-  assistantWorkspaceLeases    AssistantWorkspaceLease[]
-  assistantFiles              AssistantFile[]
+  id                                String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                              String
+  locale                            String
+  timezone                          String
+  status                            WorkspaceStatus
+  createdAt                         DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                         DateTime                            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistants                        Assistant[]
+  members                           WorkspaceMember[]
+  subscription                      WorkspaceSubscription?
+  quotaAccountingState              WorkspaceQuotaAccountingState?
+  quotaUsageEvents                  WorkspaceQuotaUsageEvent[]
+  assistantAuditEvents              AssistantAuditEvent[]
+  adminRoles                        AppUserAdminRole[]
+  adminNotificationChannels         WorkspaceAdminNotificationChannel[]
+  adminNotificationDeliveries       AdminNotificationDelivery[]
+  platformRollouts                  AssistantPlatformRollout[]
+  abuseGuardStates                  AssistantAbuseGuardState[]
+  toolUsageDailyCounters            WorkspaceToolUsageDailyCounter[]
+  chatMessageAttachments            AssistantChatMessageAttachment[]
+  knowledgeSources                  AssistantKnowledgeSource[]
+  knowledgeSourceChunks             AssistantKnowledgeSourceChunk[]
+  globalKnowledgeSources            GlobalKnowledgeSource[]
+  globalKnowledgeSourceChunks       GlobalKnowledgeSourceChunk[]
+  knowledgeRetrievalEvents          KnowledgeRetrievalEvent[]
+  knowledgeRetrievalRollups         KnowledgeRetrievalRollup[]
+  runtimeBundleStates               RuntimeBundleState[]
+  runtimeSessions                   RuntimeSession[]
+  runtimeSessionCompactions         RuntimeSessionCompaction[]
+  runtimeTurnReceipts               RuntimeTurnReceipt[]
+  sandboxJobs                       SandboxJob[]
+  assistantWorkspaceLeases          AssistantWorkspaceLease[]
+  assistantFiles                    AssistantFile[]
   assistantBackgroundCompactionJobs AssistantBackgroundCompactionJob[]
+  assistantBackgroundTasks          AssistantBackgroundTask[]
+  assistantBackgroundTaskRuns       AssistantBackgroundTaskRun[]
 
   @@map("workspaces")
 }
@@ -378,6 +401,8 @@ model WorkspaceMember {
   assistantChats               AssistantChat[]
   assistantMemoryRegistryItems AssistantMemoryRegistryItem[]
   assistantTaskRegistryItems   AssistantTaskRegistryItem[]
+  assistantBackgroundTasks     AssistantBackgroundTask[]
+  assistantBackgroundTaskRuns  AssistantBackgroundTaskRun[]
   assistantKnowledgeSources    AssistantKnowledgeSource[]
   abuseGuardStates             AssistantAbuseGuardState[]
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -388,68 +413,70 @@ model WorkspaceMember {
 }
 
 model Assistant {
-  id                           String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId                       String                                @unique @map("user_id") @db.Uuid
-  workspaceId                  String                                @map("workspace_id") @db.Uuid
-  preferredNotificationChannel AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
+  id                                   String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                               String                                @unique @map("user_id") @db.Uuid
+  workspaceId                          String                                @map("workspace_id") @db.Uuid
+  preferredNotificationChannel         AssistantPreferredNotificationChannel @default(web) @map("preferred_notification_channel")
   /// ADR-074 Slice T2 D-marker. NULL = the user has never explicitly picked a
   /// notification channel; the value is still on the `web` default. Set to the
   /// current timestamp on (a) every successful manual preference update via
   /// the Settings UI and (b) the first auto-set triggered by a fresh
   /// non-web-channel bind (today: TG owner-claim). Once non-NULL, the
   /// auto-set helper treats the choice as binding and never overrides it.
-  preferredNotificationChannelChosenAt DateTime?                       @map("preferred_notification_channel_chosen_at") @db.Timestamptz(6)
-  draftDisplayName             String?                               @map("draft_display_name")
-  draftInstructions            String?                               @map("draft_instructions")
-  draftTraits                  Json?                                 @map("draft_traits") @db.JsonB
-  draftAvatarEmoji             String?                               @map("draft_avatar_emoji") @db.VarChar(8)
-  draftAvatarUrl               String?                               @map("draft_avatar_url")
-  draftAssistantGender         String?                               @map("draft_assistant_gender") @db.VarChar(32)
-  draftVoiceProfile            Json?                                 @map("draft_voice_profile") @db.JsonB
-  draftArchetypeKey            String?                               @map("draft_archetype_key") @db.VarChar(64)
-  draftUpdatedAt               DateTime?                             @map("draft_updated_at") @db.Timestamptz(6)
-  applyStatus                  AssistantApplyStatus                  @default(not_requested) @map("apply_status")
-  applyTargetVersionId         String?                               @map("apply_target_version_id") @db.Uuid
-  applyAppliedVersionId        String?                               @map("apply_applied_version_id") @db.Uuid
-  applyRequestedAt             DateTime?                             @map("apply_requested_at") @db.Timestamptz(6)
-  applyStartedAt               DateTime?                             @map("apply_started_at") @db.Timestamptz(6)
-  applyFinishedAt              DateTime?                             @map("apply_finished_at") @db.Timestamptz(6)
-  applyErrorCode               String?                               @map("apply_error_code")
-  applyErrorMessage            String?                               @map("apply_error_message")
-  configDirtyAt                DateTime?                             @map("config_dirty_at") @db.Timestamptz(6)
-  createdAt                    DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                    DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  user                         AppUser                               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace                    Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember              WorkspaceMember                       @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  applyTargetVersion           AssistantPublishedVersion?            @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  applyAppliedVersion          AssistantPublishedVersion?            @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  governance                   AssistantGovernance?
-  materializedSpecs            AssistantMaterializedSpec[]
-  publishedVersions            AssistantPublishedVersion[]
-  chats                        AssistantChat[]
-  chatMessages                 AssistantChatMessage[]
-  memoryRegistryItems          AssistantMemoryRegistryItem[]
-  taskRegistryItems            AssistantTaskRegistryItem[]
-  knowledgeSources             AssistantKnowledgeSource[]
-  knowledgeSourceChunks        AssistantKnowledgeSourceChunk[]
-  channelSurfaceBindings       AssistantChannelSurfaceBinding[]
-  auditEvents                  AssistantAuditEvent[]
-  platformRolloutItems         AssistantPlatformRolloutItem[]
-  abuseGuardStates             AssistantAbuseGuardState[]
-  abuseAssistantStates         AssistantAbuseAssistantState[]
-  abusePeerStates              AssistantAbusePeerState[]
-  telegramGroups               AssistantTelegramGroup[]
-  chatMessageAttachments       AssistantChatMessageAttachment[]
-  knowledgeRetrievalEvents     KnowledgeRetrievalEvent[]
-  runtimeBundleStates          RuntimeBundleState[]
-  runtimeSessions              RuntimeSession[]
-  runtimeSessionCompactions    RuntimeSessionCompaction[]
-  runtimeTurnReceipts          RuntimeTurnReceipt[]
-  sandboxJobs                  SandboxJob[]
-  assistantWorkspaceLeases     AssistantWorkspaceLease[]
-  assistantFiles               AssistantFile[]
-  backgroundCompactionJobs     AssistantBackgroundCompactionJob[]
+  preferredNotificationChannelChosenAt DateTime?                             @map("preferred_notification_channel_chosen_at") @db.Timestamptz(6)
+  draftDisplayName                     String?                               @map("draft_display_name")
+  draftInstructions                    String?                               @map("draft_instructions")
+  draftTraits                          Json?                                 @map("draft_traits") @db.JsonB
+  draftAvatarEmoji                     String?                               @map("draft_avatar_emoji") @db.VarChar(8)
+  draftAvatarUrl                       String?                               @map("draft_avatar_url")
+  draftAssistantGender                 String?                               @map("draft_assistant_gender") @db.VarChar(32)
+  draftVoiceProfile                    Json?                                 @map("draft_voice_profile") @db.JsonB
+  draftArchetypeKey                    String?                               @map("draft_archetype_key") @db.VarChar(64)
+  draftUpdatedAt                       DateTime?                             @map("draft_updated_at") @db.Timestamptz(6)
+  applyStatus                          AssistantApplyStatus                  @default(not_requested) @map("apply_status")
+  applyTargetVersionId                 String?                               @map("apply_target_version_id") @db.Uuid
+  applyAppliedVersionId                String?                               @map("apply_applied_version_id") @db.Uuid
+  applyRequestedAt                     DateTime?                             @map("apply_requested_at") @db.Timestamptz(6)
+  applyStartedAt                       DateTime?                             @map("apply_started_at") @db.Timestamptz(6)
+  applyFinishedAt                      DateTime?                             @map("apply_finished_at") @db.Timestamptz(6)
+  applyErrorCode                       String?                               @map("apply_error_code")
+  applyErrorMessage                    String?                               @map("apply_error_message")
+  configDirtyAt                        DateTime?                             @map("config_dirty_at") @db.Timestamptz(6)
+  createdAt                            DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                            DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  user                                 AppUser                               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                            Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember                      WorkspaceMember                       @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetVersion                   AssistantPublishedVersion?            @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  applyAppliedVersion                  AssistantPublishedVersion?            @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  governance                           AssistantGovernance?
+  materializedSpecs                    AssistantMaterializedSpec[]
+  publishedVersions                    AssistantPublishedVersion[]
+  chats                                AssistantChat[]
+  chatMessages                         AssistantChatMessage[]
+  memoryRegistryItems                  AssistantMemoryRegistryItem[]
+  taskRegistryItems                    AssistantTaskRegistryItem[]
+  backgroundTasks                      AssistantBackgroundTask[]
+  backgroundTaskRuns                   AssistantBackgroundTaskRun[]
+  knowledgeSources                     AssistantKnowledgeSource[]
+  knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
+  channelSurfaceBindings               AssistantChannelSurfaceBinding[]
+  auditEvents                          AssistantAuditEvent[]
+  platformRolloutItems                 AssistantPlatformRolloutItem[]
+  abuseGuardStates                     AssistantAbuseGuardState[]
+  abuseAssistantStates                 AssistantAbuseAssistantState[]
+  abusePeerStates                      AssistantAbusePeerState[]
+  telegramGroups                       AssistantTelegramGroup[]
+  chatMessageAttachments               AssistantChatMessageAttachment[]
+  knowledgeRetrievalEvents             KnowledgeRetrievalEvent[]
+  runtimeBundleStates                  RuntimeBundleState[]
+  runtimeSessions                      RuntimeSession[]
+  runtimeSessionCompactions            RuntimeSessionCompaction[]
+  runtimeTurnReceipts                  RuntimeTurnReceipt[]
+  sandboxJobs                          SandboxJob[]
+  assistantWorkspaceLeases             AssistantWorkspaceLease[]
+  assistantFiles                       AssistantFile[]
+  backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -479,48 +506,48 @@ model AssistantChannelSurfaceBinding {
 }
 
 model AssistantPublishedVersion {
-  id                     String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId            String                     @map("assistant_id") @db.Uuid
-  version                Int
-  snapshotDisplayName    String?                    @map("snapshot_display_name")
-  snapshotInstructions   String?                    @map("snapshot_instructions")
-  snapshotTraits         Json?                      @map("snapshot_traits") @db.JsonB
-  snapshotAvatarEmoji    String?                    @map("snapshot_avatar_emoji") @db.VarChar(8)
-  snapshotAvatarUrl      String?                    @map("snapshot_avatar_url")
-  snapshotAssistantGender String?                   @map("snapshot_assistant_gender") @db.VarChar(32)
-  snapshotVoiceProfile   Json?                      @map("snapshot_voice_profile") @db.JsonB
-  snapshotArchetypeKey   String?                    @map("snapshot_archetype_key") @db.VarChar(64)
-  snapshotVoiceDna       Json?                      @map("snapshot_voice_dna") @db.JsonB
-  publishedByUserId      String                     @map("published_by_user_id") @db.Uuid
-  createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  assistant              Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedByUser        AppUser                    @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  applyTargetAssistants  Assistant[]                @relation("AssistantApplyTargetVersion")
-  applyAppliedAssistants Assistant[]                @relation("AssistantApplyAppliedVersion")
-  materializedSpec       AssistantMaterializedSpec?
-  runtimeBundleState     RuntimeBundleState?
-  runtimeSessions        RuntimeSession[]
-  runtimeTurnReceipts    RuntimeTurnReceipt[]
+  id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                     @map("assistant_id") @db.Uuid
+  version                 Int
+  snapshotDisplayName     String?                    @map("snapshot_display_name")
+  snapshotInstructions    String?                    @map("snapshot_instructions")
+  snapshotTraits          Json?                      @map("snapshot_traits") @db.JsonB
+  snapshotAvatarEmoji     String?                    @map("snapshot_avatar_emoji") @db.VarChar(8)
+  snapshotAvatarUrl       String?                    @map("snapshot_avatar_url")
+  snapshotAssistantGender String?                    @map("snapshot_assistant_gender") @db.VarChar(32)
+  snapshotVoiceProfile    Json?                      @map("snapshot_voice_profile") @db.JsonB
+  snapshotArchetypeKey    String?                    @map("snapshot_archetype_key") @db.VarChar(64)
+  snapshotVoiceDna        Json?                      @map("snapshot_voice_dna") @db.JsonB
+  publishedByUserId       String                     @map("published_by_user_id") @db.Uuid
+  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  assistant               Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedByUser         AppUser                    @relation("AssistantVersionPublisher", fields: [publishedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  applyTargetAssistants   Assistant[]                @relation("AssistantApplyTargetVersion")
+  applyAppliedAssistants  Assistant[]                @relation("AssistantApplyAppliedVersion")
+  materializedSpec        AssistantMaterializedSpec?
+  runtimeBundleState      RuntimeBundleState?
+  runtimeSessions         RuntimeSession[]
+  runtimeTurnReceipts     RuntimeTurnReceipt[]
 
   @@unique([assistantId, version])
   @@map("assistant_published_versions")
 }
 
 model AssistantGovernance {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId        String    @unique @map("assistant_id") @db.Uuid
-  capabilityEnvelope Json?     @map("capability_envelope")
-  secretRefs         Json?     @map("secret_refs")
-  policyEnvelope     Json?     @map("policy_envelope")
-  memoryControl      Json?     @map("memory_control")
-  tasksControl       Json?     @map("tasks_control")
-  assistantPlanOverrideCode String? @map("assistant_plan_override_code")
-  quotaPlanCode      String?   @map("quota_plan_code")
-  quotaHook          Json?     @map("quota_hook")
-  auditHook          Json?     @map("audit_hook")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant          Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId               String    @unique @map("assistant_id") @db.Uuid
+  capabilityEnvelope        Json?     @map("capability_envelope")
+  secretRefs                Json?     @map("secret_refs")
+  policyEnvelope            Json?     @map("policy_envelope")
+  memoryControl             Json?     @map("memory_control")
+  tasksControl              Json?     @map("tasks_control")
+  assistantPlanOverrideCode String?   @map("assistant_plan_override_code")
+  quotaPlanCode             String?   @map("quota_plan_code")
+  quotaHook                 Json?     @map("quota_hook")
+  auditHook                 Json?     @map("audit_hook")
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                 Assistant @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@map("assistant_governance")
 }
@@ -598,30 +625,30 @@ model AdminNotificationDelivery {
 }
 
 model PlatformConfigGeneration {
-  id                                  String   @id @default("global") @db.VarChar(32)
-  generation                          Int      @default(1)
-  reminderSchedulerEpoch              Int      @default(1) @map("reminder_scheduler_epoch")
-  backgroundCompactionSchedulerEpoch  Int      @default(1) @map("background_compaction_scheduler_epoch")
-  updatedAt                           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                                 String   @id @default("global") @db.VarChar(32)
+  generation                         Int      @default(1)
+  reminderSchedulerEpoch             Int      @default(1) @map("reminder_scheduler_epoch")
+  backgroundCompactionSchedulerEpoch Int      @default(1) @map("background_compaction_scheduler_epoch")
+  updatedAt                          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_config_generations")
 }
 
 model PlatformRuntimeProviderSettings {
-  id                        String                          @id @default("global") @db.VarChar(32)
-  primaryProvider           String                          @map("primary_provider") @db.VarChar(32)
-  primaryModel              String                          @map("primary_model") @db.VarChar(256)
-  fallbackProvider          String?                         @map("fallback_provider") @db.VarChar(32)
-  fallbackModel             String?                         @map("fallback_model") @db.VarChar(256)
-  routingFastModelKey       String?                         @map("routing_fast_model_key") @db.VarChar(256)
-  routerPolicy              Json                            @default("{}") @map("router_policy") @db.JsonB
-  availableModelsByProvider Json                            @map("available_models_by_provider") @db.JsonB
-  availableModelCatalogByProvider Json                       @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
-  updatedByUserId           String?                         @map("updated_by_user_id") @db.Uuid
-  createdAt                 DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  updatedByUser             AppUser?                        @relation("PlatformRuntimeProviderSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  secrets                   PlatformRuntimeProviderSecret[]
+  id                              String                          @id @default("global") @db.VarChar(32)
+  primaryProvider                 String                          @map("primary_provider") @db.VarChar(32)
+  primaryModel                    String                          @map("primary_model") @db.VarChar(256)
+  fallbackProvider                String?                         @map("fallback_provider") @db.VarChar(32)
+  fallbackModel                   String?                         @map("fallback_model") @db.VarChar(256)
+  routingFastModelKey             String?                         @map("routing_fast_model_key") @db.VarChar(256)
+  routerPolicy                    Json                            @default("{}") @map("router_policy") @db.JsonB
+  availableModelsByProvider       Json                            @map("available_models_by_provider") @db.JsonB
+  availableModelCatalogByProvider Json                            @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
+  updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
+  createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByUser                   AppUser?                        @relation("PlatformRuntimeProviderSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  secrets                         PlatformRuntimeProviderSecret[]
 
   @@map("platform_runtime_provider_settings")
 }
@@ -741,17 +768,17 @@ model AssistantAbuseAssistantState {
 }
 
 model AssistantAbusePeerState {
-  id                 String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId        String     @map("assistant_id") @db.Uuid
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String       @map("assistant_id") @db.Uuid
   surface            AbuseSurface
-  peerKey            String     @map("peer_key") @db.Text
-  windowStartedAt    DateTime   @map("window_started_at") @db.Timestamptz(6)
-  requestCount       Int        @default(0) @map("request_count")
-  adminOverrideUntil DateTime?  @map("admin_override_until") @db.Timestamptz(6)
-  lastSeenAt         DateTime   @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant          Assistant  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  peerKey            String       @map("peer_key") @db.Text
+  windowStartedAt    DateTime     @map("window_started_at") @db.Timestamptz(6)
+  requestCount       Int          @default(0) @map("request_count")
+  adminOverrideUntil DateTime?    @map("admin_override_until") @db.Timestamptz(6)
+  lastSeenAt         DateTime     @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([assistantId, surface, peerKey])
   @@index([assistantId, surface, lastSeenAt])
@@ -933,21 +960,21 @@ model AssistantMaterializedSpec {
 }
 
 model RuntimeBundleState {
-  id               String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId      String                   @map("assistant_id") @db.Uuid
-  workspaceId      String                   @map("workspace_id") @db.Uuid
-  materializedSpecId String                 @unique @map("materialized_spec_id") @db.Uuid
-  publishedVersionId String                 @unique @map("published_version_id") @db.Uuid
-  runtimeTier      RuntimeTier              @map("runtime_tier")
-  bundleHash       String                   @map("bundle_hash") @db.VarChar(64)
-  lastWarmedAt     DateTime?                @map("last_warmed_at") @db.Timestamptz(6)
-  invalidatedAt    DateTime?                @map("invalidated_at") @db.Timestamptz(6)
-  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant        Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace        Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  materializedSpec AssistantMaterializedSpec @relation(fields: [materializedSpecId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  publishedVersion AssistantPublishedVersion @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                 String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String                    @map("assistant_id") @db.Uuid
+  workspaceId        String                    @map("workspace_id") @db.Uuid
+  materializedSpecId String                    @unique @map("materialized_spec_id") @db.Uuid
+  publishedVersionId String                    @unique @map("published_version_id") @db.Uuid
+  runtimeTier        RuntimeTier               @map("runtime_tier")
+  bundleHash         String                    @map("bundle_hash") @db.VarChar(64)
+  lastWarmedAt       DateTime?                 @map("last_warmed_at") @db.Timestamptz(6)
+  invalidatedAt      DateTime?                 @map("invalidated_at") @db.Timestamptz(6)
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  materializedSpec   AssistantMaterializedSpec @relation(fields: [materializedSpecId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  publishedVersion   AssistantPublishedVersion @relation(fields: [publishedVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([assistantId, updatedAt(sort: Desc)])
   @@index([workspaceId, invalidatedAt])
@@ -955,32 +982,32 @@ model RuntimeBundleState {
 }
 
 model RuntimeSession {
-  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId             String                    @map("assistant_id") @db.Uuid
-  workspaceId             String                    @map("workspace_id") @db.Uuid
-  currentPublishedVersionId String?                @map("current_published_version_id") @db.Uuid
-  runtimeTier             RuntimeTier               @map("runtime_tier")
-  conversationKey         String                    @unique @map("conversation_key") @db.VarChar(64)
-  channel                 RuntimeConversationChannel
-  externalThreadKey       String                    @map("external_thread_key") @db.VarChar(255)
-  externalUserKey         String?                   @map("external_user_key") @db.VarChar(255)
-  mode                    RuntimeConversationMode
-  currentBundleHash       String?                   @map("current_bundle_hash") @db.VarChar(64)
-  currentTokens           Int?                      @map("current_tokens")
-  totalTokensFresh        Boolean                   @default(true) @map("total_tokens_fresh")
-  compactionCount         Int                       @default(0) @map("compaction_count")
-  compactionHintTokens    Int?                      @map("compaction_hint_tokens")
-  providerKey             String?                   @map("provider_key") @db.VarChar(64)
-  modelKey                String?                   @map("model_key") @db.VarChar(256)
-  lastTurnAt              DateTime?                 @map("last_turn_at") @db.Timestamptz(6)
-  closedAt                DateTime?                 @map("closed_at") @db.Timestamptz(6)
-  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant               Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace               Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  currentPublishedVersion AssistantPublishedVersion? @relation(fields: [currentPublishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  compactions             RuntimeSessionCompaction[]
-  turnReceipts            RuntimeTurnReceipt[]
+  id                        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId               String                     @map("assistant_id") @db.Uuid
+  workspaceId               String                     @map("workspace_id") @db.Uuid
+  currentPublishedVersionId String?                    @map("current_published_version_id") @db.Uuid
+  runtimeTier               RuntimeTier                @map("runtime_tier")
+  conversationKey           String                     @unique @map("conversation_key") @db.VarChar(64)
+  channel                   RuntimeConversationChannel
+  externalThreadKey         String                     @map("external_thread_key") @db.VarChar(255)
+  externalUserKey           String?                    @map("external_user_key") @db.VarChar(255)
+  mode                      RuntimeConversationMode
+  currentBundleHash         String?                    @map("current_bundle_hash") @db.VarChar(64)
+  currentTokens             Int?                       @map("current_tokens")
+  totalTokensFresh          Boolean                    @default(true) @map("total_tokens_fresh")
+  compactionCount           Int                        @default(0) @map("compaction_count")
+  compactionHintTokens      Int?                       @map("compaction_hint_tokens")
+  providerKey               String?                    @map("provider_key") @db.VarChar(64)
+  modelKey                  String?                    @map("model_key") @db.VarChar(256)
+  lastTurnAt                DateTime?                  @map("last_turn_at") @db.Timestamptz(6)
+  closedAt                  DateTime?                  @map("closed_at") @db.Timestamptz(6)
+  createdAt                 DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                 Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                 Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  currentPublishedVersion   AssistantPublishedVersion? @relation(fields: [currentPublishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  compactions               RuntimeSessionCompaction[]
+  turnReceipts              RuntimeTurnReceipt[]
 
   @@index([assistantId, updatedAt(sort: Desc)])
   @@index([workspaceId, updatedAt(sort: Desc)])
@@ -1010,31 +1037,31 @@ model RuntimeSessionCompaction {
 }
 
 model RuntimeTurnReceipt {
-  id               String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId      String                    @map("assistant_id") @db.Uuid
-  workspaceId      String                    @map("workspace_id") @db.Uuid
-  runtimeSessionId String?                   @map("runtime_session_id") @db.Uuid
-  publishedVersionId String?                 @map("published_version_id") @db.Uuid
-  runtimeTier      RuntimeTier               @map("runtime_tier")
-  conversationKey  String                    @map("conversation_key") @db.VarChar(64)
-  channel          RuntimeConversationChannel
-  externalThreadKey String                   @map("external_thread_key") @db.VarChar(255)
-  externalUserKey  String?                   @map("external_user_key") @db.VarChar(255)
-  mode             RuntimeConversationMode
-  requestId        String                    @unique @map("request_id") @db.VarChar(128)
-  idempotencyKey   String                    @map("idempotency_key") @db.VarChar(128)
-  bundleHash       String?                   @map("bundle_hash") @db.VarChar(64)
-  status           RuntimeTurnReceiptStatus  @default(accepted)
-  resultPayload    Json?                     @map("result_payload") @db.JsonB
-  errorCode        String?                   @map("error_code") @db.VarChar(128)
-  errorMessage     String?                   @map("error_message") @db.Text
-  completedAt      DateTime?                 @map("completed_at") @db.Timestamptz(6)
-  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant        Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace        Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  runtimeSession   RuntimeSession?           @relation(fields: [runtimeSessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  publishedVersion AssistantPublishedVersion? @relation(fields: [publishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  id                 String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String                     @map("assistant_id") @db.Uuid
+  workspaceId        String                     @map("workspace_id") @db.Uuid
+  runtimeSessionId   String?                    @map("runtime_session_id") @db.Uuid
+  publishedVersionId String?                    @map("published_version_id") @db.Uuid
+  runtimeTier        RuntimeTier                @map("runtime_tier")
+  conversationKey    String                     @map("conversation_key") @db.VarChar(64)
+  channel            RuntimeConversationChannel
+  externalThreadKey  String                     @map("external_thread_key") @db.VarChar(255)
+  externalUserKey    String?                    @map("external_user_key") @db.VarChar(255)
+  mode               RuntimeConversationMode
+  requestId          String                     @unique @map("request_id") @db.VarChar(128)
+  idempotencyKey     String                     @map("idempotency_key") @db.VarChar(128)
+  bundleHash         String?                    @map("bundle_hash") @db.VarChar(64)
+  status             RuntimeTurnReceiptStatus   @default(accepted)
+  resultPayload      Json?                      @map("result_payload") @db.JsonB
+  errorCode          String?                    @map("error_code") @db.VarChar(128)
+  errorMessage       String?                    @map("error_message") @db.Text
+  completedAt        DateTime?                  @map("completed_at") @db.Timestamptz(6)
+  createdAt          DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  runtimeSession     RuntimeSession?            @relation(fields: [runtimeSessionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  publishedVersion   AssistantPublishedVersion? @relation(fields: [publishedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([conversationKey, idempotencyKey])
   @@index([assistantId, createdAt(sort: Desc)])
@@ -1043,26 +1070,26 @@ model RuntimeTurnReceipt {
 }
 
 model SandboxJob {
-  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId       String           @map("assistant_id") @db.Uuid
-  workspaceId       String           @map("workspace_id") @db.Uuid
-  runtimeRequestId  String?          @map("runtime_request_id") @db.VarChar(128)
-  runtimeSessionId  String?          @map("runtime_session_id") @db.Uuid
-  toolCode          String           @map("tool_code") @db.VarChar(64)
-  status            SandboxJobStatus @default(queued)
-  relativeWorkspace String?          @map("relative_workspace") @db.VarChar(255)
-  policySnapshot    Json?            @map("policy_snapshot") @db.JsonB
-  requestPayload    Json?            @map("request_payload") @db.JsonB
-  resultPayload     Json?            @map("result_payload") @db.JsonB
-  resourceUsage     Json?            @map("resource_usage") @db.JsonB
-  violationCode     String?          @map("violation_code") @db.VarChar(128)
-  violationMessage  String?          @map("violation_message") @db.Text
-  startedAt         DateTime?        @map("started_at") @db.Timestamptz(6)
-  completedAt       DateTime?        @map("completed_at") @db.Timestamptz(6)
-  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant         Assistant        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId       String                    @map("assistant_id") @db.Uuid
+  workspaceId       String                    @map("workspace_id") @db.Uuid
+  runtimeRequestId  String?                   @map("runtime_request_id") @db.VarChar(128)
+  runtimeSessionId  String?                   @map("runtime_session_id") @db.Uuid
+  toolCode          String                    @map("tool_code") @db.VarChar(64)
+  status            SandboxJobStatus          @default(queued)
+  relativeWorkspace String?                   @map("relative_workspace") @db.VarChar(255)
+  policySnapshot    Json?                     @map("policy_snapshot") @db.JsonB
+  requestPayload    Json?                     @map("request_payload") @db.JsonB
+  resultPayload     Json?                     @map("result_payload") @db.JsonB
+  resourceUsage     Json?                     @map("resource_usage") @db.JsonB
+  violationCode     String?                   @map("violation_code") @db.VarChar(128)
+  violationMessage  String?                   @map("violation_message") @db.Text
+  startedAt         DateTime?                 @map("started_at") @db.Timestamptz(6)
+  completedAt       DateTime?                 @map("completed_at") @db.Timestamptz(6)
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant         Assistant                 @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspaceLeases   AssistantWorkspaceLease[]
   assistantFiles    AssistantFile[]
 
@@ -1122,23 +1149,23 @@ model AssistantFile {
 }
 
 model AssistantChat {
-  id               String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId      String                 @map("assistant_id") @db.Uuid
-  userId           String                 @map("user_id") @db.Uuid
-  workspaceId      String                 @map("workspace_id") @db.Uuid
-  surface          AssistantChatSurface
-  surfaceThreadKey String                 @map("surface_thread_key")
-  title            String?
-  deepModeEnabled  Boolean                @default(false) @map("deep_mode_enabled")
-  archivedAt       DateTime?              @map("archived_at") @db.Timestamptz(6)
-  lastMessageAt    DateTime?              @map("last_message_at") @db.Timestamptz(6)
-  lastCrossSessionCarryOverAt DateTime?   @map("last_cross_session_carry_over_at") @db.Timestamptz(6)
-  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant        Assistant              @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember  WorkspaceMember        @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  messages         AssistantChatMessage[]
-  attachments      AssistantChatMessageAttachment[]
+  id                          String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId                 String                           @map("assistant_id") @db.Uuid
+  userId                      String                           @map("user_id") @db.Uuid
+  workspaceId                 String                           @map("workspace_id") @db.Uuid
+  surface                     AssistantChatSurface
+  surfaceThreadKey            String                           @map("surface_thread_key")
+  title                       String?
+  deepModeEnabled             Boolean                          @default(false) @map("deep_mode_enabled")
+  archivedAt                  DateTime?                        @map("archived_at") @db.Timestamptz(6)
+  lastMessageAt               DateTime?                        @map("last_message_at") @db.Timestamptz(6)
+  lastCrossSessionCarryOverAt DateTime?                        @map("last_cross_session_carry_over_at") @db.Timestamptz(6)
+  createdAt                   DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                   Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember             WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  messages                    AssistantChatMessage[]
+  attachments                 AssistantChatMessageAttachment[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -1146,14 +1173,14 @@ model AssistantChat {
 }
 
 model AssistantChatMessage {
-  id          String                              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  chatId      String                              @map("chat_id") @db.Uuid
-  assistantId String                              @map("assistant_id") @db.Uuid
+  id          String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId      String                           @map("chat_id") @db.Uuid
+  assistantId String                           @map("assistant_id") @db.Uuid
   author      AssistantChatMessageAuthor
-  content     String                              @db.Text
-  createdAt   DateTime                            @default(now()) @map("created_at") @db.Timestamptz(6)
-  chat        AssistantChat                       @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
-  assistant   Assistant                           @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  content     String                           @db.Text
+  createdAt   DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  chat        AssistantChat                    @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
+  assistant   Assistant                        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   attachments AssistantChatMessageAttachment[]
 
   @@index([chatId, createdAt])
@@ -1217,28 +1244,28 @@ model AssistantMemoryRegistryItem {
 }
 
 model AssistantTaskRegistryItem {
-  id              String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId     String                             @map("assistant_id") @db.Uuid
-  userId          String                             @map("user_id") @db.Uuid
-  workspaceId     String                             @map("workspace_id") @db.Uuid
-  title           String                             @db.VarChar(500)
-  sourceSurface   AssistantTaskRegistrySourceSurface @map("source_surface")
-  sourceLabel     String?                            @map("source_label") @db.VarChar(64)
-  audience        AssistantTaskRegistryAudience      @default(user)
-  actionType      String?                            @map("action_type") @db.VarChar(64)
-  actionPayloadJson Json?                            @map("action_payload_json")
-  controlStatus   AssistantTaskRegistryControlStatus @map("control_status")
-  nextRunAt       DateTime?                          @map("next_run_at") @db.Timestamptz(6)
-  disabledAt      DateTime?                          @map("disabled_at") @db.Timestamptz(6)
-  cancelledAt     DateTime?                          @map("cancelled_at") @db.Timestamptz(6)
-  externalRef     String?                            @map("external_ref") @db.VarChar(128)
-  payloadText     String?                            @map("reminder_payload_text") @db.Text
-  scheduleJson    Json?                              @map("schedule_json")
-  retryAfterAt    DateTime?                          @map("retry_after_at") @db.Timestamptz(6)
-  schedulerClaimToken String?                        @map("scheduler_claim_token") @db.VarChar(64)
-  schedulerClaimEpoch Int?                           @map("scheduler_claim_epoch")
-  schedulerClaimedAt DateTime?                       @map("scheduler_claimed_at") @db.Timestamptz(6)
-  schedulerClaimExpiresAt DateTime?                  @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  id                      String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                             @map("assistant_id") @db.Uuid
+  userId                  String                             @map("user_id") @db.Uuid
+  workspaceId             String                             @map("workspace_id") @db.Uuid
+  title                   String                             @db.VarChar(500)
+  sourceSurface           AssistantTaskRegistrySourceSurface @map("source_surface")
+  sourceLabel             String?                            @map("source_label") @db.VarChar(64)
+  audience                AssistantTaskRegistryAudience      @default(user)
+  actionType              String?                            @map("action_type") @db.VarChar(64)
+  actionPayloadJson       Json?                              @map("action_payload_json")
+  controlStatus           AssistantTaskRegistryControlStatus @map("control_status")
+  nextRunAt               DateTime?                          @map("next_run_at") @db.Timestamptz(6)
+  disabledAt              DateTime?                          @map("disabled_at") @db.Timestamptz(6)
+  cancelledAt             DateTime?                          @map("cancelled_at") @db.Timestamptz(6)
+  externalRef             String?                            @map("external_ref") @db.VarChar(128)
+  payloadText             String?                            @map("reminder_payload_text") @db.Text
+  scheduleJson            Json?                              @map("schedule_json")
+  retryAfterAt            DateTime?                          @map("retry_after_at") @db.Timestamptz(6)
+  schedulerClaimToken     String?                            @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch     Int?                               @map("scheduler_claim_epoch")
+  schedulerClaimedAt      DateTime?                          @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                          @map("scheduler_claim_expires_at") @db.Timestamptz(6)
   // ADR-074 Slice T1: proactive-push frequency safeguards (additive only).
   //   * `lastFiredAt`            — last time this task ran with `audience="user"`
   //                                and was successfully dispatched. Used by
@@ -1254,9 +1281,9 @@ model AssistantTaskRegistryItem {
   //                                on ANY user-initiated message.
   // No new index — scheduler claim path filters on existing indexes; the
   // policy lookup happens per-claim (already O(1) by primary key).
-  lastFiredAt          DateTime? @map("last_fired_at") @db.Timestamptz(6)
-  lastAnsweredCheckAt  DateTime? @map("last_answered_check_at") @db.Timestamptz(6)
-  consecutiveUnanswered Int      @default(0) @map("consecutive_unanswered")
+  lastFiredAt             DateTime?                          @map("last_fired_at") @db.Timestamptz(6)
+  lastAnsweredCheckAt     DateTime?                          @map("last_answered_check_at") @db.Timestamptz(6)
+  consecutiveUnanswered   Int                                @default(0) @map("consecutive_unanswered")
   // ADR-074 F1 (background-task hygiene): the scheduler used to retry a
   // failing scheduled action ~5 times in 1.5 min by counting `RuntimeTurnReceipt`
   // rows (multiple iterations per turn → counter saturated almost immediately
@@ -1265,13 +1292,13 @@ model AssistantTaskRegistryItem {
   // failure-and-retry decision; the scheduler now uses it both to gate
   // exponential backoff and to disable a task after MAX_ATTEMPTS. `lastErrorMessage`
   // captures the last failure reason so the admin task-list can surface it.
-  attemptCount      Int       @default(0) @map("attempt_count")
-  lastErrorMessage  String?   @map("last_error_message") @db.VarChar(2000)
-  lastErrorAt       DateTime? @map("last_error_at") @db.Timestamptz(6)
-  createdAt       DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant       Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember WorkspaceMember                    @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  attemptCount            Int                                @default(0) @map("attempt_count")
+  lastErrorMessage        String?                            @map("last_error_message") @db.VarChar(2000)
+  lastErrorAt             DateTime?                          @map("last_error_at") @db.Timestamptz(6)
+  createdAt               DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                          @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember         WorkspaceMember                    @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([assistantId, externalRef])
   @@index([assistantId, controlStatus, nextRunAt])
@@ -1279,31 +1306,111 @@ model AssistantTaskRegistryItem {
   @@map("assistant_task_registry_items")
 }
 
+/// ADR-077 source of truth for assistant-side background actions. User-visible
+/// reminders stay in `assistant_task_registry_items`; these rows back the
+/// assistant settings "Действия ассистента" cards and are executed by a
+/// dedicated background-task executor rather than by `scheduled_action`.
+model AssistantBackgroundTask {
+  id                      String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                            @map("assistant_id") @db.Uuid
+  userId                  String                            @map("user_id") @db.Uuid
+  workspaceId             String                            @map("workspace_id") @db.Uuid
+  title                   String                            @db.VarChar(500)
+  brief                   String                            @db.Text
+  mode                    AssistantBackgroundTaskMode       @default(llm_evaluate)
+  status                  AssistantBackgroundTaskStatus     @default(active)
+  externalRef             String?                           @map("external_ref") @db.VarChar(128)
+  scheduleJson            Json                              @map("schedule_json") @db.JsonB
+  pushPolicyJson          Json?                             @map("push_policy_json") @db.JsonB
+  nextRunAt               DateTime?                         @map("next_run_at") @db.Timestamptz(6)
+  disabledAt              DateTime?                         @map("disabled_at") @db.Timestamptz(6)
+  completedAt             DateTime?                         @map("completed_at") @db.Timestamptz(6)
+  cancelledAt             DateTime?                         @map("cancelled_at") @db.Timestamptz(6)
+  runCount                Int                               @default(0) @map("run_count")
+  lastRunAt               DateTime?                         @map("last_run_at") @db.Timestamptz(6)
+  lastRunStatus           AssistantBackgroundTaskRunStatus? @map("last_run_status")
+  lastPushAt              DateTime?                         @map("last_push_at") @db.Timestamptz(6)
+  attemptCount            Int                               @default(0) @map("attempt_count")
+  retryAfterAt            DateTime?                         @map("retry_after_at") @db.Timestamptz(6)
+  schedulerClaimToken     String?                           @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch     Int?                              @map("scheduler_claim_epoch")
+  schedulerClaimedAt      DateTime?                         @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                         @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  lastErrorCode           String?                           @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage        String?                           @map("last_error_message") @db.Text
+  lastErrorAt             DateTime?                         @map("last_error_at") @db.Timestamptz(6)
+  createdAt               DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember         WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace               Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  runs                    AssistantBackgroundTaskRun[]
+
+  @@unique([assistantId, externalRef])
+  @@index([assistantId, status, nextRunAt])
+  @@index([status, nextRunAt, retryAfterAt, schedulerClaimExpiresAt])
+  @@index([assistantId, updatedAt(sort: Desc)])
+  @@map("assistant_background_tasks")
+}
+
+/// Per-fire history for ADR-077 assistant background tasks. This is the data
+/// shown inside expanded "Действия ассистента" cards: checked/no-push, pushed,
+/// completed, skipped, or failed with the evaluator decision and delivery result.
+model AssistantBackgroundTaskRun {
+  id                 String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId             String                           @map("task_id") @db.Uuid
+  assistantId        String                           @map("assistant_id") @db.Uuid
+  userId             String                           @map("user_id") @db.Uuid
+  workspaceId        String                           @map("workspace_id") @db.Uuid
+  scheduledRunAt     DateTime                         @map("scheduled_run_at") @db.Timestamptz(6)
+  startedAt          DateTime?                        @map("started_at") @db.Timestamptz(6)
+  finishedAt         DateTime?                        @map("finished_at") @db.Timestamptz(6)
+  status             AssistantBackgroundTaskRunStatus @default(running)
+  decisionJson       Json?                            @map("decision_json") @db.JsonB
+  pushText           String?                          @map("push_text") @db.Text
+  deliveryTarget     String?                          @map("delivery_target") @db.VarChar(64)
+  deliveryResultJson Json?                            @map("delivery_result_json") @db.JsonB
+  errorCode          String?                          @map("error_code") @db.VarChar(128)
+  errorMessage       String?                          @map("error_message") @db.Text
+  usageJson          Json?                            @map("usage_json") @db.JsonB
+  createdAt          DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  task               AssistantBackgroundTask          @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant          Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember    WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([taskId, createdAt(sort: Desc)])
+  @@index([assistantId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("assistant_background_task_runs")
+}
+
 model AssistantKnowledgeSource {
-  id                    String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId           String                           @map("assistant_id") @db.Uuid
-  userId                String                           @map("user_id") @db.Uuid
-  workspaceId           String                           @map("workspace_id") @db.Uuid
-  namespace             AssistantKnowledgeSourceNamespace
-  sourceKind            AssistantKnowledgeSourceKind     @map("source_kind")
-  displayName           String?                          @map("display_name") @db.VarChar(255)
-  originalFilename      String                           @map("original_filename") @db.VarChar(255)
-  mimeType              String                           @map("mime_type") @db.VarChar(255)
-  sizeBytes             BigInt                           @map("size_bytes")
-  storagePath           String                           @map("storage_path")
-  status                AssistantKnowledgeSourceStatus
-  currentVersion        Int                              @default(1) @map("current_version")
-  chunkCount            Int                              @default(0) @map("chunk_count")
-  lastIndexedAt         DateTime?                        @map("last_indexed_at") @db.Timestamptz(6)
-  lastReindexRequestedAt DateTime?                       @map("last_reindex_requested_at") @db.Timestamptz(6)
-  lastErrorCode         String?                          @map("last_error_code") @db.VarChar(64)
-  lastErrorMessage      String?                          @map("last_error_message") @db.Text
-  createdAt             DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant             Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember       WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspace             Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  chunks                AssistantKnowledgeSourceChunk[]
+  id                     String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId            String                            @map("assistant_id") @db.Uuid
+  userId                 String                            @map("user_id") @db.Uuid
+  workspaceId            String                            @map("workspace_id") @db.Uuid
+  namespace              AssistantKnowledgeSourceNamespace
+  sourceKind             AssistantKnowledgeSourceKind      @map("source_kind")
+  displayName            String?                           @map("display_name") @db.VarChar(255)
+  originalFilename       String                            @map("original_filename") @db.VarChar(255)
+  mimeType               String                            @map("mime_type") @db.VarChar(255)
+  sizeBytes              BigInt                            @map("size_bytes")
+  storagePath            String                            @map("storage_path")
+  status                 AssistantKnowledgeSourceStatus
+  currentVersion         Int                               @default(1) @map("current_version")
+  chunkCount             Int                               @default(0) @map("chunk_count")
+  lastIndexedAt          DateTime?                         @map("last_indexed_at") @db.Timestamptz(6)
+  lastReindexRequestedAt DateTime?                         @map("last_reindex_requested_at") @db.Timestamptz(6)
+  lastErrorCode          String?                           @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage       String?                           @map("last_error_message") @db.Text
+  createdAt              DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant              Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember        WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace              Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chunks                 AssistantKnowledgeSourceChunk[]
 
   @@index([assistantId, createdAt(sort: Desc)])
   @@index([assistantId, status, createdAt(sort: Desc)])
@@ -1312,21 +1419,21 @@ model AssistantKnowledgeSource {
 }
 
 model AssistantKnowledgeSourceChunk {
-  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  knowledgeSourceId String                   @map("knowledge_source_id") @db.Uuid
-  assistantId       String                   @map("assistant_id") @db.Uuid
-  workspaceId       String                   @map("workspace_id") @db.Uuid
-  sourceVersion     Int                      @map("source_version")
-  chunkIndex        Int                      @map("chunk_index")
-  locator           String?                  @db.Text
-  content           String                   @db.Text
-  embeddingModelKey String?                  @map("embedding_model_key") @db.VarChar(255)
-  embeddingVector   Json?                    @map("embedding_vector") @db.JsonB
-  embeddingGeneratedAt DateTime?             @map("embedding_generated_at") @db.Timestamptz(6)
-  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  knowledgeSource   AssistantKnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  assistant         Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                   String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  knowledgeSourceId    String                   @map("knowledge_source_id") @db.Uuid
+  assistantId          String                   @map("assistant_id") @db.Uuid
+  workspaceId          String                   @map("workspace_id") @db.Uuid
+  sourceVersion        Int                      @map("source_version")
+  chunkIndex           Int                      @map("chunk_index")
+  locator              String?                  @db.Text
+  content              String                   @db.Text
+  embeddingModelKey    String?                  @map("embedding_model_key") @db.VarChar(255)
+  embeddingVector      Json?                    @map("embedding_vector") @db.JsonB
+  embeddingGeneratedAt DateTime?                @map("embedding_generated_at") @db.Timestamptz(6)
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  knowledgeSource      AssistantKnowledgeSource @relation(fields: [knowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant            Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace            Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([knowledgeSourceId, sourceVersion, chunkIndex])
   @@index([knowledgeSourceId, createdAt(sort: Desc)])
@@ -1335,27 +1442,27 @@ model AssistantKnowledgeSourceChunk {
 }
 
 model GlobalKnowledgeSource {
-  id                    String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId           String                       @map("workspace_id") @db.Uuid
-  createdByUserId       String                       @map("created_by_user_id") @db.Uuid
-  scope                 GlobalKnowledgeSourceScope
-  displayName           String?                      @map("display_name") @db.VarChar(255)
-  originalFilename      String                       @map("original_filename") @db.VarChar(255)
-  mimeType              String                       @map("mime_type") @db.VarChar(255)
-  sizeBytes             BigInt                       @map("size_bytes")
-  storagePath           String                       @map("storage_path")
-  status                AssistantKnowledgeSourceStatus
-  currentVersion        Int                          @default(1) @map("current_version")
-  chunkCount            Int                          @default(0) @map("chunk_count")
-  lastIndexedAt         DateTime?                    @map("last_indexed_at") @db.Timestamptz(6)
-  lastReindexRequestedAt DateTime?                   @map("last_reindex_requested_at") @db.Timestamptz(6)
-  lastErrorCode         String?                      @map("last_error_code") @db.VarChar(64)
-  lastErrorMessage      String?                      @map("last_error_message") @db.Text
-  createdAt             DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace             Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  createdByUser         AppUser                      @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  chunks                GlobalKnowledgeSourceChunk[]
+  id                     String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId            String                         @map("workspace_id") @db.Uuid
+  createdByUserId        String                         @map("created_by_user_id") @db.Uuid
+  scope                  GlobalKnowledgeSourceScope
+  displayName            String?                        @map("display_name") @db.VarChar(255)
+  originalFilename       String                         @map("original_filename") @db.VarChar(255)
+  mimeType               String                         @map("mime_type") @db.VarChar(255)
+  sizeBytes              BigInt                         @map("size_bytes")
+  storagePath            String                         @map("storage_path")
+  status                 AssistantKnowledgeSourceStatus
+  currentVersion         Int                            @default(1) @map("current_version")
+  chunkCount             Int                            @default(0) @map("chunk_count")
+  lastIndexedAt          DateTime?                      @map("last_indexed_at") @db.Timestamptz(6)
+  lastReindexRequestedAt DateTime?                      @map("last_reindex_requested_at") @db.Timestamptz(6)
+  lastErrorCode          String?                        @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage       String?                        @map("last_error_message") @db.Text
+  createdAt              DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace              Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser          AppUser                        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chunks                 GlobalKnowledgeSourceChunk[]
 
   @@index([scope, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
@@ -1364,20 +1471,20 @@ model GlobalKnowledgeSource {
 }
 
 model GlobalKnowledgeSourceChunk {
-  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  globalKnowledgeSourceId String            @map("global_knowledge_source_id") @db.Uuid
-  workspaceId         String                @map("workspace_id") @db.Uuid
-  scope               GlobalKnowledgeSourceScope
-  sourceVersion       Int                   @map("source_version")
-  chunkIndex          Int                   @map("chunk_index")
-  locator             String?               @db.Text
-  content             String                @db.Text
-  embeddingModelKey   String?               @map("embedding_model_key") @db.VarChar(255)
-  embeddingVector     Json?                 @map("embedding_vector") @db.JsonB
-  embeddingGeneratedAt DateTime?            @map("embedding_generated_at") @db.Timestamptz(6)
-  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  globalKnowledgeSource GlobalKnowledgeSource @relation(fields: [globalKnowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace           Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  globalKnowledgeSourceId String                     @map("global_knowledge_source_id") @db.Uuid
+  workspaceId             String                     @map("workspace_id") @db.Uuid
+  scope                   GlobalKnowledgeSourceScope
+  sourceVersion           Int                        @map("source_version")
+  chunkIndex              Int                        @map("chunk_index")
+  locator                 String?                    @db.Text
+  content                 String                     @db.Text
+  embeddingModelKey       String?                    @map("embedding_model_key") @db.VarChar(255)
+  embeddingVector         Json?                      @map("embedding_vector") @db.JsonB
+  embeddingGeneratedAt    DateTime?                  @map("embedding_generated_at") @db.Timestamptz(6)
+  createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  globalKnowledgeSource   GlobalKnowledgeSource      @relation(fields: [globalKnowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([globalKnowledgeSourceId, sourceVersion, chunkIndex])
   @@index([globalKnowledgeSourceId, createdAt(sort: Desc)])
@@ -1387,30 +1494,30 @@ model GlobalKnowledgeSourceChunk {
 }
 
 model KnowledgeRetrievalEvent {
-  id                    String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId           String                      @map("workspace_id") @db.Uuid
-  assistantId           String?                     @map("assistant_id") @db.Uuid
-  eventKind             KnowledgeRetrievalEventKind @map("event_kind")
+  id                    String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId           String                        @map("workspace_id") @db.Uuid
+  assistantId           String?                       @map("assistant_id") @db.Uuid
+  eventKind             KnowledgeRetrievalEventKind   @map("event_kind")
   source                KnowledgeRetrievalEventSource
-  retrievalMode         KnowledgeRetrievalMode      @map("retrieval_mode")
+  retrievalMode         KnowledgeRetrievalMode        @map("retrieval_mode")
   outcome               KnowledgeRetrievalOutcome
-  resultCount           Int                         @default(0) @map("result_count")
-  lexicalCandidateCount Int                         @default(0) @map("lexical_candidate_count")
-  vectorCandidateCount  Int                         @default(0) @map("vector_candidate_count")
-  helperApplied         Boolean                     @default(false) @map("helper_applied")
-  fetchDepth            Int                         @default(0) @map("fetch_depth")
-  fetchedChars          Int                         @default(0) @map("fetched_chars")
-  embeddingModelKey     String?                     @map("embedding_model_key") @db.VarChar(255)
-  helperModelKey        String?                     @map("helper_model_key") @db.VarChar(255)
-  helperProviderKey     String?                     @map("helper_provider_key") @db.VarChar(64)
-  helperInputTokens     Int?                        @map("helper_input_tokens")
-  helperOutputTokens    Int?                        @map("helper_output_tokens")
-  helperTotalTokens     Int?                        @map("helper_total_tokens")
-  errorCode             String?                     @map("error_code") @db.VarChar(128)
-  durationMs            Int                         @map("duration_ms")
-  createdAt             DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
-  workspace             Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  assistant             Assistant?                  @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  resultCount           Int                           @default(0) @map("result_count")
+  lexicalCandidateCount Int                           @default(0) @map("lexical_candidate_count")
+  vectorCandidateCount  Int                           @default(0) @map("vector_candidate_count")
+  helperApplied         Boolean                       @default(false) @map("helper_applied")
+  fetchDepth            Int                           @default(0) @map("fetch_depth")
+  fetchedChars          Int                           @default(0) @map("fetched_chars")
+  embeddingModelKey     String?                       @map("embedding_model_key") @db.VarChar(255)
+  helperModelKey        String?                       @map("helper_model_key") @db.VarChar(255)
+  helperProviderKey     String?                       @map("helper_provider_key") @db.VarChar(64)
+  helperInputTokens     Int?                          @map("helper_input_tokens")
+  helperOutputTokens    Int?                          @map("helper_output_tokens")
+  helperTotalTokens     Int?                          @map("helper_total_tokens")
+  errorCode             String?                       @map("error_code") @db.VarChar(128)
+  durationMs            Int                           @map("duration_ms")
+  createdAt             DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace             Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant             Assistant?                    @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([workspaceId, eventKind, createdAt(sort: Desc)])
   @@index([assistantId, eventKind, createdAt(sort: Desc)])
@@ -1419,33 +1526,33 @@ model KnowledgeRetrievalEvent {
 }
 
 model KnowledgeRetrievalRollup {
-  id                     String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId            String                       @map("workspace_id") @db.Uuid
-  source                 KnowledgeRetrievalEventSource
-  searchesTotal          Int                          @default(0) @map("searches_total")
-  fetchesTotal           Int                          @default(0) @map("fetches_total")
-  successTotal           Int                          @default(0) @map("success_total")
-  emptyTotal             Int                          @default(0) @map("empty_total")
-  errorTotal             Int                          @default(0) @map("error_total")
-  lexicalTotal           Int                          @default(0) @map("lexical_total")
-  hybridTotal            Int                          @default(0) @map("hybrid_total")
-  helperAppliedTotal     Int                          @default(0) @map("helper_applied_total")
-  embeddingQueryTotal    Int                          @default(0) @map("embedding_query_total")
-  durationMsTotal        BigInt                       @default(0) @map("duration_ms_total")
-  maxDurationMs          Int                          @default(0) @map("max_duration_ms")
-  resultCountTotal       Int                          @default(0) @map("result_count_total")
-  lexicalCandidatesTotal Int                          @default(0) @map("lexical_candidates_total")
-  vectorCandidatesTotal  Int                          @default(0) @map("vector_candidates_total")
-  fetchDepthTotal        Int                          @default(0) @map("fetch_depth_total")
-  maxFetchDepth          Int                          @default(0) @map("max_fetch_depth")
-  fetchedCharsTotal      BigInt                       @default(0) @map("fetched_chars_total")
-  maxFetchedChars        Int                          @default(0) @map("max_fetched_chars")
-  helperInputTokensTotal Int                          @default(0) @map("helper_input_tokens_total")
-  helperOutputTokensTotal Int                         @default(0) @map("helper_output_tokens_total")
-  helperTotalTokensTotal Int                          @default(0) @map("helper_total_tokens_total")
-  createdAt              DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace              Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                      String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId             String                        @map("workspace_id") @db.Uuid
+  source                  KnowledgeRetrievalEventSource
+  searchesTotal           Int                           @default(0) @map("searches_total")
+  fetchesTotal            Int                           @default(0) @map("fetches_total")
+  successTotal            Int                           @default(0) @map("success_total")
+  emptyTotal              Int                           @default(0) @map("empty_total")
+  errorTotal              Int                           @default(0) @map("error_total")
+  lexicalTotal            Int                           @default(0) @map("lexical_total")
+  hybridTotal             Int                           @default(0) @map("hybrid_total")
+  helperAppliedTotal      Int                           @default(0) @map("helper_applied_total")
+  embeddingQueryTotal     Int                           @default(0) @map("embedding_query_total")
+  durationMsTotal         BigInt                        @default(0) @map("duration_ms_total")
+  maxDurationMs           Int                           @default(0) @map("max_duration_ms")
+  resultCountTotal        Int                           @default(0) @map("result_count_total")
+  lexicalCandidatesTotal  Int                           @default(0) @map("lexical_candidates_total")
+  vectorCandidatesTotal   Int                           @default(0) @map("vector_candidates_total")
+  fetchDepthTotal         Int                           @default(0) @map("fetch_depth_total")
+  maxFetchDepth           Int                           @default(0) @map("max_fetch_depth")
+  fetchedCharsTotal       BigInt                        @default(0) @map("fetched_chars_total")
+  maxFetchedChars         Int                           @default(0) @map("max_fetched_chars")
+  helperInputTokensTotal  Int                           @default(0) @map("helper_input_tokens_total")
+  helperOutputTokensTotal Int                           @default(0) @map("helper_output_tokens_total")
+  helperTotalTokensTotal  Int                           @default(0) @map("helper_total_tokens_total")
+  createdAt               DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([workspaceId, source])
   @@index([workspaceId, updatedAt(sort: Desc)])
@@ -1495,31 +1602,31 @@ model PromptTemplate {
 /// enqueue). Once the job is claimed the dedupe key is cleared so the next
 /// enqueue can re-create a fresh row.
 model AssistantBackgroundCompactionJob {
-  id                       String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId              String                                @map("assistant_id") @db.Uuid
-  workspaceId              String                                @map("workspace_id") @db.Uuid
-  channel                  RuntimeConversationChannel
-  externalThreadKey        String                                @map("external_thread_key") @db.VarChar(255)
-  externalUserKey          String?                               @map("external_user_key") @db.VarChar(255)
-  runtimeTier              RuntimeTier                           @map("runtime_tier")
-  trigger                  AssistantBackgroundCompactionJobTrigger @default(post_turn)
-  status                   AssistantBackgroundCompactionJobStatus  @default(pending)
-  pendingDedupeKey         String?                               @map("pending_dedupe_key") @db.VarChar(512)
-  attemptCount             Int                                   @default(0) @map("attempt_count")
-  enqueuedRequestId        String?                               @map("enqueued_request_id") @db.VarChar(128)
-  schedulerClaimToken      String?                               @map("scheduler_claim_token") @db.VarChar(64)
-  schedulerClaimEpoch      Int?                                  @map("scheduler_claim_epoch")
-  schedulerClaimedAt       DateTime?                             @map("scheduler_claimed_at") @db.Timestamptz(6)
-  schedulerClaimExpiresAt  DateTime?                             @map("scheduler_claim_expires_at") @db.Timestamptz(6)
-  retryAfterAt             DateTime?                             @map("retry_after_at") @db.Timestamptz(6)
-  lastErrorCode            String?                               @map("last_error_code") @db.VarChar(128)
-  lastErrorMessage         String?                               @map("last_error_message") @db.Text
-  lastResultPayload        Json?                                 @map("last_result_payload") @db.JsonB
-  completedAt              DateTime?                             @map("completed_at") @db.Timestamptz(6)
-  createdAt                DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant                Assistant                             @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace                Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                      String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId             String                                  @map("assistant_id") @db.Uuid
+  workspaceId             String                                  @map("workspace_id") @db.Uuid
+  channel                 RuntimeConversationChannel
+  externalThreadKey       String                                  @map("external_thread_key") @db.VarChar(255)
+  externalUserKey         String?                                 @map("external_user_key") @db.VarChar(255)
+  runtimeTier             RuntimeTier                             @map("runtime_tier")
+  trigger                 AssistantBackgroundCompactionJobTrigger @default(post_turn)
+  status                  AssistantBackgroundCompactionJobStatus  @default(pending)
+  pendingDedupeKey        String?                                 @map("pending_dedupe_key") @db.VarChar(512)
+  attemptCount            Int                                     @default(0) @map("attempt_count")
+  enqueuedRequestId       String?                                 @map("enqueued_request_id") @db.VarChar(128)
+  schedulerClaimToken     String?                                 @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch     Int?                                    @map("scheduler_claim_epoch")
+  schedulerClaimedAt      DateTime?                               @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                               @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  retryAfterAt            DateTime?                               @map("retry_after_at") @db.Timestamptz(6)
+  lastErrorCode           String?                                 @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage        String?                                 @map("last_error_message") @db.Text
+  lastResultPayload       Json?                                   @map("last_result_payload") @db.JsonB
+  completedAt             DateTime?                               @map("completed_at") @db.Timestamptz(6)
+  createdAt               DateTime                                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                               @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace               Workspace                               @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([pendingDedupeKey])
   @@index([status, retryAfterAt, createdAt])

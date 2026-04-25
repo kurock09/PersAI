@@ -1319,6 +1319,33 @@ export async function deleteAssistantWebChat(
   }
 }
 
+export type AssistantBackgroundTaskRunState = {
+  id: string;
+  status: "running" | "no_push" | "pushed" | "completed" | "failed" | "skipped";
+  scheduledRunAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  pushText: string | null;
+  deliveryTarget: string | null;
+  errorMessage: string | null;
+};
+
+export type AssistantBackgroundTaskItemState = {
+  id: string;
+  title: string;
+  brief: string;
+  mode: "llm_evaluate";
+  status: "active" | "disabled" | "completed" | "failed" | "cancelled";
+  nextRunAt: string | null;
+  externalRef: string | null;
+  runCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: AssistantBackgroundTaskRunState["status"] | null;
+  lastPushAt: string | null;
+  lastErrorMessage: string | null;
+  recentRuns: AssistantBackgroundTaskRunState[];
+};
+
 export type { AssistantMemoryRegistryItemState, AssistantTaskRegistryItemState };
 
 export async function getAssistantMemoryItems(
@@ -1408,6 +1435,86 @@ export async function getAssistantTaskItems(
   }
 }
 
+function isBackgroundTaskRun(value: unknown): value is AssistantBackgroundTaskRunState {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === "string" &&
+    (row.status === "running" ||
+      row.status === "no_push" ||
+      row.status === "pushed" ||
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "skipped") &&
+    typeof row.scheduledRunAt === "string" &&
+    (row.startedAt === null || typeof row.startedAt === "string") &&
+    (row.finishedAt === null || typeof row.finishedAt === "string") &&
+    (row.pushText === null || typeof row.pushText === "string") &&
+    (row.deliveryTarget === null || typeof row.deliveryTarget === "string") &&
+    (row.errorMessage === null || typeof row.errorMessage === "string")
+  );
+}
+
+function isBackgroundTaskItem(value: unknown): value is AssistantBackgroundTaskItemState {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === "string" &&
+    typeof row.title === "string" &&
+    typeof row.brief === "string" &&
+    row.mode === "llm_evaluate" &&
+    (row.status === "active" ||
+      row.status === "disabled" ||
+      row.status === "completed" ||
+      row.status === "failed" ||
+      row.status === "cancelled") &&
+    (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
+    (row.externalRef === null || typeof row.externalRef === "string") &&
+    typeof row.runCount === "number" &&
+    (row.lastRunAt === null || typeof row.lastRunAt === "string") &&
+    (row.lastRunStatus === null ||
+      row.lastRunStatus === "running" ||
+      row.lastRunStatus === "no_push" ||
+      row.lastRunStatus === "pushed" ||
+      row.lastRunStatus === "completed" ||
+      row.lastRunStatus === "failed" ||
+      row.lastRunStatus === "skipped") &&
+    (row.lastPushAt === null || typeof row.lastPushAt === "string") &&
+    (row.lastErrorMessage === null || typeof row.lastErrorMessage === "string") &&
+    Array.isArray(row.recentRuns) &&
+    row.recentRuns.every(isBackgroundTaskRun)
+  );
+}
+
+export async function getAssistantBackgroundTaskItems(
+  token: string
+): Promise<AssistantBackgroundTaskItemState[]> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/assistant/background-tasks/items`, {
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          response,
+          "Unexpected non-success response for GET /assistant/background-tasks/items."
+        )
+      );
+    }
+    const payload = (await response.json()) as unknown;
+    if (typeof payload !== "object" || payload === null || !("items" in payload)) {
+      throw new Error("Unexpected response for GET /assistant/background-tasks/items.");
+    }
+    const items = (payload as { items: unknown }).items;
+    if (!Array.isArray(items) || !items.every(isBackgroundTaskItem)) {
+      throw new Error("Unexpected background task item shape.");
+    }
+    return items;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function postAssistantTaskItemDisable(token: string, itemId: string): Promise<void> {
   try {
     const response = await postAssistantTaskItemDisableContract(itemId, {
@@ -1472,6 +1579,53 @@ export async function postAssistantTaskItemCancel(token: string, itemId: string)
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }
+}
+
+async function postAssistantBackgroundTaskItemAction(
+  token: string,
+  itemId: string,
+  action: "disable" | "enable" | "cancel"
+): Promise<void> {
+  try {
+    const response = await fetch(
+      `${getApiBaseUrl()}/assistant/background-tasks/items/${encodeURIComponent(itemId)}/${action}`,
+      {
+        method: "POST",
+        headers: getAuthHeaders(token)
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        await readJsonErrorMessage(
+          response,
+          `Unexpected non-success response for POST /assistant/background-tasks/items/:itemId/${action}.`
+        )
+      );
+    }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export function postAssistantBackgroundTaskItemDisable(
+  token: string,
+  itemId: string
+): Promise<void> {
+  return postAssistantBackgroundTaskItemAction(token, itemId, "disable");
+}
+
+export function postAssistantBackgroundTaskItemEnable(
+  token: string,
+  itemId: string
+): Promise<void> {
+  return postAssistantBackgroundTaskItemAction(token, itemId, "enable");
+}
+
+export function postAssistantBackgroundTaskItemCancel(
+  token: string,
+  itemId: string
+): Promise<void> {
+  return postAssistantBackgroundTaskItemAction(token, itemId, "cancel");
 }
 
 export async function postAssistantMemoryDoNotRemember(

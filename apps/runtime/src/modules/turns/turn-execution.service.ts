@@ -37,6 +37,7 @@ import {
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
+  type RuntimeBackgroundTaskToolResult,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
   type RuntimeVideoGenerateToolResult,
@@ -74,6 +75,7 @@ import { RuntimeKnowledgeToolService } from "./runtime-knowledge-tool.service";
 import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
@@ -154,6 +156,7 @@ type ToolExecutionOutcome = {
     | RuntimeImageGenerateToolResult
     | RuntimeSandboxToolResult
     | RuntimeScheduledActionToolResult
+    | RuntimeBackgroundTaskToolResult
     | RuntimeTtsToolResult
     | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
@@ -205,6 +208,7 @@ const WEB_FETCH_MAX_MAX_CHARS = 50_000;
 const MEMORY_WRITE_TOOL_CODE = "memory_write";
 const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
+const BACKGROUND_TASK_TOOL_CODE = "background_task";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
@@ -243,6 +247,7 @@ export class TurnExecutionService {
     private readonly runtimeMemoryWriteToolService: RuntimeMemoryWriteToolService,
     private readonly runtimeQuotaStatusToolService: RuntimeQuotaStatusToolService,
     private readonly runtimeSandboxToolService: RuntimeSandboxToolService,
+    private readonly runtimeBackgroundTaskToolService: RuntimeBackgroundTaskToolService,
     private readonly runtimeScheduledActionToolService: RuntimeScheduledActionToolService,
     private readonly runtimeTtsToolService: RuntimeTtsToolService,
     private readonly runtimeVideoGenerateToolService: RuntimeVideoGenerateToolService
@@ -1642,6 +1647,14 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case BACKGROUND_TASK_TOOL_CODE: {
+        const result = await this.runtimeBackgroundTaskToolService.executeToolCall({
+          bundle: execution.bundle,
+          toolCall,
+          conversation: acceptedTurn.session.conversation
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case execution.bundle.runtime.knowledgeAccess.searchToolCode:
         return this.executeKnowledgeSearchTool(execution, toolCall);
       case execution.bundle.runtime.knowledgeAccess.fetchToolCode:
@@ -1946,6 +1959,7 @@ export class TurnExecutionService {
       | RuntimeImageGenerateToolResult
       | RuntimeSandboxToolResult
       | RuntimeScheduledActionToolResult
+      | RuntimeBackgroundTaskToolResult
       | RuntimeTtsToolResult
       | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult

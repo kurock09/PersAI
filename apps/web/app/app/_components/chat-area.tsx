@@ -478,7 +478,7 @@ export function ChatArea({
           onClick={() => scrollToBottom("smooth")}
           className={cn(
             "absolute right-3 bottom-[5.25rem] z-20 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-2 text-xs font-medium text-text-muted shadow-lg shadow-black/5 backdrop-blur-md transition-all",
-            "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-5 md:bottom-24"
+            "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-auto md:bottom-24 md:left-1/2 md:-translate-x-1/2"
           )}
           aria-label={t("scrollToBottom")}
           title={t("scrollToBottom")}

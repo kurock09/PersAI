@@ -47,10 +47,16 @@ import {
   type AssistantVoiceSettingsState,
   type AssistantPreferredNotificationChannel,
   getAssistantTaskItems,
+  getAssistantBackgroundTaskItems,
+  type AssistantBackgroundTaskItemState,
   postAssistantMemoryItemForget,
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTaskItemDisable,
+  postAssistantTaskItemEnable,
   postAssistantTaskItemCancel,
+  postAssistantBackgroundTaskItemDisable,
+  postAssistantBackgroundTaskItemEnable,
+  postAssistantBackgroundTaskItemCancel,
   getWorkspaceMemoryItems,
   addWorkspaceMemoryItem,
   forgetWorkspaceMemoryItem,
@@ -549,6 +555,9 @@ export function AssistantSettings({
   const [memoryTab, setMemoryTab] = useState<"workspace" | "history">("workspace");
 
   const [taskItems, setTaskItems] = useState<AssistantTaskRegistryItemState[]>([]);
+  const [backgroundTaskItems, setBackgroundTaskItems] = useState<
+    AssistantBackgroundTaskItemState[]
+  >([]);
   const [taskLoading, setTaskLoading] = useState(false);
   const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [tasksFb, setTasksFb] = useState<ActionFeedback>(null);
@@ -651,24 +660,53 @@ export function AssistantSettings({
     [t]
   );
 
-  const getAssistantActionTypeLabel = useCallback(
-    (item: AssistantTaskRegistryItemState): string => {
-      const raw = item.actionType?.trim();
-      if (!raw) {
-        return t("assistantAction");
-      }
-      return raw
-        .split(/[_\s-]+/)
-        .filter((part) => part.length > 0)
-        .map((part) => part[0]!.toUpperCase() + part.slice(1))
-        .join(" ");
+  const getBackgroundTaskStatusLabel = useCallback(
+    (status: AssistantBackgroundTaskItemState["status"]) => {
+      if (status === "active") return t("active");
+      if (status === "disabled") return t("paused");
+      if (status === "completed") return t("completed");
+      if (status === "failed") return t("failed");
+      return t("stopped");
+    },
+    [t]
+  );
+
+  const getBackgroundTaskTimingLabel = useCallback(
+    (item: AssistantBackgroundTaskItemState): string => {
+      if (item.status === "disabled") return t("paused");
+      if (item.status === "completed") return t("completed");
+      if (item.status === "failed") return item.lastErrorMessage ?? t("failed");
+      if (item.nextRunAt === null) return t("timeNotSet");
+      return t("nextRun", {
+        time: new Date(item.nextRunAt).toLocaleString(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short"
+        })
+      });
+    },
+    [t]
+  );
+
+  const formatBackgroundRunLine = useCallback(
+    (run: AssistantBackgroundTaskItemState["recentRuns"][number]): string => {
+      const time = new Date(run.scheduledRunAt).toLocaleString(undefined, {
+        dateStyle: "short",
+        timeStyle: "short"
+      });
+      const status = t(`backgroundRun_${run.status}`);
+      const suffix = run.deliveryTarget
+        ? ` · ${run.deliveryTarget}`
+        : run.errorMessage
+          ? ` · ${run.errorMessage}`
+          : "";
+      return `${time} · ${status}${suffix}`;
     },
     [t]
   );
 
   const activeTaskItems = taskItems.filter((item) => item.controlStatus === "active");
   const userTaskItems = activeTaskItems.filter((item) => item.audience === "user");
-  const assistantTaskItems = activeTaskItems.filter((item) => item.audience === "assistant");
+  const assistantTaskItems = backgroundTaskItems.filter((item) => item.status !== "cancelled");
   // ADR-074 Slice M3.3 — Memory Center UX merge. The Workspace tab shows
   // workspace_memory_items + structured registry rows (kind ∈ {fact,
   // preference, open_loop}) deduplicated by normalized text; the History
@@ -848,7 +886,12 @@ export function AssistantSettings({
     setTaskLoading(true);
     setTasksFb(null);
     try {
-      setTaskItems(await getAssistantTaskItems(token));
+      const [tasks, backgroundTasks] = await Promise.all([
+        getAssistantTaskItems(token),
+        getAssistantBackgroundTaskItems(token)
+      ]);
+      setTaskItems(tasks);
+      setBackgroundTaskItems(backgroundTasks);
     } catch (error) {
       console.error("[memory-center] loadTasks failed", error);
       setTasksFb({
@@ -1063,17 +1106,41 @@ export function AssistantSettings({
   );
 
   const handleTaskAction = useCallback(
-    async (itemId: string, action: "disable" | "cancel") => {
+    async (itemId: string, action: "disable" | "enable" | "cancel") => {
       const token = await getToken({ skipCache: true });
       if (!token) return;
       setTaskActionId(itemId);
       setTasksFb(null);
       try {
         if (action === "disable") await postAssistantTaskItemDisable(token, itemId);
+        else if (action === "enable") await postAssistantTaskItemEnable(token, itemId);
         else await postAssistantTaskItemCancel(token, itemId);
         await loadTasks();
       } catch (error) {
         console.error("[memory-center] handleTaskAction failed", error);
+        setTasksFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("tasksActionFailed")
+        });
+      }
+      setTaskActionId(null);
+    },
+    [getToken, loadTasks, t]
+  );
+
+  const handleBackgroundTaskAction = useCallback(
+    async (itemId: string, action: "disable" | "enable" | "cancel") => {
+      const token = await getToken({ skipCache: true });
+      if (!token) return;
+      setTaskActionId(itemId);
+      setTasksFb(null);
+      try {
+        if (action === "disable") await postAssistantBackgroundTaskItemDisable(token, itemId);
+        else if (action === "enable") await postAssistantBackgroundTaskItemEnable(token, itemId);
+        else await postAssistantBackgroundTaskItemCancel(token, itemId);
+        await loadTasks();
+      } catch (error) {
+        console.error("[memory-center] handleBackgroundTaskAction failed", error);
         setTasksFb({
           type: "err",
           text: error instanceof Error ? error.message : t("tasksActionFailed")
@@ -1943,29 +2010,64 @@ export function AssistantSettings({
                               {item.title}
                             </span>
                             <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                              {getAssistantActionTypeLabel(item)}
+                              {t("assistantAction")}
                             </span>
                             <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                              {t("assistantAction")}
+                              {getBackgroundTaskStatusLabel(item.status)}
                             </span>
                           </div>
                           <p className="mt-1.5 text-[11px] text-text-subtle">
-                            {getTaskTimingLabel(item)}
+                            {getBackgroundTaskTimingLabel(item)}
                           </p>
+                          <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                            {item.brief}
+                          </p>
+                          {item.recentRuns.length > 0 && (
+                            <div className="mt-3 rounded-lg border border-border/60 bg-surface-raised/40 p-2.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+                                {t("runHistory")}
+                              </p>
+                              <ul className="mt-1.5 space-y-1">
+                                {item.recentRuns.map((run) => (
+                                  <li key={run.id} className="text-[11px] text-text-subtle">
+                                    {formatBackgroundRunLine(run)}
+                                    {run.pushText && (
+                                      <span className="mt-0.5 block text-text-muted">
+                                        {run.pushText}
+                                      </span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                           <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
                             <div className="flex gap-1.5">
-                              <ActionButton
-                                icon={<RotateCcw className="h-3 w-3" />}
-                                label={t("disable")}
-                                onClick={() => void handleTaskAction(item.id, "disable")}
-                                busy={taskActionId === item.id}
-                                className="px-2.5 py-1.5"
-                              />
+                              {item.status === "active" && (
+                                <ActionButton
+                                  icon={<RotateCcw className="h-3 w-3" />}
+                                  label={t("disable")}
+                                  onClick={() =>
+                                    void handleBackgroundTaskAction(item.id, "disable")
+                                  }
+                                  busy={taskActionId === item.id}
+                                  className="px-2.5 py-1.5"
+                                />
+                              )}
+                              {item.status === "disabled" && (
+                                <ActionButton
+                                  icon={<RotateCcw className="h-3 w-3" />}
+                                  label={t("enable")}
+                                  onClick={() => void handleBackgroundTaskAction(item.id, "enable")}
+                                  busy={taskActionId === item.id}
+                                  className="px-2.5 py-1.5"
+                                />
+                              )}
                               <ActionButton
                                 icon={<Trash2 className="h-3 w-3" />}
                                 label={t("cancel")}
                                 variant="danger"
-                                onClick={() => void handleTaskAction(item.id, "cancel")}
+                                onClick={() => void handleBackgroundTaskAction(item.id, "cancel")}
                                 busy={taskActionId === item.id}
                                 className="px-2.5 py-1.5"
                               />

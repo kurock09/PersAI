@@ -224,7 +224,7 @@ async function runNativeCreateTest(): Promise<void> {
   assert.equal(createdTarget?.source, "telegram_group");
 }
 
-async function runAssistantActionCreateTest(): Promise<void> {
+async function runAssistantActionCreateRejectedTest(): Promise<void> {
   const assistantRepository = new FakeAssistantRepository();
   const bindingRepository = new FakeAssistantChannelSurfaceBindingRepository();
   const prisma = new FakeWorkspaceManagementPrismaService();
@@ -239,47 +239,30 @@ async function runAssistantActionCreateTest(): Promise<void> {
     contextSnapshotService as never
   );
 
-  const input = service.parseInput({
-    assistantId: "assistant-1",
-    action: "create",
-    kind: "assistant_check",
-    title: "Project follow-up",
-    actionType: "follow_up",
-    actionPayload: {
-      topic: "project",
-      suggestedDelayDays: 1
-    },
-    delayMs: 60_000,
-    contextMessages: 2,
-    conversationContext: {
-      channel: "telegram",
-      externalThreadKey: "group-1"
-    }
-  });
-
-  const result = await service.execute(input);
-
-  assert.equal(prisma.rows.length, 1);
-  assert.equal(prisma.rows[0]?.audience, "assistant");
-  assert.equal(prisma.rows[0]?.actionType, "follow_up");
-  assert.deepEqual(prisma.rows[0]?.actionPayloadJson, {
-    topic: "project",
-    suggestedDelayDays: 1
-  });
-  assert.match(prisma.rows[0]?.payloadText ?? "", /Project follow-up/);
+  assert.throws(
+    () =>
+      service.parseInput({
+        assistantId: "assistant-1",
+        action: "create",
+        kind: "assistant_check",
+        title: "Project follow-up",
+        actionType: "follow_up",
+        actionPayload: {
+          topic: "project",
+          suggestedDelayDays: 1
+        },
+        delayMs: 60_000,
+        contextMessages: 2,
+        conversationContext: {
+          channel: "telegram",
+          externalThreadKey: "group-1"
+        }
+      }),
+    (error) =>
+      error instanceof BadRequestException && error.message.includes('kind must be "user_reminder"')
+  );
+  assert.equal(prisma.rows.length, 0);
   assert.equal(bindingRepository.patched.length, 0);
-  assert.deepEqual(result, {
-    ok: true,
-    created: true,
-    task: {
-      id: "task-1",
-      title: "Project follow-up",
-      audience: "assistant",
-      actionType: "follow_up",
-      controlStatus: "active",
-      nextRunAt: prisma.rows[0]?.nextRunAt?.toISOString() ?? null
-    }
-  });
 }
 
 async function runLegacyPauseRejectedTest(): Promise<void> {
@@ -394,8 +377,7 @@ async function runAssistantCheckRequiresNonEmptyPayloadTest(): Promise<void> {
         }
       }),
     (error) =>
-      error instanceof BadRequestException &&
-      error.message.includes('kind="assistant_check" requires a non-empty actionPayload.')
+      error instanceof BadRequestException && error.message.includes('kind must be "user_reminder"')
   );
   assert.equal(prisma.rows.length, 0);
   assert.equal(bindingRepository.patched.length, 0);
@@ -430,7 +412,7 @@ async function runUserReminderRejectsHiddenFieldsTest(): Promise<void> {
       }),
     (error) =>
       error instanceof BadRequestException &&
-      error.message.includes('kind="user_reminder" does not accept actionType or actionPayload.')
+      error.message.includes("Use background_task for assistant-side background work.")
   );
 }
 
@@ -449,30 +431,28 @@ async function runNestedAssistantActionRejectedTest(): Promise<void> {
     contextSnapshotService as never
   );
 
-  const input = service.parseInput({
-    assistantId: "assistant-1",
-    action: "create",
-    kind: "assistant_check",
-    title: "Nested assistant action",
-    actionType: "follow_up",
-    actionPayload: {
-      topic: "nested"
-    },
-    delayMs: 1,
-    contextSessionKey: "system:scheduled-action:abc-123"
-  });
-
-  await assert.rejects(
-    () => service.execute(input),
+  assert.throws(
+    () =>
+      service.parseInput({
+        assistantId: "assistant-1",
+        action: "create",
+        kind: "assistant_check",
+        title: "Nested assistant action",
+        actionType: "follow_up",
+        actionPayload: {
+          topic: "nested"
+        },
+        delayMs: 1,
+        contextSessionKey: "system:scheduled-action:abc-123"
+      }),
     (error) =>
-      error instanceof BadRequestException &&
-      error.message.includes("Nested assistant scheduled_action creation is not allowed")
+      error instanceof BadRequestException && error.message.includes('kind must be "user_reminder"')
   );
 }
 
 async function run(): Promise<void> {
   await runNativeCreateTest();
-  await runAssistantActionCreateTest();
+  await runAssistantActionCreateRejectedTest();
   await runAssistantCheckRequiresNonEmptyPayloadTest();
   await runUserReminderRejectsHiddenFieldsTest();
   await runLegacyPauseRejectedTest();

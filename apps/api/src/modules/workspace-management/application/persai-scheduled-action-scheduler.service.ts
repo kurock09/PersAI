@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { HandleInternalCronFireService } from "./handle-internal-cron-fire.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
-import { RunScheduledAssistantActionService } from "./run-scheduled-assistant-action.service";
 import {
   computeReminderNextRunAtMs,
   parseReminderSchedule,
@@ -65,11 +64,6 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly handleInternalCronFireService: HandleInternalCronFireService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,
-    private readonly runScheduledAssistantActionService: RunScheduledAssistantActionService,
-    // ADR-074 Slice T1: VALUE import (not `import type`) — Nest needs the
-    // class symbol at runtime for DI. M2 precedent: `import type` for an
-    // injectable is the known DI footgun that throws
-    // `UnknownDependenciesException` at boot.
     private readonly proactivePushPolicyService: ProactivePushPolicyService
   ) {}
 
@@ -251,33 +245,7 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         return;
       }
       if (task.audience === "assistant") {
-        if (!task.actionType) {
-          throw new Error("Assistant scheduled action is missing actionType.");
-        }
-        // ADR-074 Slice T1 hard constraint #11: assistant-side actions are
-        // unrestricted. The proactive-push policy gate is NOT consulted here;
-        // an explicit scheduler-integration test asserts the policy mock is
-        // never invoked on this path.
-        await this.runScheduledAssistantActionService.execute({
-          assistantId: task.assistantId,
-          externalRef: task.externalRef,
-          title: task.title,
-          actionType: task.actionType,
-          actionPayload: task.actionPayload,
-          payloadText: task.payloadText,
-          runAtMs: dueAtMs
-        });
-        const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
-          task.schedule,
-          dueAtMs,
-          Date.now()
-        );
-        await this.completeAssistantActionRun(
-          task.id,
-          task.claimToken,
-          task.claimEpoch,
-          resolvedNextRunAtMs
-        );
+        await this.disableRetiredAssistantScheduledAction(task);
         return;
       }
       // ADR-074 Slice T1 hard constraint #11: gate fires only on
@@ -325,39 +293,6 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorName = error instanceof Error ? error.name : "UnknownError";
       const truncatedErrorMessage = truncateForLastError(errorMessage);
-      const stillProcessing =
-        task.audience === "assistant" && this.isAssistantActionStillProcessingError(error);
-      // Recurring assistant tasks continue to advance to their next slot on a
-      // non-"still processing" failure (preserves the prior intent of "do not
-      // re-fire the same instant of a recurring schedule"). Everything else
-      // shares the unified attempt-counter path.
-      if (task.audience === "assistant" && !stillProcessing && task.schedule.kind !== "at") {
-        const resolvedNextRunAtMs = this.resolveAssistantNextRunAtMs(
-          task.schedule,
-          dueAtMs,
-          Date.now()
-        );
-        if (resolvedNextRunAtMs !== undefined) {
-          await this.completeAssistantActionRun(
-            task.id,
-            task.claimToken,
-            task.claimEpoch,
-            resolvedNextRunAtMs
-          );
-          this.logger.error({
-            event: "scheduled_action_failed_advanced_to_next_recurring_run",
-            taskId: task.id,
-            externalRef: task.externalRef,
-            audience: task.audience,
-            scheduleKind: task.schedule.kind,
-            attemptCount: nextAttempt,
-            decision: "advance_recurring",
-            errorName,
-            errorMessage
-          });
-          return;
-        }
-      }
       if (nextAttempt >= SCHEDULED_ACTION_MAX_ATTEMPTS) {
         await this.disableAfterExhaustedRetries(
           task.id,
@@ -422,6 +357,38 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
     });
   }
 
+  private async disableRetiredAssistantScheduledAction(
+    task: ClaimedScheduledAction
+  ): Promise<void> {
+    const now = new Date();
+    await this.prisma.assistantTaskRegistryItem.updateMany({
+      where: {
+        id: task.id,
+        schedulerClaimToken: task.claimToken,
+        schedulerClaimEpoch: task.claimEpoch
+      },
+      data: {
+        controlStatus: "disabled",
+        nextRunAt: null,
+        disabledAt: now,
+        retryAfterAt: null,
+        lastErrorMessage:
+          "assistant scheduled_action is retired by ADR-077; use assistant_background_tasks.",
+        lastErrorAt: now,
+        schedulerClaimToken: null,
+        schedulerClaimEpoch: null,
+        schedulerClaimedAt: null,
+        schedulerClaimExpiresAt: null
+      }
+    });
+    this.logger.warn({
+      event: "retired_assistant_scheduled_action_disabled",
+      taskId: task.id,
+      externalRef: task.externalRef,
+      assistantId: task.assistantId
+    });
+  }
+
   // ADR-074 F1: bump attemptCount + persist last error breadcrumb +
   // exponential backoff retry. All failure paths now go through this method.
   private async deferRetryWithBackoff(
@@ -472,35 +439,6 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         schedulerClaimExpiresAt: null
       }
     });
-  }
-
-  private resolveAssistantNextRunAtMs(
-    schedule: ReminderSchedule,
-    previousRunAtMs: number,
-    floorMs: number
-  ): number | undefined {
-    if (schedule.kind === "at") {
-      return undefined;
-    }
-    if (schedule.kind === "every") {
-      const everyMs = Math.max(1, Math.floor(schedule.everyMs));
-      const anchorMs = Math.max(0, Math.floor(schedule.anchorMs ?? previousRunAtMs));
-      if (floorMs < anchorMs) {
-        return anchorMs;
-      }
-      const elapsed = floorMs - anchorMs;
-      const steps = Math.floor(elapsed / everyMs) + 1;
-      return anchorMs + steps * everyMs;
-    }
-    return computeReminderNextRunAtMs(schedule, floorMs);
-  }
-
-  private isAssistantActionStillProcessingError(error: unknown): boolean {
-    return (
-      error instanceof Error &&
-      typeof error.message === "string" &&
-      error.message.toLowerCase().includes("still processing")
-    );
   }
 
   private async evaluateProactivePushForUserTask(
@@ -587,77 +525,6 @@ export class PersaiScheduledActionSchedulerService implements OnModuleInit, OnMo
         lastFiredAt: update.firedAt,
         consecutiveUnanswered: update.consecutiveUnansweredAfter,
         lastAnsweredCheckAt: update.lastAnsweredCheckAtAfter,
-        // ADR-074 F1: success resets the F1 attempt-counter / error breadcrumb.
-        attemptCount: 0,
-        lastErrorMessage: null,
-        lastErrorAt: null,
-        schedulerClaimToken: null,
-        schedulerClaimEpoch: null,
-        schedulerClaimedAt: null,
-        schedulerClaimExpiresAt: null
-      }
-    });
-  }
-
-  private async completeAssistantActionRun(
-    id: string,
-    claimToken: string,
-    claimEpoch: number,
-    nextRunAtMs: number | undefined
-  ): Promise<void> {
-    if (nextRunAtMs === undefined) {
-      // ADR-074 F4 (no-silent-hidden-run): one-shot assistant_check rows used
-      // to be hard-deleted on completion. That made the user perception of
-      // "background tasks just disappeared" literally true: even when the
-      // hidden run finished cleanly (and the model legitimately decided "no
-      // user follow-up needed"), nothing remained in the task registry. We
-      // now flip the row to `disabled` with `attemptCount=0` /
-      // `lastErrorMessage=null` so it stays visible in the admin task list
-      // and is distinguishable from the dead-letter state (which sets
-      // attemptCount=MAX and a lastErrorMessage). The disabledAt timestamp
-      // is the breadcrumb operators can join with the runtime log
-      // `scheduled_assistant_action_completed`.
-      const completedAt = new Date();
-      await this.prisma.assistantTaskRegistryItem.updateMany({
-        where: {
-          id,
-          schedulerClaimToken: claimToken,
-          schedulerClaimEpoch: claimEpoch
-        },
-        data: {
-          controlStatus: "disabled",
-          nextRunAt: null,
-          disabledAt: completedAt,
-          cancelledAt: null,
-          retryAfterAt: null,
-          attemptCount: 0,
-          lastErrorMessage: null,
-          lastErrorAt: null,
-          schedulerClaimToken: null,
-          schedulerClaimEpoch: null,
-          schedulerClaimedAt: null,
-          schedulerClaimExpiresAt: null
-        }
-      });
-      this.logger.log({
-        event: "scheduled_assistant_one_shot_completed",
-        taskId: id,
-        decision: "marked_disabled_completed"
-      });
-      return;
-    }
-    await this.prisma.assistantTaskRegistryItem.updateMany({
-      where: {
-        id,
-        schedulerClaimToken: claimToken,
-        schedulerClaimEpoch: claimEpoch
-      },
-      data: {
-        controlStatus: "active",
-        nextRunAt: new Date(nextRunAtMs),
-        disabledAt: null,
-        cancelledAt: null,
-        retryAfterAt: null,
         // ADR-074 F1: success resets the F1 attempt-counter / error breadcrumb.
         attemptCount: 0,
         lastErrorMessage: null,

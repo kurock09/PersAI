@@ -92,6 +92,7 @@ const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
   "video_generate",
   "tts",
   "scheduled_action",
+  "background_task",
   "files",
   "exec",
   "shell"
@@ -176,7 +177,8 @@ Greet on birthdays. Respect timezone for scheduling.`,
 
 ## Tasks Policy
 
-- Use \`scheduled_action\` for reminders or delayed follow-through.
+- Use \`scheduled_action\` only for simple unconditional user-visible reminders.
+- Use \`background_task\` for quiet assistant-side checks, conditional monitoring, and delayed follow-through that may or may not push the user later.
 - Respect explicit "don't remind me", pause, and cancel signals.
 - Keep reminders low-pressure, non-spammy, and easy to ignore.`,
 
@@ -185,12 +187,12 @@ Greet on birthdays. Respect timezone for scheduling.`,
 Use only the machine-readable tools declared for this turn.
 Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
 
-  heartbeat: `# Task Heartbeat
+  heartbeat: `# Background Task Evaluation
 
-- Check the requested condition first before creating any user-visible follow-up.
-- If no user-visible follow-up is needed, stay quiet.
-- If a user-visible follow-up is warranted, create a separate \`scheduled_action\` with \`kind="user_reminder"\` and an immediate schedule.
-- Preserve low-pressure reminder behavior and avoid duplicate nudges.`,
+- Evaluate the background-task brief exactly.
+- If no push is warranted, return no_push and stay quiet.
+- If a push is warranted, produce the final user-facing message for the platform delivery channel.
+- Do not create a nested scheduled_action or another background_task from inside a background-task run.`,
 
   presence: `# Sense of Time
 
@@ -348,8 +350,8 @@ const PRESET_META: Record<
     variables: []
   },
   heartbeat: {
-    label: "Task Heartbeat",
-    description: "Directly editable follow-through instructions for reminders and delayed checks.",
+    label: "Background Task Evaluation",
+    description: "Directly editable evaluator instructions for assistant background tasks.",
     variables: []
   },
   presence: {
@@ -712,7 +714,7 @@ function PromptTemplateEditor({
   template: PromptTemplateState;
   meta: (typeof PRESET_META)[string];
   onSave: (id: string, template: string) => Promise<void>;
-  onReset: (id: string) => Promise<void>;
+  onReset: (id: string) => Promise<PromptTemplateState>;
 }) {
   const [value, setValue] = useState(template.template);
   const [saving, setSaving] = useState(false);
@@ -720,6 +722,10 @@ function PromptTemplateEditor({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const editorHandleRef = useRef<TemplateEditorHandle | null>(null);
+
+  useEffect(() => {
+    setValue(template.template);
+  }, [template.template]);
 
   const dirty = value !== template.template;
   const knownKeys = useMemo(
@@ -753,7 +759,8 @@ function PromptTemplateEditor({
     setSaveError(null);
     setResetting(true);
     try {
-      await onReset(template.id);
+      const resetTemplate = await onReset(template.id);
+      setValue(resetTemplate.template);
     } catch (cause) {
       console.error("[admin-presets] handleResetTemplate failed", cause);
       setSaveError(cause instanceof Error ? cause.message : "Reset failed");
@@ -1280,13 +1287,28 @@ export default function AdminPresetsPage() {
 
   const handleResetTemplate = useCallback(
     async (id: string) => {
-      const template = VISIBLE_PROMPT_TEMPLATE_DEFAULTS[id];
-      if (typeof template !== "string") {
-        throw new Error(`Factory default missing for prompt template "${id}".`);
+      const token = await getToken();
+      if (!token) throw new Error("Missing admin auth token.");
+      const response = await fetch(
+        `/api/v1/admin/prompt-templates/${encodeURIComponent(id)}/reset-to-default`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      if (!response.ok) {
+        const template = VISIBLE_PROMPT_TEMPLATE_DEFAULTS[id];
+        if (typeof template !== "string") {
+          throw new Error(`Factory default missing for prompt template "${id}".`);
+        }
+        await handleSaveTemplate(id, template);
+        return { id, template, updatedAt: new Date().toISOString() };
       }
-      await handleSaveTemplate(id, template);
+      const data = (await response.json()) as { preset: PromptTemplateState };
+      setTemplates((current) => current.map((entry) => (entry.id === id ? data.preset : entry)));
+      return data.preset;
     },
-    [handleSaveTemplate]
+    [getToken, handleSaveTemplate]
   );
 
   const handleSaveTool = useCallback(

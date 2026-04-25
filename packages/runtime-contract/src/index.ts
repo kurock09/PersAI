@@ -721,6 +721,7 @@ export const PERSAI_RUNTIME_WORKER_TOOL_FAMILIES = [
   "browser_interaction",
   "media_generation",
   "scheduled_action",
+  "background_task",
   "internal_scheduler"
 ] as const;
 
@@ -1257,10 +1258,7 @@ export const PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES = ["user", "assistant"] a
 export type PersaiRuntimeScheduledActionAudience =
   (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_AUDIENCES)[number];
 
-export const PERSAI_RUNTIME_SCHEDULED_ACTION_CREATE_KINDS = [
-  "user_reminder",
-  "assistant_check"
-] as const;
+export const PERSAI_RUNTIME_SCHEDULED_ACTION_CREATE_KINDS = ["user_reminder"] as const;
 
 export type PersaiRuntimeScheduledActionCreateKind =
   (typeof PERSAI_RUNTIME_SCHEDULED_ACTION_CREATE_KINDS)[number];
@@ -1292,15 +1290,6 @@ export interface RuntimeScheduledActionCreateUserReminderRequest extends Runtime
   reminderText: string;
 }
 
-export interface RuntimeScheduledActionCreateAssistantCheckRequest extends RuntimeScheduledActionCreateSchedule {
-  toolCode: "scheduled_action";
-  action: "create";
-  kind: "assistant_check";
-  title: string;
-  actionType: string;
-  actionPayload: Record<string, unknown>;
-}
-
 export interface RuntimeScheduledActionListRequest {
   toolCode: "scheduled_action";
   action: "list";
@@ -1315,7 +1304,6 @@ export interface RuntimeScheduledActionControlRequest {
 
 export type RuntimeScheduledActionRequest =
   | RuntimeScheduledActionCreateUserReminderRequest
-  | RuntimeScheduledActionCreateAssistantCheckRequest
   | RuntimeScheduledActionListRequest
   | RuntimeScheduledActionControlRequest;
 
@@ -1337,6 +1325,137 @@ export interface RuntimeScheduledActionToolResult {
   warning: string | null;
   task: RuntimeScheduledActionItem | null;
   items: RuntimeScheduledActionItem[] | null;
+}
+
+export const PERSAI_RUNTIME_BACKGROUND_TASK_ACTIONS = [
+  "create",
+  "list",
+  "pause",
+  "resume",
+  "cancel"
+] as const;
+
+export type PersaiRuntimeBackgroundTaskAction =
+  (typeof PERSAI_RUNTIME_BACKGROUND_TASK_ACTIONS)[number];
+
+export const PERSAI_RUNTIME_BACKGROUND_TASK_CONTROL_STATUSES = [
+  "active",
+  "disabled",
+  "completed",
+  "failed",
+  "cancelled"
+] as const;
+
+export type PersaiRuntimeBackgroundTaskControlStatus =
+  (typeof PERSAI_RUNTIME_BACKGROUND_TASK_CONTROL_STATUSES)[number];
+
+export const PERSAI_RUNTIME_BACKGROUND_TASK_RUN_STATUSES = [
+  "running",
+  "no_push",
+  "pushed",
+  "completed",
+  "failed",
+  "skipped"
+] as const;
+
+export type PersaiRuntimeBackgroundTaskRunStatus =
+  (typeof PERSAI_RUNTIME_BACKGROUND_TASK_RUN_STATUSES)[number];
+
+export interface RuntimeBackgroundTaskCreateSchedule {
+  runAt?: string;
+  delayMs?: number;
+  everyMs?: number;
+  anchorAt?: string;
+  cronExpr?: string;
+  timezone?: string;
+}
+
+export interface RuntimeBackgroundTaskCreateRequest extends RuntimeBackgroundTaskCreateSchedule {
+  toolCode: "background_task";
+  action: "create";
+  title: string;
+  brief: string;
+  pushPolicy?: Record<string, unknown>;
+}
+
+export interface RuntimeBackgroundTaskListRequest {
+  toolCode: "background_task";
+  action: "list";
+}
+
+export interface RuntimeBackgroundTaskControlRequest {
+  toolCode: "background_task";
+  action: "pause" | "resume" | "cancel";
+  taskId?: string;
+  titleMatch?: string;
+}
+
+export type RuntimeBackgroundTaskRequest =
+  | RuntimeBackgroundTaskCreateRequest
+  | RuntimeBackgroundTaskListRequest
+  | RuntimeBackgroundTaskControlRequest;
+
+export interface RuntimeBackgroundTaskRunItem {
+  id: string;
+  status: PersaiRuntimeBackgroundTaskRunStatus;
+  scheduledRunAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  pushText: string | null;
+  deliveryTarget: string | null;
+  errorMessage: string | null;
+}
+
+export interface RuntimeBackgroundTaskItem {
+  id: string | null;
+  title: string;
+  brief: string;
+  mode: "llm_evaluate";
+  controlStatus: PersaiRuntimeBackgroundTaskControlStatus;
+  nextRunAt: string | null;
+  runCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: PersaiRuntimeBackgroundTaskRunStatus | null;
+  lastPushAt: string | null;
+  lastErrorMessage: string | null;
+  recentRuns: RuntimeBackgroundTaskRunItem[];
+}
+
+export interface RuntimeBackgroundTaskToolResult {
+  toolCode: "background_task";
+  executionMode: "worker";
+  requestedAction: PersaiRuntimeBackgroundTaskAction | null;
+  action: "created" | "listed" | "paused" | "resumed" | "cancelled" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  task: RuntimeBackgroundTaskItem | null;
+  items: RuntimeBackgroundTaskItem[] | null;
+}
+
+export interface RuntimeBackgroundTaskEvaluationRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeBundleDocument: string;
+  task: {
+    id: string;
+    title: string;
+    brief: string;
+    scheduleJson: unknown;
+    pushPolicyJson: unknown | null;
+    scheduledRunAt: string;
+    runCount: number;
+    lastRunStatus: PersaiRuntimeBackgroundTaskRunStatus | null;
+    lastRunAt: string | null;
+  };
+}
+
+export interface RuntimeBackgroundTaskEvaluationResult {
+  decision: "push" | "no_push" | "complete";
+  pushText: string | null;
+  rationale: string | null;
+  confidence: "low" | "medium" | "high";
+  usage: RuntimeUsageSnapshot | null;
+  rawText: string | null;
 }
 
 export interface RuntimeTurnRequest {
@@ -1456,7 +1575,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   // ADR-074 Slice M2 — second LLM pass following an auto-compaction event
   // that asks the model to extract durable human-voiced notes from the
   // compacted slice and writes them through the M1 memory_write path.
-  "auto_extract_to_memory"
+  "auto_extract_to_memory",
+  "background_task_evaluation"
 ] as const;
 
 export type ProviderGatewayRequestClassification =

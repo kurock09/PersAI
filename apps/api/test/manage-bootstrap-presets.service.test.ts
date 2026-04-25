@@ -146,6 +146,43 @@ async function run(): Promise<void> {
     assert.equal(saved?.id, "tools");
     assert.equal(bumped, 1, "successful updates should bump config generation");
   }
+
+  {
+    let bumped = 0;
+    let savedTemplate = "";
+    const service = new ManagePromptTemplatesService(
+      {
+        async findAll() {
+          return [];
+        },
+        async findById() {
+          return null;
+        },
+        async update() {
+          throw new Error("update should not be used; upsert is canonical");
+        },
+        async upsert(id: string, template: string) {
+          savedTemplate = template;
+          return preset(id, template);
+        }
+      },
+      {
+        async assertCanReadAdminSurface() {
+          return undefined;
+        }
+      } as never,
+      {
+        async execute() {
+          bumped += 1;
+        }
+      } as never
+    );
+
+    const result = await service.resetToDefault("admin-user", "agents");
+    assert.equal(result.template, VISIBLE_PROMPT_TEMPLATE_DEFAULTS.agents);
+    assert.equal(savedTemplate, VISIBLE_PROMPT_TEMPLATE_DEFAULTS.agents);
+    assert.equal(bumped, 1, "successful reset should bump config generation");
+  }
 }
 
 void run();

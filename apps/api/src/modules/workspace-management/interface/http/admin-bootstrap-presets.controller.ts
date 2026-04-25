@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Req,
   UnauthorizedException
 } from "@nestjs/common";
@@ -61,6 +62,26 @@ export class AdminPromptTemplatesController {
     }
 
     const preset = await this.managePromptTemplatesService.update(userId, id, template);
+    return {
+      requestId: req.requestId ?? null,
+      preset: {
+        id: preset.id,
+        template: preset.template,
+        updatedAt: preset.updatedAt.toISOString()
+      }
+    };
+  }
+
+  @Post(":id/reset-to-default")
+  async resetPresetToDefault(
+    @Req() req: RequestWithPlatformContext,
+    @Param("id") id: string
+  ): Promise<{
+    requestId: string | null;
+    preset: PresetState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const preset = await this.managePromptTemplatesService.resetToDefault(userId, id);
     return {
       requestId: req.requestId ?? null,
       preset: {

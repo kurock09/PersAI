@@ -1,5 +1,162 @@
 # SESSION-HANDOFF
 
+## 2026-04-26 (Landing CTA + textarea chrome polish) — Hero actions are quieter and textarea resize handles are globally suppressed (`apps/web`; focused typecheck/format green)
+
+### Why this session
+
+Founder asked to leave plans out of the central landing CTA and reported that textarea resize handles looked unstyled/noisy in multiple places.
+
+### What changed
+
+- `apps/web/app/page.tsx` removes the central `Тарифы`/plans link from the hero CTA group and keeps `Войти` as a calmer secondary button under the main free-start CTA.
+- `apps/web/app/globals.css` adds a global textarea chrome style: native resize is disabled, the browser resizer handle is hidden, focus gets the shared ring token, and textarea scroll gutters stay stable.
+- Existing per-screen textarea sizing remains intact; this is a shared visual baseline, not a behavior rewrite.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/globals.css" "apps/web/app/page.tsx"`
+
+### Risks / residuals
+
+- Visual-only global textarea change; verify `/admin/presets`, `/admin/runtime`, assistant settings, and chat composer once after deploy to confirm no screen depended on manual browser resizing.
+
+### Next recommended step
+
+Deploy web and visually check the landing CTA plus one large textarea in admin and assistant settings on desktop/mobile.
+
+---
+
+## 2026-04-26 (Desktop chat jump-to-latest placement) — Desktop floating pill is centered above input; mobile unchanged (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder reviewed the desktop chat `К последним` control and noted it was too easy to miss at the right edge. Mobile already felt good and should not change.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-area.tsx` keeps the existing mobile/right-edge placement as the base style.
+- Desktop (`md:`) now centers the floating scroll-to-bottom pill above the composer via `left-1/2` + `-translate-x-1/2`.
+- `apps/web/app/app/_components/chat-area.test.tsx` asserts the button keeps mobile `right-3` while gaining desktop centered classes.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-area.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-area.tsx" "apps/web/app/app/_components/chat-area.test.tsx"`
+
+### Risks / residuals
+
+- Visual-only placement change; should be verified once on desktop with a long chat to confirm it floats above the actual composer height.
+
+### Next recommended step
+
+Open a long desktop chat, scroll upward, and confirm `↓ К последним` appears centered above the input without covering message content.
+
+---
+
+## 2026-04-26 (Admin presets reset-to-default reliability) — Prompt template reset is API-backed and editor state refreshes immediately (`apps/api` + `apps/web`; focused tests/typechecks green)
+
+### Why this session
+
+Founder reported that `Reset to default` did not work reliably across `/admin/presets`, starting at the top prompt sections and continuing down to tools.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts` adds `resetToDefault`, using the API-side `VISIBLE_PROMPT_TEMPLATE_DEFAULTS` as source of truth.
+- `apps/api/src/modules/workspace-management/interface/http/admin-bootstrap-presets.controller.ts` exposes `POST /api/v1/admin/prompt-templates/:id/reset-to-default`.
+- `apps/web/app/admin/presets/page.tsx` now resets prompt templates through that endpoint instead of relying on a stale frontend copy of defaults.
+- `PromptTemplateEditor` now syncs local `contentEditable` state when the parent template changes, and sets the reset text immediately after the reset response.
+- `apps/web/app/admin/presets/page.test.tsx` covers that reset updates the visible editor text, not just the preview.
+- `apps/api/test/manage-bootstrap-presets.service.test.ts` covers API-side reset-to-default and config-generation bump.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/presets/page.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-bootstrap-presets.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/api/src/modules/workspace-management/application/manage-bootstrap-presets.service.ts" "apps/api/src/modules/workspace-management/interface/http/admin-bootstrap-presets.controller.ts" "apps/api/test/manage-bootstrap-presets.service.test.ts" "apps/web/app/admin/presets/page.tsx" "apps/web/app/admin/presets/page.test.tsx"`
+
+### Risks / residuals
+
+- Direct `corepack pnpm --filter @persai/api test -- manage-bootstrap-presets.service.test.ts` currently runs the broader API suite and fails on the existing `control-internal-scheduled-action.service.test.ts` ADR-077 transition state, unrelated to this reset fix. The focused service test passes via direct `tsx`.
+
+### Next recommended step
+
+Deploy API + web together, then verify `/admin/presets`: reset `System`, one ordinary prompt, and one tool override; all should visibly return to defaults without manual refresh.
+
+---
+
+## 2026-04-26 (ADR-077 assistant background-task runtime slice) — `background_task` gets internal control API, runtime tool, structured evaluator, scheduler/run history, and preferred-channel push path (`apps/api`, `apps/runtime`, `packages/runtime-contract`, `apps/web`; focused typechecks green)
+
+### Why this session
+
+Founder rejected further patching of assistant-side `scheduled_action` and required a clean architecture with no legacy/transitional assistant-check mode. `scheduled_action` must remain for simple user reminders, but "Действия ассистента" need their own background-task contour, direct push through the existing preferred notification channel, and visible run history in the existing assistant settings card layout.
+
+### What changed
+
+- New ADR `docs/ADR/077-assistant-background-task-runtime.md` establishes target-state truth: `scheduled_action` is only for user reminders; `assistant_check` is removed from active target truth; assistant quiet work uses `background_task -> evaluator decision -> direct preferred-channel push/no-push`.
+- Added Prisma schema and migration foundation for `assistant_background_tasks` and `assistant_background_task_runs`.
+- Added internal runtime endpoints for background tasks: list/create/pause/resume/cancel, with recent run-history payload shaped for expanded "Действия ассистента" cards.
+- Added runtime-contract/background-task types, runtime internal API client calls, `RuntimeBackgroundTaskToolService`, native projection, budget policy, and tool-catalog activation for `background_task`.
+- Added runtime internal evaluator endpoint `POST /api/v1/internal/runtime/background-tasks/evaluate`, which evaluates one task brief against a strict JSON schema and returns `push`, `no_push`, or `complete` plus usage.
+- Added API-side `PersaiBackgroundTaskSchedulerService`: claims due `assistant_background_tasks`, creates `assistant_background_task_runs`, calls the runtime evaluator, records decision/usage/errors, advances recurring schedules, completes one-shot tasks, retries transient failures, and fails exhausted tasks.
+- Connected `push` decisions to the existing `DeliverReminderNotificationService`, so delivery follows the assistant's current preferred notification channel and records delivery target/result on the run row.
+- Cut `scheduled_action` back to `kind="user_reminder"` in runtime contract, projection, runtime service, internal API parse path, tool catalog guidance, bootstrap preset defaults, and `/admin/presets` code defaults. New `assistant_check` creation is no longer accepted.
+- Retired the old scheduled-assistant run service from module wiring and removed its source file; any old `audience="assistant"` scheduled rows claimed by the legacy scheduler are disabled with an ADR-077 breadcrumb instead of running a hidden chat turn.
+- `docs/DATA-MODEL.md` now documents the split: `assistant_task_registry_items` backs "Задачи для тебя"; `assistant_background_tasks` backs "Действия ассистента"; `assistant_background_task_runs` backs per-card recent run history.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec prisma validate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/runtime-contract typecheck`
+- `corepack pnpm --filter @persai/api typecheck`
+- `corepack pnpm --filter @persai/runtime typecheck`
+- `corepack pnpm --filter @persai/web typecheck`
+
+### Risks / residuals
+
+- The assistant settings UI still lists the old task registry cards; it does not yet merge/display `assistant_background_tasks` and run history.
+- Existing DB rows with old `audience="assistant"` in `assistant_task_registry_items` are disabled if the old scheduler claims them; no migration/backfill was added in this slice.
+- The evaluator is intentionally LLM-only for now (`mode=llm_evaluate`); deterministic/hybrid modes remain out of scope until a real use case needs them.
+
+### Next recommended step
+
+Wire the assistant settings card UI to list `assistant_background_tasks` under "Действия ассистента", show recent run history, and call the new background-task control endpoints for pause/resume/cancel.
+
+---
+
+## 2026-04-26 (Admin presets use-code-default persistence) — Tool prompt code-default checkboxes survive API deploy/reseed (`apps/api`; focused tests/typecheck green)
+
+### Why this session
+
+Founder reported that `/admin/presets` tool prompt `Use code default` checkboxes were coming back unchecked after deploy. Root cause: API boot tool-catalog sync was materializing code defaults into `providerHints.modelDescription` / `providerHints.modelUsageGuidance`, so the admin surface interpreted the stored default text as a manual override.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/tool-prompt-metadata.ts` now normalizes stored prompt metadata during catalog sync: values equal to the current code default are stored as `null` instead of manual overrides.
+- Existing explicit `null` values keep representing `Use code default`.
+- Real custom prompt overrides remain preserved across reseed.
+- `apps/api/test/tool-catalog-sync.test.ts` covers explicit use-code-default rows, legacy rows that stored the exact code default, and true custom overrides.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api test -- tool-catalog-sync.test.ts`
+- `corepack pnpm --filter @persai/api test -- manage-admin-tool-prompt-metadata.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec prettier --write "apps/api/src/modules/workspace-management/application/tool-prompt-metadata.ts" "apps/api/test/tool-catalog-sync.test.ts"`
+
+### Risks / residuals
+
+- If an admin intentionally typed exactly the same text as the code default, the next catalog sync treats that as `Use code default`. This is the desired stable behavior for the checkbox semantics.
+
+### Next recommended step
+
+Deploy API, open `/admin/presets`, set a few tool prompt fields to `Use code default`, redeploy/restart API, and confirm the checkboxes remain checked.
+
+---
+
 ## 2026-04-26 (Landing CTA simplification + password reveal) — Public hero has one dominant CTA and auth/profile password fields get an eye toggle (`apps/web`; focused tests/typecheck green)
 
 ### Why this session

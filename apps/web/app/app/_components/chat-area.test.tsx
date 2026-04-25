@@ -243,7 +243,9 @@ describe("ChatArea", () => {
     scrollContainer.scrollTop = 100;
 
     fireEvent.scroll(scrollContainer);
-    fireEvent.click(screen.getByLabelText("scrollToBottom"));
+    const scrollButton = screen.getByLabelText("scrollToBottom");
+    expect(scrollButton).toHaveClass("right-3", "md:left-1/2", "md:-translate-x-1/2");
+    fireEvent.click(scrollButton);
 
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
   });

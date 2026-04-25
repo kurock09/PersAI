@@ -23,8 +23,7 @@ import {
 
 type ScheduledActionControlAction = "create" | "pause" | "resume" | "cancel";
 type ScheduledActionAudience = "user" | "assistant";
-type ScheduledActionCreateKind = "user_reminder" | "assistant_check";
-const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
+type ScheduledActionCreateKind = "user_reminder";
 
 type CreateUserReminderScheduledActionControlRequest = {
   assistantId: string;
@@ -43,27 +42,7 @@ type CreateUserReminderScheduledActionControlRequest = {
   contextMessages?: number;
 };
 
-type CreateAssistantCheckScheduledActionControlRequest = {
-  assistantId: string;
-  action: "create";
-  kind: "assistant_check";
-  title: string;
-  actionType: string;
-  actionPayload: Record<string, unknown>;
-  contextSessionKey?: string;
-  conversationContext?: ScheduledActionConversationContext;
-  runAt?: string;
-  delayMs?: number;
-  everyMs?: number;
-  anchorAt?: string;
-  cronExpr?: string;
-  timezone?: string;
-  contextMessages?: number;
-};
-
-type CreateScheduledActionControlRequest =
-  | CreateUserReminderScheduledActionControlRequest
-  | CreateAssistantCheckScheduledActionControlRequest;
+type CreateScheduledActionControlRequest = CreateUserReminderScheduledActionControlRequest;
 
 type UpdateScheduledActionControlRequest = {
   assistantId: string;
@@ -93,10 +72,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function normalizeOptionalJsonObject(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? { ...value } : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -284,16 +259,7 @@ function resolveTelegramReminderTargetForCreate(params: {
 function resolveTaskSourceLabel(params: {
   audience: ScheduledActionAudience;
   schedule: ReminderSchedule;
-  actionType?: string;
 }): string {
-  if (params.audience === "assistant") {
-    const actionType = params.actionType?.trim();
-    const actionLabel = actionType ? `Assistant ${actionType}` : "Assistant action";
-    if (params.schedule.kind === "at") {
-      return `${actionLabel} (one-time)`;
-    }
-    return `${actionLabel} (recurring)`;
-  }
   if (params.schedule.kind === "at") {
     return "One-time reminder";
   }
@@ -349,11 +315,12 @@ function buildSchedule(input: CreateScheduledActionControlRequest): ReminderSche
 }
 
 function deriveAudienceFromCreateKind(kind: ScheduledActionCreateKind): ScheduledActionAudience {
-  return kind === "user_reminder" ? "user" : "assistant";
+  void kind;
+  return "user";
 }
 
 function resolveCreateReminderText(input: CreateScheduledActionControlRequest): string {
-  return input.kind === "user_reminder" ? input.reminderText : input.title;
+  return input.reminderText;
 }
 
 @Injectable()
@@ -383,14 +350,12 @@ export class ControlInternalScheduledActionService {
 
     if (action === "create") {
       const kindRaw = row.kind;
-      if (kindRaw !== "user_reminder" && kindRaw !== "assistant_check") {
-        throw new BadRequestException(
-          'kind must be "user_reminder" or "assistant_check" for scheduled_action create.'
-        );
+      if (kindRaw !== "user_reminder") {
+        throw new BadRequestException('kind must be "user_reminder" for scheduled_action create.');
       }
       if ("audience" in row) {
         throw new BadRequestException(
-          'audience is no longer accepted for scheduled_action create. Use kind="user_reminder" or kind="assistant_check".'
+          'audience is no longer accepted for scheduled_action create. Use kind="user_reminder".'
         );
       }
       const delayMsRaw = row.delayMs;
@@ -417,14 +382,10 @@ export class ControlInternalScheduledActionService {
       ) {
         throw new BadRequestException("contextMessages must be a number between 0 and 10.");
       }
-      const actionType = normalizeOptionalString(row.actionType);
-      const actionPayload = normalizeOptionalJsonObject(row.actionPayload);
-      if (
-        "actionPayload" in row &&
-        actionPayload === undefined &&
-        row.actionPayload !== undefined
-      ) {
-        throw new BadRequestException("actionPayload must be a JSON object when provided.");
+      if ("actionType" in row || "actionPayload" in row) {
+        throw new BadRequestException(
+          "scheduled_action no longer creates assistant checks. Use background_task for assistant-side background work."
+        );
       }
       const sharedInput = {
         assistantId,
@@ -460,35 +421,11 @@ export class ControlInternalScheduledActionService {
           ? { contextMessages: contextMessagesRaw as number }
           : {})
       };
-      if (kindRaw === "user_reminder") {
-        const reminderText = normalizeRequiredString(row.reminderText, "reminderText");
-        if (actionType !== undefined || actionPayload !== undefined) {
-          throw new BadRequestException(
-            'kind="user_reminder" does not accept actionType or actionPayload.'
-          );
-        }
-        return {
-          ...sharedInput,
-          kind: "user_reminder",
-          reminderText
-        };
-      }
-      if (actionType === undefined) {
-        throw new BadRequestException('kind="assistant_check" requires actionType.');
-      }
-      if (actionPayload === undefined || Object.keys(actionPayload).length === 0) {
-        throw new BadRequestException('kind="assistant_check" requires a non-empty actionPayload.');
-      }
-      if (normalizeOptionalString(row.reminderText) !== undefined) {
-        throw new BadRequestException(
-          'kind="assistant_check" does not accept reminderText. Put evaluation details in actionPayload.'
-        );
-      }
+      const reminderText = normalizeRequiredString(row.reminderText, "reminderText");
       return {
         ...sharedInput,
-        kind: "assistant_check",
-        actionType,
-        actionPayload
+        kind: "user_reminder",
+        reminderText
       };
     }
 
@@ -568,15 +505,6 @@ export class ControlInternalScheduledActionService {
     assistant: { id: string; userId: string; workspaceId: string },
     input: CreateScheduledActionControlRequest
   ): Promise<unknown> {
-    if (
-      deriveAudienceFromCreateKind(input.kind) === "assistant" &&
-      input.contextSessionKey?.startsWith(SCHEDULED_ACTION_THREAD_PREFIX)
-    ) {
-      throw new BadRequestException(
-        'Nested assistant scheduled_action creation is not allowed during assistant background runs. Create kind="user_reminder" for any visible follow-up.'
-      );
-    }
-
     const audience = deriveAudienceFromCreateKind(input.kind);
     const schedule = buildSchedule(input);
     const nextRunAtMs = computeReminderNextRunAtMs(schedule, Date.now());
@@ -603,15 +531,11 @@ export class ControlInternalScheduledActionService {
         sourceSurface: "web",
         sourceLabel: resolveTaskSourceLabel({
           audience,
-          schedule,
-          ...(input.kind === "assistant_check" ? { actionType: input.actionType } : {})
+          schedule
         }),
         audience,
-        actionType: input.kind === "assistant_check" ? input.actionType : null,
-        actionPayloadJson:
-          input.kind !== "assistant_check"
-            ? Prisma.DbNull
-            : (input.actionPayload as unknown as Prisma.InputJsonValue),
+        actionType: null,
+        actionPayloadJson: Prisma.DbNull,
         controlStatus: "active",
         nextRunAt: new Date(nextRunAtMs),
         disabledAt: null,

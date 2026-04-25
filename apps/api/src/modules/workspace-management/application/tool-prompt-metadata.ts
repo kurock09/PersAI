@@ -16,6 +16,16 @@ function readOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizeOptionalOverride(
+  value: unknown,
+  defaultValue: string | undefined
+): string | null {
+  const normalized = readOptionalString(value);
+  if (normalized === null) return null;
+  const normalizedDefault = defaultValue?.trim() || null;
+  return normalizedDefault !== null && normalized === normalizedDefault ? null : normalized;
+}
+
 export function readToolPromptMetadataState(providerHints: unknown): ToolPromptMetadataState {
   const raw = asObject(providerHints) ?? {};
   return {
@@ -34,6 +44,14 @@ export function buildToolPromptMetadataState(params: {
   defaultModelUsageGuidance?: string | undefined;
 }): Record<string, unknown> {
   const existing = readToolPromptMetadataState(params.existingProviderHints);
+  const modelDescriptionOverride = normalizeOptionalOverride(
+    existing.raw.modelDescription,
+    params.defaultModelDescription
+  );
+  const modelUsageGuidanceOverride = normalizeOptionalOverride(
+    existing.raw.modelUsageGuidance,
+    params.defaultModelUsageGuidance
+  );
 
   return {
     ...existing.raw,
@@ -42,9 +60,8 @@ export function buildToolPromptMetadataState(params: {
     ...(params.requiredCredentialId === undefined
       ? {}
       : { requiredCredentialId: params.requiredCredentialId }),
-    modelDescription: existing.modelDescription ?? params.defaultModelDescription?.trim() ?? null,
-    modelUsageGuidance:
-      existing.modelUsageGuidance ?? params.defaultModelUsageGuidance?.trim() ?? null
+    modelDescription: modelDescriptionOverride,
+    modelUsageGuidance: modelUsageGuidanceOverride
   };
 }
 

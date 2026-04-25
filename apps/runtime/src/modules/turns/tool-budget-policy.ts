@@ -21,6 +21,7 @@
  *      `web_fetch ≤ 5`, `web_search ≤ 3`, `image_generate ≤ 1`,
  *      `image_edit ≤ 1`, `video_generate ≤ 1`, `tts ≤ 3`, `browser ≤ 3`,
  *      `exec ≤ 5`, `shell ≤ 5`, `files ≤ 10`, `scheduled_action ≤ 5`,
+ *      `background_task ≤ 5`,
  *      `knowledge_search ≤ 5`, `knowledge_fetch ≤ 10`, `memory_write ≤
  *      10`. The shared-compaction tools (`summarize_context`,
  *      `compact_context`) remain intentionally absent because the runtime
@@ -116,6 +117,7 @@ export const TOOL_HARD_CAP_PER_TURN: Readonly<Record<string, number>> = {
   shell: 5,
   files: 10,
   scheduled_action: 5,
+  background_task: 5,
   knowledge_search: 5,
   knowledge_fetch: 10,
   memory_write: 10

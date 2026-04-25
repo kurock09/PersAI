@@ -55,4 +55,16 @@ export class ManagePromptTemplatesService {
     await this.bumpConfigGenerationService.execute();
     return result;
   }
+
+  async resetToDefault(userId: string, id: string): Promise<PromptTemplate> {
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const template = DEFAULT_TEMPLATES[id];
+    if (typeof template !== "string") {
+      throw new NotFoundException(`Prompt template "${id}" does not exist.`);
+    }
+
+    const result = await this.promptTemplateRepository.upsert(id, template);
+    await this.bumpConfigGenerationService.execute();
+    return result;
+  }
 }

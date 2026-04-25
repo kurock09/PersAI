@@ -64,6 +64,53 @@ export type InternalScheduledActionItem = {
   externalRef: string | null;
 };
 
+export type InternalBackgroundTaskRunItem = {
+  id: string;
+  status: "running" | "no_push" | "pushed" | "completed" | "failed" | "skipped";
+  scheduledRunAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  pushText: string | null;
+  deliveryTarget: string | null;
+  errorMessage: string | null;
+};
+
+export type InternalBackgroundTaskItem = {
+  id: string;
+  title: string;
+  brief: string;
+  mode: "llm_evaluate";
+  status: "active" | "disabled" | "completed" | "failed" | "cancelled";
+  nextRunAt: string | null;
+  externalRef: string | null;
+  runCount: number;
+  lastRunAt: string | null;
+  lastRunStatus: InternalBackgroundTaskRunItem["status"] | null;
+  lastPushAt: string | null;
+  lastErrorMessage: string | null;
+  recentRuns: InternalBackgroundTaskRunItem[];
+};
+
+export type InternalBackgroundTaskControlInput =
+  | {
+      assistantId: string;
+      action: "create";
+      title: string;
+      brief: string;
+      runAt?: string;
+      delayMs?: number;
+      everyMs?: number;
+      anchorAt?: string;
+      cronExpr?: string;
+      timezone?: string;
+      pushPolicy?: Record<string, unknown>;
+    }
+  | {
+      assistantId: string;
+      action: "pause" | "resume" | "cancel";
+      taskId: string;
+    };
+
 export type InternalScheduledActionConversationContext = {
   channel: string;
   externalThreadKey: string;
@@ -76,23 +123,6 @@ export type InternalScheduledActionControlInput =
       kind: "user_reminder";
       title: string;
       reminderText: string;
-      contextSessionKey?: string;
-      runAt?: string;
-      delayMs?: number;
-      everyMs?: number;
-      anchorAt?: string;
-      cronExpr?: string;
-      timezone?: string;
-      contextMessages?: number;
-      conversationContext?: InternalScheduledActionConversationContext;
-    }
-  | {
-      assistantId: string;
-      action: "create";
-      kind: "assistant_check";
-      title: string;
-      actionType: string;
-      actionPayload: Record<string, unknown>;
       contextSessionKey?: string;
       runAt?: string;
       delayMs?: number;
@@ -512,6 +542,87 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the scheduled action control request."
+    );
+  }
+
+  async listBackgroundTasks(assistantId: string): Promise<InternalBackgroundTaskItem[]> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    if (assistantId.trim().length === 0) {
+      throw new BadRequestException("assistantId is required for background task list.");
+    }
+
+    const response = await this.fetchJson(
+      `/api/v1/internal/runtime/background-tasks/items?assistantId=${encodeURIComponent(assistantId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+        }
+      }
+    );
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      const items = payload?.items;
+      if (
+        payload?.ok === true &&
+        Array.isArray(items) &&
+        items.every((item) => this.isInternalBackgroundTaskItem(item))
+      ) {
+        return items;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid background task list response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API background task list request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the background task list request."
+    );
+  }
+
+  async controlBackgroundTask(input: InternalBackgroundTaskControlInput): Promise<unknown> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/background-tasks/control", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true) {
+        return response.body;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid background task control response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API background task control request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the background task control request."
     );
   }
 
@@ -1025,6 +1136,58 @@ export class PersaiInternalApiClientService {
       (row.controlStatus === "active" || row.controlStatus === "disabled") &&
       (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
       (row.externalRef === null || typeof row.externalRef === "string")
+    );
+  }
+
+  private isInternalBackgroundTaskItem(value: unknown): value is InternalBackgroundTaskItem {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      typeof row.title === "string" &&
+      typeof row.brief === "string" &&
+      row.mode === "llm_evaluate" &&
+      (row.status === "active" ||
+        row.status === "disabled" ||
+        row.status === "completed" ||
+        row.status === "failed" ||
+        row.status === "cancelled") &&
+      (row.nextRunAt === null || typeof row.nextRunAt === "string") &&
+      (row.externalRef === null || typeof row.externalRef === "string") &&
+      typeof row.runCount === "number" &&
+      Number.isInteger(row.runCount) &&
+      (row.lastRunAt === null || typeof row.lastRunAt === "string") &&
+      (row.lastRunStatus === null ||
+        row.lastRunStatus === "running" ||
+        row.lastRunStatus === "no_push" ||
+        row.lastRunStatus === "pushed" ||
+        row.lastRunStatus === "completed" ||
+        row.lastRunStatus === "failed" ||
+        row.lastRunStatus === "skipped") &&
+      (row.lastPushAt === null || typeof row.lastPushAt === "string") &&
+      (row.lastErrorMessage === null || typeof row.lastErrorMessage === "string") &&
+      Array.isArray(row.recentRuns) &&
+      row.recentRuns.every((run) => this.isInternalBackgroundTaskRunItem(run))
+    );
+  }
+
+  private isInternalBackgroundTaskRunItem(value: unknown): value is InternalBackgroundTaskRunItem {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.id === "string" &&
+      (row.status === "running" ||
+        row.status === "no_push" ||
+        row.status === "pushed" ||
+        row.status === "completed" ||
+        row.status === "failed" ||
+        row.status === "skipped") &&
+      typeof row.scheduledRunAt === "string" &&
+      (row.startedAt === null || typeof row.startedAt === "string") &&
+      (row.finishedAt === null || typeof row.finishedAt === "string") &&
+      (row.pushText === null || typeof row.pushText === "string") &&
+      (row.deliveryTarget === null || typeof row.deliveryTarget === "string") &&
+      (row.errorMessage === null || typeof row.errorMessage === "string")
     );
   }
 

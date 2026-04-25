@@ -32,6 +32,7 @@ import { InternalRuntimeMemoryCloseByRefController } from "./interface/http/inte
 import { InternalRuntimeCrossSessionCarryOverController } from "./interface/http/internal-runtime-cross-session-carry-over.controller";
 import { InternalRuntimeCrossSessionMarkFiredController } from "./interface/http/internal-runtime-cross-session-mark-fired.controller";
 import { InternalRuntimeTaskRegistryController } from "./interface/http/internal-runtime-task-registry.controller";
+import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
 import { InternalRuntimeToolQuotaController } from "./interface/http/internal-runtime-tool-quota.controller";
 import { InternalSmokeReceiptsController } from "./interface/http/internal-smoke-receipts.controller";
 import { ResolveEffectiveSubscriptionStateService } from "./application/resolve-effective-subscription-state.service";
@@ -93,6 +94,10 @@ import { ListAssistantMemoryItemsService } from "./application/list-assistant-me
 import { ListAssistantTaskItemsService } from "./application/list-assistant-task-items.service";
 import { ListInternalAssistantTaskItemsService } from "./application/list-internal-assistant-task-items.service";
 import { ControlInternalScheduledActionService } from "./application/control-internal-scheduled-action.service";
+import { ListInternalBackgroundTaskItemsService } from "./application/list-internal-background-task-items.service";
+import { ControlInternalBackgroundTaskService } from "./application/control-internal-background-task.service";
+import { ListAssistantBackgroundTaskItemsService } from "./application/list-assistant-background-task-items.service";
+import { ControlAssistantBackgroundTaskService } from "./application/control-assistant-background-task.service";
 import { DisableAssistantTaskRegistryItemService } from "./application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
@@ -121,7 +126,6 @@ import { RollbackAssistantService } from "./application/rollback-assistant.servi
 import { PreviewAssistantSetupService } from "./application/preview-assistant-setup.service";
 import { SendNativeTelegramTurnService } from "./application/send-native-telegram-turn.service";
 import { SendNativeWebChatTurnService } from "./application/send-native-web-chat-turn.service";
-import { RunScheduledAssistantActionService } from "./application/run-scheduled-assistant-action.service";
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
@@ -137,6 +141,8 @@ import { PersaiBackgroundCompactionSchedulerService } from "./application/persai
 import { ProactivePushPolicyService } from "./application/proactive-push-policy.service";
 import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-background-compaction-job.service";
 import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
+import { InternalRuntimeBackgroundTaskClientService } from "./application/internal-runtime-background-task.client.service";
+import { PersaiBackgroundTaskSchedulerService } from "./application/persai-background-task-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
@@ -247,6 +253,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeCrossSessionMarkFiredController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeTaskRegistryController,
+    InternalRuntimeBackgroundTasksController,
     InternalRuntimeToolQuotaController,
     InternalSmokeReceiptsController,
     AdminForceReapplyController,
@@ -296,10 +303,11 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
+    PersaiBackgroundTaskSchedulerService,
     ProactivePushPolicyService,
     EnqueueBackgroundCompactionJobService,
     InternalRuntimeCompactionClientService,
-    RunScheduledAssistantActionService,
+    InternalRuntimeBackgroundTaskClientService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
@@ -363,6 +371,10 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ListAssistantTaskItemsService,
     ListInternalAssistantTaskItemsService,
     ControlInternalScheduledActionService,
+    ListInternalBackgroundTaskItemsService,
+    ControlInternalBackgroundTaskService,
+    ListAssistantBackgroundTaskItemsService,
+    ControlAssistantBackgroundTaskService,
     DisableAssistantTaskRegistryItemService,
     EnableAssistantTaskRegistryItemService,
     CancelAssistantTaskRegistryItemService,

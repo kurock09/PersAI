@@ -100,6 +100,45 @@ describe("AdminPresetsPage tool prompt defaults", () => {
     expect(guidance.readOnly).toBe(true);
   });
 
+  it("resets prompt templates through the API and refreshes the editor text", async () => {
+    const customPreset = {
+      id: "system",
+      template: "Custom system template",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    const resetPreset = {
+      id: "system",
+      template: "Factory system template",
+      updatedAt: "2026-01-02T00:00:00.000Z"
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({ presets: [customPreset] });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      if (url.endsWith("/api/v1/admin/prompt-templates/system/reset-to-default")) {
+        expect(init?.method).toBe("POST");
+        return jsonResponse({ preset: resetPreset });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findByText("Custom system template");
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+
+    await screen.findByText("Factory system template");
+    expect(screen.queryByText("Custom system template")).not.toBeInTheDocument();
+  });
+
   it("resets a tool override back to code defaults and read-only mode", async () => {
     const overrideTool = makeTool({
       modelDescription: "Custom override description",

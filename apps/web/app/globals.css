@@ -136,6 +136,36 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+textarea {
+  resize: vertical;
+  scrollbar-gutter: stable;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+textarea:focus-visible {
+  box-shadow: 0 0 0 1px var(--ring);
+}
+
+textarea::-webkit-resizer {
+  border-radius: 0 0 10px 0;
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(122, 155, 130, 0.22) 50%) bottom right / 13px 13px
+      no-repeat,
+    linear-gradient(135deg, transparent 58%, rgba(232, 226, 216, 0.16) 58%) bottom right / 9px 9px
+      no-repeat;
+}
+
+:root.light textarea::-webkit-resizer {
+  background:
+    linear-gradient(135deg, transparent 50%, rgba(90, 120, 100, 0.26) 50%) bottom right / 13px 13px
+      no-repeat,
+    linear-gradient(135deg, transparent 58%, rgba(31, 26, 18, 0.14) 58%) bottom right / 9px 9px
+      no-repeat;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
