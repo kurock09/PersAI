@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   Send,
@@ -321,6 +321,7 @@ function ConnectedView({
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [claimCodeCopied, setClaimCodeCopied] = useState(false);
   const [claimHelpOpen, setClaimHelpOpen] = useState(false);
+  const shouldRefreshAfterTelegramReturnRef = useRef(false);
   const canResendOwnerMessage = Boolean(integration.bot.ownerTelegramChatId);
   const findBotUrl = bot.username ? `https://t.me/${bot.username}` : null;
 
@@ -375,6 +376,31 @@ function ConnectedView({
     }, delayMs);
     return () => window.clearTimeout(timer);
   }, [integration.connectionStatus, integration.ownerClaim.claimExpiresAt, onUpdated]);
+
+  useEffect(() => {
+    if (integration.connectionStatus !== "claim_required") {
+      shouldRefreshAfterTelegramReturnRef.current = false;
+      return;
+    }
+
+    const refreshOnceAfterReturn = () => {
+      if (!shouldRefreshAfterTelegramReturnRef.current) return;
+      if (document.visibilityState === "hidden") return;
+
+      shouldRefreshAfterTelegramReturnRef.current = false;
+      onUpdated();
+      window.setTimeout(onUpdated, 1500);
+    };
+
+    window.addEventListener("focus", refreshOnceAfterReturn);
+    window.addEventListener("pageshow", refreshOnceAfterReturn);
+    document.addEventListener("visibilitychange", refreshOnceAfterReturn);
+    return () => {
+      window.removeEventListener("focus", refreshOnceAfterReturn);
+      window.removeEventListener("pageshow", refreshOnceAfterReturn);
+      document.removeEventListener("visibilitychange", refreshOnceAfterReturn);
+    };
+  }, [integration.connectionStatus, onUpdated]);
 
   const handleSave = useCallback(async () => {
     const token = await getToken();
@@ -477,6 +503,7 @@ function ConnectedView({
     if (!findBotUrl) {
       return;
     }
+    shouldRefreshAfterTelegramReturnRef.current = true;
     openTelegramUrl(findBotUrl);
   }, [findBotUrl]);
 
@@ -624,7 +651,7 @@ function ConnectedView({
           </button>
 
           {configOpen && (
-            <div className="space-y-4 border-t border-border px-4 py-4">
+            <div className="space-y-3.5 border-t border-border px-4 py-4">
               {/* Parse mode */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-text-muted">
@@ -647,9 +674,9 @@ function ConnectedView({
                     </button>
                   ))}
                 </div>
-                {parseMode === "markdown" && (
-                  <p className="mt-1.5 text-xs text-text-muted">{t("parseModeMarkdownFootnote")}</p>
-                )}
+                <p className="mt-1.5 text-[11px] text-text-subtle">
+                  {t("parseModeMarkdownFootnote")}
+                </p>
               </div>
 
               {/* Toggles */}
@@ -663,7 +690,6 @@ function ConnectedView({
                 label={t("deepModeDefault")}
                 checked={defaultDeepModeEnabled}
                 onChange={setDefaultDeepModeEnabled}
-                description={t("deepModeDefaultDesc")}
               />
               <Toggle label={t("inboundMessages")} checked={inbound} onChange={setInbound} />
               <Toggle label={t("outboundMessages")} checked={outbound} onChange={setOutbound} />

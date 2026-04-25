@@ -7,6 +7,7 @@ import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { getSafeRedirectPathFromSearch, navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
+import { PasswordField } from "@/app/app/_components/password-field";
 import { useSearchParams } from "next/navigation";
 
 type Stage = "form" | "verify" | "forgot-request" | "forgot-code" | "forgot-password";
@@ -233,15 +234,15 @@ export default function SignInPage() {
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
                 {t("passwordLabel")}
               </label>
-              <input
-                type="password"
+              <PasswordField
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handlePasswordSubmit();
                 }}
                 placeholder={t("passwordPlaceholder")}
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
               {fieldErrors?.password && (
                 <p className="mt-1 text-xs text-destructive">{fieldErrors.password.message}</p>
@@ -461,26 +462,26 @@ export default function SignInPage() {
               <label className="mt-5 mb-1.5 block text-xs font-medium text-text-muted">
                 {t("newPasswordLabel")}
               </label>
-              <input
-                type="password"
+              <PasswordField
                 value={resetPassword}
-                onChange={(e) => setResetPassword(e.target.value)}
+                onChange={setResetPassword}
                 placeholder={t("passwordCreatePlaceholder")}
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
 
               <label className="mt-4 mb-1.5 block text-xs font-medium text-text-muted">
                 {t("confirmPasswordLabel")}
               </label>
-              <input
-                type="password"
+              <PasswordField
                 value={resetPasswordConfirm}
-                onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                onChange={setResetPasswordConfirm}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleForgotSubmitPassword();
                 }}
                 placeholder={t("confirmPasswordPlaceholder")}
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
 
               <button

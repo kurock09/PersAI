@@ -1,5 +1,129 @@
 # SESSION-HANDOFF
 
+## 2026-04-26 (Landing CTA simplification + password reveal) — Public hero has one dominant CTA and auth/profile password fields get an eye toggle (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder reviewed the public hero CTA row and noted that the three actions looked like three different button systems with inconsistent sizes. Founder also asked for a password visibility eye while entering passwords.
+
+### What changed
+
+- `apps/web/app/page.tsx` now keeps one dominant `Get started free` / `Начать бесплатно` CTA.
+- `Plans` / `Тарифы` and `Sign in` / `Войти` are now quiet same-weight text links beside it, removing the mixed button hierarchy.
+- New shared `apps/web/app/app/_components/password-field.tsx` adds a calm `Eye` / `EyeOff` reveal toggle.
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx`, `apps/web/app/sign-up/[[...sign-up]]/page.tsx`, and `apps/web/app/app/profile/page.tsx` use the shared password field.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add localized `showPassword` / `hidePassword` labels for accessibility.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/sign-in/[[...sign-in]]/page.test.tsx app/sign-up/[[...sign-up]]/page.test.tsx app/app/profile/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/page.tsx" "apps/web/app/app/_components/password-field.tsx" "apps/web/app/sign-in/[[...sign-in]]/page.tsx" "apps/web/app/sign-up/[[...sign-up]]/page.tsx" "apps/web/app/app/profile/page.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+
+### Risks / residuals
+
+- Admin/API-key password fields are unchanged; this slice targets user-facing auth/profile password entry.
+
+### Next recommended step
+
+Review the public hero on desktop and mobile to confirm the CTA rhythm feels intentionally minimal.
+
+---
+
+## 2026-04-26 (Telegram settings simplification + Markdown default) — TG config copy is quieter, new Telegram connections default to Markdown, welcome footer returns to small style (`apps/api` + `apps/web`; focused tests/typechecks green)
+
+### Why this session
+
+Founder reviewed the Telegram settings modal and public welcome screen:
+
+- Telegram settings were too noisy and had too much explanatory text for a configuration surface.
+- Telegram should use Markdown formatting by default.
+- The public welcome center still had too much text, while the previously small footer was preferred.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts` now creates new Telegram bindings with `defaultParseMode: "markdown"`.
+- `apps/api/test/telegram-integration.test.ts` asserts the new default.
+- `apps/web/app/app/_components/telegram-connect.tsx` reduces config-panel density and removes the deep-mode explanatory line from the visible settings list.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` shorten Telegram config helper copy and landing hero copy.
+- `apps/web/app/page.tsx` further compresses the central welcome text and restores the footer to a smaller, quieter link row.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts" "apps/api/test/telegram-integration.test.ts" "apps/web/app/app/_components/telegram-connect.tsx" "apps/web/app/page.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+
+### Risks / residuals
+
+- Existing Telegram bindings keep their saved parse mode until the user changes/saves settings. This slice changes the default for new connections.
+- The Telegram settings panel still exposes all controls; deeper product simplification could hide advanced settings behind a secondary section later.
+
+### Next recommended step
+
+Deploy API + web, connect a fresh Telegram bot, and confirm Markdown is selected by default and Telegram replies render formatted text.
+
+---
+
+## 2026-04-26 (Public welcome screen noise reduction) — Hero center is quieter and footer links are clearer (`apps/web`; focused typecheck green)
+
+### Why this session
+
+Founder reviewed the redesigned public welcome screen and called out that the central area was still visually noisy while the bottom footer was not clear enough.
+
+### What changed
+
+- `apps/web/app/page.tsx` replaces the three capability cards with a single quiet inline capability line.
+- Platform pills are softened: lower contrast, smaller Telegram icon, less aggressive ping opacity, and lighter inactive channel rail.
+- Footer links now sit in a compact rounded rail with better contrast and slightly larger text, while the legal line remains secondary.
+- The page remains one-screen with the primary CTA hierarchy unchanged.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/page.tsx"`
+
+### Risks / residuals
+
+- This is a visual polish slice only; no landing copy or route targets changed.
+
+### Next recommended step
+
+Review the public welcome page on desktop and mobile viewport sizes. If the footer still feels too subtle, the next micro-step is to promote only `Тарифы` and `Контакты` while keeping legal links calmer.
+
+---
+
+## 2026-04-26 (TG owner-claim return sync + mobile mic short-tap visual polish) — Telegram claim no longer needs manual page reload after explicit bot hop; mobile mic hover no longer sticks after short tap (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder decided not to add global pull-to-refresh or broad focus auto-refresh yet. The immediate painful case was Telegram owner claim: after binding/claiming through Telegram and returning to the web/app surface, the UI could remain stale until a page reload. Founder also reported that a short mobile voice tap could leave the mic button visually hovered/pressed even after the recording attempt was cancelled.
+
+### What changed
+
+- `apps/web/app/app/_components/telegram-connect.tsx` now marks a pending Telegram sync only when the user explicitly taps `Find bot`.
+- On returning from Telegram while the integration is still in `claim_required`, the component runs `onUpdated()` once and schedules one delayed follow-up check 1.5s later, catching normal owner-claim propagation without introducing broad app-focus refresh.
+- `apps/web/app/app/_components/chat-input.tsx` removes desktop `hover:*` styling from the mobile/touch mic button and blurs the button on pointer-up / pointer-cancel so short taps do not leave a sticky visual hover state.
+- `apps/web/app/app/_components/chat-input.test.tsx` extends the short-tap regression to assert the touch mic button does not carry the desktop hover class.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/telegram-connect.tsx" "apps/web/app/app/_components/chat-input.tsx" "apps/web/app/app/_components/chat-input.test.tsx"`
+
+### Risks / residuals
+
+- This is intentionally not a general refresh system. Other stale surfaces should be handled one by one with event-specific invalidation.
+- The Telegram follow-up check is bounded to one delayed retry. If Telegram/webhook propagation is much slower, the user may still need to close/reopen the Telegram settings panel or use a future explicit status check.
+
+### Next recommended step
+
+Deploy `apps/web`, then live-test owner claim on Android: tap `Find bot`, send the claim code in Telegram, return to PersAI, and confirm the Telegram settings state updates without page refresh. Also short-tap the mobile mic and confirm the icon does not stay highlighted.
+
+---
+
 ## 2026-04-25 (Telegram settings system notes localization) — Telegram architecture notes no longer render raw English inside RU UI (`apps/web`; focused typecheck green)
 
 ### Why this session

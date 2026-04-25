@@ -634,6 +634,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       } catch {
         /* best-effort */
       }
+      e.currentTarget.blur();
       if (cancelArmedRef.current || heldMs < HOLD_MIN_MS) {
         cancelRecording();
       } else {
@@ -645,14 +646,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     [cancelRecording, stopRecording]
   );
 
-  const handleMicPointerCancel = useCallback(() => {
-    if (!holdActiveRef.current) return;
-    holdActiveRef.current = false;
-    touchRecordingIntentActiveRef.current = false;
-    cancelRecording();
-    cancelArmedRef.current = false;
-    setCancelArmed(false);
-  }, [cancelRecording]);
+  const handleMicPointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.blur();
+      if (!holdActiveRef.current) return;
+      holdActiveRef.current = false;
+      touchRecordingIntentActiveRef.current = false;
+      cancelRecording();
+      cancelArmedRef.current = false;
+      setCancelArmed(false);
+    },
+    [cancelRecording]
+  );
 
   return (
     <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
@@ -976,7 +981,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 "mb-0.5 rounded-lg p-2 transition-colors select-none",
                 disabled || isStreaming
                   ? "cursor-default text-text-subtle/40"
-                  : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
+                  : isTouchDevice
+                    ? "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted"
+                    : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
                 isTouchDevice && isRecording && !cancelArmed && "bg-accent/15 text-accent",
                 isTouchDevice && isRecording && cancelArmed && "bg-destructive/15 text-destructive"
               )}

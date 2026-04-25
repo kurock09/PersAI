@@ -212,5 +212,6 @@ describe("ChatInput", () => {
     });
     expect(mediaRecorder).not.toHaveBeenCalled();
     expect(screen.queryByRole("status", { name: "recording" })).toBeNull();
+    expect(mic).not.toHaveClass("hover:bg-surface-hover");
   });
 });

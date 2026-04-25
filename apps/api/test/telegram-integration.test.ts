@@ -263,6 +263,7 @@ async function run(): Promise<void> {
     assert.equal(connected.bot.username, "persai_bot");
     assert.equal(connected.configPanel.available, true);
     assert.equal(connected.configPanel.settings.autoCompactionEnabled, true);
+    assert.equal(connected.configPanel.settings.defaultParseMode, "markdown");
     assert.equal(connected.ownerClaim.required, true);
     assert.equal(connected.ownerClaim.status, "pending");
     assert.match(connected.ownerClaim.code ?? "", /^\d{6}$/);

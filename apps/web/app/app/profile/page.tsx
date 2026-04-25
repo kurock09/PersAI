@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useClerkAvatar } from "../_components/use-clerk-avatar";
+import { PasswordField } from "../_components/password-field";
 
 export default function ProfilePage() {
   const { user } = useUser();
@@ -177,7 +178,7 @@ export default function ProfilePage() {
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <div className="rounded-2xl border border-border bg-surface p-5">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-            <div className="relative">
+            <div className="relative w-24 shrink-0 self-start">
               <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border/70 bg-surface-raised text-2xl font-bold text-accent shadow-sm">
                 {profileImage && !profileImageBroken ? (
                   <img
@@ -292,35 +293,38 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <label className="block">
               <span className="mb-1 block text-xs text-text-muted">{t("currentPassword")}</span>
-              <input
-                type="password"
+              <PasswordField
                 value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+                onChange={setCurrentPassword}
+                className="px-3 py-2.5"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
             </label>
             <label className="block">
               <span className="mb-1 block text-xs text-text-muted">{t("newPassword")}</span>
-              <input
-                type="password"
+              <PasswordField
                 value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+                onChange={setNewPassword}
+                className="px-3 py-2.5"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
             </label>
             <label className="block">
               <span className="mb-1 block text-xs text-text-muted">{t("confirmPassword")}</span>
-              <input
-                type="password"
+              <PasswordField
                 value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                onChange={setConfirmPassword}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
                     void handlePasswordSave();
                   }
                 }}
-                className="w-full rounded-xl border border-border bg-surface-raised px-3 py-2.5 text-sm text-text outline-none transition-colors focus:border-accent"
+                className="px-3 py-2.5"
+                showLabel={t("showPassword")}
+                hideLabel={t("hidePassword")}
               />
             </label>
           </div>
