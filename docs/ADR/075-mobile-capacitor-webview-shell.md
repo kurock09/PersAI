@@ -1,7 +1,8 @@
 # ADR-075: Mobile delivery via Capacitor WebView shell over `persai.dev`
 
-**Status:** Accepted (spike verified, production rollout pending)  
+**Status:** Accepted (spike verified end-to-end on Android; live-verified by founder; production rollout pending)  
 **Date:** 2026-04-23  
+**Updated:** 2026-04-25 — rewrote Back-button section to match the shipped JS-driven `@capacitor/app` design (manual `MainActivity.onBackPressed` override and `pushState`-marker overlay-close were both abandoned post-spike on the same day); documented the Android `DownloadManager` attachment path that also landed post-spike.  
 **Relates to:** ADR-072 (PersAI-native baseline), ADR-073/074 (UX polish program)
 
 ## Context
@@ -24,14 +25,22 @@ Adopt **Capacitor 8 as a thin WebView shell** that loads the live `persai.dev` o
 
 Concretely:
 
-- **Repository:** `persai-mobile` (private GitHub) lives next to `PersAI` on disk and as a separate remote. It owns `capacitor.config.ts`, `android/`, `ios/`, the placeholder `www/`, and the small `MainActivity.java` override that wires the Android hardware Back gesture into `webView.goBack()`.
+- **Repository:** `persai-mobile` (private GitHub) lives next to `PersAI` on disk and as a separate remote. It owns `capacitor.config.ts`, `android/`, `ios/`, the placeholder `www/`, and a small `MainActivity.java` extension of `BridgeActivity` that wires native attachment downloads (see "Attachment download path" below) and otherwise delegates Back-button handling to the JavaScript layer.
 - **Web origin:** the shell loads `https://persai.dev` directly. No assets are bundled into the app binary, so any web deploy reaches mobile users immediately on the next app launch — no app-store re-review.
 - **`allowNavigation`:** restricted to `persai.dev`, `*.persai.dev`, `accounts.google.com`, `*.googleusercontent.com` so OAuth round-trips stay inside the WebView instead of bouncing to the system browser. (`accounts.google.com` is retained as forward-compatibility for when Google OAuth comes back online — it currently sits behind the email-only auth path resolved separately.)
 - **Native permissions:**
-  - Android `AndroidManifest.xml`: `INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS` for `MediaRecorder`-based voice input.
+  - Android `AndroidManifest.xml`: `INTERNET`, `RECORD_AUDIO`, `MODIFY_AUDIO_SETTINGS` for `MediaRecorder`-based voice input, plus `WRITE_EXTERNAL_STORAGE` (`android:maxSdkVersion="28"`) for legacy `DownloadManager` writes on API ≤ 28. A `FileProvider` (`${applicationId}.fileprovider`, `xml/file_paths.xml`) is declared for sharing downloaded attachments with external apps.
   - iOS `Info.plist`: `NSMicrophoneUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`.
-- **Hardware Back integration:** `MainActivity` overrides `onBackPressed()` to delegate to `WebView.goBack()` when there is web history, falling back to default Activity finish on the root URL. This makes Back navigate between chats and out of overlays the same way the desktop browser Back button does, instead of unexpectedly closing the app.
-- **Web-side Back support for client overlays:** the `apps/web` codebase landed two new hooks during the same session — `useHistoryBackToClose` and `useTouchDevice` (`apps/web/app/app/_components/`). The `SlideOver` component and the mobile slide-out sidebar in `app-shell.tsx` now push a marked history entry on open and listen for `popstate` to close, so hardware Back dismisses overlays instead of leaving the screen. This also gives desktop browser Back the same behaviour on narrow widths and keeps deep-link safety intact.
+- **Hardware Back integration (JS-driven via `@capacitor/app`).** During the spike a manual `MainActivity.onBackPressed()` override that delegated to `WebView.goBack()` was tried first (commit `a77bc03`), but it stopped firing on Android 14+ where `Activity#onBackPressed` is deprecated and the new `OnBackPressedDispatcher` interacts unpredictably with Next.js App Router pushState entries inside a WebView, leaving the hardware Back button effectively dead. The shipped design instead delegates Back entirely to the JS layer:
+  - `MainActivity` no longer overrides Back; it only attaches a `DownloadListener` for attachments.
+  - `apps/web/app/app/_components/back-button-bridge.tsx` mounts once near the root of the App Router tree and subscribes to `@capacitor/app`'s `backButton` event. Resolution order on a press: (1) topmost overlay handler from the JS stack, (2) soft pop via `window.history.back()` when `canGoBack` is true so App Router handles the route change, (3) `App.exitApp()` at the root.
+  - `apps/web/app/app/_components/back-handler-stack.ts` is a module-level LIFO stack; modals/lightboxes/sidebars push their close handler on open and pop it on close. There is one Capacitor listener per session.
+  - This path is portable across Android 13/14/15 because it bypasses both the deprecated `onBackPressed` and the new dispatcher, and matches WebView history with App Router's pushState entries through pure JS.
+- **Web-side overlay-close hooks for the same Back path.** `apps/web` ships two hooks under `apps/web/app/app/_components/`:
+  - `useHistoryBackToClose(open, onClose)` — registers `onClose` on the back-handler stack while `open` is true. An earlier spike implementation pushed a marker history entry on open and listened for `popstate`; that worked for leaf modals but corrupted the history stack whenever the overlay also contained a `router.push` link (mobile sidebar tapping a chat). The stack approach has no history side effects, so it composes cleanly with router pushes inside an open overlay.
+  - `useTouchDevice()` — `(hover: none) and (pointer: coarse)` media-query feature detection used by the chat composer and sidebar/chat row affordances; SSR-safe and hardened against jsdom's missing `matchMedia` for unit tests.
+  - `SlideOver` and the mobile slide-out sidebar in `app-shell.tsx` consume `useHistoryBackToClose`, so hardware Back (and desktop browser Back on narrow widths) dismisses overlays instead of leaving the screen. Deep-link safety is preserved because no marker entries pollute the history stack.
+- **Attachment download path (Android `DownloadManager`).** The WebView ignores the HTML5 `download` attribute and cannot natively render PDFs, so attachment links either did nothing visible (txt) or showed a blank page (pdf). `MainActivity#handleDownload` attaches a `DownloadListener` that re-issues every attachment URL through `DownloadManager` with the WebView's session cookie (so the proxy `/api/attachment/[id]` route can verify the user) and writes the file to the system Downloads folder. A last-resort `Intent.ACTION_VIEW` fallback covers cases where `DownloadManager` rejects the URL (e.g. `data:` URIs). This is shell-side only — the web app keeps emitting ordinary attachment URLs, no mobile-specific code lives in `apps/web`.
 - **Touch-friendly UX corrections** in the same wave:
   - Sidebar chat row kebab is `opacity-70` on touch viewports and `md:opacity-0 md:group-hover:opacity-100` on desktop, matching the existing convention in `chat-area.tsx`.
   - Composer Enter handling is gated by `useTouchDevice()` — on phones/tablets Enter inserts a newline and the Send button is the only submit affordance; on desktop the existing Enter-to-send / Shift-Enter-to-newline behaviour is preserved.
@@ -39,13 +48,14 @@ Concretely:
 
 ## Verified spike outcome
 
-The Android shell was built with Android Studio and run on a Samsung SM-F966B (Galaxy Z Fold 6, Android) over USB ADB. Verified end-to-end:
+The Android shell was built with Android Studio and run on a Samsung SM-F966B (Galaxy Z Fold 6, Android) over USB ADB. Verified end-to-end on the shipped JS-driven Back design:
 
 - email sign-in completes through the Clerk proxy on `persai.dev`
 - voice message: `MediaRecorder` records, uploads, transcribes, the assistant replies
 - assistant response streams into the WebView in real time
 - session persists across app cold-restart (cookies retained)
-- system Back navigates between chats; with the web-side history fixes above it also dismisses slide-overs and the mobile sidebar instead of closing the app
+- system hardware Back: closes the topmost overlay (slide-over, lightbox, mobile sidebar) when one is open; otherwise navigates the App Router history (chat ↔ chat); exits the app at the root — same on Android 13/14/15 with no manual `onBackPressed` override
+- attachment download: tapping a `pdf` / `txt` / image attachment surfaces a system Downloads notification, the file lands in `/Download`, and the user can open it with their installed viewer
 
 This is sufficient to retire the "is the WebView shell viable for PersAI?" question with a clear yes.
 

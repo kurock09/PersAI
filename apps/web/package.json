@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.1.0",
     "@capacitor/core": "^8.3.1",
+    "@capacitor/network": "^8.0.1",
     "@clerk/backend": "^3.2.2",
     "@clerk/clerk-js": "^6.4.0",
     "@clerk/nextjs": "^7.0.6",

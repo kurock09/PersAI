@@ -1,5 +1,58 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (mid-day) — ADR-075 reconciliation pass: align doc with shipped JS-driven Back + DownloadManager paths, surface in CHANGELOG/SESSION-HANDOFF, clean both repos
+
+### Why this session
+
+Founder confirmed live-verification of the Capacitor mobile shell on Samsung Z Fold 6 (`Сейчас все работает`) and asked to bring both repos to a clean state before the next task. ADR-075 had been written at the spike point on 2026-04-23 and had not been refreshed since, while the actual code on both `PersAI` and `persai-mobile` had moved past it on the same day in two material ways:
+
+1. **Hardware Back implementation** — the ADR described a `MainActivity.onBackPressed()` override that delegated to `WebView.goBack()`, plus a `pushState`-marker overlay-close on the web side. Both were tried during the spike (`persai-mobile` `a77bc03`, `PersAI` `2ef74e97`), and both were replaced the same day with a fully JS-driven design (`persai-mobile` `c3197bf` `feat(android): delegate Back button to @capacitor/app JS plugin`; `PersAI` `4528ec09` `fix(web): JS-driven back button via @capacitor/app plugin`). The replacement uses `@capacitor/app` plus a module-level LIFO `back-handler-stack.ts`. Reasons live in the file headers (deprecated `Activity#onBackPressed` on Android 14+, `OnBackPressedDispatcher` interacting badly with App Router pushState inside a WebView, and `pushState` markers corrupting history when an open overlay also contained a `router.push` like the mobile sidebar tapping a chat).
+2. **Attachment download path** — `persai-mobile` `74a5e88` (`feat(android): route attachment downloads through DownloadManager`) added a real native attachment-download capability (Android `DownloadManager`, session-cookie passthrough for the proxy `/api/attachment/[id]` route, legacy `WRITE_EXTERNAL_STORAGE` permission for API ≤ 28, `FileProvider` for sharing). ADR-075 did not mention any of this.
+
+Neither change was reflected in `docs/CHANGELOG.md` or `docs/SESSION-HANDOFF.md` — a doc-vs-code divergence per the AGENTS.md rule "if architecture/API/data model/workflow changes, update docs in the same slice".
+
+This session is bounded to documentation reconciliation + light cleanup. No code behaviour changed.
+
+### What changed
+
+- **`docs/ADR/075-mobile-capacitor-webview-shell.md`** — rewrote the `## Decision` section's bullets on hardware Back and overlay-close hooks to describe the shipped JS-driven design; explicitly preserved the spike-history note that a manual `onBackPressed` override (`a77bc03`) and `pushState`-marker overlays were tried first and abandoned. Added a new dedicated bullet "Attachment download path (Android `DownloadManager`)" describing the `MainActivity#handleDownload`-listener path, the WebView session-cookie passthrough required by the authenticated `/api/attachment/[id]` proxy route, the legacy `WRITE_EXTERNAL_STORAGE` permission scoped to `android:maxSdkVersion="28"`, and the `FileProvider` declaration. Updated the `## Verified spike outcome` section to enumerate the JS-driven Back behaviour explicitly (closes topmost overlay → soft pop App Router history → `App.exitApp()` at root, identical on Android 13/14/15) and to add the attachment-download verification line. Added an `Updated:` field in the front-matter block recording the 2026-04-25 reconciliation.
+- **`docs/CHANGELOG.md`** — added a top-of-file entry titled "ADR-075 mobile delivery via Capacitor WebView shell — accepted and live-verified on Android" that summarises the accepted decision, the cross-platform UX additions in `apps/web` (`useTouchDevice`, `useHistoryBackToClose`, composer Enter behaviour, `min-w-0 max-w-full break-words [overflow-wrap:anywhere]` on assistant body, `overflow-x-hidden` on chat scroll, kebab opacity convention), the JS-driven Back design and why it replaced the spike's manual native override, the native shell capabilities in `persai-mobile`, the repo/ownership boundary, the live-verification matrix on Z Fold 6, and the explicit "production rollout still pending" list.
+- **`docs/SESSION-HANDOFF.md`** — this entry.
+- **`persai-mobile`** — phantom CRLF/LF diffs on `android/app/capacitor.build.gradle` and `android/capacitor.settings.gradle` (Windows checkout artifact under `core.autocrlf=true`) were reset via `git checkout --` so the working tree is now genuinely clean; no real content changed.
+- **`apps/web/package.json` + `pnpm-lock.yaml`** — `@capacitor/camera ^8.1.0` and `@capacitor/network ^8.0.1` were installed in a prior session and left uncommitted. Neither is referenced from any source file in `apps/web` yet. Founder confirmed in this session that they were pre-installed for the next mobile slice (richer in-app camera capture + offline-state detection in `apps/web`) and should ship in the same commit as the doc reconciliation, with the explicit note recorded in the CHANGELOG entry above. Same JS-glue model as `@capacitor/app`: plugin lives in the web codebase, native side wires up via `cap sync` on the mobile shell.
+
+### Files touched
+
+- `docs/ADR/075-mobile-capacitor-webview-shell.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- (sibling repo) `persai-mobile/README.md` — reflect the shipped state
+- (sibling repo) `persai-mobile` working-tree reset (no files changed in the index)
+
+### Verification gate
+
+Per AGENTS.md, doc-only changes still must pass repo gates:
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+The doc edits do not touch code paths, so all four are expected clean.
+
+### Known follow-ups (out of scope)
+
+- ADR-075 "Production rollout plan" (production web origin pick + `allowNavigation` tightening, production icons/splash, Google Play internal track, Apple Developer enrolment + first TestFlight) is intentionally still pending — flagged in the ADR's "Open questions" + "Production rollout plan" sections, not in this session.
+- Push notifications path (APNs/FCM via `@capacitor/push-notifications` versus keeping Telegram as the async channel) is a product call deferred to the production rollout slice.
+- In-app camera UI (`@capacitor/camera`) deferred until it becomes a real product ask; the iOS `NSCameraUsageDescription` already declares the permission for forward-compatibility.
+- `persai-mobile` `android/app/src/main/res/values/styles.xml` references `@drawable/splash`, but no `splash.png` / `splash.xml` is checked in. Live builds work because Capacitor's Android template + `cap sync` regenerate it; ADR-075's rollout plan calls out generating production-grade icons + splash as a pre-store-release requirement, so this is not a blocker for the current dev/spike state.
+
+### Commit posture
+
+This session edits files but does not commit anything per AGENTS.md "no git push unless the user explicitly asks" and the workspace skill's "Only create commits when requested by the user." Both repos' working trees carry the doc updates ready for review; the founder will decide whether to land them as one commit per repo or roll them into the next task.
+
+---
+
 ## 2026-04-23 (late-night scheduled_action contract cleanup) — explicit `user_reminder` / `assistant_check` create modes replace audience-coercion guessing
 
 ### Why this session
