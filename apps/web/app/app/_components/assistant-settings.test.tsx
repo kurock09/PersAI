@@ -490,6 +490,84 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
   });
 });
 
+describe("AssistantSettings limits", () => {
+  it("shows only capped limits and localizes tool names", () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: null,
+            trialEndsAt: null,
+            currentPeriodEndsAt: null,
+            isTrialPlan: false
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [
+              {
+                bucketCode: "media_storage_bytes",
+                displayName: "Media storage",
+                unit: "bytes",
+                used: 1024,
+                limit: null,
+                percent: null,
+                usageAvailable: true,
+                status: "ok"
+              },
+              {
+                bucketCode: "knowledge_storage_bytes",
+                displayName: "Knowledge storage",
+                unit: "bytes",
+                used: 2048,
+                limit: 10240,
+                percent: 20,
+                usageAvailable: true,
+                status: "ok"
+              }
+            ],
+            toolDailyLimits: [
+              {
+                toolCode: "exec",
+                displayName: "Exec",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                active: true
+              },
+              {
+                toolCode: "image_generate",
+                displayName: "Image Generate",
+                dailyCallLimit: 20,
+                dailyCallsUsed: 2,
+                active: true
+              }
+            ]
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
+    expect(screen.queryByText("Media storage")).toBeNull();
+    expect(screen.getByText("Image generation")).toBeInTheDocument();
+    expect(screen.getByText("2/20")).toBeInTheDocument();
+    expect(screen.queryByText("Exec")).toBeNull();
+    expect(screen.queryByText("∞")).toBeNull();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Smoke: NextIntl wrapping behaviour (sanity check that the test harness
 // renders without throwing — guards against future breakage of the helper).

@@ -263,6 +263,7 @@ export interface AssistantWebChatStreamHandlers {
 export type WebChatUxIssueClass =
   | "auth_session"
   | "input_validation"
+  | "voice_transcription_empty"
   | "assistant_not_live"
   | "active_chat_cap"
   | "quota_limit_reached"
@@ -575,7 +576,7 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     normalized.includes("voice transcription returned empty")
   ) {
     return {
-      classId: "input_validation",
+      classId: "voice_transcription_empty",
       message: "No speech was detected in your recording.",
       guidance:
         "Check that the correct microphone is selected in your browser settings and that it is not muted."

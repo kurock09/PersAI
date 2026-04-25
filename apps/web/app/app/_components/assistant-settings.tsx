@@ -18,7 +18,8 @@ import {
   Loader2,
   AlertTriangle,
   Upload,
-  SlidersHorizontal
+  SlidersHorizontal,
+  ChevronRight
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
@@ -72,6 +73,7 @@ import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 interface AssistantSettingsProps {
   data: AppData;
   initialSection?: string | undefined;
+  onOpenTelegramSettings?: (() => void) | undefined;
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
@@ -429,7 +431,11 @@ export function mergeMemoryViews(
   return { workspace, history };
 }
 
-export function AssistantSettings({ data, initialSection }: AssistantSettingsProps) {
+export function AssistantSettings({
+  data,
+  initialSection,
+  onOpenTelegramSettings
+}: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
   const t = useTranslations("settings");
@@ -453,6 +459,25 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
     active_web_chats: t("activeChats"),
     media_storage_bytes: t("mediaStorage"),
     knowledge_storage_bytes: t("knowledgeStorage")
+  };
+  const limitedQuotaBuckets =
+    data.plan?.limits.quotaBuckets.filter((bucket) => bucket.limit !== null) ?? [];
+  const limitedToolDailyLimits =
+    data.plan?.limits.toolDailyLimits.filter((tool) => tool.dailyCallLimit !== null) ?? [];
+  const toolLimitLabels: Record<string, string> = {
+    browser: t("toolLimitBrowser"),
+    exec: t("toolLimitExec"),
+    files: t("toolLimitFiles"),
+    image_edit: t("toolLimitImageEdit"),
+    image_generate: t("toolLimitImageGenerate"),
+    knowledge_fetch: t("toolLimitKnowledgeFetch"),
+    knowledge_search: t("toolLimitKnowledgeSearch"),
+    scheduled_action: t("toolLimitScheduledAction"),
+    shell: t("toolLimitShell"),
+    text_to_speech: t("toolLimitTextToSpeech"),
+    video_generate: t("toolLimitVideoGenerate"),
+    web_fetch: t("toolLimitWebFetch"),
+    web_search: t("toolLimitWebSearch")
   };
   const formatQuotaBucketValue = (bucket: QuotaBucketState): string => {
     const limitLabel =
@@ -1971,6 +1996,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
               data.telegram?.connectionStatus === "connected" ||
               data.telegram?.connectionStatus === "claim_required"
             }
+            onClick={onOpenTelegramSettings}
           />
           <ChannelRow name="WhatsApp" comingSoon />
           <ChannelRow name="MAX" comingSoon />
@@ -2032,7 +2058,7 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 <span className="text-[11px] text-text-muted">{data.plan.effectivePlan.code}</span>
               )}
             </div>
-            {data.plan.limits.quotaBuckets.map((bucket) => (
+            {limitedQuotaBuckets.map((bucket) => (
               <LimitBar
                 key={bucket.bucketCode}
                 label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
@@ -2041,11 +2067,11 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                 unavailable={!bucket.usageAvailable}
               />
             ))}
-            {data.plan.limits.toolDailyLimits.length > 0 && (
+            {limitedToolDailyLimits.length > 0 && (
               <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
                 <p className="mb-2 text-xs font-medium text-text">{t("toolLimits")}</p>
                 <ul className="space-y-1.5">
-                  {data.plan.limits.toolDailyLimits.map((tool) => (
+                  {limitedToolDailyLimits.map((tool) => (
                     <li key={tool.toolCode} className="flex items-center gap-2 text-[11px]">
                       <span
                         className={cn(
@@ -2055,11 +2081,11 @@ export function AssistantSettings({ data, initialSection }: AssistantSettingsPro
                             : "bg-accent"
                         )}
                       />
-                      <span className="min-w-0 flex-1 truncate text-text">{tool.displayName}</span>
+                      <span className="min-w-0 flex-1 truncate text-text">
+                        {toolLimitLabels[tool.toolCode] ?? tool.displayName}
+                      </span>
                       <span className="shrink-0 tabular-nums text-text-muted">
-                        {tool.dailyCallLimit === null
-                          ? "∞"
-                          : `${tool.dailyCallsUsed}/${tool.dailyCallLimit}`}
+                        {tool.dailyCallsUsed}/{tool.dailyCallLimit}
                       </span>
                     </li>
                   ))}
@@ -2108,15 +2134,18 @@ const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
 function ChannelRow({
   name,
   connected,
-  comingSoon
+  comingSoon,
+  onClick
 }: {
   name: string;
   connected?: boolean;
   comingSoon?: boolean;
+  onClick?: (() => void) | undefined;
 }) {
   const t = useTranslations("settings");
-  return (
-    <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2", comingSoon && "opacity-50")}>
+  const interactive = Boolean(onClick) && !comingSoon;
+  const content = (
+    <>
       <span
         className={cn(
           "inline-block h-2 w-2 rounded-full",
@@ -2126,6 +2155,25 @@ function ChannelRow({
       <span className="text-xs text-text-muted">{name}</span>
       {comingSoon && <span className="text-[10px] text-text-subtle">{t("channelComingSoon")}</span>}
       {connected && <span className="text-[10px] text-success">{t("channelConnected")}</span>}
+      {interactive && <ChevronRight className="ml-auto h-3.5 w-3.5 text-text-subtle" />}
+    </>
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-surface-hover"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={cn("flex items-center gap-2 rounded-lg px-3 py-2", comingSoon && "opacity-50")}>
+      {content}
     </div>
   );
 }

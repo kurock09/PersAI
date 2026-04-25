@@ -216,16 +216,42 @@ async function run(): Promise<void> {
   );
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify({
-        ok: true,
-        result: { id: 777, first_name: "PersAI Bot", username: "persai_bot" }
-      }),
-      {
-        status: 200
-      }
-    )) as typeof fetch;
+  const originalEnv = {
+    APP_ENV: process.env.APP_ENV,
+    DATABASE_URL: process.env.DATABASE_URL,
+    CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+    PERSAI_INTERNAL_API_TOKEN: process.env.PERSAI_INTERNAL_API_TOKEN,
+    TELEGRAM_WEBHOOK_BASE_URL: process.env.TELEGRAM_WEBHOOK_BASE_URL,
+    TELEGRAM_WEBHOOK_HMAC_SECRET: process.env.TELEGRAM_WEBHOOK_HMAC_SECRET
+  };
+  process.env.APP_ENV = "local";
+  process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/persai";
+  process.env.CLERK_SECRET_KEY = "sk_test_123";
+  process.env.PERSAI_INTERNAL_API_TOKEN = "internal-token";
+  process.env.TELEGRAM_WEBHOOK_BASE_URL = "https://bot.persai.dev";
+  process.env.TELEGRAM_WEBHOOK_HMAC_SECRET = "0123456789abcdef0123456789abcdef";
+  const fetchCalls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    fetchCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+    if (url.includes("/getMe")) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: { id: 777, first_name: "PersAI Bot", username: "persai_bot" }
+        }),
+        {
+          status: 200
+        }
+      );
+    }
+    if (url.includes("/setWebhook")) {
+      return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: false, description: "unexpected request" }), {
+      status: 500
+    });
+  }) as typeof fetch;
   try {
     const connected = await connectService.execute("user-1", {
       botToken: "123456:ABCDEF01234567890123"
@@ -241,6 +267,13 @@ async function run(): Promise<void> {
     assert.equal(connected.ownerClaim.status, "pending");
     assert.match(connected.ownerClaim.code ?? "", /^\d{6}$/);
     assert.notEqual(connected.ownerClaim.claimExpiresAt, null);
+    const webhookCall = fetchCalls.find((call) => call.url.includes("/setWebhook"));
+    assert.ok(webhookCall, "connect must register the Telegram webhook");
+    assert.deepEqual(webhookCall.body, {
+      url: "https://bot.persai.dev/telegram-webhook/assistant-1",
+      secret_token: "7f5ae9d50e575605e0900f58bbcd8eac8080c6fac0e80d4177aa6069016d6eb8",
+      allowed_updates: ["message"]
+    });
 
     applyCallCount = 0;
     const updated = await updateConfigService.execute("user-1", {
@@ -284,6 +317,13 @@ async function run(): Promise<void> {
     assert.equal(emergencyRevoked.secretLifecycle.revokeReason, "incident response");
   } finally {
     globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 }
 

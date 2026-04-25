@@ -138,7 +138,7 @@ export class ManageAssistantAvatarService {
         .rotate()
         .resize(AVATAR_NORMALIZED_DIMENSION, AVATAR_NORMALIZED_DIMENSION, {
           fit: "cover",
-          position: "attention",
+          position: "center",
           withoutEnlargement: false
         })
         .jpeg({ quality: AVATAR_NORMALIZED_QUALITY, mozjpeg: true })

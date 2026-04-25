@@ -448,6 +448,8 @@ function AttachmentStrip({
                 <ImageLightbox
                   open={openImageId === att.id}
                   src={fullUrl}
+                  downloadUrl={downloadUrl ?? fullUrl}
+                  filename={att.originalFilename ?? undefined}
                   alt={att.originalFilename ?? undefined}
                   onClose={() => setOpenImageId(null)}
                 />

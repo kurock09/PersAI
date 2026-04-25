@@ -7,7 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { X } from "lucide-react";
+import { Download, Share2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
@@ -15,6 +15,8 @@ import { useHistoryBackToClose } from "./use-history-back-to-close";
 interface ImageLightboxProps {
   open: boolean;
   src: string;
+  downloadUrl?: string | undefined;
+  filename?: string | undefined;
   alt?: string | undefined;
   onClose: () => void;
 }
@@ -23,6 +25,11 @@ const SCALE_STEPS = [1, 2, 4] as const;
 const WHEEL_SENSITIVITY = 0.0015;
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
+
+function safeImageFilename(filename: string | undefined): string {
+  const trimmed = filename?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : "persai-image.jpg";
+}
 
 /**
  * Full-screen image viewer used in chat for tapping image attachments.
@@ -44,10 +51,18 @@ const MAX_SCALE = 6;
  *   - When zoomed in, single-finger drag pans the image.
  *   - Tap on the dark backdrop or the close button dismisses the lightbox.
  */
-export function ImageLightbox({ open, src, alt, onClose }: ImageLightboxProps) {
+export function ImageLightbox({
+  open,
+  src,
+  downloadUrl,
+  filename,
+  alt,
+  onClose
+}: ImageLightboxProps) {
   const t = useTranslations("chat");
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [sharing, setSharing] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Active pointer tracking for pinch + drag.
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -74,6 +89,7 @@ export function ImageLightbox({ open, src, alt, onClose }: ImageLightboxProps) {
     if (!open) {
       setScale(1);
       setPan({ x: 0, y: 0 });
+      setSharing(false);
       pointersRef.current.clear();
       pinchRef.current = null;
       dragRef.current = null;
@@ -248,9 +264,57 @@ export function ImageLightbox({ open, src, alt, onClose }: ImageLightboxProps) {
     }
   }, []);
 
+  const triggerDownload = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const anchor = document.createElement("a");
+    anchor.href = downloadUrl ?? src;
+    anchor.download = safeImageFilename(filename ?? alt);
+    anchor.rel = "noopener";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  }, [alt, downloadUrl, filename, src]);
+
+  const handleShare = useCallback(async () => {
+    if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+      triggerDownload();
+      return;
+    }
+
+    setSharing(true);
+    try {
+      const shareTitle = safeImageFilename(filename ?? alt);
+      const response = await fetch(src);
+      const blob = await response.blob();
+      const file = new File([blob], shareTitle, {
+        type: blob.type || "image/jpeg"
+      });
+      const fileShare: ShareData = {
+        title: shareTitle,
+        files: [file]
+      };
+      if (typeof navigator.canShare === "function" && navigator.canShare(fileShare)) {
+        await navigator.share(fileShare);
+        return;
+      }
+      await navigator.share({
+        title: shareTitle,
+        url: new URL(src, window.location.href).href
+      });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        triggerDownload();
+      }
+    } finally {
+      setSharing(false);
+    }
+  }, [alt, filename, src, triggerDownload]);
+
   if (!open) return null;
 
   const closeLabel = t("lightboxClose");
+  const saveLabel = t("lightboxSave");
+  const shareLabel = t("lightboxShare");
 
   return (
     <div
@@ -262,18 +326,49 @@ export function ImageLightbox({ open, src, alt, onClose }: ImageLightboxProps) {
       onClick={onClose}
       onWheel={handleWheel}
     >
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        aria-label={closeLabel}
-        title={closeLabel}
-        className="absolute top-3 right-3 z-10 rounded-full bg-black/40 p-2 text-white/90 backdrop-blur transition hover:bg-black/60 hover:text-white"
-      >
-        <X className="h-5 w-5" />
-      </button>
+      <div className="absolute top-3 right-3 left-3 z-10 flex items-center justify-end gap-2">
+        <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/45 p-1 text-white/90 shadow-lg shadow-black/20 backdrop-blur-md">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerDownload();
+            }}
+            aria-label={saveLabel}
+            title={saveLabel}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">{saveLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void handleShare();
+            }}
+            disabled={sharing}
+            aria-label={shareLabel}
+            title={shareLabel}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
+          >
+            <Share2 className="h-4 w-4" />
+            <span className="hidden sm:inline">{shareLabel}</span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            aria-label={closeLabel}
+            title={closeLabel}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
       <img
         src={src}
         alt={alt ?? ""}

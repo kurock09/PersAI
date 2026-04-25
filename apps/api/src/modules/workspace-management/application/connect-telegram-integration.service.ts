@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException
 } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
@@ -38,6 +39,11 @@ type TelegramGetMeResult = {
   id: number;
   first_name?: string;
   username?: string;
+};
+
+type TelegramSetWebhookResponse = {
+  ok?: boolean;
+  description?: string;
 };
 
 function toAvatarUrl(username: string | undefined): string | null {
@@ -114,6 +120,7 @@ export class ConnectTelegramIntegrationService {
     }
 
     const bot = await this.fetchBotProfile(input.botToken);
+    await this.registerTelegramWebhook(input.botToken, assistant.id);
     const tokenFingerprint = createHash("sha256").update(input.botToken).digest("hex");
     const tokenLastFour = input.botToken.slice(-4);
 
@@ -262,5 +269,34 @@ export class ConnectTelegramIntegrationService {
       throw new BadRequestException("Telegram token is invalid or cannot be verified.");
     }
     return payload.result;
+  }
+
+  private async registerTelegramWebhook(botToken: string, assistantId: string): Promise<void> {
+    const apiConfig = loadApiConfig(process.env);
+    const webhookBaseUrl = apiConfig.TELEGRAM_WEBHOOK_BASE_URL?.trim() ?? "";
+    const webhookHmacSecret = apiConfig.TELEGRAM_WEBHOOK_HMAC_SECRET?.trim() ?? "";
+    if (!webhookBaseUrl || !webhookHmacSecret) {
+      this.logger.warn(
+        `Telegram webhook registration skipped for assistant ${assistantId}: TELEGRAM_WEBHOOK_BASE_URL or TELEGRAM_WEBHOOK_HMAC_SECRET is missing.`
+      );
+      return;
+    }
+
+    const webhookUrl = `${webhookBaseUrl.replace(/\/+$/g, "")}/telegram-webhook/${assistantId}`;
+    const secretToken = createHmac("sha256", webhookHmacSecret).update(assistantId).digest("hex");
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: webhookUrl,
+        secret_token: secretToken,
+        allowed_updates: ["message"]
+      })
+    });
+    const payload = (await response.json().catch(() => ({}))) as TelegramSetWebhookResponse;
+    if (!response.ok || payload.ok !== true) {
+      throw new BadRequestException(payload.description ?? "Telegram webhook registration failed.");
+    }
+    this.logger.log(`Registered Telegram webhook for assistant ${assistantId}.`);
   }
 }

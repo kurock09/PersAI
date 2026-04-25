@@ -116,6 +116,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // sheet). The existing fileInputRef stays for the catch-all "File" tile.
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const photosInputRef = useRef<HTMLInputElement>(null);
+  const cameraPreviewVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraPreviewStreamRef = useRef<MediaStream | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachTriggerRef = useRef<HTMLButtonElement>(null);
   const dragDepthRef = useRef(0);
@@ -124,6 +126,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [cameraPreviewState, setCameraPreviewState] = useState<
+    "idle" | "loading" | "ready" | "unavailable"
+  >("idle");
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -132,12 +137,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingStartTimeRef = useRef<number>(0);
+  const recordingAttemptIdRef = useRef(0);
+  const touchRecordingIntentActiveRef = useRef(false);
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      cameraPreviewStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
+  }, []);
+
+  const stopCameraPreview = useCallback(() => {
+    cameraPreviewStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraPreviewStreamRef.current = null;
+    if (cameraPreviewVideoRef.current) {
+      cameraPreviewVideoRef.current.srcObject = null;
+    }
   }, []);
 
   const resize = useCallback(() => {
@@ -253,6 +269,60 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     };
   }, [attachMenuOpen]);
 
+  useEffect(() => {
+    if (!attachMenuOpen || !isTouchDevice) {
+      stopCameraPreview();
+      setCameraPreviewState("idle");
+      return;
+    }
+
+    let cancelled = false;
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.getUserMedia) {
+      setCameraPreviewState("unavailable");
+      return;
+    }
+
+    setCameraPreviewState("loading");
+    void mediaDevices
+      .getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" }
+        },
+        audio: false
+      })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        cameraPreviewStreamRef.current = stream;
+        const video = cameraPreviewVideoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          void video.play().catch(() => undefined);
+        }
+        setCameraPreviewState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          stopCameraPreview();
+          setCameraPreviewState("unavailable");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      stopCameraPreview();
+    };
+  }, [attachMenuOpen, isTouchDevice, stopCameraPreview]);
+
+  useEffect(() => {
+    if (cameraPreviewState !== "ready" || !cameraPreviewVideoRef.current) return;
+    cameraPreviewVideoRef.current.srcObject = cameraPreviewStreamRef.current;
+    void cameraPreviewVideoRef.current.play().catch(() => undefined);
+  }, [cameraPreviewState]);
+
   const pickFromTile = useCallback((which: "camera" | "photos" | "file") => {
     setAttachMenuOpen(false);
     // Defer the OS picker open until after the popover close paint so the
@@ -350,92 +420,119 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     mediaRecorderRef.current = null;
   }, []);
 
-  const startRecording = useCallback(async () => {
-    try {
-      // 2026-04-25 diagnostic — see [mic] in logcat to trace where startRecording fails on Samsung Z Fold.
-      // eslint-disable-next-line no-console
-      console.log("[mic] startRecording: requesting getUserMedia");
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      // eslint-disable-next-line no-console
-      console.log("[mic] startRecording: getUserMedia OK, picking mimeType");
-
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      // eslint-disable-next-line no-console
-      console.log(`[mic] startRecording: mimeType=${mimeType}`);
-      const recorder = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = recorder;
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-        const elapsedSec = (Date.now() - recordingStartTimeRef.current) / 1000;
-        chunksRef.current = [];
-        stopRecordingCleanup();
-
-        if (blob.size < 500) {
-          setRecordingState("idle");
-          setRecordingSeconds(0);
-          return;
-        }
-
-        const bytesPerSec = elapsedSec > 0 ? blob.size / elapsedSec : 0;
-        if (elapsedSec >= 2 && bytesPerSec < 1000) {
-          setRecordingState("idle");
-          setRecordingSeconds(0);
-          onVoiceTranscriptionError?.(new Error("NO_AUDIO_DETECTED"));
-          return;
-        }
-
-        setRecordingState("transcribing");
-
-        const filename = `voice-${Date.now()}.webm`;
-        const voiceFile = new File([blob], filename, { type: mimeType });
-
-        void (async () => {
-          try {
-            const text = await onTranscribeVoice(blob, filename);
-            const trimmedText = text.trim();
-            if (trimmedText.length === 0) {
-              throw new Error("Voice transcription returned empty text. Please try again.");
-            }
-            onSend(trimmedText, [voiceFile]);
-          } catch (error) {
-            onVoiceTranscriptionError?.(error);
-          } finally {
+  const startRecording = useCallback(
+    async (options?: { touchHold?: boolean }) => {
+      const attemptId = recordingAttemptIdRef.current + 1;
+      recordingAttemptIdRef.current = attemptId;
+      try {
+        // 2026-04-25 diagnostic — see [mic] in logcat to trace where startRecording fails on Samsung Z Fold.
+        // eslint-disable-next-line no-console
+        console.log("[mic] startRecording: requesting getUserMedia");
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (
+          attemptId !== recordingAttemptIdRef.current ||
+          (options?.touchHold === true && !touchRecordingIntentActiveRef.current)
+        ) {
+          stream.getTracks().forEach((track) => track.stop());
+          if (attemptId === recordingAttemptIdRef.current) {
             setRecordingState("idle");
             setRecordingSeconds(0);
           }
-        })();
-      };
+          return;
+        }
+        streamRef.current = stream;
+        // eslint-disable-next-line no-console
+        console.log("[mic] startRecording: getUserMedia OK, picking mimeType");
 
-      recorder.start(250);
-      recordingStartTimeRef.current = Date.now();
-      setRecordingState("recording");
-      setRecordingSeconds(0);
-      // eslint-disable-next-line no-console
-      console.log("[mic] startRecording: recorder.start() OK, state=recording");
-      timerRef.current = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[mic] startRecording FAILED:", err);
-      setRecordingState("idle");
-    }
-  }, [onSend, onTranscribeVoice, onVoiceTranscriptionError, stopRecordingCleanup]);
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+        // eslint-disable-next-line no-console
+        console.log(`[mic] startRecording: mimeType=${mimeType}`);
+        const recorder = new MediaRecorder(stream, { mimeType });
+        mediaRecorderRef.current = recorder;
+        chunksRef.current = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
+
+        recorder.onstop = () => {
+          if (attemptId !== recordingAttemptIdRef.current) {
+            chunksRef.current = [];
+            stopRecordingCleanup();
+            setRecordingState("idle");
+            setRecordingSeconds(0);
+            return;
+          }
+          const blob = new Blob(chunksRef.current, { type: mimeType });
+          const elapsedSec = (Date.now() - recordingStartTimeRef.current) / 1000;
+          chunksRef.current = [];
+          stopRecordingCleanup();
+
+          if (blob.size < 500) {
+            setRecordingState("idle");
+            setRecordingSeconds(0);
+            return;
+          }
+
+          const bytesPerSec = elapsedSec > 0 ? blob.size / elapsedSec : 0;
+          if (elapsedSec >= 2 && bytesPerSec < 1000) {
+            setRecordingState("idle");
+            setRecordingSeconds(0);
+            onVoiceTranscriptionError?.(new Error("NO_AUDIO_DETECTED"));
+            return;
+          }
+
+          setRecordingState("transcribing");
+
+          const filename = `voice-${Date.now()}.webm`;
+          const voiceFile = new File([blob], filename, { type: mimeType });
+
+          void (async () => {
+            try {
+              const text = await onTranscribeVoice(blob, filename);
+              const trimmedText = text.trim();
+              if (trimmedText.length === 0) {
+                throw new Error("Voice transcription returned empty text. Please try again.");
+              }
+              onSend(trimmedText, [voiceFile]);
+            } catch (error) {
+              onVoiceTranscriptionError?.(error);
+            } finally {
+              setRecordingState("idle");
+              setRecordingSeconds(0);
+            }
+          })();
+        };
+
+        recorder.start(250);
+        recordingStartTimeRef.current = Date.now();
+        setRecordingState("recording");
+        setRecordingSeconds(0);
+        // eslint-disable-next-line no-console
+        console.log("[mic] startRecording: recorder.start() OK, state=recording");
+        timerRef.current = setInterval(() => {
+          setRecordingSeconds((prev) => prev + 1);
+        }, 1000);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("[mic] startRecording FAILED:", err);
+        if (attemptId === recordingAttemptIdRef.current) {
+          setRecordingState("idle");
+          setRecordingSeconds(0);
+        }
+      }
+    },
+    [onSend, onTranscribeVoice, onVoiceTranscriptionError, stopRecordingCleanup]
+  );
 
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
     } else {
+      recordingAttemptIdRef.current += 1;
       stopRecordingCleanup();
       setRecordingState("idle");
       setRecordingSeconds(0);
@@ -443,6 +540,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, [stopRecordingCleanup]);
 
   const cancelRecording = useCallback(() => {
+    recordingAttemptIdRef.current += 1;
     chunksRef.current = [];
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
@@ -505,7 +603,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         /* setPointerCapture is best-effort across browsers */
       }
       safeVibrate(15);
-      void startRecording();
+      touchRecordingIntentActiveRef.current = true;
+      void startRecording({ touchHold: true });
     },
     [isTouchDevice, disabled, isStreaming, startRecording, safeVibrate]
   );
@@ -528,6 +627,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!holdActiveRef.current) return;
       holdActiveRef.current = false;
+      touchRecordingIntentActiveRef.current = false;
       const heldMs = Date.now() - holdStartTimeRef.current;
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -548,6 +648,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const handleMicPointerCancel = useCallback(() => {
     if (!holdActiveRef.current) return;
     holdActiveRef.current = false;
+    touchRecordingIntentActiveRef.current = false;
     cancelRecording();
     cancelArmedRef.current = false;
     setCancelArmed(false);
@@ -603,23 +704,34 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         )}
 
         {isRecording && !isTouchDevice && (
-          <div className="mb-2 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
-            <span className="text-sm font-medium text-destructive">
-              {t("recording", { duration: formatDuration(recordingSeconds) })}
+          <div className="mb-2 flex items-center gap-3 rounded-2xl border border-border bg-surface-raised px-3 py-2.5 shadow-sm">
+            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 animate-ping rounded-full bg-accent/20"
+              />
+              <span className="relative flex h-full w-full items-center justify-center rounded-full bg-accent/12 text-accent">
+                <Mic className="h-4 w-4" />
+              </span>
+            </span>
+            <span className="min-w-0">
+              <span className="block font-mono text-sm font-medium tabular-nums text-text">
+                {t("recording", { duration: formatDuration(recordingSeconds) })}
+              </span>
+              <span className="block text-[11px] text-text-subtle">{t("voiceHoldRelease")}</span>
             </span>
             <div className="flex-1" />
             <button
               type="button"
               onClick={cancelRecording}
-              className="cursor-pointer rounded px-2 py-0.5 text-xs text-text-muted transition-colors hover:bg-surface-hover"
+              className="cursor-pointer rounded-full px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
               {t("cancelRecording")}
             </button>
             <button
               type="button"
               onClick={stopRecording}
-              className="cursor-pointer rounded bg-accent px-3 py-0.5 text-xs text-white transition-colors hover:bg-accent-hover"
+              className="cursor-pointer rounded-full bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-accent-hover"
             >
               {t("sendRecording")}
             </button>
@@ -680,7 +792,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             disabled={inputDisabled || isStreaming}
             aria-haspopup="menu"
             aria-expanded={attachMenuOpen}
-            onClick={() => setAttachMenuOpen((o) => !o)}
+            onClick={() =>
+              setAttachMenuOpen((open) => {
+                const next = !open;
+                if (next && isTouchDevice) {
+                  setCameraPreviewState("loading");
+                }
+                return next;
+              })
+            }
             className={cn(
               "mb-0.5 rounded-lg p-2 transition-colors",
               inputDisabled || isStreaming
@@ -711,19 +831,34 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[18rem] rounded-2xl border border-border bg-surface-raised p-2 shadow-xl backdrop-blur-sm"
+                className={cn(
+                  "absolute bottom-full left-0 z-30 mb-2 rounded-2xl border border-border bg-surface-raised p-2 shadow-xl backdrop-blur-sm",
+                  isTouchDevice ? "w-full max-w-[18rem]" : "w-[6.75rem]"
+                )}
               >
-                <div className="grid grid-cols-3 gap-2">
-                  <AttachTile
-                    icon={<Camera className="h-6 w-6" />}
-                    label={t("attachMenuCamera")}
-                    onClick={() => pickFromTile("camera")}
-                  />
-                  <AttachTile
-                    icon={<ImageIcon className="h-6 w-6" />}
-                    label={t("attachMenuPhotos")}
-                    onClick={() => pickFromTile("photos")}
-                  />
+                <div className={cn("grid gap-2", isTouchDevice ? "grid-cols-3" : "grid-cols-1")}>
+                  {isTouchDevice && (
+                    <>
+                      <AttachTile
+                        icon={<Camera className="h-6 w-6" />}
+                        label={t("attachMenuCamera")}
+                        preview={
+                          cameraPreviewState !== "unavailable" ? (
+                            <CameraPreviewTile
+                              videoRef={cameraPreviewVideoRef}
+                              state={cameraPreviewState}
+                            />
+                          ) : undefined
+                        }
+                        onClick={() => pickFromTile("camera")}
+                      />
+                      <AttachTile
+                        icon={<ImageIcon className="h-6 w-6" />}
+                        label={t("attachMenuPhotos")}
+                        onClick={() => pickFromTile("photos")}
+                      />
+                    </>
+                  )}
                   <AttachTile
                     icon={<FilesIcon className="h-6 w-6" />}
                     label={t("attachMenuFile")}
@@ -893,10 +1028,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 function AttachTile({
   icon,
   label,
+  preview,
   onClick
 }: {
   icon: React.ReactNode;
   label: string;
+  preview?: React.ReactNode;
   onClick: () => void;
 }) {
   return (
@@ -905,12 +1042,57 @@ function AttachTile({
       role="menuitem"
       onClick={onClick}
       className={cn(
-        "group flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl bg-surface ring-1 ring-border/40 transition-colors",
-        "hover:bg-surface-hover hover:ring-accent/40 active:bg-surface-hover"
+        "group relative flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-surface ring-1 ring-border/40 transition-colors",
+        "hover:bg-surface-hover hover:ring-accent/40 active:bg-surface-hover",
+        preview && "bg-black ring-white/10"
       )}
     >
-      <span className="text-text-muted transition-colors group-hover:text-accent">{icon}</span>
-      <span className="text-[11px] font-medium text-text-muted">{label}</span>
+      {preview && <span className="absolute inset-0">{preview}</span>}
+      <span
+        className={cn(
+          "relative z-10 text-text-muted transition-colors group-hover:text-accent",
+          preview &&
+            "rounded-full bg-black/30 p-1.5 text-white/90 shadow-sm backdrop-blur-sm group-hover:text-white"
+        )}
+      >
+        {icon}
+      </span>
+      <span
+        className={cn(
+          "relative z-10 text-[11px] font-medium text-text-muted",
+          preview && "text-white/90 drop-shadow"
+        )}
+      >
+        {label}
+      </span>
     </button>
+  );
+}
+
+function CameraPreviewTile({
+  videoRef,
+  state
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  state: "idle" | "loading" | "ready" | "unavailable";
+}) {
+  return (
+    <>
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        autoPlay
+        aria-hidden="true"
+        className={cn(
+          "h-full w-full object-cover transition-opacity duration-200",
+          state === "ready" ? "opacity-100" : "opacity-0"
+        )}
+      />
+      <span className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-black/20" />
+      {state !== "ready" && (
+        <span className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_60%)]" />
+      )}
+    </>
   );
 }

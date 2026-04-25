@@ -87,14 +87,11 @@ function claimCodeFromText(text: string | null | undefined): string | null {
   if (!text) {
     return null;
   }
-  const match = text
-    .trim()
-    .match(
-      new RegExp(
-        `^(?:\\/(?:start|claim)(?:@\\w+)?\\s+)?(\\d{${String(TELEGRAM_OWNER_CLAIM_CODE_LENGTH)}})$`,
-        "i"
-      )
-    );
+  const withoutCommand = text.trim().replace(/^\/(?:start|claim)(?:@\w+)?\s+/i, "");
+  const normalized = withoutCommand.replace(/[\s-]+/g, "");
+  const match = normalized.match(
+    new RegExp(`^(\\d{${String(TELEGRAM_OWNER_CLAIM_CODE_LENGTH)}})$`)
+  );
   return match?.[1] ?? null;
 }
 

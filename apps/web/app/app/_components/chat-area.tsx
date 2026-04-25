@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowDown,
   X,
   Pencil,
   Check,
@@ -65,6 +66,7 @@ export function ChatArea({
   const [deepMode, setDeepMode] = useState(deepModeEnabled);
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
   const sendPrompt = useCallback(
     (text: string, files?: File[]) => {
@@ -123,7 +125,9 @@ export function ChatArea({
     }
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom <= 96;
+    const nearBottom = distanceFromBottom <= 96;
+    shouldStickToBottomRef.current = nearBottom;
+    setShowScrollToBottom(distanceFromBottom > 280);
   }, []);
 
   // Keep streaming replies pinned only while the user remains near the bottom.
@@ -238,7 +242,9 @@ export function ChatArea({
     }
   }, [chat.chatId, editValue, getToken, onTitleChanged]);
 
-  const issueIsWarning = chat.issue?.classId === "input_validation";
+  const issueIsWarning =
+    chat.issue?.classId === "input_validation" ||
+    chat.issue?.classId === "voice_transcription_empty";
   const issueContainerClass = issueIsWarning
     ? "border-amber-200 bg-amber-50"
     : "border-destructive/20 bg-destructive/5";
@@ -294,6 +300,10 @@ export function ChatArea({
     setDeepMode(deepModeEnabled);
   }, [chat.chatId, deepModeEnabled]);
 
+  useEffect(() => {
+    setShowScrollToBottom(false);
+  }, [chat.chatId]);
+
   const handleDeepModeChange = useCallback(
     async (enabled: boolean) => {
       setDeepMode(enabled);
@@ -315,7 +325,7 @@ export function ChatArea({
   );
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {/* Header — premium two-zone composition: title is the primary
           subject (left, h1 weight + tight tracking), mode-toggle is a
           quiet utility chip pinned to the right. The previous wrapped
@@ -358,7 +368,7 @@ export function ChatArea({
             ) : (
               <div className="group flex min-w-0 flex-col">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <h1 className="truncate text-base font-semibold tracking-tight text-text md:text-[17px]">
+                  <h1 className="truncate text-sm font-medium tracking-normal text-text-muted md:text-sm">
                     {displayTitle}
                   </h1>
                   {canEdit && (
@@ -450,6 +460,22 @@ export function ChatArea({
         )}
       </div>
 
+      {showScrollToBottom && (
+        <button
+          type="button"
+          onClick={() => scrollToBottom("smooth")}
+          className={cn(
+            "absolute right-3 bottom-[5.25rem] z-20 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-2 text-xs font-medium text-text-muted shadow-lg shadow-black/5 backdrop-blur-md transition-all",
+            "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-5 md:bottom-24"
+          )}
+          aria-label={t("scrollToBottom")}
+          title={t("scrollToBottom")}
+        >
+          <ArrowDown className="h-4 w-4" />
+          <span className="hidden sm:inline">{t("scrollToBottom")}</span>
+        </button>
+      )}
+
       {/* Issue banner */}
       {chat.issue && (
         <div
@@ -500,6 +526,15 @@ export function ChatArea({
                       ? "workspaceStorageFullGuidance"
                       : "mediaStorageFullGuidance"
                   )}
+                </p>
+              </>
+            ) : chat.issue.classId === "voice_transcription_empty" ? (
+              <>
+                <p className={`text-sm font-medium ${issueTextClass}`}>
+                  {t("voiceTranscriptionEmptyTitle")}
+                </p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {t("voiceTranscriptionEmptyGuidance")}
                 </p>
               </>
             ) : chat.issue.classId === "compaction_unavailable" ? (

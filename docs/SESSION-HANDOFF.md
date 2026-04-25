@@ -1,5 +1,246 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (Avatar center crop + image lightbox actions) — Tall assistant avatars crop from center, chat image lightbox adds save/share actions (`apps/api` + `apps/web`; focused tests/typechecks green)
+
+### Why this session
+
+Founder reported two UI polish issues after live checking media surfaces:
+
+- A tall avatar image saved with the top of the image instead of the visual center.
+- Opening a chat image in the lightbox needed modern actions to save to gallery and share.
+
+Founder also asked what “hard refresh / cross-tab” means in the prior soft-detach explanation. Answer: hard refresh is a full page/WebView reload where React's in-memory state is gone; cross-tab means another browser tab/window/WebView session that does not share the current tab's in-memory active-turn snapshot. The durable recovery path is persisted history, not live SSE reattach.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/manage-assistant-avatar.service.ts` changes avatar normalization from `sharp` attention crop to stable center crop (`position: "center"`), so tall portraits preserve the middle of the frame instead of biasing upward.
+- `apps/api/test/manage-assistant-avatar.service.test.ts` now covers tall portrait center-crop behavior with a generated three-band image.
+- `apps/web/app/app/_components/image-lightbox.tsx` adds a compact glass action bar with save-to-gallery, share, and close actions.
+- The lightbox share action prefers Web Share file sharing when supported, falls back to URL sharing, and falls back to download when sharing is unavailable or fails.
+- `apps/web/app/app/_components/chat-message.tsx` passes each image attachment's download URL and filename into the lightbox.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add localized lightbox action labels.
+- `apps/web/app/app/_components/image-lightbox.test.tsx` adds focused coverage for the actions and file-share path.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-avatar.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Save-to-gallery uses the browser/WebView download path. On some mobile shells the OS may show a download/share sheet rather than silently placing the file in Photos.
+- Existing already-saved avatar objects are not re-cropped; the user needs to upload/save the avatar again to get the center crop.
+- Full repo gate and live mobile validation are still pending.
+
+### Next recommended step
+
+Deploy API + web, re-save a tall avatar, and live-test chat image lightbox save/share on the target Android device.
+
+---
+
+## 2026-04-25 (Soft-detach passive stream disconnect polish) — Phone screen lock after accepted stream headers no longer flashes an error; web client quietly polls history until the committed image/answer appears (`apps/web`; GKE logs inspected; focused tests/typecheck green)
+
+### Why this session
+
+Founder reported the FIX 1 Slice 1.2 phone-lock case was still not clean: during image generation or a long answer, locking the phone screen and reopening the app briefly showed an error, while a manual refresh later showed the generated image/answer correctly.
+
+Fresh GKE logs for the repro window showed the important split:
+
+- Runtime continued processing the turn after the phone slept.
+- API later served the chat history and generated attachment with `200`.
+- So the server-side soft-detach contract was working; the remaining bug was client-side handling of a post-headers SSE/fetch disconnect.
+
+Root cause: `streamAssistantWebChatTurn` throws when the stream closes without a terminal SSE event (`completed` / `interrupted` / `failed`). `useChat` treated that post-headers passive disconnect the same as a real stream failure, surfaced `issue`, and only relied on focus/page-show refresh to eventually reconcile history. On mobile resume this created the visible short error flash before the durable server result was fetched.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now classifies a passive post-headers stream disconnect as soft-detach when the local controller was not explicitly aborted by `stop()`.
+- Soft-detach no longer sets `issue`; the UI stays calm instead of flashing an error banner.
+- The originating thread remains marked streaming while the web client polls latest history for the committed server message/attachment.
+- Once history reconciliation replaces the optimistic local bubbles with committed server messages, the thread is marked non-streaming, the active snapshot is cleared, and the per-turn abort entry is released.
+- The existing focus/pageshow/visibility refresh remains as a resume safety net, but the main repair path now starts immediately after the passive disconnect.
+- `apps/web/app/app/_components/use-chat.test.tsx` updates the regression to pin the new behavior: post-headers network disconnect stays quiet and reconciles committed server history with the generated attachment.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This still is not a true SSE reattach. During the detached window, the client does not replay missed live deltas; it reconciles from persisted history when the server message appears.
+- Polling is bounded to roughly two minutes after the passive disconnect. If a future tool legitimately runs longer than that, the focus/pageshow reconciliation path can still pick up the final result, but the local streaming indicator may stop first.
+- Full repo gate and live mobile redeploy validation are still pending.
+
+### Next recommended step
+
+Deploy `apps/web`, then live-test the exact phone-lock path: start image generation, let the screen sleep before completion, unlock before/after completion, and confirm there is no transient error and the final image appears without manual refresh.
+
+---
+
+## 2026-04-25 (Live turn return-state polish) — Returning to a still-streaming/tool-running chat restores the local bubble, typing placeholder, and tool activity instead of looking empty until reload (`apps/web`; focused tests/typecheck/lint green)
+
+### Why this session
+
+Founder reported a ChatGPT-comparison UX gap: if a long stream/tool/image generation is started in one chat, then the user opens a neighbouring chat and returns before the turn finishes, the runtime continues in the background but the original chat view no longer shows the in-progress assistant placeholder, blinking cursor, or tool activity banner. If the turn finishes while the user is away/back, the final result often appears only after a full page reload.
+
+Root cause: Slice 1.1 lifted only `threadKey -> isStreaming` into `StreamingThreadsProvider`. The actual optimistic user bubble, assistant streaming placeholder, and live tool/compaction activity stayed in the local `useChat(threadKey)` state. Switching `threadKey` intentionally clears that local state, so the stream kept running but there was no per-thread live UI snapshot to restore on return.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now keeps an in-memory `activeTurnSnapshotsRef` keyed by `threadKey` for active local turns.
+- When the user switches back to a thread that is still marked streaming, `useChat` hydrates the view from that snapshot instead of rendering an empty/history-loading pane.
+- Streaming text, thought text, live tool activity, compaction activity, runtime done activity, chat id, and final message reconciliation now update the active-thread snapshot as well as the currently visible hook state.
+- The snapshot is cleared when the turn leaves the active streaming set, so normal history loading remains the source of truth after completion.
+- `apps/web/app/app/_components/use-chat.test.tsx` adds a regression that starts an `image_generate` turn, switches away, returns before completion, and verifies the user bubble, assistant streaming placeholder, and `Generating image` activity are restored without reload.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec eslint app/app/_components/use-chat.ts app/app/_components/use-chat.test.tsx`
+
+### Risks / residuals
+
+- This restores live local UI state within the same mounted app session. It is not a full cross-tab or post-refresh SSE reattach.
+- If a turn finishes while the user is away, normal history reconciliation remains the durable source of truth once the thread is revisited.
+
+### Next recommended step
+
+Run the full repo gate, deploy, then live-test: start a long image/tool turn, switch to another chat, return before completion, and confirm the placeholder/activity remains visible and the final answer appears without manual reload.
+
+---
+
+## 2026-04-25 (Clerk avatar same-origin proxy) — Sidebar/profile Clerk avatar no longer renders `img.clerk.com` directly; WebView gets `/api/clerk-avatar` (`apps/web`; focused tests/typecheck/lint green)
+
+### Why this session
+
+Founder reported that the Clerk avatar still did not work reliably after the earlier cache-busting/retry hook. The remaining weak point was browser-side rendering of Clerk's remote CDN URL (`user.imageUrl`) inside the app shell: Capacitor WebView, privacy/network handling, or Clerk CDN transients could still make the `<img>` fail and fall back to initials.
+
+### What changed
+
+- `apps/web/app/api/clerk-avatar/route.ts` adds a same-origin authenticated BFF route. It uses Clerk server auth/current user, fetches the current `user.imageUrl` server-side, validates an image response, and streams it back with private cache headers.
+- `apps/web/app/app/_components/use-clerk-avatar.ts` now returns `/api/clerk-avatar?v=...` instead of `https://img.clerk.com/...`, and increments the cache-buster after `user.reload()` resolves so a refreshed Clerk profile can repaint immediately.
+- `apps/web/app/app/_components/use-clerk-avatar.test.tsx` now verifies same-origin URLs, retry behavior, and reload-driven URL refresh.
+- `apps/web/app/api/clerk-avatar/route.test.ts` covers auth, image proxying, and non-image rejection.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-clerk-avatar.test.tsx app/api/clerk-avatar/route.test.ts --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec eslint app/app/_components/use-clerk-avatar.ts app/app/_components/use-clerk-avatar.test.tsx app/api/clerk-avatar/route.ts app/api/clerk-avatar/route.test.ts`
+
+### Risks / residuals
+
+- Full verification gate and live mobile validation are still pending at this handoff point.
+- The route depends on Clerk server `currentUser()`; if Clerk is unavailable, the UI still falls back to initials instead of showing a broken image.
+
+### Next recommended step
+
+Run the full repo gate, deploy, then confirm the sidebar/profile avatar loads on mobile without direct `img.clerk.com` requests in the WebView.
+
+---
+
+## 2026-04-25 (Telegram owner-claim live fix) — Bot connect now registers Telegram webhook, owner-claim UI/linking cleaned up, spaced code input accepted (`apps/api` + `apps/web`; focused tests/typecheck/lint green)
+
+### Why this session
+
+Founder live-tested Telegram bot connection from the mobile UI and reported that binding did not complete. GKE API logs showed healthy pods and ingress, but no `/telegram-webhook` traffic around the attempt, which pointed to Telegram not delivering updates to PersAI. Code inspection confirmed the connect flow verified the token via `getMe` and saved the binding, but did not call Telegram `setWebhook` for newly connected bots.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/connect-telegram-integration.service.ts` now registers the Telegram webhook during connect when `TELEGRAM_WEBHOOK_BASE_URL` and `TELEGRAM_WEBHOOK_HMAC_SECRET` are configured. It calls `setWebhook` with `https://bot.persai.dev/telegram-webhook/<assistantId>`, the same HMAC-derived `secret_token` checked by the webhook controller, and `allowed_updates: ["message"]`.
+- `apps/api/src/modules/workspace-management/application/telegram-channel-adapter.service.ts` now accepts claim codes typed with spaces or hyphens, so a visually spaced code cannot make manual Telegram entry fail.
+- `apps/web/app/app/_components/telegram-connect.tsx` now opens BotFather and the connected bot through top-level `t.me` navigation instead of `window.open`, which is more reliable from the Capacitor WebView. The owner-claim card was simplified: no duplicate "how it works" copy beside the primary action, less visual noise, tighter code spacing, and one concise help paragraph.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` remove repeated/resend wording from claim-help copy.
+- GKE check: `persai-dev` pods and ingress were healthy; API logs had no Telegram webhook hits for the failed attempt, matching the missing `setWebhook` root cause.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-integration.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec eslint app/app/_components/telegram-connect.tsx`
+- `corepack pnpm --filter @persai/api exec eslint src/modules/workspace-management/application/connect-telegram-integration.service.ts src/modules/workspace-management/application/telegram-channel-adapter.service.ts test/telegram-integration.test.ts test/telegram-webhook-proxy.controller.test.ts`
+
+### Risks / residuals
+
+- Existing already-connected bots may still need reconnect after deploy so `setWebhook` runs for their token.
+- Full verification gate and live owner-claim retest are still pending at this handoff point.
+
+### Next recommended step
+
+Deploy this Telegram fix, reconnect the test bot, then confirm that sending the displayed code produces `/telegram-webhook` API logs and flips the UI from `claim_required` to `connected`.
+
+---
+
+## 2026-04-25 (Limits & Plan display polish) — User settings now show only capped quotas/tools and localize tool-limit labels (`apps/web`; focused tests/typecheck/lint/format green)
+
+### Why this session
+
+Founder flagged that Assistant Settings → Limits & Plan showed every tool, including unlimited `∞` rows, and used raw-ish internal labels such as `Image Generate`, `Knowledge Fetch`, and `Web Search`. The desired product behavior is to show only real numeric limits and make labels human-readable in RU/EN.
+
+### What changed
+
+- `apps/web/app/app/_components/assistant-settings.tsx` now filters quota buckets to `limit !== null` and tool daily limits to `dailyCallLimit !== null`.
+- The tool-limit list no longer renders `∞` rows.
+- Tool labels are localized through `settings.toolLimit*` keys instead of relying on API `displayName` fallbacks for known tool codes.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add human-readable labels for browser, code execution, files, image/video generation, knowledge search/read, scheduled actions, shell, TTS, web fetch, and web search.
+- `apps/web/app/app/_components/assistant-settings.test.tsx` adds a regression test that hides uncapped quota/tool rows and verifies localized capped tool display.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/assistant-settings.tsx" "apps/web/app/app/_components/assistant-settings.test.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+- `corepack pnpm --filter @persai/web run lint`
+
+### Risks / residuals
+
+- Unknown future tool codes still fall back to API `displayName`; add a translation key when a new public/capped tool is introduced.
+- This is display-only polish; no plan policy, quota accounting, or API contract changed.
+
+### Next recommended step
+
+Continue the remaining pre-prod UI/UX polish in one bounded slice at a time. Mobile hold-to-record RC cleanup remains the highest-priority blocker if it is still not live-confirmed.
+
+---
+
+## 2026-04-25 (Telegram / Knowledge settings polish) — Slide-over widths aligned with Assistant Settings, Channels Telegram row now opens TG settings, owner-claim UX simplified for mobile/desktop (`apps/web`; focused tests/typecheck/lint/format green)
+
+### Why this session
+
+Founder flagged that the separate Telegram settings and Knowledge documents panels were wider than the main Assistant Settings panel, making the UI feel inconsistent. Founder also asked for the Telegram row inside Assistant Settings → Channels to open the Telegram settings panel directly, and for the Telegram owner-confirmation flow to be clearer, shorter, and more premium on mobile.
+
+### What changed
+
+- `apps/web/app/app/_components/app-shell.tsx` now opens the Telegram slide-over with the same `size="narrow"` as Assistant Settings and passes an `onOpenTelegramSettings` action into `AssistantSettings`.
+- `apps/web/app/app/_components/assistant-knowledge-manager.tsx` now uses `SlideOver size="narrow"`, so Knowledge documents matches Assistant Settings width.
+- `apps/web/app/app/_components/assistant-settings.tsx` makes the Telegram row in the Channels block an interactive row with a chevron; clicking it opens Telegram settings. WhatsApp/MAX remain static coming-soon rows.
+- `apps/web/app/app/_components/telegram-connect.tsx` replaces the owner-claim warning block with a calmer two-step card: open bot, send code. The code is larger, copy is a full-width mobile-friendly action, and the primary Telegram-open action is obvious.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add the short claim-flow copy.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/app-shell.tsx" "apps/web/app/app/_components/assistant-settings.tsx" "apps/web/app/app/_components/assistant-knowledge-manager.tsx" "apps/web/app/app/_components/telegram-connect.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+- `corepack pnpm --filter @persai/web run lint`
+
+### Risks / residuals
+
+- Visual validation was by code review and focused checks, not screenshot-based regression tests.
+- No backend/process change was made to owner claim; this is presentation and navigation polish only.
+
+### Next recommended step
+
+Continue the remaining pre-prod UI/UX polish in one bounded slice at a time: mobile hold-to-record RC cleanup remains the highest-priority blocker, then deploy the already-prepared EmptyState flicker fix if it is still not live.
+
+---
+
 ## 2026-04-25 (admin-managed media model catalog) — Runtime provider settings now define CHAT / IMAGE / VIDEO model catalogs per provider and admin plans can select image generate/edit + video models from that catalog (`apps/api` + `apps/web` + `apps/runtime` + `apps/provider-gateway`; focused tests/typechecks green; no push per founder instruction)
 
 ### Why this session
@@ -23346,3 +23587,198 @@ The user explicitly called out that preview and welcome are very different produ
 ### Next recommended step
 
 - Continue ADR-073 create/recreate lifecycle polish by replacing the hidden `POST /assistant` `409 already existed` recreate fallback with an explicit recreate/recover lifecycle path, then tighten reset/recreate messaging around destructive scope, recovery, and the first-run welcome lifecycle.
+
+---
+
+## Founder mobile polish — Telegram-style camera attachment preview
+
+### What changed
+
+1. **Mobile attachment menu now previews the camera:** `apps/web/app/app/_components/chat-input.tsx` starts a touch-device-only rear-camera `getUserMedia` preview while the paperclip menu is open and renders it inside the first Camera tile, matching the Telegram-style first-square preview the founder requested.
+
+2. **Preview lifecycle is bounded:** the camera stream is stopped when the menu closes, when the component unmounts, or when the preview request is cancelled. If camera access is unavailable or denied, the tile falls back to the existing icon-only state.
+
+3. **Attachment behavior is unchanged:** tapping the Camera tile still uses the existing hidden `capture="environment"` file input, so this is UI polish only and does not introduce a new upload/capture contract.
+
+### Why changed
+
+The current mobile paperclip menu already had Camera / Gallery / File tiles, but the Camera tile was static. The founder asked for the first tile to behave like Telegram on mobile by showing a live camera preview before capture.
+
+### Slice boundary
+
+- Web UI only.
+- Mobile/touch-only enhancement.
+- No API, data-model, native Android, or upload-pipeline changes.
+- No full custom camera capture screen yet; the existing OS camera picker remains the capture path.
+
+### Key files changed
+
+- `apps/web/app/app/_components/chat-input.tsx`
+- `apps/web/app/app/_components/chat-input.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-input.tsx" "apps/web/app/app/_components/chat-input.test.tsx"`
+- `corepack pnpm exec prettier --check "docs/CHANGELOG.md" "docs/SESSION-HANDOFF.md"`
+- `ReadLints` on touched chat input files
+
+### Risks
+
+1. Mobile browsers/WebViews may show a camera permission prompt when the paperclip menu opens; denied permission intentionally falls back to the static icon tile.
+2. This preview does not replace the OS camera capture flow, so a future full Telegram-like inline capture UX would need a separate native/Capacitor slice.
+
+### Next recommended step
+
+- Manually validate the paperclip menu on the real Android Capacitor build to confirm the preview starts/stops cleanly, then continue the pending mobile voice/logcat blocker if the camera preview is accepted.
+
+---
+
+## Founder mobile polish — voice short-tap race fix
+
+### What changed
+
+1. **Short mobile taps no longer leave recording stuck:** `apps/web/app/app/_components/chat-input.tsx` now gives each recording start an `attemptId`. Releasing/cancelling before the recorder is ready invalidates that pending attempt, so a late `getUserMedia` result is stopped immediately instead of creating a recorder after the user already lifted their finger.
+
+2. **Corrupted short audio uploads are blocked at source:** if the touch hold is no longer active when `getUserMedia` resolves, `MediaRecorder` is never constructed and no tiny/corrupt webm is sent to transcription.
+
+3. **Regression coverage added:** `apps/web/app/app/_components/chat-input.test.tsx` now covers the exact short-tap race by resolving `getUserMedia` after `pointerup` and asserting that the stream is stopped, no recorder is created, and the recording status is absent.
+
+### Why changed
+
+The founder reproduced a mobile-only bug where a short tap on the mic left the recording banner/timer alive until another tap, then later voice attempts failed. GKE logs around the repro showed `/api/v1/assistant/voice/transcribe` failures and provider-gateway `400 Audio file might be corrupted or unsupported`, consistent with the client sending a broken or too-short audio blob after the UI race.
+
+### Slice boundary
+
+- Web mobile hold-to-record client fix only.
+- No API, provider-gateway, model, native Android, or transcription contract changes.
+- Existing normal hold-to-record behavior remains: hold to record, release to stop/send, swipe/cancel to cancel.
+
+### Key files changed
+
+- `apps/web/app/app/_components/chat-input.tsx`
+- `apps/web/app/app/_components/chat-input.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `kubectl get pods -n persai-dev`
+- `kubectl logs -n persai-dev deploy/api --since=30m --tail=220 --all-containers=true`
+- `kubectl logs -n persai-dev deploy/web --since=30m --tail=220`
+- `kubectl logs -n persai-dev deploy/provider-gateway --since=30m --tail=220`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-input.tsx" "apps/web/app/app/_components/chat-input.test.tsx"`
+- `ReadLints` on touched chat input files
+
+### Risks
+
+1. If the user releases before the browser has actually granted/started microphone capture, that attempt is now cancelled rather than delayed into a send. This is intentional for the requested hold-to-record behavior.
+2. The logs also showed one successful voice transcribe at ~1.38s and several normal chat stream starts; any remaining "second message was slow" report should be validated separately with fresh timestamps if it repeats.
+
+### Next recommended step
+
+- Validate on the real Android Capacitor app: short tap should do nothing and leave no stuck banner; hold-and-release should send normally. If any voice failures remain after this fix, capture fresh `adb logcat` plus matching provider/API timestamps.
+
+---
+
+## Founder chat polish — voice retry copy and scroll-to-latest affordance
+
+### What changed
+
+1. **Empty voice recognition now has dedicated UX:** `apps/web/app/app/assistant-api-client.ts` maps `NO_AUDIO_DETECTED` / empty transcription errors to `voice_transcription_empty` instead of generic `input_validation`.
+
+2. **Voice retry copy is localized:** `apps/web/app/app/_components/chat-area.tsx` renders RU/EN copy for `voice_transcription_empty`, asking the user to repeat the voice message rather than showing raw/generic failure text.
+
+3. **Chat now has a calm scroll-to-latest button:** when the user scrolls away from the bottom by more than a small threshold, chat shows a quiet floating “Back to latest” / “К последним” button on mobile and desktop. It scrolls smoothly back to the newest message and does not disturb normal streaming auto-follow while the user remains near the bottom.
+
+4. **Android refresh decision:** no pull-to-refresh was added. For chat, the safer product behavior remains automatic older-message loading when the user reaches the top; pull gestures can conflict with reading history and accidental WebView reloads.
+
+### Why changed
+
+The founder asked for a more polished empty voice-message recovery path and a low-noise way to return to the latest messages after reading older chat history. The same pass clarified that Android chat refresh should not be implemented as a pull gesture unless a future product reason outweighs the gesture conflicts.
+
+### Slice boundary
+
+- Web chat UI/client mapping only.
+- No API, runtime, provider, Android-native, or persistence change.
+- No global pull-to-refresh implementation.
+
+### Key files changed
+
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/assistant-api-client.test.ts`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-area.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-area.tsx" "apps/web/app/app/_components/chat-area.test.tsx" "apps/web/app/app/assistant-api-client.ts" "apps/web/app/app/assistant-api-client.test.ts" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+- `ReadLints` on touched chat area / API-client files
+
+### Risks
+
+1. The floating button uses a fixed visual offset above the composer; if future banners stack above the composer, spacing may need one more visual pass.
+2. Pull-to-refresh remains intentionally out of scope; Android users still get history loading by scrolling to the top and return-to-latest via the new button.
+
+### Next recommended step
+
+- Validate on real mobile and desktop: scroll up in a long chat, confirm the button appears quietly and returns to the newest message; record an unrecognizable/empty voice message and confirm the localized retry copy appears.
+
+---
+
+## Founder desktop chat polish — file-only attachment, calmer title, voice recording card
+
+### What changed
+
+1. **Desktop attachment menu is file-only:** `apps/web/app/app/_components/chat-input.tsx` now renders only the `File` tile for non-touch desktop. Touch/mobile still shows Camera / Gallery / File, including the live camera preview in the Camera tile.
+
+2. **Chat title is quieter:** `apps/web/app/app/_components/chat-area.tsx` now renders the chat title as muted, single-line context (`text-sm`, medium weight) rather than a visually heavy page headline.
+
+3. **Desktop voice recording matches the mobile tone:** desktop recording keeps its existing click-to-start, `Cancel`, and `Send` logic, but the visual treatment now uses a calm rounded recording card with a mic pulse, monospaced timer, and rounded action buttons instead of the previous red warning-style banner.
+
+### Why changed
+
+The founder reviewed the desktop chat surface and asked to reduce noise: the desktop attachment menu did not need mobile Camera/Gallery tiles, the title felt too heavy, and the desktop voice recording banner should visually match the calmer mobile recording style without changing behavior.
+
+### Slice boundary
+
+- Web UI polish only.
+- No voice recording logic change.
+- No mobile attachment-menu behavior change.
+- No API, runtime, native, or persistence change.
+
+### Key files changed
+
+- `apps/web/app/app/_components/chat-input.tsx`
+- `apps/web/app/app/_components/chat-input.test.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/_components/chat-area.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-input.tsx" "apps/web/app/app/_components/chat-input.test.tsx" "apps/web/app/app/_components/chat-area.tsx" "apps/web/app/app/_components/chat-area.test.tsx"`
+- `ReadLints` on touched chat UI files
+
+### Risks
+
+1. The desktop attachment popover is intentionally narrower now; if future desktop camera/gallery selection returns, it should be added deliberately rather than inheriting mobile tiles.
+2. Desktop voice recording logic is unchanged, so any remaining recording behavior issue should be debugged separately from this visual polish.
+
+### Next recommended step
+
+- Manually check desktop chat: paperclip opens one `File` tile, title reads as subdued context, and active voice recording looks calm while preserving `Cancel` / `Send`.

@@ -260,12 +260,21 @@ export function AppShell({
             size="narrow"
           >
             {hasOpenedSettings && (
-              <AssistantSettings data={appData} initialSection={settingsInitialSection} />
+              <AssistantSettings
+                data={appData}
+                initialSection={settingsInitialSection}
+                onOpenTelegramSettings={() => setTelegramOpen(true)}
+              />
             )}
           </SlideOver>
 
           {/* Telegram integration slide-over (lazy-loaded — ADR-076 Slice 6) */}
-          <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
+          <SlideOver
+            open={telegramOpen}
+            onClose={() => setTelegramOpen(false)}
+            title={tt("title")}
+            size="narrow"
+          >
             {hasOpenedTelegram && (
               <TelegramConnect
                 integration={appData.telegram}

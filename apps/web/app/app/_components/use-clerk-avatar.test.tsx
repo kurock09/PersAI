@@ -49,12 +49,12 @@ describe("useClerkAvatar", () => {
     const { result } = renderHook(() => useClerkAvatar());
 
     expect(result.current.imageSrc).toBe(
-      `https://img.clerk.com/abc?v=${updatedAt.getTime()}-${FIXED_TODAY}-0`
+      `/api/clerk-avatar?v=${updatedAt.getTime()}-${FIXED_TODAY}-0-0`
     );
     expect(result.current.broken).toBe(false);
   });
 
-  it("preserves existing query string with `&` separator", () => {
+  it("uses a same-origin avatar route even when Clerk returns a remote URL with query params", () => {
     clerkMocks.useUser.mockReturnValue({
       user: {
         imageUrl: "https://img.clerk.com/abc?width=256",
@@ -65,7 +65,7 @@ describe("useClerkAvatar", () => {
 
     const { result } = renderHook(() => useClerkAvatar());
 
-    expect(result.current.imageSrc).toContain("width=256&v=");
+    expect(result.current.imageSrc).toMatch(/^\/api\/clerk-avatar\?v=\d+-2026-04-25-0-0$/);
   });
 
   it("retries once on the first error before falling back to initials", () => {
@@ -81,14 +81,14 @@ describe("useClerkAvatar", () => {
     const { result } = renderHook(() => useClerkAvatar());
 
     const firstUrl = result.current.imageSrc;
-    expect(firstUrl).toContain(`-${FIXED_TODAY}-0`);
+    expect(firstUrl).toContain(`-${FIXED_TODAY}-0-0`);
 
     act(() => {
       result.current.onError();
     });
 
     expect(result.current.broken).toBe(false);
-    expect(result.current.imageSrc).toContain(`-${FIXED_TODAY}-1`);
+    expect(result.current.imageSrc).toContain(`-${FIXED_TODAY}-0-1`);
     expect(result.current.imageSrc).not.toBe(firstUrl);
 
     act(() => {
@@ -116,6 +116,27 @@ describe("useClerkAvatar", () => {
 
     renderHook(() => useClerkAvatar());
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes the same-origin avatar URL after user.reload resolves", async () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    clerkMocks.useUser.mockReturnValue({
+      user: {
+        id: "user-1",
+        imageUrl: "https://img.clerk.com/abc",
+        updatedAt: new Date("2026-04-20T08:00:00.000Z"),
+        reload
+      }
+    });
+
+    const { result } = renderHook(() => useClerkAvatar());
+    expect(result.current.imageSrc).toContain(`-${FIXED_TODAY}-0-0`);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.imageSrc).toContain(`-${FIXED_TODAY}-1-0`);
   });
 
   it("does not crash when user.reload returns undefined (vi.fn default)", () => {

@@ -928,6 +928,100 @@ describe("useChat", () => {
       });
     });
 
+    it("restores the live placeholder and tool activity when returning to a streaming thread", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "user-msg-A", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "image_generate",
+            toolCallId: "tool-1",
+            isError: false
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+        }
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("make an image");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.entries).toEqual([
+          expect.objectContaining({
+            kind: "message",
+            message: expect.objectContaining({ role: "user", content: "make an image" })
+          }),
+          expect.objectContaining({
+            kind: "message",
+            message: expect.objectContaining({ role: "assistant", status: "streaming" })
+          }),
+          expect.objectContaining({
+            kind: "activity",
+            event: expect.objectContaining({ label: "Generating image" })
+          })
+        ]);
+      });
+
+      rerender({ threadKey: "thread-B" });
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.messages).toHaveLength(0);
+
+      rerender({ threadKey: "thread-A" });
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.entries).toEqual([
+        expect.objectContaining({
+          kind: "message",
+          message: expect.objectContaining({ role: "user", content: "make an image" })
+        }),
+        expect.objectContaining({
+          kind: "message",
+          message: expect.objectContaining({ role: "assistant", status: "streaming" })
+        }),
+        expect.objectContaining({
+          kind: "activity",
+          event: expect.objectContaining({ label: "Generating image" })
+        })
+      ]);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
     it("stop() aborts only the current thread's controller, not other threads", async () => {
       const aborts: { thread: string; aborted: boolean }[] = [];
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
@@ -1137,7 +1231,7 @@ describe("useChat", () => {
   });
 
   describe("soft-detach resume refresh", () => {
-    it("reconciles committed server history on focus after a post-headers stream disconnect", async () => {
+    it("keeps post-headers passive stream disconnects quiet and reconciles history", async () => {
       Object.defineProperty(document, "visibilityState", {
         configurable: true,
         value: "visible"
@@ -1201,12 +1295,7 @@ describe("useChat", () => {
         await result.current.send("make images");
       });
 
-      expect(result.current.issue).not.toBeNull();
-      expect(result.current.messages.some((message) => message.id.startsWith("local-"))).toBe(true);
-
-      act(() => {
-        window.dispatchEvent(new Event("focus"));
-      });
+      expect(result.current.issue).toBeNull();
 
       await waitFor(() => {
         expect(assistantApiMocks.getChatMessages).toHaveBeenCalledWith(
@@ -1218,6 +1307,7 @@ describe("useChat", () => {
       });
       await waitFor(() => {
         expect(result.current.issue).toBeNull();
+        expect(result.current.isStreaming).toBe(false);
       });
       expect(result.current.messages.map((message) => message.id)).toEqual([
         "server-user-1",

@@ -39,6 +39,13 @@ interface TelegramConnectProps {
 
 type Feedback = { type: "ok" | "err"; text: string } | null;
 
+function openTelegramUrl(url: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.location.assign(url);
+}
+
 export function TelegramConnect({
   integration,
   capabilityAllowed,
@@ -161,6 +168,10 @@ function ConnectForm({
               {t("step1Desc").split("@BotFather")[0]}
               <a
                 href="https://t.me/BotFather"
+                onClick={(event) => {
+                  event.preventDefault();
+                  openTelegramUrl("https://t.me/BotFather");
+                }}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 font-medium text-accent hover:underline"
@@ -297,7 +308,6 @@ function ConnectedView({
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [claimCodeCopied, setClaimCodeCopied] = useState(false);
   const [claimHelpOpen, setClaimHelpOpen] = useState(false);
-  const [findBotHintVisible, setFindBotHintVisible] = useState(false);
   const canResendOwnerMessage = Boolean(integration.bot.ownerTelegramChatId);
   const findBotUrl = bot.username ? `https://t.me/${bot.username}` : null;
 
@@ -451,11 +461,10 @@ function ConnectedView({
   }, [getToken, onUpdated, t]);
 
   const handleFindBot = useCallback(() => {
-    if (!findBotUrl || typeof window === "undefined") {
+    if (!findBotUrl) {
       return;
     }
-    setFindBotHintVisible(true);
-    window.open(findBotUrl, "_blank", "noopener,noreferrer");
+    openTelegramUrl(findBotUrl);
   }, [findBotUrl]);
 
   return (
@@ -482,79 +491,77 @@ function ConnectedView({
       </div>
 
       {integration.connectionStatus === "claim_required" && integration.ownerClaim.code && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-          <div>
-            <p className="text-xs font-medium text-amber-700">{t("claimRequiredTitle")}</p>
-            <button
-              type="button"
-              onClick={() => setClaimHelpOpen((value) => !value)}
-              className="mt-1 text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
-            >
-              {claimHelpOpen ? t("hideClaimHelp") : t("showClaimHelp")}
-            </button>
-          </div>
-          {claimHelpOpen && (
-            <div className="mt-3 rounded-lg border border-amber-500/20 bg-white/40 px-3 py-2.5 text-[11px] text-text-muted">
-              <p>{t("claimRequiredDesc")}</p>
-              <p className="mt-2">{t("resendOwnerMessageHint")}</p>
+        <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600">
+              <AlertCircle className="h-4 w-4" />
             </div>
-          )}
-          <div className="mt-3 rounded-lg border border-amber-500/20 bg-black/10 px-3 py-3">
-            <p className="text-[10px] uppercase tracking-wide text-text-muted">{t("claimCode")}</p>
-            <div className="mt-1 flex items-center gap-2">
-              <code className="flex-1 text-base font-semibold tracking-[0.2em] text-text">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-text">{t("claimRequiredTitle")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                {t("claimInstructionShort")}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-amber-500/20 bg-bg/80 px-3 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+              {t("claimCode")}
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <code className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-border bg-surface-raised px-3 text-xl font-semibold tracking-[0.08em] text-text sm:justify-start">
                 {integration.ownerClaim.code}
               </code>
               <button
                 type="button"
                 onClick={() => void handleCopyClaimCode()}
-                aria-label={claimCodeCopied ? t("copiedCode") : t("copyCode")}
-                title={claimCodeCopied ? t("copiedCode") : t("copyCode")}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-bg text-text transition-colors hover:bg-surface-hover"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
               >
                 {claimCodeCopied ? (
                   <CheckCircle2 className="h-4 w-4" />
                 ) : (
                   <Copy className="h-4 w-4" />
                 )}
+                {claimCodeCopied ? t("copiedCode") : t("copyCode")}
               </button>
-            </div>
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleFindBot}
-                disabled={!findBotUrl}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-bg px-3 py-1.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("findBot")}
-                <ExternalLink className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setClaimHelpOpen((value) => !value)}
-                className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
-              >
-                {claimHelpOpen ? t("hideClaimHelp") : t("showClaimHelp")}
-              </button>
-            </div>
-            {findBotHintVisible && bot.username && (
-              <p className="mt-2 text-[11px] text-text-muted">
-                {t("findBotHint", { username: `@${bot.username}` })}
-              </p>
-            )}
-            <div className="mt-1 min-h-[1rem] text-right">
-              {canResendOwnerMessage ? (
-                <button
-                  type="button"
-                  onClick={() => void handleResendOwnerMessage()}
-                  disabled={resendingOwnerMessage}
-                  className="text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
-                </button>
-              ) : null}
             </div>
           </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={handleFindBot}
+              disabled={!findBotUrl}
+              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-sm shadow-accent/20 transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("findBot")}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+            {canResendOwnerMessage ? (
+              <button
+                type="button"
+                onClick={() => void handleResendOwnerMessage()}
+                disabled={resendingOwnerMessage}
+                className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-3 text-xs font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resendingOwnerMessage && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {resendingOwnerMessage ? t("resendingOwnerMessage") : t("resendOwnerMessage")}
+              </button>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setClaimHelpOpen((value) => !value)}
+            className="mt-3 text-[11px] text-text-muted underline-offset-2 transition-colors hover:text-text hover:underline"
+          >
+            {claimHelpOpen ? t("hideClaimHelp") : t("showClaimHelp")}
+          </button>
+          {claimHelpOpen && (
+            <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
+              {t("claimRequiredDesc")}
+            </p>
+          )}
         </div>
       )}
 

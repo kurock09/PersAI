@@ -786,4 +786,13 @@ describe("toWebChatUxIssue", () => {
       guidance: "Remove some files, split them across messages, or send a smaller file."
     });
   });
+
+  it("maps empty voice transcription to a dedicated retryable issue", () => {
+    expect(toWebChatUxIssue(new Error("Voice transcription returned empty text."))).toEqual({
+      classId: "voice_transcription_empty",
+      message: "No speech was detected in your recording.",
+      guidance:
+        "Check that the correct microphone is selected in your browser settings and that it is not muted."
+    });
+  });
 });

@@ -149,6 +149,92 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(unauthorized, { statusCode: 401, body: { ok: false, error: "unauthorized" } });
 
+  const claimSyncCalls: Array<Record<string, unknown>> = [];
+  const claimReplies: string[] = [];
+  const claimService = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 777,
+          botUsername: "persai_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          accessMode: "owner_only",
+          ownerClaimStatus: "pending",
+          ownerClaimCode: "300077",
+          ownerClaimCodeExpiresAt: "2999-01-01T00:00:00.000Z",
+          ownerTelegramUserId: null,
+          ownerTelegramUsername: null,
+          ownerTelegramChatId: null,
+          runtimeHealth: "ok",
+          webhookSecret: "tg-secret"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText(_botToken: string, _chatId: string, text: string) {
+        claimReplies.push(text);
+      },
+      async sendAssistantTurnReply() {
+        throw new Error("not expected");
+      },
+      async downloadInboundFile() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async deliver() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute(input: Record<string, unknown>) {
+        claimSyncCalls.push(input);
+      }
+    } as never,
+    {
+      async execute() {
+        throw new Error("not expected");
+      }
+    } as never,
+    new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async patchMetadata() {
+        return undefined;
+      }
+    } as never
+  );
+
+  const claimResult = await claimService.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "tg-secret",
+    payload: {
+      update_id: 125,
+      message: {
+        text: "3 0 0 0 7 7",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, username: "alex" }
+      }
+    }
+  });
+  assert.deepEqual(claimResult, { statusCode: 200, body: { ok: true } });
+  assert.equal(claimSyncCalls[0]?.claimOwner, true);
+  assert.equal(claimSyncCalls[1]?.claimOwner, false);
+  assert.deepEqual(claimReplies, [
+    "Telegram is connected. This is the owner's private chat. I'm here now, and you can continue right in this conversation."
+  ]);
+
   const retryPlainTexts: string[] = [];
   let lastHandledUpdateId: number | null = null;
   let retryExecuteCalls = 0;

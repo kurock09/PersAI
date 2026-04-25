@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatInput } from "./chat-input";
 
@@ -17,9 +17,24 @@ function toFileList(files: File[]): FileList {
   } as unknown as FileList;
 }
 
+function enableTouchDevice() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)",
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn()
+  }));
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    configurable: true,
+    value: 1
+  });
+}
+
 describe("ChatInput", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("shows a knowledge-base checkbox for eligible documents", () => {
@@ -92,5 +107,110 @@ describe("ChatInput", () => {
     });
 
     expect(screen.queryByLabelText("knowledgeAddToBase")).toBeNull();
+  });
+
+  it("shows only the file tile in the desktop attachment menu", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle("attachFile"));
+
+    expect(screen.getByText("attachMenuFile")).toBeInTheDocument();
+    expect(screen.queryByText("attachMenuCamera")).toBeNull();
+    expect(screen.queryByText("attachMenuPhotos")).toBeNull();
+  });
+
+  it("shows a live camera preview in the mobile camera tile", async () => {
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }]
+    } as unknown as MediaStream;
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    enableTouchDevice();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue(stream)
+      }
+    });
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTitle("attachFile")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTitle("attachFile"));
+
+    await waitFor(() => {
+      expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+    });
+    const video = document.querySelector("video") as HTMLVideoElement | null;
+    expect(video?.srcObject).toBe(stream);
+  });
+
+  it("cancels a pending mobile voice start after a short tap", async () => {
+    enableTouchDevice();
+    const stop = vi.fn();
+    const stream = {
+      getTracks: () => [{ stop }]
+    } as unknown as MediaStream;
+    let resolveGetUserMedia: (value: MediaStream) => void = () => undefined;
+    const getUserMedia = vi.fn(
+      () =>
+        new Promise<MediaStream>((resolve) => {
+          resolveGetUserMedia = resolve;
+        })
+    );
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const mediaRecorder = vi.fn();
+    Object.defineProperty(window, "MediaRecorder", {
+      configurable: true,
+      value: Object.assign(mediaRecorder, {
+        isTypeSupported: vi.fn(() => true)
+      })
+    });
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const mic = await screen.findByTitle("voiceHoldToRecord");
+    fireEvent.pointerDown(mic, { pointerType: "touch", pointerId: 1, clientY: 100 });
+    fireEvent.pointerUp(mic, { pointerType: "touch", pointerId: 1, clientY: 100 });
+    resolveGetUserMedia(stream);
+
+    await waitFor(() => {
+      expect(stop).toHaveBeenCalled();
+    });
+    expect(mediaRecorder).not.toHaveBeenCalled();
+    expect(screen.queryByRole("status", { name: "recording" })).toBeNull();
   });
 });

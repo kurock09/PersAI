@@ -1,4 +1,4 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
@@ -80,6 +80,7 @@ function createChat(
     hasOlderMessages?: boolean;
     olderMessagesLoading?: boolean;
     loadOlderMessages?: UseChatReturn["loadOlderMessages"];
+    issue?: UseChatReturn["issue"];
   }
 ): UseChatReturn {
   const contents = Array.isArray(messageContent) ? messageContent : [messageContent];
@@ -99,7 +100,7 @@ function createChat(
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,
     olderMessagesLoading: options?.olderMessagesLoading ?? false,
-    issue: null,
+    issue: options?.issue ?? null,
     compaction: null,
     recentAutoCompaction: null,
     compactionRunning: false,
@@ -187,5 +188,63 @@ describe("ChatArea", () => {
 
     expect(scrollContainer.scrollTop).toBe(320);
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("shows localized voice retry guidance for empty transcriptions", () => {
+    render(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          issue: {
+            classId: "voice_transcription_empty",
+            message: "No speech was detected in your recording.",
+            guidance: "Record again."
+          }
+        })}
+      />
+    );
+
+    expect(screen.getByText("voiceTranscriptionEmptyTitle")).toBeInTheDocument();
+    expect(screen.getByText("voiceTranscriptionEmptyGuidance")).toBeInTheDocument();
+  });
+
+  it("renders the chat title as quiet single-line context", () => {
+    render(
+      <ChatArea chat={createChat("Hello", { isStreaming: false })} title="Very long chat title" />
+    );
+
+    expect(screen.getByRole("heading", { name: "Very long chat title" })).toHaveClass(
+      "text-sm",
+      "font-medium",
+      "text-text-muted",
+      "truncate"
+    );
+  });
+
+  it("shows a quiet scroll-to-bottom button when reading older messages", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView
+    });
+    const { container } = render(
+      <ChatArea chat={createChat(["Older", "Latest"], { isStreaming: false })} />
+    );
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get: () => 1200
+    });
+    Object.defineProperty(scrollContainer, "clientHeight", {
+      configurable: true,
+      get: () => 500
+    });
+    scrollContainer.scrollTop = 100;
+
+    fireEvent.scroll(scrollContainer);
+    fireEvent.click(screen.getByLabelText("scrollToBottom"));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
   });
 });
