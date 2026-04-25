@@ -68,6 +68,9 @@
     "disclaimer": "Your assistant may make mistakes. Verify important information.",
     "dropFilesHere": "Drop files to attach them",
     "attachFile": "Attach file",
+    "attachMenuCamera": "Camera",
+    "attachMenuPhotos": "Photos",
+    "attachMenuFile": "File",
     "knowledgeAddToBase": "Add to knowledge base",
     "knowledgeAddToBaseHint": "Eligible documents will be indexed and become available from any chat through knowledge search.",
     "deepModeLabel": "Think deeper",
@@ -83,6 +86,10 @@
     "knowledgeUploadFailed": "Could not add to knowledge base",
     "knowledgeUploadFailedDetail": "The files stayed in the message, but they were not indexed for search from other chats.",
     "voiceMessage": "Voice message",
+    "voiceHoldToRecord": "Hold to record",
+    "voiceHoldRelease": "Release to send",
+    "voiceSwipeUpToCancel": "Swipe up to cancel",
+    "voiceCancelArmed": "Release to cancel",
     "send": "Send",
     "stop": "Stop",
     "recording": "Recording {duration}",
@@ -189,7 +196,8 @@
     "delete": "Delete",
     "confirmDelete": "Confirm delete",
     "deleting": "Deleting...",
-    "deepModeBadge": "Smarter"
+    "deepModeBadge": "Smarter",
+    "assistantSettingsHint": "Assistant settings"
   },
   "home": {
     "greeting1": "What's on your mind today?",

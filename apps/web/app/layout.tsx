@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
+import { cookies, headers } from "next/headers";
 import { ClerkProvider } from "@clerk/nextjs";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
@@ -12,14 +13,28 @@ export const metadata: Metadata = {
   description: "Your personal AI assistant. One mind. Everywhere."
 };
 
+const THEME_COOKIE = "persai-theme";
+const THEME_COLOR_DARK = "#161513";
+const THEME_COLOR_LIGHT = "#e0d8c8";
+
+type ThemeChoice = "system" | "dark" | "light";
+type ResolvedTheme = "dark" | "light";
+
+function isThemeChoice(value: string | undefined): value is ThemeChoice {
+  return value === "system" || value === "dark" || value === "light";
+}
+
 /**
- * Synchronous, pre-hydration theme bootstrap. Runs in <head> before the
- * first paint to apply the user's stored choice (or, when the user is on
- * "system", the current OS preference) so we never flash dark over light
- * (or vice versa) on cold load. Mirrors the contract in
- * apps/web/app/app/_components/use-theme.ts.
+ * First-visit-without-cookie fallback (ADR-076 Slice 1). Runs synchronously
+ * in `<head>` before the first paint, on iOS WKWebView and any browser that
+ * does not send `Sec-CH-Prefers-Color-Scheme`. Reads the cookie (NOT
+ * `localStorage`), resolves `system` against `matchMedia`, applies the
+ * `.light` class + `color-scheme`, syncs `<meta name="theme-color">`, and
+ * persists the choice as a cookie so subsequent navigations are
+ * server-resolved. This is the documented first-visit path, not a parallel
+ * source of truth.
  */
-const themeBootstrapScript = `(function(){try{var s=localStorage.getItem("persai-theme");var c=(s==="system"||s==="dark"||s==="light")?s:"system";var r=c==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):c;if(r==="light")document.documentElement.classList.add("light");document.documentElement.style.colorScheme=r;}catch(e){}})();`;
+const themeFallbackScript = `(function(){try{var m=document.cookie.match(/(?:^|; )persai-theme=([^;]+)/);var s=m?decodeURIComponent(m[1]):null;var c=(s==="system"||s==="dark"||s==="light")?s:"system";var r=c==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):c;var d=document.documentElement;if(r==="light")d.classList.add("light");else d.classList.remove("light");d.style.colorScheme=r;var meta=document.querySelector('meta[name="theme-color"]');if(meta)meta.setAttribute("content",r==="light"?"#e0d8c8":"#161513");if(!s){var sec=location.protocol==="https:"?"; Secure":"";document.cookie="persai-theme="+c+"; Path=/; Max-Age=31536000; SameSite=Lax"+sec;}try{if(window.PersaiNative&&typeof window.PersaiNative.setTheme==="function")window.PersaiNative.setTheme(r);}catch(e2){}}catch(e){}})();`;
 
 const clerkAppearance = {
   variables: {
@@ -52,21 +67,56 @@ const clerkAppearance = {
   }
 };
 
+/**
+ * Server-side theme resolution (ADR-076 Slice 1). Reads `persai-theme`
+ * cookie as the authoritative source. When the cookie is "system" or
+ * absent, falls back to the `Sec-CH-Prefers-Color-Scheme` client hint
+ * (opted-in via the `Accept-CH` meta tag below and the `Critical-CH`
+ * response header in `next.config.ts`); when the hint is also absent
+ * (iOS WKWebView, older browsers), the inline `themeFallbackScript`
+ * resolves and writes the cookie before first paint.
+ */
+async function resolveServerTheme(): Promise<ResolvedTheme> {
+  const cookieStore = await cookies();
+  const headerList = await headers();
+
+  const stored = cookieStore.get(THEME_COOKIE)?.value;
+  const choice: ThemeChoice = isThemeChoice(stored) ? stored : "system";
+
+  if (choice === "dark" || choice === "light") return choice;
+
+  const hint = headerList.get("sec-ch-prefers-color-scheme");
+  if (hint === "light") return "light";
+  if (hint === "dark") return "dark";
+
+  return "dark";
+}
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const locale = await getLocale();
   const messages = await getMessages();
+  const resolvedTheme = await resolveServerTheme();
+  const themeColor = resolvedTheme === "light" ? THEME_COLOR_LIGHT : THEME_COLOR_DARK;
+  const htmlClassName = [
+    GeistSans.variable,
+    GeistMono.variable,
+    resolvedTheme === "light" ? "light" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <html
       lang={locale}
-      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      className={htmlClassName}
+      style={{ colorScheme: resolvedTheme }}
       suppressHydrationWarning
     >
       <head>
         <meta name="color-scheme" content="dark light" />
-        <meta name="theme-color" content="#161513" media="(prefers-color-scheme: dark)" />
-        <meta name="theme-color" content="#e0d8c8" media="(prefers-color-scheme: light)" />
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <meta httpEquiv="Accept-CH" content="Sec-CH-Prefers-Color-Scheme" />
+        <meta name="theme-color" content={themeColor} />
+        <script dangerouslySetInnerHTML={{ __html: themeFallbackScript }} />
       </head>
       <body className="bg-chrome font-sans text-text antialiased">
         <ClerkProvider appearance={clerkAppearance}>

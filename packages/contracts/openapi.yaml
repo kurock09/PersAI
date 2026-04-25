@@ -2910,6 +2910,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /app/bootstrap:
+    get:
+      operationId: getAppBootstrap
+      summary: Single-batch bootstrap for the web shell first paint (ADR-076 Slice 3).
+      description: |
+        Aggregates assistant lifecycle, web chat list, telegram integration,
+        notification preference, user plan visibility, and admin plan visibility
+        into one response. Each section reports `ok: true` with `data` or
+        `ok: false` with a categorized error so non-critical sections never
+        block the rest. The web RSC layout calls this once during SSR and seeds
+        the client cache; per-endpoint clients are still used for refresh paths.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Bootstrap sections
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAppBootstrapResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
   securitySchemes:
     bearerAuth:
@@ -3146,6 +3178,13 @@ components:
         avatarUrl:
           type: string
           nullable: true
+          description: |
+            ADR-076 Slice 4 — content-addressed avatar URL of the form
+            `/api/avatar/<hash>.<ext>`. The web BFF
+            (`/api/avatar/[hash]`) serves the bytes with `Cache-Control:
+            private, max-age=31536000, immutable`. Legacy absolute URLs
+            persisted in dev databases are returned as `null` so the UI
+            falls back to the emoji avatar until re-uploaded.
         assistantGender:
           allOf:
             - $ref: "#/components/schemas/AssistantIdentityGender"
@@ -3283,6 +3322,9 @@ components:
         avatarUrl:
           type: string
           nullable: true
+          description: |
+            ADR-076 Slice 4 — content-addressed avatar URL of the form
+            `/api/avatar/<hash>.<ext>`. Same shape as the draft state.
         assistantGender:
           allOf:
             - $ref: "#/components/schemas/AssistantIdentityGender"
@@ -3686,8 +3728,7 @@ components:
           type: string
           format: date-time
           nullable: true
-          description:
-            ADR-074 Slice M3 — when an `open_loop` is resolved (implicitly via
+          description: ADR-074 Slice M3 — when an `open_loop` is resolved (implicitly via
             memory_write dedup, opt-in via `closeOpenLoop:true`, structured via
             M3.1 `action:"close"`, or via the Memory Center "Mark as closed"
             button), this is the resolution timestamp. `null` for active loops
@@ -3740,8 +3781,7 @@ components:
           enum:
             - closed
             - already_closed
-          description:
-            "ADR-074 Slice M3.1 — `closed` when this request flipped resolved_at;
+          description: "ADR-074 Slice M3.1 — `closed` when this request flipped resolved_at;
             `already_closed` when the item was already resolved (idempotent
             success). Both responses return HTTP 200; the front-end should treat
             both as success and refresh the list."
@@ -5334,6 +5374,145 @@ components:
           nullable: true
         assistant:
           $ref: "#/components/schemas/AssistantLifecycleState"
+    AssistantNotificationPreferenceState:
+      type: object
+      required:
+        - selectedChannel
+        - availableChannels
+      properties:
+        selectedChannel:
+          type: string
+          enum: [web, telegram, whatsapp]
+        availableChannels:
+          type: array
+          items:
+            type: string
+            enum: [web, telegram, whatsapp]
+    GetAssistantNotificationPreferenceResponse:
+      type: object
+      required:
+        - preference
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        preference:
+          $ref: "#/components/schemas/AssistantNotificationPreferenceState"
+    BootstrapSectionError:
+      type: object
+      required:
+        - code
+        - category
+        - message
+      properties:
+        code:
+          type: string
+        category:
+          type: string
+          enum: [auth, forbidden, validation, infra, unknown]
+        message:
+          type: string
+    AppBootstrapAssistantSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          nullable: true
+          $ref: "#/components/schemas/AssistantLifecycleState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapChatsSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatListItemState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapTelegramSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/TelegramIntegrationState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapNotificationPreferenceSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/AssistantNotificationPreferenceState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapPlanSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/UserPlanVisibilityState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapAdminSection:
+      type: object
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/AdminPlanVisibilityState"
+        error:
+          $ref: "#/components/schemas/BootstrapSectionError"
+    AppBootstrapSectionsState:
+      type: object
+      required:
+        - assistant
+        - chats
+        - telegram
+        - notificationPreference
+        - plan
+        - admin
+      properties:
+        assistant:
+          $ref: "#/components/schemas/AppBootstrapAssistantSection"
+        chats:
+          $ref: "#/components/schemas/AppBootstrapChatsSection"
+        telegram:
+          $ref: "#/components/schemas/AppBootstrapTelegramSection"
+        notificationPreference:
+          $ref: "#/components/schemas/AppBootstrapNotificationPreferenceSection"
+        plan:
+          $ref: "#/components/schemas/AppBootstrapPlanSection"
+        admin:
+          $ref: "#/components/schemas/AppBootstrapAdminSection"
+    GetAppBootstrapResponse:
+      type: object
+      required:
+        - sections
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        sections:
+          $ref: "#/components/schemas/AppBootstrapSectionsState"
     GetAssistantPlanVisibilityResponse:
       type: object
       required:

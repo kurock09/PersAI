@@ -233,29 +233,42 @@ export class AssistantController {
       userId: this.resolveRequestUserId(req),
       fileBuffer: file.buffer,
       mimeType: file.mimetype,
-      originalFilename: file.originalname,
-      avatarUrl: this.buildAbsoluteAssistantAvatarUrl(req)
+      originalFilename: file.originalname
     });
 
     return { requestId: req.requestId ?? null, avatarUrl: result.avatarUrl };
   }
 
-  @Get("assistant/avatar")
-  async getAvatar(
+  /**
+   * ADR-076 Slice 4 — content-addressed avatar bytes.
+   *
+   * The browser never calls this directly; the `apps/web` BFF
+   * (`/api/avatar/[hash]`) authenticates the Clerk cookie session, then
+   * issues a server-side bearer fetch here. The hash in the path must match
+   * the assistant's current `draft.avatarUrl` hash; mismatches return 404
+   * so stale CDN/proxy entries cannot leak superseded bytes.
+   */
+  @Get("assistant/avatar/:hash")
+  async getAvatarByHash(
     @Req() req: RequestWithPlatformContext,
-    @Res() res: ResponseWithPlatformContext
+    @Res() res: ResponseWithPlatformContext,
+    @Param("hash") hash: string
   ): Promise<void> {
-    const result = await this.manageAssistantAvatarService.download(this.resolveRequestUserId(req));
+    const result = await this.manageAssistantAvatarService.downloadByHash(
+      this.resolveRequestUserId(req),
+      hash
+    );
     if (!result) {
       res.statusCode = 404;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ message: "No avatar found." }));
+      res.end(JSON.stringify({ message: "No avatar found for this hash." }));
       return;
     }
 
     res.statusCode = 200;
     res.setHeader("Content-Type", result.contentType);
-    res.setHeader("Cache-Control", "no-cache, must-revalidate");
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.setHeader("ETag", `"${hash}"`);
     res.end(result.buffer);
   }
 
@@ -1061,22 +1074,5 @@ export class AssistantController {
     }
 
     return req.resolvedAppUser.id;
-  }
-
-  private buildAbsoluteAssistantAvatarUrl(req: RequestWithPlatformContext): string {
-    const forwardedProto = req.headers["x-forwarded-proto"];
-    const protocol =
-      typeof forwardedProto === "string" && forwardedProto.trim().length > 0
-        ? forwardedProto.split(",")[0]!.trim()
-        : "https";
-    const forwardedHost = req.headers["x-forwarded-host"];
-    const host =
-      typeof forwardedHost === "string" && forwardedHost.trim().length > 0
-        ? forwardedHost.split(",")[0]!.trim()
-        : req.headers.host;
-    if (!host) {
-      throw new BadRequestException("Unable to resolve assistant avatar host.");
-    }
-    return `${protocol}://${host}/api/v1/assistant/avatar`;
   }
 }

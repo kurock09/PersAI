@@ -17,7 +17,16 @@ export interface AssistantDraftState {
   traits?: AssistantDraftStateTraits;
   /** @nullable */
   avatarEmoji?: string | null;
-  /** @nullable */
+  /**
+   * ADR-076 Slice 4 — content-addressed avatar URL of the form
+`/api/avatar/<hash>.<ext>`. The web BFF
+(`/api/avatar/[hash]`) serves the bytes with `Cache-Control:
+private, max-age=31536000, immutable`. Legacy absolute URLs
+persisted in dev databases are returned as `null` so the UI
+falls back to the emoji avatar until re-uploaded.
+
+   * @nullable
+   */
   avatarUrl?: string | null;
   /** @nullable */
   assistantGender?: AssistantDraftStateAssistantGender;

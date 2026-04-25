@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
@@ -12,7 +10,6 @@ const SIZE_CLASSES = {
 } as const;
 
 type AvatarSize = keyof typeof SIZE_CLASSES;
-const AVATAR_BLOB_CACHE = new Map<string, string>();
 
 interface AssistantAvatarProps {
   avatarUrl?: string | null | undefined;
@@ -21,55 +18,27 @@ interface AssistantAvatarProps {
   className?: string;
 }
 
+/**
+ * ADR-076 Slice 4 — purely presentational avatar.
+ *
+ * Lifecycle state delivers `avatarUrl` in the form `/api/avatar/<hash>.<ext>`
+ * which is served by the same-origin BFF route handler with cookie auth and
+ * `Cache-Control: private, max-age=31536000, immutable`. The browser handles
+ * caching; this component just renders an `<img>`. Falls back to the emoji
+ * (or sparkles) when no URL is present.
+ */
 export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: AssistantAvatarProps) {
   const s = SIZE_CLASSES[size];
-  const { getToken } = useAuth();
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
 
-  useEffect(() => {
-    if (!avatarUrl) {
-      setBlobUrl(null);
-      setStatus("idle");
-      return;
-    }
-
-    const cachedBlobUrl = AVATAR_BLOB_CACHE.get(avatarUrl);
-    if (cachedBlobUrl) {
-      setBlobUrl(cachedBlobUrl);
-      setStatus("loaded");
-      return;
-    }
-
-    let cancelled = false;
-    setStatus("loading");
-
-    void (async () => {
-      try {
-        const token = await getToken();
-        if (!token || cancelled) return;
-        const res = await fetch(avatarUrl, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (!res.ok || cancelled) {
-          if (!cancelled) setStatus("error");
-          return;
-        }
-        const blob = await res.blob();
-        if (cancelled) return;
-        const nextBlobUrl = URL.createObjectURL(blob);
-        AVATAR_BLOB_CACHE.set(avatarUrl, nextBlobUrl);
-        setBlobUrl(nextBlobUrl);
-        setStatus("loaded");
-      } catch {
-        if (!cancelled) setStatus("error");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [avatarUrl, getToken]);
+  if (avatarUrl) {
+    return (
+      <div
+        className={cn("shrink-0 overflow-hidden bg-accent/15", s.container, s.rounded, className)}
+      >
+        <img src={avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+      </div>
+    );
+  }
 
   const fallbackContent = avatarEmoji ? (
     <span
@@ -81,16 +50,6 @@ export function AssistantAvatar({ avatarUrl, avatarEmoji, size, className }: Ass
   ) : (
     <Sparkles className={s.icon} />
   );
-
-  if (status === "loaded" && blobUrl) {
-    return (
-      <div
-        className={cn("shrink-0 overflow-hidden bg-accent/15", s.container, s.rounded, className)}
-      >
-        <img src={blobUrl} alt="" className="h-full w-full object-cover" />
-      </div>
-    );
-  }
 
   return (
     <div

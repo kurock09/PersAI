@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
@@ -173,14 +174,16 @@ export function Sidebar({
         <button
           type="button"
           onClick={onAssistantCardClick}
-          className="flex w-full cursor-pointer items-center gap-3 rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
+          aria-label={t("assistantSettingsHint")}
+          title={t("assistantSettingsHint")}
+          className="group flex w-full cursor-pointer items-center gap-3 rounded-xl bg-surface-raised p-3 transition-colors hover:bg-surface-hover"
         >
           <AssistantAvatar
             avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
             avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
             size="md"
           />
-          <div className="min-w-0 text-left">
+          <div className="min-w-0 flex-1 text-left">
             <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
             <span className="flex items-center gap-1.5">
               <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
@@ -189,6 +192,19 @@ export function Sidebar({
               </span>
             </span>
           </div>
+          {/*
+           * Quiet premium affordance: the cog is the only visible cue that
+           * the whole card is clickable. Default state stays barely-visible
+           * (subtle/40) so the card remains calm; on hover it warms up via
+           * accent-premium to match the rest of the premium signals
+           * (Sparkles in chat list, deep-mode subtitle in chat header).
+           */}
+          <span
+            aria-hidden="true"
+            className="ml-1 shrink-0 rounded-full p-1.5 text-text-subtle/40 transition-colors group-hover:bg-surface group-hover:text-accent-premium"
+          >
+            <Settings className="h-3.5 w-3.5" />
+          </span>
         </button>
       </div>
 
@@ -209,10 +225,20 @@ export function Sidebar({
 
       {/* 3. Chat list (scrollable) */}
       <div className="flex-1 overflow-y-auto px-3">
-        {data.isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-5 w-5 animate-spin text-text-subtle" />
-          </div>
+        {/*
+         * ADR-076 Slice 5 — targeted skeleton policy:
+         *   - `isLoading` (cold start without SSR seed) shows a few ghost
+         *     rows so the sidebar never feels empty during fan-out.
+         *   - `isReloadingChats` only triggers the skeleton when the visible
+         *     list happens to be empty (e.g. right after deleting the last
+         *     chat). When chats are still visible we keep them on screen —
+         *     no global spinner, no flash, just steady content.
+         *   - `isLoading` no longer trips on `reload()` for assistant
+         *     mutations (that path uses `isReloading` now), so settings
+         *     saves never wipe the sidebar.
+         */}
+        {data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
+          <ChatListSkeleton />
         ) : chatGroups.length === 0 ? (
           <p className="pb-4 pt-6 text-center text-xs text-text-subtle">{t("startFirst")}</p>
         ) : (
@@ -238,7 +264,7 @@ export function Sidebar({
       </div>
 
       {/* Bottom: single account row, everything else lives behind the popup */}
-      <div className="shrink-0 border-t border-border" suppressHydrationWarning>
+      <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>
         {mounted && (
           <AccountFooter
             data={data}
@@ -249,6 +275,34 @@ export function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Chat list skeleton (ADR-076 Slice 5)                               */
+/*                                                                     */
+/*  Three ghost rows roughly matching the real chat row geometry. We   */
+/*  intentionally don't show a date-group label here — at the moment   */
+/*  the skeleton renders we genuinely don't know which group(s) the    */
+/*  data will resolve into, and a fake "Today" header would lie.       */
+/* ------------------------------------------------------------------ */
+
+function ChatListSkeleton() {
+  return (
+    <div aria-hidden="true" data-testid="chat-list-skeleton" className="space-y-1.5 pt-1">
+      {[72, 60, 80].map((width, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-2 rounded-lg px-2.5 py-2"
+          style={{ opacity: 1 - i * 0.18 }}
+        >
+          <div
+            className="h-3 animate-pulse rounded bg-surface-raised"
+            style={{ width: `${width}%` }}
+          />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -351,7 +405,7 @@ function AccountFooter({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-surface-hover"
+        className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-left transition-colors hover:bg-surface-hover"
       >
         <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent/20 text-xs font-semibold text-accent">
           {avatarUrl && !avatarBroken ? (
@@ -384,7 +438,7 @@ function AccountFooter({
         {open && (
           <motion.div
             role="menu"
-            className="absolute right-2 bottom-full left-2 z-50 mb-2 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-xl"
+            className="absolute right-0 bottom-full left-0 z-50 mb-2 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-xl"
             initial={{ opacity: 0, y: 6, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.98 }}
@@ -582,24 +636,66 @@ function ChatListItem({
   const t = useTranslations("sidebar");
   const { getToken } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const kebabRef = useRef<HTMLSpanElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Compute fixed-position coords for the kebab dropdown so it can render
+  // through a portal and escape the sidebar's overflow-y-auto clip when the
+  // chat list scrolls. Auto-flips above the row when the row is too close to
+  // the viewport bottom.
+  const openMenu = useCallback(() => {
+    const rect = kebabRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setMenuOpen(true);
+      return;
+    }
+    const MENU_W = 144; // w-36
+    const MENU_H_EST = 132; // ~3 items + divider; conservative so we flip early
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const flipUp = spaceBelow < MENU_H_EST + 16;
+    setMenuPos({
+      top: flipUp ? Math.max(8, rect.top - MENU_H_EST - 6) : rect.bottom + 6,
+      right: Math.max(8, window.innerWidth - rect.right)
+    });
+    void MENU_W; // reserved for future left-overflow handling on narrow viewports
+    setMenuOpen(true);
+    setConfirmDelete(false);
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    setConfirmDelete(false);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-        setConfirmDelete(false);
-      }
+      const target = e.target as Node;
+      // Don't close on clicks inside the menu itself, or on the kebab that
+      // toggles it (otherwise mousedown would close it before the click
+      // toggle re-opens it, leaving the menu in a confused state).
+      if (menuRef.current?.contains(target)) return;
+      if (kebabRef.current?.contains(target)) return;
+      closeMenu();
     };
+    const onScrollOrResize = () => closeMenu();
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
+    // capture: true so we catch scroll on any nested overflow container
+    // (the chat list itself is overflow-y-auto and won't bubble scroll).
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [menuOpen, closeMenu]);
 
   useEffect(() => {
     if (renaming) {
@@ -696,9 +792,9 @@ function ChatListItem({
               <span
                 title={t("deepModeBadge")}
                 aria-label={t("deepModeBadge")}
-                className="inline-flex shrink-0 items-center rounded-full bg-violet-500/12 px-1.5 py-0.5 text-violet-600 ring-1 ring-violet-500/12"
+                className="inline-flex shrink-0 items-center text-accent-premium/70"
               >
-                <Sparkles className="h-2.5 w-2.5" />
+                <Sparkles className="h-3 w-3" />
               </span>
             )}
           </span>
@@ -713,17 +809,22 @@ function ChatListItem({
           </time>
         )}
         <span
+          ref={kebabRef}
           role="button"
           tabIndex={0}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           onClick={(e) => {
             e.stopPropagation();
-            setMenuOpen((o) => !o);
-            setConfirmDelete(false);
+            if (menuOpen) closeMenu();
+            else openMenu();
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
+            if (e.key === "Enter" || e.key === " ") {
               e.stopPropagation();
-              setMenuOpen((o) => !o);
+              e.preventDefault();
+              if (menuOpen) closeMenu();
+              else openMenu();
             }
           }}
           className="shrink-0 rounded p-0.5 opacity-70 transition-opacity hover:bg-surface-raised md:opacity-0 md:group-hover:opacity-100"
@@ -732,63 +833,73 @@ function ChatListItem({
         </span>
       </button>
 
-      {/* Dropdown menu */}
-      {menuOpen && (
-        <div
-          ref={menuRef}
-          className="absolute right-1 top-full z-20 mt-0.5 w-36 rounded-lg border border-border bg-surface py-1 shadow-xl"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (deleting) return;
-              setRenameValue(item.chat.title ?? "");
-              setRenaming(true);
-              setMenuOpen(false);
-            }}
-            disabled={deleting}
-            className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+      {/*
+       * Dropdown rendered via portal + position: fixed so it escapes the
+       * sidebar's overflow-y-auto clip. Without this, opening the menu on a
+       * row near the bottom of a long chat list would visually cut the menu
+       * off inside the scroll container.
+       */}
+      {menuOpen &&
+        menuPos &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: menuPos.top, right: menuPos.right }}
+            className="z-50 w-36 rounded-lg border border-border bg-surface py-1 shadow-xl"
           >
-            <Pencil className="h-3 w-3" />
-            {t("rename")}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleArchive()}
-            disabled={deleting}
-            className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <Archive className="h-3 w-3" />
-            {t("archive")}
-          </button>
-          <div className="my-1 border-t border-border" />
-          {confirmDelete ? (
             <button
               type="button"
-              onClick={() => void handleDelete()}
+              onClick={() => {
+                if (deleting) return;
+                setRenameValue(item.chat.title ?? "");
+                setRenaming(true);
+                setMenuOpen(false);
+              }}
               disabled={deleting}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >
-              {deleting ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
+              <Pencil className="h-3 w-3" />
+              {t("rename")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleArchive()}
+              disabled={deleting}
+              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <Archive className="h-3 w-3" />
+              {t("archive")}
+            </button>
+            <div className="my-1 border-t border-border" />
+            {confirmDelete ? (
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+              >
+                {deleting ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                {deleting ? t("deleting") : t("confirmDelete")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                disabled={deleting}
+                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
                 <Trash2 className="h-3 w-3" />
-              )}
-              {deleting ? t("deleting") : t("confirmDelete")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              disabled={deleting}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-              {t("delete")}
-            </button>
-          )}
-        </div>
-      )}
+                {t("delete")}
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

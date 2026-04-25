@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { IdentityAccessModule } from "../identity-access/identity-access.module";
 import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { PrismaService } from "../identity-access/infrastructure/persistence/prisma.service";
+import { AppBootstrapController } from "./interface/http/app-bootstrap.controller";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
@@ -95,6 +96,7 @@ import { ControlInternalScheduledActionService } from "./application/control-int
 import { DisableAssistantTaskRegistryItemService } from "./application/disable-assistant-task-registry-item.service";
 import { EnableAssistantTaskRegistryItemService } from "./application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "./application/cancel-assistant-task-registry-item.service";
+import { GetAssistantAppBootstrapService } from "./application/get-assistant-app-bootstrap.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
@@ -214,6 +216,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
 @Module({
   imports: [IdentityAccessModule, PlatformCoreModule],
   controllers: [
+    AppBootstrapController,
     AssistantController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
@@ -304,6 +307,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolveAssistantRuntimeTierService,
     EnsureAssistantMaterializedSpecCurrentService,
     RenderAssistantInboundSurfaceMessageService,
+    GetAssistantAppBootstrapService,
     GetAssistantByUserIdService,
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,

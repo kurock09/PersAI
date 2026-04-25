@@ -34,24 +34,30 @@ function ChatPageInner() {
   const chat = useChat(threadKey);
   const locale = useLocale();
 
-  const existingChat = threadFromUrl
-    ? appData.chats.find((c) => c.chat.surfaceThreadKey === threadFromUrl)
-    : undefined;
+  // Match by `threadKey` (not `threadFromUrl`) so that a chat row created by the
+  // server during the first send becomes visible in the header immediately
+  // after `reloadChats()` lands, even before the URL has been updated.
+  const existingChat = appData.chats.find((c) => c.chat.surfaceThreadKey === threadKey);
 
   useEffect(() => {
-    if (existingChat?.chat.id) {
-      void chat.loadHistory(existingChat.chat.id);
-    }
-  }, [existingChat?.chat.id]); // eslint-disable-line
+    if (!existingChat?.chat.id) return;
+    // The chat we just created in this session already has its messages in
+    // memory; reloading history would race with the live stream and clobber it.
+    if (existingChat.chat.id === chat.chatId) return;
+    void chat.loadHistory(existingChat.chat.id);
+  }, [existingChat?.chat.id, chat.chatId]); // eslint-disable-line
 
-  // When a new chat is created during streaming, refresh the sidebar list.
+  // When a new chat is created during streaming, refresh the sidebar list and
+  // mirror the generated threadKey into the URL so a hard refresh keeps the
+  // user on the same conversation (and `existingChat` lookup stays stable).
   const prevChatIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (chat.chatId && chat.chatId !== prevChatIdRef.current && !threadFromUrl) {
       prevChatIdRef.current = chat.chatId;
       appData.reloadChats();
+      router.replace(`/app/chat?thread=${threadKey}` as Route);
     }
-  }, [chat.chatId, threadFromUrl]); // eslint-disable-line
+  }, [chat.chatId, threadFromUrl, threadKey, router]); // eslint-disable-line
 
   // Welcome chat: trigger only when setup/recreate explicitly requests it.
   const welcomeTriggeredRef = useRef(false);

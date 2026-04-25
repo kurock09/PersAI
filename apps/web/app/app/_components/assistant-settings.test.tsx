@@ -158,6 +158,8 @@ function makeAppData(overrides: Partial<AppData> = {}): AppData {
     plan: null,
     isAdmin: false,
     isLoading: false,
+    isReloading: false,
+    isReloadingChats: false,
     error: null,
     reload: vi.fn(),
     reloadChats: vi.fn(),

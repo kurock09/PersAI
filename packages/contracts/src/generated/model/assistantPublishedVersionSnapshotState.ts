@@ -17,7 +17,12 @@ export interface AssistantPublishedVersionSnapshotState {
   traits?: AssistantPublishedVersionSnapshotStateTraits;
   /** @nullable */
   avatarEmoji?: string | null;
-  /** @nullable */
+  /**
+   * ADR-076 Slice 4 — content-addressed avatar URL of the form
+`/api/avatar/<hash>.<ext>`. Same shape as the draft state.
+
+   * @nullable
+   */
   avatarUrl?: string | null;
   /** @nullable */
   assistantGender?: AssistantPublishedVersionSnapshotStateAssistantGender;

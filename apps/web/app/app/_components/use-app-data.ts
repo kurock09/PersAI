@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type {
   AssistantLifecycleState,
@@ -17,6 +17,7 @@ import {
   getAdminPlanVisibility,
   type AssistantNotificationPreferenceState
 } from "../assistant-api-client";
+import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
 
 export type AssistantStatus = "live" | "applying" | "draft" | "failed" | "degraded" | "none";
 
@@ -41,30 +42,120 @@ export interface AppData {
   notificationPreference: AssistantNotificationPreferenceState | null;
   plan: UserPlanVisibilityState | null;
   isAdmin: boolean;
+  /**
+   * ADR-076 Slice 5 — true only during the cold-start fan-out (when the SSR
+   * bootstrap was unavailable so the client must fetch everything from
+   * scratch). With seeded `initialData` this stays false from first paint
+   * onwards, which is what lets us avoid global "isLoading" skeletons after
+   * the first render.
+   */
   isLoading: boolean;
+  /**
+   * ADR-076 Slice 5 — true while an explicit `reload()` is in flight after
+   * initial cold-start has resolved. Surfaces are encouraged to ignore this
+   * (existing data stays visible) unless they have a genuinely empty pending
+   * window, in which case a small targeted shimmer is acceptable.
+   */
+  isReloading: boolean;
+  /**
+   * ADR-076 Slice 5 — true while `reloadChats()` is in flight. Used by the
+   * sidebar to show a 2–3 row shimmer in the chat list, but only when the
+   * list is currently empty (e.g. right after the user deleted their last
+   * chat). When the list is non-empty we keep existing rows visible to
+   * preserve perceived continuity.
+   */
+  isReloadingChats: boolean;
   error: string | null;
   reload: () => Promise<void>;
   reloadChats: () => Promise<void>;
 }
 
-export function useAppData(): AppData {
-  const { getToken } = useAuth();
-  const [assistant, setAssistant] = useState<AssistantLifecycleState | null>(null);
-  const [chats, setChats] = useState<AssistantWebChatListItemState[]>([]);
-  const [telegram, setTelegram] = useState<TelegramIntegrationState | null>(null);
-  const [notificationPreference, setNotificationPreference] =
-    useState<AssistantNotificationPreferenceState | null>(null);
-  const [plan, setPlan] = useState<UserPlanVisibilityState | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [assistantResolved, setAssistantResolved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface SeededState {
+  assistant: AssistantLifecycleState | null;
+  chats: AssistantWebChatListItemState[];
+  telegram: TelegramIntegrationState | null;
+  notificationPreference: AssistantNotificationPreferenceState | null;
+  plan: UserPlanVisibilityState | null;
+  isAdmin: boolean;
+  assistantResolved: boolean;
+  isLoading: boolean;
+  error: string | null;
+}
 
+function seedFromInitialData(initialData: AppBootstrapInitialData | null): SeededState {
+  if (initialData === null) {
+    return {
+      assistant: null,
+      chats: [],
+      telegram: null,
+      notificationPreference: null,
+      plan: null,
+      isAdmin: false,
+      assistantResolved: false,
+      isLoading: true,
+      error: null
+    };
+  }
+
+  const assistantSection = initialData.assistant;
+  const chatsSection = initialData.chats;
+  const telegramSection = initialData.telegram;
+  const preferenceSection = initialData.notificationPreference;
+  const planSection = initialData.plan;
+  const adminSection = initialData.admin;
+
+  return {
+    assistant: assistantSection.ok ? assistantSection.data : null,
+    chats: chatsSection.ok ? chatsSection.data : [],
+    telegram: telegramSection.ok ? telegramSection.data : null,
+    notificationPreference: preferenceSection.ok ? preferenceSection.data : null,
+    plan: planSection.ok ? planSection.data : null,
+    isAdmin: adminSection.ok,
+    assistantResolved: assistantSection.ok,
+    isLoading: false,
+    error: assistantSection.ok ? null : assistantSection.error.message
+  };
+}
+
+/**
+ * ADR-076 Slice 3 — when `initialData` is provided by the async RSC layout,
+ * the hook seeds state synchronously and skips the cold-start fan-out so the
+ * UI never renders a blank skeleton on first paint. Subsequent `reload()`
+ * calls keep using the per-endpoint client so mutations refresh just the
+ * surface they touched.
+ */
+export function useAppData(initialData: AppBootstrapInitialData | null): AppData {
+  const { getToken } = useAuth();
+  const seed = useRef(seedFromInitialData(initialData));
+  const [assistant, setAssistant] = useState<AssistantLifecycleState | null>(
+    seed.current.assistant
+  );
+  const [chats, setChats] = useState<AssistantWebChatListItemState[]>(seed.current.chats);
+  const [telegram, setTelegram] = useState<TelegramIntegrationState | null>(seed.current.telegram);
+  const [notificationPreference, setNotificationPreference] =
+    useState<AssistantNotificationPreferenceState | null>(seed.current.notificationPreference);
+  const [plan, setPlan] = useState<UserPlanVisibilityState | null>(seed.current.plan);
+  const [isAdmin, setIsAdmin] = useState(seed.current.isAdmin);
+  const [isLoading, setIsLoading] = useState(seed.current.isLoading);
+  const [isReloading, setIsReloading] = useState(false);
+  const [isReloadingChats, setIsReloadingChats] = useState(false);
+  const [assistantResolved, setAssistantResolved] = useState(seed.current.assistantResolved);
+  const [error, setError] = useState<string | null>(seed.current.error);
+
+  /**
+   * ADR-076 Slice 5 — `isLoading` is reserved for the cold-start fan-out only
+   * (i.e. the very first time `loadAll()` runs without seeded data). Any
+   * subsequent reload after the assistant has been resolved switches on the
+   * `isReloading` flag instead, so callers like `<Sidebar>` keep showing
+   * existing content rather than flashing a global skeleton.
+   */
   const loadAll = useCallback(async () => {
     const token = await getToken();
     if (token === null) return;
 
-    setIsLoading(true);
+    const isInitial = !assistantResolved;
+    if (isInitial) setIsLoading(true);
+    else setIsReloading(true);
     setError(null);
 
     try {
@@ -99,23 +190,29 @@ export function useAppData(): AppData {
       setError(e instanceof Error ? e.message : "Failed to load app data.");
     } finally {
       setIsLoading(false);
+      setIsReloading(false);
     }
-  }, [getToken]);
+  }, [getToken, assistantResolved]);
 
   const reloadChats = useCallback(async () => {
     const token = await getToken();
     if (token === null) return;
+    setIsReloadingChats(true);
     try {
       const result = await getAssistantWebChats(token);
       setChats(result);
     } catch {
       /* non-critical */
+    } finally {
+      setIsReloadingChats(false);
     }
   }, [getToken]);
 
   useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
+    if (initialData === null) {
+      void loadAll();
+    }
+  }, [initialData, loadAll]);
 
   return {
     assistant,
@@ -127,6 +224,8 @@ export function useAppData(): AppData {
     plan,
     isAdmin,
     isLoading,
+    isReloading,
+    isReloadingChats,
     error,
     reload: loadAll,
     reloadChats

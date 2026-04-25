@@ -42,6 +42,7 @@ import type {
   GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
   GetAdminToolPromptMetadataResponse,
+  GetAppBootstrapResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
@@ -4251,5 +4252,53 @@ export const postMeOnboarding = async (
     method: "POST",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(onboardingRequest)
+  });
+};
+
+/**
+ * Aggregates assistant lifecycle, web chat list, telegram integration,
+notification preference, user plan visibility, and admin plan visibility
+into one response. Each section reports `ok: true` with `data` or
+`ok: false` with a categorized error so non-critical sections never
+block the rest. The web RSC layout calls this once during SSR and seeds
+the client cache; per-endpoint clients are still used for refresh paths.
+
+ * @summary Single-batch bootstrap for the web shell first paint (ADR-076 Slice 3).
+ */
+export type getAppBootstrapResponse200 = {
+  data: GetAppBootstrapResponse;
+  status: 200;
+};
+
+export type getAppBootstrapResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAppBootstrapResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAppBootstrapResponseSuccess = getAppBootstrapResponse200 & {
+  headers: Headers;
+};
+export type getAppBootstrapResponseError = (
+  | getAppBootstrapResponse401
+  | getAppBootstrapResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAppBootstrapResponse = getAppBootstrapResponseSuccess | getAppBootstrapResponseError;
+
+export const getGetAppBootstrapUrl = () => {
+  return `/app/bootstrap`;
+};
+
+export const getAppBootstrap = async (options?: RequestInit): Promise<getAppBootstrapResponse> => {
+  return customFetch<getAppBootstrapResponse>(getGetAppBootstrapUrl(), {
+    ...options,
+    method: "GET"
   });
 };

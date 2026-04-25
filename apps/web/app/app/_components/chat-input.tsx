@@ -19,8 +19,11 @@ import {
   Film,
   Mic,
   Loader2,
-  AlertCircle
+  Camera,
+  Image as ImageIcon,
+  Files as FilesIcon
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import {
@@ -104,14 +107,22 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   ref
 ) {
   const t = useTranslations("chat");
-  const tSend = useTranslations("send");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Camera + Photos use dedicated hidden inputs so the OS picker matches the
+  // tile the user actually tapped (capture=environment for the camera; no
+  // capture for the gallery so iOS/Android open the multi-select photo
+  // sheet). The existing fileInputRef stays for the catch-all "File" tile.
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const photosInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const attachTriggerRef = useRef<HTMLButtonElement>(null);
   const dragDepthRef = useRef(0);
   const isTouchDevice = useTouchDevice();
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -209,6 +220,43 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const removeFile = useCallback((index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  // Outside click + Escape close for the attachment tiles popover. Excludes
+  // the trigger button itself so a second tap on the paperclip toggles
+  // (mousedown would otherwise close before click could re-open).
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (attachMenuRef.current?.contains(target)) return;
+      if (attachTriggerRef.current?.contains(target)) return;
+      setAttachMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setAttachMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [attachMenuOpen]);
+
+  const pickFromTile = useCallback((which: "camera" | "photos" | "file") => {
+    setAttachMenuOpen(false);
+    // Defer the OS picker open until after the popover close paint so the
+    // user perceives the tile pressing → menu collapsing → picker rising
+    // as a single chained motion rather than two competing surfaces.
+    requestAnimationFrame(() => {
+      if (which === "camera") cameraInputRef.current?.click();
+      else if (which === "photos") photosInputRef.current?.click();
+      else fileInputRef.current?.click();
+    });
   }, []);
 
   const isRecording = recordingState === "recording";
@@ -390,6 +438,95 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setRecordingSeconds(0);
   }, [stopRecordingCleanup]);
 
+  // ── Hold-to-record (touch only) ────────────────────────────────────────
+  // Telegram-style press-and-hold UX: pointer-down on the mic starts the
+  // recorder, pointer-up sends, swipe up beyond a threshold flips into a
+  // "release-to-cancel" state. Desktop / mouse users keep the existing
+  // click-to-toggle behaviour because the founder asked us not to disturb
+  // the web flow.
+  const HOLD_MIN_MS = 250;
+  const CANCEL_THRESHOLD_PX = 80;
+  const holdActiveRef = useRef(false);
+  const holdStartTimeRef = useRef(0);
+  const holdStartYRef = useRef(0);
+  const cancelArmedRef = useRef(false);
+  const [cancelArmed, setCancelArmed] = useState(false);
+
+  const safeVibrate = useCallback((pattern: number | number[]) => {
+    if (typeof navigator === "undefined") return;
+    const n = navigator as Navigator & { vibrate?: (p: number | number[]) => boolean };
+    try {
+      n.vibrate?.(pattern);
+    } catch {
+      /* haptic feedback is best-effort */
+    }
+  }, []);
+
+  const handleMicPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!isTouchDevice) return;
+      if (e.pointerType !== "touch") return;
+      if (disabled || isStreaming) return;
+      e.preventDefault();
+      holdActiveRef.current = true;
+      holdStartTimeRef.current = Date.now();
+      holdStartYRef.current = e.clientY;
+      cancelArmedRef.current = false;
+      setCancelArmed(false);
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* setPointerCapture is best-effort across browsers */
+      }
+      safeVibrate(15);
+      void startRecording();
+    },
+    [isTouchDevice, disabled, isStreaming, startRecording, safeVibrate]
+  );
+
+  const handleMicPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!holdActiveRef.current) return;
+      const dy = holdStartYRef.current - e.clientY;
+      const armed = dy > CANCEL_THRESHOLD_PX;
+      if (armed !== cancelArmedRef.current) {
+        cancelArmedRef.current = armed;
+        setCancelArmed(armed);
+        if (armed) safeVibrate(10);
+      }
+    },
+    [safeVibrate]
+  );
+
+  const handleMicPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!holdActiveRef.current) return;
+      holdActiveRef.current = false;
+      const heldMs = Date.now() - holdStartTimeRef.current;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* best-effort */
+      }
+      if (cancelArmedRef.current || heldMs < HOLD_MIN_MS) {
+        cancelRecording();
+      } else {
+        stopRecording();
+      }
+      cancelArmedRef.current = false;
+      setCancelArmed(false);
+    },
+    [cancelRecording, stopRecording]
+  );
+
+  const handleMicPointerCancel = useCallback(() => {
+    if (!holdActiveRef.current) return;
+    holdActiveRef.current = false;
+    cancelRecording();
+    cancelArmedRef.current = false;
+    setCancelArmed(false);
+  }, [cancelRecording]);
+
   return (
     <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
       <div className="mx-auto max-w-3xl">
@@ -439,7 +576,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </label>
         )}
 
-        {isRecording && (
+        {isRecording && !isTouchDevice && (
           <div className="mb-2 flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
             <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
             <span className="text-sm font-medium text-destructive">
@@ -476,16 +613,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        {sendBlockedByFailedSlot && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-1.5">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-            <span className="text-xs text-text-muted">{tSend("failedHelper")}</span>
-          </div>
-        )}
-
         <div
           className={cn(
-            "flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
+            "relative flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
             dragActive && "border-accent bg-accent/5",
             sendBlockedByFailedSlot && "opacity-90"
           )}
@@ -502,20 +632,156 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             className="hidden"
             onChange={handleFileChange}
           />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={photosInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
           <button
+            ref={attachTriggerRef}
             type="button"
             disabled={inputDisabled || isStreaming}
-            onClick={() => fileInputRef.current?.click()}
+            aria-haspopup="menu"
+            aria-expanded={attachMenuOpen}
+            onClick={() => setAttachMenuOpen((o) => !o)}
             className={cn(
               "mb-0.5 rounded-lg p-2 transition-colors",
               inputDisabled || isStreaming
                 ? "cursor-default text-text-subtle/40"
-                : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted"
+                : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
+              attachMenuOpen && "bg-surface-hover text-text-muted"
             )}
             title={t("attachFile")}
           >
             <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
           </button>
+
+          {/*
+           * Telegram-style attachment tiles popover. Sits above the composer
+           * (anchored bottom-full of the relative composer row) so the input
+           * keeps its bottom edge stable as the menu opens / closes; on
+           * mobile the keyboard isn't pushed around either. Three square
+           * tiles in a single row — Camera / Photos / File — each tile is
+           * a quiet warm card that warms up to accent on hover/active.
+           */}
+          <AnimatePresence>
+            {attachMenuOpen && (
+              <motion.div
+                ref={attachMenuRef}
+                role="menu"
+                aria-label={t("attachFile")}
+                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute bottom-full left-0 z-30 mb-2 w-full max-w-[18rem] rounded-2xl border border-border bg-surface-raised p-2 shadow-xl backdrop-blur-sm"
+              >
+                <div className="grid grid-cols-3 gap-2">
+                  <AttachTile
+                    icon={<Camera className="h-6 w-6" />}
+                    label={t("attachMenuCamera")}
+                    onClick={() => pickFromTile("camera")}
+                  />
+                  <AttachTile
+                    icon={<ImageIcon className="h-6 w-6" />}
+                    label={t("attachMenuPhotos")}
+                    onClick={() => pickFromTile("photos")}
+                  />
+                  <AttachTile
+                    icon={<FilesIcon className="h-6 w-6" />}
+                    label={t("attachMenuFile")}
+                    onClick={() => pickFromTile("file")}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/*
+           * Hold-to-record overlay (touch only). Floats above the composer,
+           * centered horizontally so the user's eye lands on the recording
+           * indicator while their thumb is still on the mic button. Pointer
+           * events stay on the mic button via setPointerCapture, so the
+           * overlay itself is non-interactive (`pointer-events-none`).
+           */}
+          <AnimatePresence>
+            {isTouchDevice && isRecording && (
+              <motion.div
+                role="status"
+                aria-live="polite"
+                aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center"
+              >
+                <div
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-2xl border bg-surface-raised px-5 py-4 shadow-xl backdrop-blur-sm transition-colors",
+                    cancelArmed ? "border-destructive/40" : "border-border"
+                  )}
+                >
+                  <span className="relative flex h-14 w-14 items-center justify-center">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "absolute inset-0 animate-ping rounded-full",
+                        cancelArmed ? "bg-destructive/30" : "bg-accent/30"
+                      )}
+                    />
+                    <span
+                      className={cn(
+                        "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
+                        cancelArmed
+                          ? "bg-destructive/15 text-destructive"
+                          : "bg-accent/15 text-accent"
+                      )}
+                    >
+                      <Mic className="h-7 w-7" />
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "font-mono text-sm tabular-nums transition-colors",
+                      cancelArmed ? "text-destructive" : "text-text-muted"
+                    )}
+                  >
+                    {formatDuration(recordingSeconds)}
+                  </span>
+                  <span
+                    className={cn(
+                      "text-center text-[11px] leading-tight transition-colors",
+                      cancelArmed ? "text-destructive" : "text-text-subtle"
+                    )}
+                  >
+                    {cancelArmed ? (
+                      t("voiceCancelArmed")
+                    ) : (
+                      <>
+                        {t("voiceHoldRelease")}
+                        <span aria-hidden="true" className="mx-1 text-border-strong">
+                          ·
+                        </span>
+                        {t("voiceSwipeUpToCancel")}
+                      </>
+                    )}
+                  </span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <textarea
             ref={textareaRef}
@@ -532,18 +798,29 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             )}
           />
 
-          {!isRecording && !isTranscribing && (
+          {(!isRecording || isTouchDevice) && !isTranscribing && (
             <button
               type="button"
               disabled={disabled || isStreaming}
-              onClick={() => void startRecording()}
+              {...(isTouchDevice
+                ? {
+                    onPointerDown: handleMicPointerDown,
+                    onPointerMove: handleMicPointerMove,
+                    onPointerUp: handleMicPointerUp,
+                    onPointerCancel: handleMicPointerCancel,
+                    onContextMenu: (e: React.MouseEvent) => e.preventDefault()
+                  }
+                : { onClick: () => void startRecording() })}
               className={cn(
-                "mb-0.5 rounded-lg p-2 transition-colors",
+                "mb-0.5 rounded-lg p-2 transition-colors select-none",
                 disabled || isStreaming
                   ? "cursor-default text-text-subtle/40"
-                  : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted"
+                  : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
+                isTouchDevice && isRecording && !cancelArmed && "bg-accent/15 text-accent",
+                isTouchDevice && isRecording && cancelArmed && "bg-destructive/15 text-destructive"
               )}
-              title={t("voiceMessage")}
+              title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+              aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
             >
               <Mic className="h-5 w-5 md:h-4 md:w-4" />
             </button>
@@ -579,3 +856,35 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     </div>
   );
 });
+
+/**
+ * One quiet square tile inside the attachment popover. Square aspect keeps
+ * the three tiles visually equivalent regardless of label width, and the
+ * warm tonal hover state (accent-tinted ring + surface-hover background)
+ * matches the same premium-but-calm signal language as the chat list
+ * Sparkles badge and the deep-mode subtitle in the chat header.
+ */
+function AttachTile({
+  icon,
+  label,
+  onClick
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={cn(
+        "group flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl bg-surface ring-1 ring-border/40 transition-colors",
+        "hover:bg-surface-hover hover:ring-accent/40 active:bg-surface-hover"
+      )}
+    >
+      <span className="text-text-muted transition-colors group-hover:text-accent">{icon}</span>
+      <span className="text-[11px] font-medium text-text-muted">{label}</span>
+    </button>
+  );
+}

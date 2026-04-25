@@ -135,6 +135,24 @@ A WebView session on a flaky mobile signal has a third failure mode that neither
 
 This whole subsystem is web-side. The mobile shell does not need to know about it because everything happens inside the WebView once `persai.dev` has loaded.
 
+## System bars theme bridge
+
+The bottom Android system navigation bar and the status bar are OS chrome, not WebView chrome: `<meta name="theme-color">` does not control them and the `Theme.AppCompat.DayNight` parent in `styles.xml` follows the OS `uiMode`, not the in-app theme choice. A user whose OS is in light mode but who picks dark inside PersAI used to end up with a dark web surface above a light system nav bar, and vice versa.
+
+The fix follows the same shape as the back-button bridge in this ADR: the web origin owns the resolution decision, the native shell is a thin executor, and there is no Capacitor plugin between them.
+
+`persai-mobile/android/app/src/main/java/com/persai/app/SystemBarsBridge.java` registers a single `@JavascriptInterface` method on the WebView under `window.PersaiNative.setTheme(string)`. The method runs on the UI thread and calls `Window#setStatusBarColor`, `Window#setNavigationBarColor`, and `WindowInsetsControllerCompat#setAppearanceLight{Status,Navigation}Bars` so both the bar background and its icon contrast match the in-app palette. Colors are constants pinned to the `--chrome` token in `apps/web/app/globals.css` (`#161513` dark, `#e0d8c8` light); a code-comment anchor in both files keeps them in lockstep on future palette changes.
+
+`apps/web/app/app/_components/use-theme.ts` calls the bridge from inside `applyResolved()` (the single function that mutates `<html class>` / `colorScheme` / `<meta theme-color>`), so every theme transition — explicit toggle, OS-preference change while on `system`, or first-mount cookie resolution — atomically updates both the web surface and the native bars. On the desktop / browser web the bridge is undefined and the call is a no-op behind a typed `PersaiNative?` indirection.
+
+Cold-start is covered by a separate write path: every successful `setTheme` call also persists the resolved value into `SharedPreferences` (`persai_native.system_bars_theme`), and `MainActivity#onCreate` reads it back during launch and pre-colors the bars **before** the WebView paints — so the user never sees a mismatched flash between the native splash and the first HTML frame, regardless of OS preference.
+
+The interface is registered on the WebView in `MainActivity#onCreate` (right after `super.onCreate(...)` returns and `bridge.getWebView()` is available), so it is in the JS context as early as possible — typically before the inline theme-bootstrap script in `apps/web`'s `<head>` runs.
+
+Security: the WebView is locked to `https://persai.dev` via `server.url` plus the `allowNavigation` whitelist. Third-party origins cannot reach `window.PersaiNative`.
+
+This bridge is the runtime half of ADR-076 Slice 2 (Capacitor cold-start visual continuity). The remaining half — replacing the missing `@drawable/splash` placeholder with a real PersAI launch drawable on `--chrome` and a `values-night/styles.xml` light variant — stays under ADR-076 Slice 2 and is a separate session.
+
 ## Production rollout plan
 
 The current spike points the shell at `https://persai.dev` (the dev origin). Production rollout requires:

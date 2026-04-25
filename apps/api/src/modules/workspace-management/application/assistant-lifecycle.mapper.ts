@@ -17,6 +17,20 @@ import {
   resolveRuntimeTierOverrideFromPolicyEnvelope
 } from "./runtime-assignment";
 
+/**
+ * ADR-076 Slice 4 — only the new content-addressed shape (`/api/avatar/<hash>.<ext>`)
+ * is exposed in lifecycle state. Legacy absolute URLs persisted in dev databases
+ * are returned as `null` so the UI falls back to the emoji/sparkles avatar
+ * instead of pointing the browser at a removed bearer-protected endpoint.
+ * Re-uploading the avatar repopulates the field with a fresh hashed URL.
+ */
+function sanitizeAvatarUrl(rawAvatarUrl: string | null): string | null {
+  if (rawAvatarUrl === null) {
+    return null;
+  }
+  return rawAvatarUrl.startsWith("/api/avatar/") ? rawAvatarUrl : null;
+}
+
 export function toAssistantPublishedVersionState(
   publishedVersion: AssistantPublishedVersion
 ): AssistantPublishedVersionState {
@@ -31,7 +45,7 @@ export function toAssistantPublishedVersionState(
       instructions: publishedVersion.snapshotInstructions,
       traits: publishedVersion.snapshotTraits,
       avatarEmoji: publishedVersion.snapshotAvatarEmoji,
-      avatarUrl: publishedVersion.snapshotAvatarUrl,
+      avatarUrl: sanitizeAvatarUrl(publishedVersion.snapshotAvatarUrl),
       assistantGender,
       voiceProfile: applyAssistantGenderVoiceDefaults({
         assistantGender,
@@ -74,7 +88,7 @@ export function toAssistantLifecycleState(
       instructions: assistant.draftInstructions,
       traits: assistant.draftTraits,
       avatarEmoji: assistant.draftAvatarEmoji,
-      avatarUrl: assistant.draftAvatarUrl,
+      avatarUrl: sanitizeAvatarUrl(assistant.draftAvatarUrl),
       assistantGender,
       voiceProfile: applyAssistantGenderVoiceDefaults({
         assistantGender,

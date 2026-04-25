@@ -10,17 +10,40 @@ import {
   useState
 } from "react";
 import type { Route } from "next";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import { Sidebar } from "./sidebar";
 import { SlideOver } from "./slide-over";
-import { AssistantSettings } from "./assistant-settings";
-import { TelegramConnect } from "./telegram-connect";
 import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
 import { OfflineGate } from "./offline-gate";
+import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
+
+/**
+ * ADR-076 Slice 6 — code-split the two heaviest slide-over bodies behind
+ * `next/dynamic`. They each weigh tens of KB of TSX and are only mounted
+ * the first time the user opens the corresponding panel (Settings or
+ * Telegram). `ssr: false` is intentional: both components are deeply
+ * client-side (Clerk auth, browser APIs, file uploads) and never need to
+ * appear in the initial server-rendered HTML.
+ *
+ * The actual chunk fetch is gated by the sticky `hasOpenedSettings` /
+ * `hasOpenedTelegram` flags below — we only start loading once the user
+ * actually opens the panel for the first time, then keep the component
+ * mounted so subsequent opens are instant and form state survives.
+ */
+const AssistantSettings = dynamic(
+  () => import("./assistant-settings").then((m) => ({ default: m.AssistantSettings })),
+  { ssr: false }
+);
+
+const TelegramConnect = dynamic(
+  () => import("./telegram-connect").then((m) => ({ default: m.TelegramConnect })),
+  { ssr: false }
+);
 
 const AppDataContext = createContext<AppData | null>(null);
 
@@ -44,12 +67,30 @@ export function useShellActions(): ShellActions {
   return ctx;
 }
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialData
+}: {
+  children: ReactNode;
+  initialData: AppBootstrapInitialData | null;
+}) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>();
   const [telegramOpen, setTelegramOpen] = useState(false);
-  const appData = useAppData();
+  // ADR-076 Slice 6 — sticky "first open" flags. Once true they stay true so
+  // the dynamically-imported panel stays mounted across close/reopen cycles
+  // (preserves form state, lets <SlideOver>'s framer-motion exit animation
+  // play out cleanly, and avoids re-fetching the chunk unnecessarily).
+  const [hasOpenedSettings, setHasOpenedSettings] = useState(false);
+  const [hasOpenedTelegram, setHasOpenedTelegram] = useState(false);
+  useEffect(() => {
+    if (settingsOpen) setHasOpenedSettings(true);
+  }, [settingsOpen]);
+  useEffect(() => {
+    if (telegramOpen) setHasOpenedTelegram(true);
+  }, [telegramOpen]);
+  const appData = useAppData(initialData);
   const ts = useTranslations("settings");
   const tt = useTranslations("telegram");
   const pathname = usePathname();
@@ -204,7 +245,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Assistant settings slide-over */}
+        {/* Assistant settings slide-over (lazy-loaded — ADR-076 Slice 6) */}
         <SlideOver
           open={settingsOpen}
           onClose={() => {
@@ -214,21 +255,25 @@ export function AppShell({ children }: { children: ReactNode }) {
           title={ts("title")}
           size="narrow"
         >
-          <AssistantSettings data={appData} initialSection={settingsInitialSection} />
+          {hasOpenedSettings && (
+            <AssistantSettings data={appData} initialSection={settingsInitialSection} />
+          )}
         </SlideOver>
 
-        {/* Telegram integration slide-over */}
+        {/* Telegram integration slide-over (lazy-loaded — ADR-076 Slice 6) */}
         <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
-          <TelegramConnect
-            integration={appData.telegram}
-            capabilityAllowed={appData.plan?.entitlements.channelsAndSurfaces.telegram ?? false}
-            assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
-            assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
-            assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}
-            onUpdated={() => {
-              void appData.reload();
-            }}
-          />
+          {hasOpenedTelegram && (
+            <TelegramConnect
+              integration={appData.telegram}
+              capabilityAllowed={appData.plan?.entitlements.channelsAndSurfaces.telegram ?? false}
+              assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
+              assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
+              assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}
+              onUpdated={() => {
+                void appData.reload();
+              }}
+            />
+          )}
         </SlideOver>
       </ShellActionsContext.Provider>
     </AppDataContext.Provider>

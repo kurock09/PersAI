@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -34,9 +35,7 @@ import {
   ThumbsDown,
   FileText,
   Download,
-  Loader2,
-  AlertCircle,
-  X
+  Loader2
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
@@ -538,6 +537,17 @@ function AttachmentStrip({
   );
 }
 
+/**
+ * ADR-076 Section M — delay before showing the off-bubble `sending` spinner.
+ *
+ * Fast sends (commit < 1 s) render no visual artifact at all; the optimistic
+ * user bubble settles silently. Only when the request is still in flight
+ * past this threshold does a small spinner fade in to the right of the
+ * bubble. Lives locally inside `ChatMessageBubble` so neither `useChat` nor
+ * the message status union needs to change.
+ */
+const SENDING_INDICATOR_DELAY_MS = 1000;
+
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
   assistantAvatarUrl,
@@ -555,11 +565,28 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isUserSendFailed = isUser && message.status === "send_failed";
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
 
+  // ADR-076 Section M — arm the 1 s delay only while the bubble is in
+  // `sending`. Any status change (committed / send_failed) clears the timer
+  // and removes the spinner immediately, so a fast-path commit produces no
+  // visible artifact and a pre-1 s failure flows straight to the existing
+  // `Not delivered` block without a spinner flash.
+  const [showSendingIndicator, setShowSendingIndicator] = useState(false);
+  useEffect(() => {
+    if (!isUserSending) {
+      setShowSendingIndicator(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setShowSendingIndicator(true);
+    }, SENDING_INDICATOR_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [isUserSending]);
+
   return (
     <div
       className={cn(
         "group flex gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-3",
-        isUser ? "justify-end" : "justify-start"
+        isUser ? "items-center justify-end" : "justify-start"
       )}
     >
       {!isUser && (
@@ -573,67 +600,76 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
 
       <div
         className={cn(
-          "max-w-[92%] min-w-0 sm:max-w-[85%] md:max-w-[75%]",
+          "min-w-0",
           isUser
             ? cn(
-                "rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
+                "flex max-w-[92%] flex-col items-end gap-1 sm:max-w-[85%] md:max-w-[75%]",
                 hideUserVoiceTranscript && "w-[min(100%,320px)] max-w-[min(100%,320px)]"
               )
-            : "flex-1 md:max-w-2xl"
+            : "max-w-[92%] flex-1 sm:max-w-[85%] md:max-w-2xl"
         )}
       >
         {isUser ? (
           <>
-            {!hideUserVoiceTranscript && (
-              <p
-                className={cn(
-                  "whitespace-pre-wrap text-sm leading-relaxed break-words",
-                  isUserSendFailed && "opacity-80"
-                )}
-              >
-                {message.content}
-              </p>
-            )}
-            {message.attachments && message.attachments.length > 0 && (
-              <AttachmentStrip
-                attachments={message.attachments}
-                {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
-              />
-            )}
-            {isUserSending && (
-              <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] text-text-subtle">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                <span>{tSend("sending")}</span>
-              </div>
-            )}
+            <div
+              className={cn(
+                "min-w-0 max-w-full rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-text md:px-4 md:py-2.5",
+                isUserSendFailed && "opacity-80"
+              )}
+            >
+              {!hideUserVoiceTranscript && (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
+                  {message.content}
+                </p>
+              )}
+              {message.attachments && message.attachments.length > 0 && (
+                <AttachmentStrip
+                  attachments={message.attachments}
+                  {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
+                />
+              )}
+            </div>
             {isUserSendFailed && (
-              <div className="mt-1.5 flex flex-col items-end gap-1.5">
-                <div className="flex items-center gap-1 text-[11px] text-destructive">
-                  <AlertCircle className="h-3 w-3" />
+              <div
+                role="group"
+                aria-label={tSend("failedShort")}
+                className="flex items-center gap-2 px-1 text-[11px] leading-none text-text-subtle"
+              >
+                <span className="flex items-center gap-1.5 text-destructive/85">
+                  <span
+                    aria-hidden="true"
+                    className="inline-block h-1.5 w-1.5 rounded-full bg-destructive/80"
+                  />
                   <span>{tSend("failedShort")}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {onRetryPendingSend ? (
+                </span>
+                {onRetryPendingSend ? (
+                  <>
+                    <span aria-hidden="true" className="text-border-strong">
+                      ·
+                    </span>
                     <button
                       type="button"
                       onClick={onRetryPendingSend}
-                      className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                      className="cursor-pointer font-medium text-text-muted underline-offset-4 transition-colors hover:text-text hover:underline"
                     >
-                      <RefreshCw className="h-3 w-3" />
                       {tSend("retry")}
                     </button>
-                  ) : null}
-                  {onCancelPendingSend ? (
+                  </>
+                ) : null}
+                {onCancelPendingSend ? (
+                  <>
+                    <span aria-hidden="true" className="text-border-strong">
+                      ·
+                    </span>
                     <button
                       type="button"
                       onClick={onCancelPendingSend}
-                      className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text"
+                      className="cursor-pointer text-text-subtle underline-offset-4 transition-colors hover:text-text hover:underline"
                     >
-                      <X className="h-3 w-3" />
                       {tSend("cancel")}
                     </button>
-                  ) : null}
-                </div>
+                  </>
+                ) : null}
               </div>
             )}
           </>
@@ -701,6 +737,30 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           </div>
         )}
       </div>
+
+      {/* ADR-076 Section M — quiet, off-bubble pending-send indicator. The
+          motion.div animates its own width so the user bubble naturally
+          shifts left as the spinner enters; AnimatePresence ties the exit
+          animation to the same path on commit / pre-headers failure. */}
+      {isUser && (
+        <AnimatePresence initial={false}>
+          {showSendingIndicator && (
+            <motion.div
+              key="sending-indicator"
+              data-testid="message-sending-indicator"
+              role="status"
+              aria-label={tSend("sending")}
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 22, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex shrink-0 items-center justify-end overflow-hidden"
+            >
+              <Loader2 className="h-3 w-3 animate-spin text-text-subtle" aria-hidden="true" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 });

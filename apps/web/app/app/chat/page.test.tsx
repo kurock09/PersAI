@@ -16,6 +16,8 @@ const chatHookMocks = vi.hoisted(() => ({
 
 const appDataMocks = vi.hoisted(() => ({
   isLoading: false,
+  isReloading: false,
+  isReloadingChats: false,
   assistantStatus: "live" as const,
   chats: [] as Array<{
     chat: { id: string; surfaceThreadKey: string; title: string | null; deepModeEnabled: boolean };

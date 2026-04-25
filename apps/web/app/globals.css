@@ -31,6 +31,12 @@
   --accent: #7a9b82;
   --accent-hover: #9cb8a2;
   --accent-glow: rgba(122, 155, 130, 0.16);
+  /*
+   * Premium / "costs more" signal — warm muted gold, intentionally OUTSIDE
+   * the sage palette so the eye registers it as a different category
+   * ("this feature is more expensive") at low opacity, without screaming.
+   */
+  --accent-premium: #c8a557;
   --chat-active-tint: #3f5648;
   --destructive: #e26a5c;
   --destructive-hover: #cc5648;
@@ -54,6 +60,7 @@
   --accent: #5a7864;
   --accent-hover: #496452;
   --accent-glow: rgba(90, 120, 100, 0.12);
+  --accent-premium: #a8842b;
   --chat-active-tint: #c8d4cc;
   --destructive: #c9523f;
   --destructive-hover: #b1432f;
@@ -77,6 +84,7 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-glow: var(--accent-glow);
+  --color-accent-premium: var(--accent-premium);
   --color-chat-active-tint: var(--chat-active-tint);
   --color-destructive: var(--destructive);
   --color-destructive-hover: var(--destructive-hover);
