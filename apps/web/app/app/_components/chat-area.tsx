@@ -414,7 +414,7 @@ export function ChatArea({
             onPrompt={sendPrompt}
           />
         ) : (
-          <div className="mx-auto w-full max-w-[50rem] py-4">
+          <div className="mx-auto w-full max-w-[50rem] px-3 py-4 md:px-0">
             <div ref={sentinelRef} className="h-1" />
             {chat.olderMessagesLoading && (
               <div className="flex justify-center py-3">

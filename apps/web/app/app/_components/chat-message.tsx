@@ -600,7 +600,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   return (
     <div
       className={cn(
-        "group flex gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-3",
+        "group relative flex py-2 md:py-3",
         isUser ? "items-center justify-end" : "justify-start"
       )}
     >
@@ -609,7 +609,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
           avatarUrl={assistantAvatarUrl}
           avatarEmoji={assistantAvatarEmoji}
           size="sm"
-          className="mt-1 hidden sm:block"
+          className="absolute top-3 -left-11 hidden md:block"
         />
       )}
 
@@ -621,7 +621,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 "flex max-w-[92%] flex-col items-end gap-1 sm:max-w-[85%] md:max-w-[75%]",
                 hideUserVoiceTranscript && "w-[min(100%,320px)] max-w-[min(100%,320px)]"
               )
-            : "max-w-full flex-1 sm:max-w-[85%] md:max-w-2xl"
+            : "w-full flex-1"
         )}
       >
         {isUser ? (

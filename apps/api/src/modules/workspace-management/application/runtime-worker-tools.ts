@@ -53,6 +53,14 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
     supportsProviderRouting: false,
     failureBehavior: "retry_then_surface_error"
   },
+  background_task: {
+    family: "background_task",
+    outcomeKind: "state_mutation",
+    timeoutMs: 30_000,
+    confirmationRule: "required_for_mutations",
+    supportsProviderRouting: false,
+    failureBehavior: "retry_then_surface_error"
+  },
   cron: {
     family: "internal_scheduler",
     outcomeKind: "state_mutation",

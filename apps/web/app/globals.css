@@ -141,12 +141,7 @@ textarea {
   scrollbar-gutter: stable;
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease,
     background-color 160ms ease;
-}
-
-textarea:focus-visible {
-  box-shadow: 0 0 0 1px var(--ring);
 }
 
 textarea::-webkit-resizer {
