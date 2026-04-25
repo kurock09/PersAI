@@ -1,5 +1,93 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (post-close hotfix) — ADR-076 Slice 3 cold-start bootstrap returning 401 for every authenticated user; root-cause + two-layer fix (PersAI repo only)
+
+### Why this session
+
+Right after the end-of-ADR-076 batch commit (`1a2207d0`) was pushed and the new `api` + `web` images rolled out on `persai-dev`, the founder ran a live `persai-dev` gate and reported «после slice 076 не загружаются асистенты». The screenshot showed the sidebar header reading `Твой ассистент / Не создан` and an empty chat list, even though the user has a fully-applied assistant in the database and the legacy per-endpoint client routes still work for the same Clerk session. This is the live ADR-076 gate failure that the close-of-day session was supposed to be awaiting; the ADR is `closed` but in production the cold-start experience the ADR was designed to deliver was broken for every authenticated user.
+
+### Diagnostic walk
+
+GKE audit followed `infra/dev/gke/RUNBOOK.md`:
+
+- `kubectl get pods -n persai-dev` — both `api` replicas (`api-6c5995df9-kvlfk` / `api-6c5995df9-tpcvb`) running at image tag `1a2207d0` from the closing commit; both `web` replicas at the same tag; no crash-loops.
+- `kubectl logs -n persai-dev api-6c5995df9-kvlfk -c api --since=15m | Select-String "/app/bootstrap"` — every `/api/v1/app/bootstrap` request from the live session returned 401 in 1–3 ms with `userId: null`. Five entries, all 401, none 200.
+- `kubectl logs -n persai-dev api-6c5995df9-tpcvb -c api --since=15m | Select-String "/app/bootstrap"` — same shape on the second pod: four entries, all 401, all `userId: null`.
+- Cross-check: same logs filtered for `"status":200` excluding `/health|/ready` showed the same Clerk userId (`4d3d176a-866d-4087-a66e-2b2f372512e5`) successfully hitting `/api/v1/admin/runtime/provider-settings`, `/api/v1/admin/plans`, `/api/v1/admin/overview/dashboard`, `/api/v1/admin/ops/cockpit`, etc. with 200. Auth itself is healthy. Only `/app/bootstrap` is broken.
+- In-cluster probe: `kubectl run probe-curl --image=curlimages/curl -n persai-dev` against `http://api:3001/api/v1/app/bootstrap` (no Authorization header) returned 401, proving the route IS registered with NestJS — only the auth middleware is absent (404 would have meant a routing error, but the route resolves and rejects).
+
+The cross-check rules out three hypotheses (route not registered, global auth outage, controller exception); the only fit is a route-specific middleware miss.
+
+### Root cause
+
+`apps/api/src/modules/identity-access/identity-access.module.ts` wires `ClerkAuthMiddleware` through `MiddlewareConsumer.forRoutes(...)` against a hardcoded list of route paths. ADR-076 Slice 3 added a brand-new controller (`AppBootstrapController` at `@Controller("api/v1/app")` with `@Get("bootstrap")`) but **did not register the new path in the `forRoutes` allowlist**. Consequence: the middleware never ran on `/api/v1/app/bootstrap`, `req.resolvedAppUser` stayed `undefined`, the controller correctly threw `UnauthorizedException("Authenticated user context is missing.")` from its `resolveRequestUserId(req)` guard, and every authenticated request returned 401 with no Clerk `verifyToken` call ever happening (which is why the latency was 1–3 ms — there was no upstream Clerk call to be slow about).
+
+This is the **exact same regression class** that hit ADR-074 Memory Center «Session expired» when `POST /api/v1/assistant/memory/items/:itemId/close-open-loop` was added without registering it in the same allowlist. The existing test (`apps/api/test/identity-access.module.test.ts`) calls the failure mode out by name in a comment, but the test only asserts the specific ADR-074 route, not every controller route — so adding a new controller without a matching allowlist entry passes the existing CI gate.
+
+### Secondary cause (defense-in-depth)
+
+`apps/web/app/app/_components/use-app-data.ts` only triggered the legacy client fan-out (`loadAll()`) when `initialData === null`. When the SSR-side `fetchAppBootstrap()` received a 401 from the API, the helper returned an envelope with all sections set to `{ ok: false, error: { ... } }` (the documented "infra error" path). The hook treated that envelope as a successful seed and the client fan-out never fired. The user was left staring at an empty sidebar with no recovery path short of a full session reset.
+
+### Fix
+
+Two-layer:
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts`: one new entry — `{ path: "api/v1/app/bootstrap", method: RequestMethod.GET }` — in the `forRoutes` allowlist, placed right after the `/api/v1/me/onboarding` entry to keep the file's logical grouping.
+- `apps/web/app/app/_components/use-app-data.ts`: `SeededState` gains a new `needsClientFallback: boolean` flag. `seedFromInitialData(initialData)` sets it to `true` whenever the seeded `assistant` section is `ok: false`. The cold-start `useEffect(loadAll, [initialData])` now also fires `loadAll()` when `seed.current.needsClientFallback === true` — so any future bootstrap regression (auth, network, parse error, partial section failure) gracefully falls back to the legacy six-call fan-out instead of leaving the UI in a permanently empty state. `isLoading` is forced to `true` while `needsClientFallback` is true so the sidebar's cold-start skeleton renders correctly during the fallback fan-out.
+
+### Regression test pinned
+
+`apps/api/test/identity-access.module.test.ts` gains a third assertion in the exact shape as the ADR-074 entry, with a long-form comment documenting the failure mode and the user-visible symptom (`Не создан` in the sidebar). Any future `forRoutes` rewrite that drops the route immediately fails CI before reaching production:
+
+```ts
+assert.equal(
+  hasRoute(consumer.routes, {
+    path: "api/v1/app/bootstrap",
+    method: RequestMethod.GET
+  }),
+  true,
+  "GET /api/v1/app/bootstrap must be guarded by ClerkAuthMiddleware"
+);
+```
+
+### Files touched
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts` — one new entry in `forRoutes`.
+- `apps/api/test/identity-access.module.test.ts` — regression assertion with ADR-076-shaped comment.
+- `apps/web/app/app/_components/use-app-data.ts` — `SeededState.needsClientFallback`, `seedFromInitialData` sets it on errored assistant section, `useEffect` triggers `loadAll()` when set, `isLoading` left true during the fallback.
+- `docs/CHANGELOG.md` — hotfix entry as the new top entry.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### Verification gate
+
+- `corepack pnpm -r --if-present run lint` — clean (5 of 5 lint-bearing workspace projects).
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean (Prisma generate + `tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run typecheck` — clean (`tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run test` — 110/110 passing.
+- `corepack pnpm --filter @persai/api run test` — 0 failed across all node test suites; the new regression assertion is included in the run.
+
+### Out of scope (deliberate)
+
+No architecture / API contract / data-model change — the bootstrap envelope shape, the bootstrap controller, the `fetchAppBootstrap` server helper, the avatar pipeline, the skeleton contracts, and the `next/dynamic` slide-over deferral all stay exactly as they landed in Batch A + Batch B. The Slice 3 envelope shape (`{ ok, data | error }` per section) is the right shape — the bug was the auth middleware not running on this one route. No transitional dual-mode where the client side ALSO calls the legacy six routes when bootstrap returns `ok: true` — that would just bring back the very pop-in that Slice 3 was designed to remove; the fallback is gated strictly on `needsClientFallback`, which only goes high when bootstrap itself failed. No retroactive change to `auth-verify.controller.ts` or any other already-allowlisted route. ADR-076 status stays `Accepted and closed at Slices 1, 2, Batch A (3+4), Batch B (5+6) + Section M`; this is a hotfix on top of a closed ADR, not a re-opening.
+
+### Risks / residuals
+
+- The `forRoutes` allowlist remains a hardcoded list and continues to be the structural single point of failure for this regression class. A more robust long-term shape (e.g. a global guard that opt-out lists `/health`, `/ready`, `/telegram-webhook`) is out of scope for a hotfix; tracked as a follow-up consideration in this handoff (not a blocker).
+- The defense-in-depth fallback in `useAppData` recreates a brief moment of cold-start fan-out parity (six calls instead of one) on the rare error path — acceptable, because that path used to be silently broken before.
+
+### Awaiting
+
+- CI builds new `apps/api` + `apps/web` images on the next push.
+- GitOps deploys the new images on `persai-dev`.
+- Founder re-runs the four ADR-076 live `persai-dev` gates from the close-of-day entry: cold load of `/app` populates sidebar / footer / chat header in the first paint with the actual assistant name (NOT `Не создан`); deleting the last chat shows the targeted shimmer; DevTools Network shows the slide-over chunks fetched only on first open; cold reload reuses the avatar HTTP cache.
+
+### Next recommended step
+
+Confirm CI green → confirm GitOps deploy → founder re-runs the ADR-076 live gates → if green, continue with the ADR-075 follow-up offline-pipeline-hardening slice as originally planned in the close-of-day handoff.
+
+---
+
 ## 2026-04-25 (close-of-day) — ADR-076 closed at Slices 1–6 + Section M; Slice 7 deferred; end-of-ADR-076 batch commit + push to both repos (PersAI + persai-mobile; verification gate green; explicit founder ask)
 
 ### Why this session

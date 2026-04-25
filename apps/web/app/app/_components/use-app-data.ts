@@ -79,6 +79,13 @@ interface SeededState {
   isAdmin: boolean;
   assistantResolved: boolean;
   isLoading: boolean;
+  /**
+   * ADR-076 Slice 3 hotfix — true when the SSR bootstrap envelope arrived but
+   * the assistant section was not `ok` (e.g. upstream 401/5xx). In that case
+   * we still need to run the client fan-out to give the user a real chance
+   * at recovery instead of silently rendering "ассистент не создан" forever.
+   */
+  needsClientFallback: boolean;
   error: string | null;
 }
 
@@ -93,6 +100,7 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
       isAdmin: false,
       assistantResolved: false,
       isLoading: true,
+      needsClientFallback: false,
       error: null
     };
   }
@@ -112,7 +120,8 @@ function seedFromInitialData(initialData: AppBootstrapInitialData | null): Seede
     plan: planSection.ok ? planSection.data : null,
     isAdmin: adminSection.ok,
     assistantResolved: assistantSection.ok,
-    isLoading: false,
+    isLoading: !assistantSection.ok,
+    needsClientFallback: !assistantSection.ok,
     error: assistantSection.ok ? null : assistantSection.error.message
   };
 }
@@ -210,6 +219,17 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
 
   useEffect(() => {
     if (initialData === null) {
+      void loadAll();
+      return;
+    }
+    /**
+     * ADR-076 Slice 3 hotfix — when SSR bootstrap returned an envelope but
+     * the assistant section is errored (e.g. upstream 401), fall back to the
+     * legacy client fan-out instead of leaving the user staring at an empty
+     * "ассистент не создан" sidebar. The check fires once on first paint
+     * because `seed.current` is initialised synchronously in this hook.
+     */
+    if (seed.current.needsClientFallback) {
       void loadAll();
     }
   }, [initialData, loadAll]);

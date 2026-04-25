@@ -145,6 +145,22 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "POST /api/v1/assistant/memory/items/:itemId/close-open-loop must be guarded by ClerkAuthMiddleware"
   );
+  // ADR-076 Slice 3 cold-start bootstrap — same regression class as ADR-074:
+  // the new GET /api/v1/app/bootstrap route was added to AppBootstrapController
+  // without a matching `forRoutes` entry, so the SSR layout fetch in
+  // apps/web/app/app/layout.tsx received 401 for every authenticated user,
+  // the bootstrap envelope returned all-error sections, and `useAppData`
+  // skipped the client fan-out (because initialData !== null) — the sidebar
+  // kept showing "Не создан" forever. Pin the route here so we never lose
+  // the cold-start surface again.
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/app/bootstrap",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET /api/v1/app/bootstrap must be guarded by ClerkAuthMiddleware"
+  );
 }
 
 void runIdentityAccessModuleTest().catch((error: unknown) => {
