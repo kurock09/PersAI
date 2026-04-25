@@ -157,7 +157,7 @@ function Section({
         </span>
         <span className="text-[10px] text-text-subtle">{open ? "▲" : "▼"}</span>
       </button>
-      {open && <div className="px-5 pb-4">{children}</div>}
+      {open && <div className="px-5 pt-2 pb-4">{children}</div>}
     </div>
   );
 }

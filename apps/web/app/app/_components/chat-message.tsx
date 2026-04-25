@@ -34,7 +34,9 @@ import {
   ThumbsDown,
   FileText,
   Download,
-  Loader2
+  Loader2,
+  AlertCircle,
+  X
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
@@ -82,6 +84,13 @@ interface ChatMessageBubbleProps {
   assistantAvatarEmoji?: string | undefined;
   onDoNotRemember?: ((messageId: string) => void) | undefined;
   forgotten?: boolean | undefined;
+  /**
+   * When this bubble is the single failed pending-send slot, the parent
+   * passes retry/cancel handlers so the user can recover in place.
+   * Both are undefined when there is nothing to recover.
+   */
+  onRetryPendingSend?: (() => void) | undefined;
+  onCancelPendingSend?: (() => void) | undefined;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -534,11 +543,16 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   assistantAvatarUrl,
   assistantAvatarEmoji,
   onDoNotRemember,
-  forgotten
+  forgotten,
+  onRetryPendingSend,
+  onCancelPendingSend
 }: ChatMessageBubbleProps) {
   const t = useTranslations("chat");
+  const tSend = useTranslations("send");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
+  const isUserSending = isUser && message.status === "sending";
+  const isUserSendFailed = isUser && message.status === "send_failed";
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
 
   return (
@@ -571,7 +585,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         {isUser ? (
           <>
             {!hideUserVoiceTranscript && (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
+              <p
+                className={cn(
+                  "whitespace-pre-wrap text-sm leading-relaxed break-words",
+                  isUserSendFailed && "opacity-80"
+                )}
+              >
                 {message.content}
               </p>
             )}
@@ -580,6 +599,42 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 attachments={message.attachments}
                 {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
               />
+            )}
+            {isUserSending && (
+              <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] text-text-subtle">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>{tSend("sending")}</span>
+              </div>
+            )}
+            {isUserSendFailed && (
+              <div className="mt-1.5 flex flex-col items-end gap-1.5">
+                <div className="flex items-center gap-1 text-[11px] text-destructive">
+                  <AlertCircle className="h-3 w-3" />
+                  <span>{tSend("failedShort")}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  {onRetryPendingSend ? (
+                    <button
+                      type="button"
+                      onClick={onRetryPendingSend}
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                      {tSend("retry")}
+                    </button>
+                  ) : null}
+                  {onCancelPendingSend ? (
+                    <button
+                      type="button"
+                      onClick={onCancelPendingSend}
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      <X className="h-3 w-3" />
+                      {tSend("cancel")}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             )}
           </>
         ) : (

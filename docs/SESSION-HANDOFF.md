@@ -1,5 +1,170 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (late afternoon) — Pre-launch UI polish 2026: warm tonal palette + bento desktop frame, sidebar/footer redesign, empty-state + setup + landing polish, Geist Sans/Mono typography (no architecture/API/data-model change; verification gate green)
+
+### Why this session
+
+Founder ask of 2026-04-25 (continuous thread): "какой сейчас в моде стиль UI? … мои UI кажется немного шумным" → "как сделать уже для PROD в соответствии с новыми тенденциями пока я не выкатил проект в свет чтобы сразу было wow". The current dark palette read as cold/grey/noisy with hard rectangles (Material-style), the sidebar footer was four stacked blocks, the chat empty-state used hard cards, the landing page had hardcoded old brand-green and was effectively dark-only, and the typography was the default Inter from `next/font/google` — fine, but not the tone we want for a 2026 AI product. No ADR change required: this is a pure presentation-layer pass on `apps/web` (and a transitive Clerk `appearance` token change for visual consistency). Architecture, API contracts, data model, and runtime behaviour are unchanged; ADR-072 / ADR-073 / ADR-074 / ADR-075 are unaffected.
+
+### What changed
+
+**Warm tonal palette + new `--chrome` token (`apps/web/app/globals.css`).** Dark and light palettes were rewritten from the prior cool-grey/sage to a warm tonal stack (Material-3 / Bento idea: the outer "frame" of the app is a slightly different tone than the "panel"). New CSS variable `--chrome` (`#161513` dark / `#e0d8c8` light) sits next to `--bg` / `--surface` / `--surface-raised`. The `@theme inline` block exposes `--color-chrome` so Tailwind utilities `bg-chrome` / `border-chrome` work everywhere. `--accent` is a muted sage; `--accent-glow` is now a soft `rgba(90,120,100,0.12)` so glows breathe instead of screaming. `--success` / `--warning` / `--destructive` are the same warm-tinted primitives so banners (compaction etc.) tint rather than shout.
+
+**Bento frame on desktop, full-bleed on mobile (`apps/web/app/app/_components/app-shell.tsx`).** The root container is now `h-dvh flex flex-col overflow-hidden bg-chrome`. Inside, on `md:` breakpoints, an inner wrapper applies `md:gap-2 md:p-2` and the main panel area gets `md:rounded-2xl md:border md:border-border bg-bg` — i.e. a Cursor-style bento frame on desktop. On `<md` (Capacitor mobile WebView, narrow browser) everything stays full-bleed with no rounded corners and no inner padding so we never lose pixels of viewport on a small screen. The mobile sidebar overlay keeps its slide+fade `motion.div` animation.
+
+**Sidebar redesign (`apps/web/app/app/_components/sidebar.tsx`).** The old four-block footer (token meter, integrations, language, profile) was consolidated into a single `AccountFooter` row that renders avatar + name + plan-pill, and on tap opens a Cursor-style upward popup with token-meter, theme toggle (System / Light / Dark), language toggle, integrations row, sign-out — all wrapped in `AnimatePresence` + `motion.div` (slide-up + fade). On mobile the footer collapses to an avatar + ellipsis hint so it reads as "tap for more" without looking noisy. The "New chat" CTA dropped its filled-accent treatment in favour of a ghost button (`border border-border bg-surface-raised`). Group labels lost the `uppercase tracking-wider` so the sidebar reads as sentence-case copy. Active chat row uses `bg-accent/12 text-text` (low-contrast highlight). Chat row preview text (`item.lastMessagePreview`) was removed — the title is the row, the time is the row's right edge. On `md+` the sidebar gets `md:rounded-2xl md:border md:border-border` to match the bento frame.
+
+**Chat surface polish (`apps/web/app/app/_components/chat-area.tsx`, `chat-input.tsx`, `chat-message.tsx`).** Compaction banner colours tokenised to `border-success/30 bg-success/10 text-success` and `border-warning/30 bg-warning/10 text-warning` so they live in the new palette instead of inline emerald/amber. The "Умный" pill in the chat header dropped its iridescent gradient (`from-violet-500 via-fuchsia-500 to-amber-400`) for a single-tone `bg-accent/15 text-accent ring-1 ring-accent/30` — same affordance, harmonised with the rest of the sidebar/composer. Mobile menu button enlarged from `p-2 + h-4 w-4` to `p-2.5 + h-5 w-5` (~25% bigger touch target) plus an `aria-label`. Empty-state prompt cards moved from `rounded-xl` to `rounded-2xl`, gained `bg-surface-raised/70`, hover-shifted to `hover:border-accent/40 hover:bg-surface-raised hover:text-text`. Composer `chat-input` gained `rounded-2xl` (16px) corners, `bg-surface-raised`, removed the persistent input-hint paragraph (`inputHint` i18n key dropped), and lost its top-border on `md+` (`md:border-t-0`) so it merges visually with the bento panel.
+
+**Setup flow polish (`apps/web/app/app/setup/page.tsx`).** Step-2 ("Настрой характер") and Step-3 (preview) `h1` shrunk from `text-3xl md:text-4xl` to `text-2xl md:text-3xl` with `leading-tight`; subtitles reformatted as `<p className="mt-2 text-sm leading-relaxed text-text-muted">` so they read as quiet supporting copy on mobile instead of competing with the title. Hard-coded glow shadows `rgba(102,187,106,…)` (four sites) replaced with `shadow-[0_0_…_var(--accent-glow)]` so the glow follows the palette token. The "Это превью использует…" technical paragraph (`previewPromptHint`) was removed from the render — the i18n key is now an empty string in both locales rather than deleted, to keep older bundle/cache safe. The CTA on the preview step is now `Создать` / `Create` (was `Пересоздать асистента` / `Recreate assistant`); the recovery CTA is `Восстановить` / `Recover`.
+
+**Assistant settings expand padding (`apps/web/app/app/_components/assistant-settings.tsx`).** The right-side slide-over had collapsible sections whose expanded content was flush against the section header — opened panels now use `<div className="px-5 pt-2 pb-4">` (was `px-5 pb-4`) so there is breathing room above the content.
+
+**Landing page theme parity (`apps/web/app/page.tsx` + new `apps/web/app/_components/landing-theme-toggle.tsx`).** The landing was effectively dark-only and shipped hardcoded `bg-emerald-300/[0.07]`, `border-white/8`, `bg-white/[0.03]`, plus an emerald-tuned CTA glow. New `LandingThemeToggle` is a 3-state toggle (System / Light / Dark) reusing the in-app `useTheme()` hook (no separate localStorage key, so the choice is shared with the authenticated app). It mounts in the landing header next to the locale switcher with a thin vertical divider. The Aurora halo became `bg-accent/[0.07]`, the platforms pill became `border-border bg-surface-raised/40 backdrop-blur-sm` with brand-tinted glyphs (Telegram / VK / WhatsApp / MAX kept their brand colours — those are recognition signals, not chrome). The CTA glow is `shadow-[0_0_48px_var(--accent-glow)]` → `hover:shadow-[0_0_72px_var(--accent-glow)]`, and a soft sheen (`bg-gradient-to-r from-transparent via-white/20 to-transparent`) animates left-to-right on hover. A subtle SVG noise-grain overlay (inline `data:image/svg+xml,…` with `mix-blend-overlay opacity-[0.035]`) sits over the page at z-index just above the gradient layers — adds the "premium printed paper" feel without measurable perf cost. `<meta name="theme-color">` was already updated in `layout.tsx` to match `--chrome` per palette (`#161513` dark, `#e0d8c8` light) so the browser/Capacitor system bar always matches the page chrome on theme flip.
+
+**Pre-hydration theme bootstrap (`apps/web/app/layout.tsx`).** A small synchronous IIFE in `<head>` reads `localStorage.persai-theme` (one of `system|light|dark`), resolves `system` against `prefers-color-scheme`, and applies `document.documentElement.classList.add("light")` + `document.documentElement.style.colorScheme = resolved` before the first paint. Stops the flash of dark-over-light (or vice versa) on cold load and matches the contract in `apps/web/app/app/_components/use-theme.ts`.
+
+**Typography: Geist Sans (UI) + Geist Mono (code).** Replaced `next/font/google` `Inter` with the local `geist` package (MIT, ships `.woff2` from node_modules so no Google Fonts roundtrip — important for Capacitor cold-start). `apps/web/app/layout.tsx` imports `GeistSans` / `GeistMono` and applies `${GeistSans.variable} ${GeistMono.variable}` on `<html>` so the fonts inject `--font-geist-sans` / `--font-geist-mono`. `apps/web/app/globals.css` `@theme inline` maps `--font-sans: var(--font-geist-sans), system-ui, …` and `--font-mono: var(--font-geist-mono), ui-monospace, Menlo, …` so every existing Tailwind `font-sans` / `font-mono` utility (admin pages, debug panes, badges, code-fences) instantly switches without touching call sites. Body className became `bg-chrome font-sans text-text antialiased`. `.code-block` now has an explicit `font-family: var(--font-mono)` so highlight.js fences render in Geist Mono with the right tracking. Clerk `appearance.fontFamily` updated to `var(--font-geist-sans), system-ui, -apple-system, sans-serif` so sign-in / sign-up surfaces stay consistent. Native Cyrillic + Latin from one family, no fallback flash on RU.
+
+### Files touched
+
+- `apps/web/app/globals.css` (palette tokens, `--chrome`, `@theme inline` font registration, `.code-block` mono)
+- `apps/web/app/layout.tsx` (Inter → Geist Sans/Mono, Clerk `appearance.fontFamily`, theme bootstrap script, theme-color meta)
+- `apps/web/app/page.tsx` (landing palette tokens, theme toggle integration, SVG grain overlay, CTA sheen)
+- `apps/web/app/_components/landing-theme-toggle.tsx` (new — 3-state toggle reusing in-app `useTheme()`)
+- `apps/web/app/app/_components/app-shell.tsx` (bento frame on `md+`, full-bleed on mobile)
+- `apps/web/app/app/_components/sidebar.tsx` (AccountFooter, popup with `AnimatePresence`, ghost CTA, sentence-case labels, active row, removed previews + `IntegrationRow`)
+- `apps/web/app/app/_components/chat-area.tsx` (compaction banner, "Умный" pill, mobile menu button, empty-state cards)
+- `apps/web/app/app/_components/chat-input.tsx` (rounded-2xl, surface-raised, removed inputHint, md:border-t-0)
+- `apps/web/app/app/_components/chat-message.tsx` (no behavioural change — touched only via the new tokens through Tailwind)
+- `apps/web/app/app/_components/assistant-settings.tsx` (`pt-2` on expanded section content)
+- `apps/web/app/app/setup/page.tsx` (Step 2 + Step 3 typography, `var(--accent-glow)` shadows ×4, removed `previewPromptHint` render)
+- `apps/web/app/sign-in/[[...sign-in]]/page.tsx` (loader bg → transparent so chrome shows through)
+- `apps/web/app/sign-up/[[...sign-up]]/page.tsx` (same)
+- `apps/web/messages/ru.json`, `apps/web/messages/en.json` (theme/language popup labels, simplified `inputHint` removal, `archetypeSectionHint` no Voice DNA, `previewPromptHint = ""`, `recreateAssistant` → `Создать` / `Create`, `recoverAssistant` → `Восстановить` / `Recover`)
+- `apps/web/package.json`, `pnpm-lock.yaml` (+`geist`)
+- `canvases/ui-style-polish-2026.canvas.tsx` (new — design rationale + before/after for the founder)
+- `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md` (this entry)
+
+### Verification gate
+
+- `corepack pnpm -r --if-present run lint` — clean (14 of 15 workspace projects).
+- `corepack pnpm run format:check` — clean (`globals.css` + `layout.tsx` + `chat-input.tsx` + `sidebar.tsx` + `setup/page.tsx` + `landing-theme-toggle.tsx` were `prettier --write`-fixed during the slice).
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- (no unit-test changes — this is a pure presentation slice; the touched components are re-rendered via existing tests in the suite.)
+
+### Risks / residuals
+
+- **Capacitor cold-start font payload.** Geist `.woff2` ships from `node_modules/geist/dist/fonts/*` via `next/font` — bundled into the Next.js output, no Google Fonts request, but the first cold-start of the WebView still has to load the four font files (regular + medium + Sans + Mono) on first navigation. Local fallbacks (`system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`) keep paint unblocked, then Geist swaps in. Live mobile gate: rebuild APK and confirm no FOUT longer than ~150ms on a Z Fold 6 with cleared cache.
+- **`--chrome` divergence between OS theme bar and app frame.** `<meta name="theme-color">` ships two values gated on `prefers-color-scheme`, which Chrome and Safari honour, but if a user picks an explicit theme via the in-app toggle while their OS is on the opposite preference, the system bar will be one tone different from the app frame for that session. We deliberately do not rewrite `<meta>` from JS — Capacitor reads the meta on first render and keeps it. Cosmetic-only; not blocking launch.
+- **Landing page `LandingThemeToggle` reuses the same `localStorage.persai-theme` key as the in-app toggle.** Intended (one preference, both surfaces respect it), but means an unauthenticated visitor's first toggle persists into their authenticated session if they sign in on the same device. Acceptable.
+- **`previewPromptHint` is empty-string instead of removed key.** Some old client bundles cached on devices with the old i18n table will still render the (now empty) paragraph as an empty `<p>`. Not visible to the eye, just an empty element. Will self-heal on next `apps/web` deploy.
+- **Inter package is no longer imported but stays in the dependency tree** transitively via `next/font/google`'s static catalog — no bytes ship to the client, but `pnpm why inter` will still show metadata. Not a runtime concern; can be pruned in a later cleanup pass if desired.
+
+### Awaiting (next session)
+
+- `persai-dev` deploy of `apps/web`. The mobile shell does not need a `cap sync` for this slice — all changes live in the web origin loaded over the existing `server.url` contract.
+- Founder live gates on `persai-dev`:
+  1. Light theme parity: open `/`, switch theme to Light via the new toggle in the landing header, confirm the page goes warm-cream (`#e0d8c8` chrome / `#fdfbf7` bg) without dark patches and the OS status bar matches.
+  2. Mobile menu button on Capacitor: confirm the larger hit area at the top-left of the chat actually feels right with a thumb-tap (Z Fold 6 cover screen + main screen).
+  3. Empty state on a brand-new account: confirm the prompt cards feel like a soft welcome, not a Material grid.
+  4. Setup flow on mobile: walk through Step-2 → Step-3 on a narrow viewport and confirm the smaller titles + paragraph subtitles read better than before, and the "Создать" CTA is unambiguous.
+- Optional follow-up (not required for launch): prune the now-unused `Inter` reference from `next/font/google` lazy-loader and audit `font-mono` callsites in admin pages to confirm they read as Geist Mono and not as a system fallback.
+
+### Commit posture
+
+This session edits files but does not commit anything per AGENTS.md "no git push unless the user explicitly asks" and the workspace skill's "Only create commits when requested by the user." All changes live in the `apps/web` working tree ready for review; the founder will decide commit boundaries.
+
+---
+
+## 2026-04-25 (afternoon) — ADR-075 offline behaviour + single-slot pending send: cold-start `errorPath`, `<OfflineGate />`, `sending`/`send_failed` chat states with 10s pre-headers timeout and 15s/5min upload watchdog
+
+### Why this session
+
+Founder ask of 2026-04-25:
+
+1. "при отсутствии подключения или при обрыве — не падать на 404 ни в mobile, ни в web; показывать стилизованную страницу в стиле основного приложения (dark / light / system) с логотипом, минималистичной надписью «для работы приложения требуется подключение интернет, проверьте соединение и повторите» и кнопкой «Повторить». Это особенно важно для mobile, где попытка отправить голосовое при отсутствии сети может зависать."
+2. "при попытке отправить сообщение / media / file при нестабильной сети — сразу ставить в чат значок загрузки; если отправка не улетела за таймаут — менять значок на «повторить»; в очереди только одно сообщение, второе нельзя отправить пока есть неотправленное; либо повтор, либо отмена; аккуратно и красиво как в Telegram."
+
+Founder also explicitly asked to update ADR-075 with new subsections rather than create ADR-076.
+
+### What changed
+
+**ADR-075 (`docs/ADR/075-mobile-capacitor-webview-shell.md`)** — two new top-level sections:
+
+- `## Offline behaviour` — splits the failure mode into cold-start (Capacitor-side, `server.errorPath: "offline.html"` + static `persai-mobile/www/offline.html` with inline CSS / JS, `prefers-color-scheme: dark`, `navigator.language`-based en/ru, "Try again" → `window.location.reload()`) and mid-session (web-side, `useNetworkOnline` hook + `<OfflineGate />` overlay mounted once near the root in `app-shell.tsx`, `recheck()` via `fetch("/api/health")` for forced re-evaluation, app state stays mounted underneath so recovery is non-destructive). i18n keys live under `offline` in `apps/web/messages/{en,ru}.json`.
+- `## Single-slot pending send` — describes the new `ChatMessageStatus` states (`sending` / `send_failed`), the pre-flight gates (`navigator.onLine === false` ⇒ immediate `send_failed`; previous `send_failed` blocks new sends), the in-flight watchdogs (15s **stall** / 5min **hard** for uploads via the new XHR-based `upload-with-progress.ts`; 10s **pre-headers timeout** for `streamAssistantWebChatTurn` with `onHeadersOk` as the success signal — no wall-clock cap on the post-headers stream because tool turns can legitimately run 30–60s), the Telegram-style UI surface (small inline footer with spinner / red "Not delivered" + Retry/Cancel under the bubble; helper line above the composer), and the in-memory per-thread persistence policy.
+- `Updated:` line + "Open questions" entry on offline/poor-network behaviour rewritten from "deferred until we see real user demand" to "Resolved by the two new sections above; further refinement (background sync, multi-slot queueing, cold-start persistence) deferred until real user demand."
+
+**Code that landed in lock-step with the doc:**
+
+- `persai-mobile/capacitor.config.ts` — `server.errorPath: "offline.html"`.
+- `persai-mobile/www/offline.html` — new self-contained file (no React, no bundled fonts; embedded en/ru copy matching the React overlay).
+- `apps/web/messages/{en,ru}.json` — new `offline` namespace (`title` / `message` / `retry` / `rechecking`) and `send` namespace (`sending` / `failedShort` / `failedHelper` / `retry` / `cancel`).
+- `apps/web/app/app/_components/use-network-online.ts` — new hook (combines `navigator.onLine` + `online`/`offline` events with a `recheck()` action via no-cache `fetch("/api/health")`).
+- `apps/web/app/app/_components/offline-gate.tsx` — new fullscreen overlay component (consumes `useNetworkOnline`, dark/light themed via Tailwind `bg-bg`/`text-text`, retry button calls `recheck`).
+- `apps/web/app/app/_components/app-shell.tsx` — mounts `<OfflineGate />` once near the root.
+- `apps/web/app/app/upload-with-progress.ts` — new XHR helper with `XhrStallError` (15s no-progress) / `XhrTimeoutError` (5min hard upper bound) / `XhrAbortError` / `XhrNetworkError`, returns a `XhrUploadResponse` similar to `fetch`, and `isXhrPreHeadersFailure` discriminator.
+- `apps/web/app/app/assistant-api-client.ts` — added `onHeadersOk?: () => void;` to `AssistantWebChatStreamHandlers` and call it after `response.ok` in `streamAssistantWebChatTurn`; refactored error-envelope parsing into `parseApiErrorEnvelope` / `readApiErrorEnvelope` / `readXhrErrorEnvelope`; rewrote `stageWebChatAttachment` and `transcribeVoice` to use `uploadWithProgress` with `signal` / `stallTimeoutMs` / `hardTimeoutMs` options.
+- `apps/web/app/app/_components/use-chat.ts` — extended `ChatMessageStatus` union with `"sending"` and `"send_failed"`; added `pendingSendStatus` / `retryPendingSend` / `cancelPendingSend` to `UseChatReturn`; introduced `pendingSendRef` (text + files + options + bubble ids) and `pendingSendStatusRef`; `send()` now (a) early-returns when previous slot is `send_failed`, (b) checks `navigator.onLine === false` and immediately renders the bubble as `send_failed`, (c) optimistically renders user bubble as `sending` and assistant placeholder as `streaming`, (d) passes `STAGE_STALL_TIMEOUT_MS=15s` / `STAGE_HARD_TIMEOUT_MS=5min` / `controller.signal` to `stageWebChatAttachment`, (e) installs `headersTimer = setTimeout(controller.abort, HEADERS_TIMEOUT_MS=10s)` before calling `streamAssistantWebChatTurn`, (f) on `onHeadersOk` clears `headersTimer`, flips bubble to `committed`, clears the pending slot, (g) splits the outer `catch` into pre-headers (route through `sendFailedCleanup`) vs post-headers (existing `toWebChatUxIssue` + `partial` status), (h) clears `pendingSendRef` / `pendingSendStatus` on `threadKey` change. New `retryPendingSend` re-runs `send()` with the cached payload; new `cancelPendingSend` removes the bubble and returns the draft text. The retry callback uses a `sendRef` (live-updated on render) to avoid a circular `useCallback` dep.
+- `apps/web/app/app/_components/chat-message.tsx` — user bubble in `sending` shows a 12px `Loader2` + "Sending…"; in `send_failed` shows `AlertCircle` + "Not delivered" plus compact Retry / Cancel text-buttons; new `onRetryPendingSend` / `onCancelPendingSend` props passed only when the bubble is the current failed slot.
+- `apps/web/app/app/_components/chat-input.tsx` — converted to `forwardRef<ChatInputHandle, _>` exposing `setDraft(text)`; new `pendingSendStatus` prop disables the send button + Enter-to-send when `send_failed`; small destructive helper line ("Message hasn't been delivered. Retry or cancel to send a new one.") sits above the composer in the same state.
+- `apps/web/app/app/_components/chat-area.tsx` — `chatInputRef` is wired to the new `ChatInputHandle`; `handleCancelPendingSend` calls `chat.cancelPendingSend()` and pipes the returned draft into `chatInputRef.current?.setDraft`; `handleRetryPendingSend` calls `chat.retryPendingSend()`; both are passed only to user bubbles in `send_failed`.
+- `apps/web/app/app/_components/use-chat.test.tsx` — new `pending-send slot (ADR-075)` describe block with 6 scenarios (offline pre-flight; second-send blocking; `onHeadersOk` ⇒ committed; pre-headers abort ⇒ failed + assistant placeholder removed; retry re-dispatches and clears slot; cancel removes bubble and returns draft). Existing `stageWebChatAttachment` assertion updated to expect the new options object. Total 100/100 tests passing.
+- `apps/web/app/app/_components/chat-area.test.tsx` — mock chat extended with `pendingSendStatus: null` / `retryPendingSend` / `cancelPendingSend` so `UseChatReturn` typechecks.
+
+### Files touched
+
+- `docs/ADR/075-mobile-capacitor-webview-shell.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `apps/web/app/app/_components/use-network-online.ts` (new)
+- `apps/web/app/app/_components/offline-gate.tsx` (new)
+- `apps/web/app/app/_components/app-shell.tsx`
+- `apps/web/app/app/upload-with-progress.ts` (new)
+- `apps/web/app/app/assistant-api-client.ts`
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-input.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- (sibling repo) `persai-mobile/capacitor.config.ts`
+- (sibling repo) `persai-mobile/www/offline.html` (new)
+
+### Verification gate
+
+- `corepack pnpm -r --if-present run lint` — clean (14 of 15 workspace projects, all "Done").
+- `corepack pnpm run format:check` — clean (5 files needed `--write` on first pass: `offline-gate.tsx`, `use-chat.ts`, `use-network-online.ts`, `assistant-api-client.ts`, `upload-with-progress.ts`; re-check then green).
+- `corepack pnpm --filter @persai/web run typecheck` — clean (one initial failure on `chat-area.test.tsx` mock chat missing the three new return fields; fixed in the same slice).
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run test` — 100/100 tests across 20 files (was 94/94 across 19 files; +1 file is `chat-input.test.tsx` for the existing composer suite that picked up our touched file, +6 tests are the new `pending-send slot` describe block).
+
+### Risks / residuals
+
+- **Cold-start `offline.html` is the only HTML asset shipped inside the APK.** If `persai.dev` ships a copy/wordmark change the embedded copy on `offline.html` does not auto-update — the file is intentionally inline (no React, no fetched assets) so a Capacitor sync + re-build is the only way to refresh it. This is the right tradeoff because it has to load with zero network, but it is worth flagging.
+- **Failed-bubble state is per-thread and in-memory.** Switching chats discards a failed bubble, reloading the app does the same. Documented in ADR-075's "Persistence" subsection.
+- **Voice / file blobs cannot be re-attached on Cancel.** Only text drafts are restored to the composer. This is acceptable because voice messages are recorded fresh and the file picker re-opens easily; documented in ADR-075's "UI surface" subsection.
+- **No mobile-side change for the single-slot pending send.** Everything happens inside the WebView once `persai.dev` has loaded — the `persai-mobile` shell does not need to know about it. The only `persai-mobile` change in this slice is the `errorPath` + `offline.html` cold-start fallback.
+
+### Awaiting (next session)
+
+- `persai-dev` deploy of `apps/web` + `persai-mobile` `npx cap sync android` + APK rebuild.
+- 4 founder live mobile gates:
+  1. Drop airplane mode while typing → bubble flips to `send_failed` without hanging; voice recording on a flaky network does not freeze.
+  2. Retry recovers the same payload (text + attached files).
+  3. Cancel restores the draft text into the composer (text-only flows) and removes the bubble.
+  4. Cold-launch with no network shows the stylised `offline.html` instead of the platform error chrome; tapping "Try again" successfully re-enters `apps/web` once the network is back.
+
+### Commit posture
+
+This session edits files but does not commit anything per AGENTS.md "no git push unless the user explicitly asks" and the workspace skill's "Only create commits when requested by the user." Both repos' working trees carry the changes ready for review; the founder will decide commit boundaries.
+
+---
+
 ## 2026-04-25 (mid-day) — ADR-075 reconciliation pass: align doc with shipped JS-driven Back + DownloadManager paths, surface in CHANGELOG/SESSION-HANDOFF, clean both repos
 
 ### Why this session
@@ -92,12 +257,12 @@ After Argo rolls these out:
 
 ### Why this session
 
-The founder ran the L1 turnkey closeout against `/admin/plans` and immediately hit a cost-counting bypass: `Per-turn cap = 1`, `Loop limit · normal = 2`, then «я сказал сделай 3 картинки и он сделал, хотя per-turn cap=1». GKE log dive (`gcloud logging read … resource.labels.namespace_name=persai-dev`) confirmed the per-turn cap was firing correctly for actual *invocations* (`tool-budget-exhausted reason=per_tool_cap limit=1 observed=2`), but the model had passed `image_generate({ count: 3 })` — one tool call producing three OpenAI-billed artifacts for the cap-budget price of one. A wider audit found two more holes in the same code path: six cost tools (`tts`, `browser`, `exec`, `shell`, `files`, `scheduled_action`) shipped with **no** code default in `TOOL_HARD_CAP_PER_TURN` so a single turn could fan out to dozens of parallel calls; and the daily-quota counter was a no-op when the plan had `dailyCallLimit: null` while three tools (`memory_write`, `knowledge_search`, `knowledge_fetch`) never called the counter at all, so the founder dashboard was blind to traffic for any tool that the operator had not explicitly capped. Founder directive after I proposed phasing this as A/B: «почему нельзя сделать сразу А В и не дробить сессии? — гоним всё разом, я founder, я anchor и менял». So this lands as a single L1.1 slice (not stacked into L1) because it consciously revises the original L1 founder anchor that left memory/knowledge tools uncapped — the L1.1 spirit preserves that anchor by setting *generous* defaults, not zero.
+The founder ran the L1 turnkey closeout against `/admin/plans` and immediately hit a cost-counting bypass: `Per-turn cap = 1`, `Loop limit · normal = 2`, then «я сказал сделай 3 картинки и он сделал, хотя per-turn cap=1». GKE log dive (`gcloud logging read … resource.labels.namespace_name=persai-dev`) confirmed the per-turn cap was firing correctly for actual _invocations_ (`tool-budget-exhausted reason=per_tool_cap limit=1 observed=2`), but the model had passed `image_generate({ count: 3 })` — one tool call producing three OpenAI-billed artifacts for the cap-budget price of one. A wider audit found two more holes in the same code path: six cost tools (`tts`, `browser`, `exec`, `shell`, `files`, `scheduled_action`) shipped with **no** code default in `TOOL_HARD_CAP_PER_TURN` so a single turn could fan out to dozens of parallel calls; and the daily-quota counter was a no-op when the plan had `dailyCallLimit: null` while three tools (`memory_write`, `knowledge_search`, `knowledge_fetch`) never called the counter at all, so the founder dashboard was blind to traffic for any tool that the operator had not explicitly capped. Founder directive after I proposed phasing this as A/B: «почему нельзя сделать сразу А В и не дробить сессии? — гоним всё разом, я founder, я anchor и менял». So this lands as a single L1.1 slice (not stacked into L1) because it consciously revises the original L1 founder anchor that left memory/knowledge tools uncapped — the L1.1 spirit preserves that anchor by setting _generous_ defaults, not zero.
 
 ### What changed
 
 - **Caps + image_generate schema clamp.** `apps/runtime/src/modules/turns/tool-budget-policy.ts:TOOL_HARD_CAP_PER_TURN` ships founder-confirmed defaults for every cost tool (`tts:3`, `browser:3`, `exec:5`, `shell:5`, `files:10`, `scheduled_action:5`, `knowledge_search:5`, `knowledge_fetch:10`, `memory_write:10`). The shared-compaction tools (`summarize_context`, `compact_context`) remain absent because the runtime drives them at most once per turn. `apps/runtime/src/modules/turns/native-tool-projection.ts:createImageGenerateToolDefinition` now clamps `count.maximum` to `min(MAX_RUNTIME_IMAGE_GENERATE_COUNT, effectivePerTurnCap)` via the new `resolveImageGenerateCountCap(policy)` helper, so cap=1 mechanically refuses `count > 1` at the model boundary; the description tells the model that each requested image consumes one cap unit and one daily-quota unit.
-- **API contract: `units` weight.** `apps/api/src/modules/workspace-management/domain/workspace-tool-daily-usage.repository.ts` adds an optional `units` parameter (default 1) on both `incrementAndGet` and `consumeWithinLimit`; the Prisma implementation defensively normalises `units` to a positive integer (`normalizeUnits`) and `consumeWithinLimitTx` rejects the *whole* batch when `currentCount + units > dailyCallLimit` (no partial commits). `track-workspace-quota-usage.service.ts:consumeToolDailyLimit` accepts `units?` and a nullable `dailyCallLimit` — when the plan has no daily cap it now falls through to `incrementAndGet` for observability and returns `limit: null`. `consume-internal-runtime-tool-daily-limit.service.ts:parseInput` accepts a nullable `dailyCallLimit` (the runtime forwards what its bundle saw, the API re-resolves the live plan as the source of truth) and a positive-integer `units` (defaults to 1; non-positive integers are rejected with `BadRequestException`).
+- **API contract: `units` weight.** `apps/api/src/modules/workspace-management/domain/workspace-tool-daily-usage.repository.ts` adds an optional `units` parameter (default 1) on both `incrementAndGet` and `consumeWithinLimit`; the Prisma implementation defensively normalises `units` to a positive integer (`normalizeUnits`) and `consumeWithinLimitTx` rejects the _whole_ batch when `currentCount + units > dailyCallLimit` (no partial commits). `track-workspace-quota-usage.service.ts:consumeToolDailyLimit` accepts `units?` and a nullable `dailyCallLimit` — when the plan has no daily cap it now falls through to `incrementAndGet` for observability and returns `limit: null`. `consume-internal-runtime-tool-daily-limit.service.ts:parseInput` accepts a nullable `dailyCallLimit` (the runtime forwards what its bundle saw, the API re-resolves the live plan as the source of truth) and a positive-integer `units` (defaults to 1; non-positive integers are rejected with `BadRequestException`).
 - **Runtime: always count + missing-quota.** Every cost-tool service drops the prior `if (policy.dailyCallLimit !== null)` guard so it always pings the consume endpoint — `runtime-image-generate-tool.service.ts` passes `units: request.count`. The runtime client `persai-internal-api.client.service.ts:consumeToolDailyLimit` widens its type to `dailyCallLimit: number | null` and adds an optional `units?: number`; `ConsumeToolDailyLimitOutcome.allowed=true` now also has `limit: number | null` to model the always-count-no-enforcement branch. `runtime-knowledge-tool.service.ts` adds a small `consumeQuota(bundle, toolCode)` helper that pings the API for both `executeSearchToolCall` and `executeFetchToolCall`; `runtime-memory-write-tool.service.ts:executeToolCall` does the same up front for `memory_write`. Both honour the founder anchor by silently skipping when the assistant has no policy entry for the tool.
 - **Admin UI.** `apps/web/app/admin/plans/page.tsx` replaces the misleading "Blank daily cap means this tool inherits the plan default behavior" with the truthful "Blank daily cap = no daily limit (calls are still counted for observability but never refused). Set a positive integer to enforce a hard daily ceiling per workspace; the call is rejected once the counter reaches it." and extends the `Per-turn cap` helptext with the full L1.1 defaults table.
 - **Tests.** `apps/runtime/test/tool-budget-policy.test.ts` asserts the L1.1 defaults for every newly-capped tool, keeps the L1 anchor for `compact_context`/`summarize_context` remaining uncapped, and pins `perToolCap("memory_write") === 10` / `perToolCap("knowledge_search") === 5` directly. `apps/api/test/prisma-workspace-tool-daily-usage.repository.test.ts` covers weighted `consumeWithinLimit` (counter jumps by `units`, whole-batch denial when over the cap, defensive normalisation of zero/negative `units`) and weighted `incrementAndGet` (forwards `units`, default `units=1` keeps older callers wire-compatible). `apps/api/test/consume-internal-runtime-tool-daily-limit.service.test.ts` adds: parsing accepts an absent `units` (treated as 1) and a null `dailyCallLimit`; `image_generate`-style weighted call (`units=4`) is forwarded verbatim; null-cap plan still succeeds and returns `limit: null` (always-count); deactivated tool remains a hard rejection (only blocking path left); `units=0` and negative values are rejected with `BadRequestException`. The runtime fakes in `runtime-tts-tool.service.test.ts`, `runtime-video-generate-tool.service.test.ts`, `turn-execution.service.test.ts`, `runtime-knowledge-tool.service.test.ts`, `runtime-memory-write-tool.service.test.ts`, and `runtime-scheduled-action-tool.service.test.ts` widen their mock signatures and add `consumeToolDailyLimit` mocks where they were previously absent.
@@ -121,7 +286,7 @@ After Argo rolls these out:
 ### Known follow-ups (out of scope, intentionally)
 
 - R1 plurality detection / `requestedBudget`, R2 true wall-clock parallelism, R3 compound tools all remain explicitly out of scope.
-- This slice does not change cap *values* on any existing plan — operators keep whatever daily caps they already configured; L1.1 only fixes the *measurement* layer so caps and counters now match what providers actually bill.
+- This slice does not change cap _values_ on any existing plan — operators keep whatever daily caps they already configured; L1.1 only fixes the _measurement_ layer so caps and counters now match what providers actually bill.
 - The ADR-074 § L1.1 section explicitly flags the memory/knowledge cap defaults as a conscious revision of the original L1 founder anchor, so a future reader does not misread it as silent.
 
 ## 2026-04-23 (post-F1 same-night) — Background scheduled-action stack v2: empty-completion safety + audience routing-coercion + executor-style assistant prompt + duplicate-guard removal (second FIX bundle stacked on F1, still no new ADR slice)

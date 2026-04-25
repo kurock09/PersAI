@@ -16,8 +16,6 @@ import {
   Pencil,
   Archive,
   Trash2,
-  ChevronDown,
-  ChevronRight,
   Sparkles,
   Sun,
   Moon,
@@ -27,7 +25,8 @@ import {
   Globe
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { AnimatePresence, motion } from "framer-motion";
 import { cn } from "@/app/lib/utils";
 import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData, AssistantStatus } from "./use-app-data";
@@ -55,6 +54,37 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
   degraded: { label: "Degraded", dot: "bg-warning" },
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
+
+/**
+ * Context-aware timestamp for the chat list right edge.
+ *
+ * The list is already grouped by Today / Yesterday / This week / Older, so
+ * per-row timestamps repeat the group label when shown unconditionally. To
+ * keep the row readable we collapse to the smallest informative unit per
+ * group: HH:MM for today, weekday short for this week, "d MMM" for older.
+ * Yesterday returns "" because the group label already says it.
+ */
+function formatChatRowTimestamp(iso: string | null, locale: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
+  const weekStart = new Date(todayStart.getTime() - 7 * 86_400_000);
+  if (d >= todayStart) {
+    return new Intl.DateTimeFormat(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(d);
+  }
+  if (d >= yesterdayStart) return "";
+  if (d >= weekStart) {
+    return new Intl.DateTimeFormat(locale, { weekday: "short" }).format(d);
+  }
+  return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(d);
+}
 
 function groupChatsByDate(
   chats: AssistantWebChatListItemState[],
@@ -91,59 +121,6 @@ function groupChatsByDate(
   return groups.filter((g) => g.items.length > 0);
 }
 
-function IntegrationRow({
-  icon,
-  name,
-  status,
-  muted,
-  connected,
-  onClick
-}: {
-  icon: React.ReactNode;
-  name: string;
-  status: string;
-  muted?: boolean;
-  connected?: boolean;
-  onClick?: (() => void) | undefined;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={muted}
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors",
-        muted ? "cursor-default opacity-50" : "cursor-pointer hover:bg-surface-hover"
-      )}
-    >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised text-text-muted">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-text">{name}</span>
-        <span className="flex items-center gap-1.5">
-          {connected !== undefined && (
-            <span
-              className={cn(
-                "inline-block h-1.5 w-1.5 rounded-full",
-                connected ? "bg-success" : "bg-text-subtle"
-              )}
-            />
-          )}
-          <span
-            className={cn(
-              "block truncate text-[11px]",
-              muted ? "text-text-subtle" : "text-text-muted"
-            )}
-          >
-            {status}
-          </span>
-        </span>
-      </span>
-    </button>
-  );
-}
-
 export function Sidebar({
   onClose,
   onAssistantCardClick,
@@ -151,7 +128,6 @@ export function Sidebar({
   onLimitsClick,
   data
 }: SidebarProps) {
-  const { user } = useUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeThread = searchParams.get("thread");
@@ -160,6 +136,7 @@ export function Sidebar({
 
   const t = useTranslations("sidebar");
   const ts = useTranslations("settings");
+  const locale = useLocale();
   const statusCfg = STATUS_CONFIG[data.assistantStatus];
   const statusLabelMap: Record<string, string> = {
     live: ts("live"),
@@ -176,28 +153,8 @@ export function Sidebar({
     previous7: t("previous7"),
     older: t("older")
   });
-  const telegramConnected = data.telegram?.connectionStatus === "connected";
-  const telegramStatusLabel =
-    data.telegram?.connectionStatus === "connected"
-      ? t("connected")
-      : data.telegram?.connectionStatus === "claim_required"
-        ? t("telegramClaimRequired")
-        : data.telegram?.connectionStatus === "invalid_token"
-          ? t("telegramInvalidToken")
-          : t("notConnected");
-  const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
-  const tokenBucket =
-    data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
-  const tokenUsage = tokenBucket?.percent ?? 0;
-  const tokenUsed = tokenBucket?.used ?? 0;
-  const tokenLimit = tokenBucket?.limit ?? null;
-  const [integrationsOpen, setIntegrationsOpen] = useState(false);
-  const hasActiveIntegrations =
-    data.telegram?.connectionStatus === "connected" ||
-    data.telegram?.connectionStatus === "claim_required";
-
   return (
-    <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface">
+    <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
       {/* Mobile close button */}
       {onClose && (
         <div className="flex justify-end px-2 pt-2 md:hidden">
@@ -235,7 +192,7 @@ export function Sidebar({
         </button>
       </div>
 
-      {/* 2. New chat button */}
+      {/* 2. New chat button — ghost so it doesn't outweigh the active chat */}
       <div className="px-3 pb-3">
         <button
           type="button"
@@ -243,9 +200,9 @@ export function Sidebar({
             router.push("/app/chat" as Route);
             onClose?.();
           }}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2.5 text-sm font-medium text-white shadow-sm shadow-accent-glow transition-colors hover:bg-accent-hover"
+          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2.5 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover"
         >
-          <MessageSquarePlus className="h-4 w-4" />
+          <MessageSquarePlus className="h-4 w-4 text-text-muted" />
           {t("newChat")}
         </button>
       </div>
@@ -261,13 +218,12 @@ export function Sidebar({
         ) : (
           chatGroups.map((group) => (
             <div key={group.label} className="mb-3">
-              <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wider text-text-subtle">
-                {group.label}
-              </p>
+              <p className="mb-1 px-2 text-[11px] font-medium text-text-subtle">{group.label}</p>
               {group.items.map((item) => (
                 <ChatListItem
                   key={item.chat.id}
                   item={item}
+                  locale={locale}
                   isActive={activeThread === item.chat.surfaceThreadKey}
                   onNavigate={() => {
                     router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}` as Route);
@@ -281,131 +237,50 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Bottom fixed sections */}
-      <div className="shrink-0 border-t border-border">
-        {/* 5. Integrations */}
-        <div className="px-3 pt-3 pb-2">
-          <button
-            type="button"
-            onClick={() => setIntegrationsOpen((open) => !open)}
-            className="flex w-full cursor-pointer items-center justify-between rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-hover"
-          >
-            <span className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "inline-block h-2 w-2 rounded-full",
-                  hasActiveIntegrations ? "bg-success" : "bg-text-subtle"
-                )}
-              />
-              <span className="text-[11px] font-medium uppercase tracking-wider text-text-subtle">
-                {t("integrations")}
-              </span>
-            </span>
-            {integrationsOpen ? (
-              <ChevronDown className="h-4 w-4 text-text-subtle" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-text-subtle" />
-            )}
-          </button>
-          {integrationsOpen && (
-            <div className="mt-1">
-              <IntegrationRow
-                icon={<Send className="h-3.5 w-3.5" />}
-                name={t("telegram")}
-                status={telegramStatusLabel}
-                connected={telegramConnected}
-                onClick={onTelegramClick}
-              />
-              <IntegrationRow
-                icon={<Smartphone className="h-3.5 w-3.5" />}
-                name={t("whatsApp")}
-                status={t("comingSoon")}
-                muted
-              />
-              <IntegrationRow
-                icon={<MessageCircle className="h-3.5 w-3.5" />}
-                name={t("max")}
-                status={t("comingSoon")}
-                muted
-              />
-            </div>
-          )}
-        </div>
-
-        {/* 6. Plan — compact token bar */}
-        <button
-          type="button"
-          onClick={onLimitsClick}
-          className="w-full cursor-pointer border-t border-border px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
-        >
-          <div className="px-2.5">
-            <div className="flex items-center justify-between gap-3 text-[11px]">
-              <span className="text-text-muted">{t("tokenUsage")}</span>
-              <span className="text-text-subtle">
-                {tokenLimit === null
-                  ? t("tokensUsedOnly", { used: tokenUsed })
-                  : t("tokensUsageValue", { used: tokenUsed, limit: tokenLimit })}
-              </span>
-            </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-raised">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all",
-                  tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
-                )}
-                style={{ width: `${Math.min(tokenUsage, 100)}%` }}
-              />
-            </div>
-            <div className="mt-1.5 flex items-center justify-between text-[11px]">
-              <span className="text-text-subtle">{t("tokenPercent", { pct: tokenUsage })}</span>
-              <span className="max-w-[120px] truncate text-text-muted">{planName}</span>
-            </div>
-          </div>
-        </button>
-
-        {/* Admin button (visible only for admins) */}
-        {data.isAdmin && (
-          <div className="border-t border-border px-3 py-2">
-            <button
-              type="button"
-              onClick={() => {
-                router.push("/admin" as Route);
-                onClose?.();
-              }}
-              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
-              <Shield className="h-3.5 w-3.5" />
-              {t("adminPanel")}
-            </button>
-          </div>
+      {/* Bottom: single account row, everything else lives behind the popup */}
+      <div className="shrink-0 border-t border-border" suppressHydrationWarning>
+        {mounted && (
+          <AccountFooter
+            data={data}
+            {...(onTelegramClick ? { onTelegramClick } : {})}
+            {...(onLimitsClick ? { onLimitsClick } : {})}
+            {...(onClose ? { onClose } : {})}
+          />
         )}
-
-        {/* 7. User */}
-        <div
-          className="flex items-center gap-2 border-t border-border px-3 py-3"
-          suppressHydrationWarning
-        >
-          {mounted && <UserMenu {...(onClose ? { onNavigate: onClose } : {})} />}
-          <span className="min-w-0 flex-1 truncate text-sm text-text-muted">
-            {user?.firstName ?? user?.username ?? "User"}
-          </span>
-          <LocaleSwitcher />
-          <ThemeToggle />
-        </div>
       </div>
     </aside>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  User menu                                                          */
+/*  Account footer — single trigger row + rich popup                   */
+/*                                                                     */
+/*  Replaces the old four-block footer (integrations / token bar /     */
+/*  admin / user row) with one Cursor-style identity row that opens    */
+/*  a popup carrying everything that used to live there.               */
 /* ------------------------------------------------------------------ */
 
-function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
+const LOCALES = [
+  { code: "en", label: "EN" },
+  { code: "ru", label: "RU" }
+] as const;
+
+function AccountFooter({
+  data,
+  onTelegramClick,
+  onLimitsClick,
+  onClose
+}: {
+  data: AppData;
+  onTelegramClick?: () => void;
+  onLimitsClick?: () => void;
+  onClose?: () => void;
+}) {
   const t = useTranslations("sidebar");
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
   const [avatarBroken, setAvatarBroken] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -426,118 +301,28 @@ function UserMenu({ onNavigate }: { onNavigate?: () => void } = {}) {
     user?.imageUrl && user.imageUrl.trim().length > 0
       ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${String(avatarVersion)}`
       : null;
+  useEffect(() => setAvatarBroken(false), [avatarUrl]);
 
-  useEffect(() => {
-    setAvatarBroken(false);
-  }, [avatarUrl]);
+  const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
+  const tokenBucket =
+    data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
+  const tokenUsage = tokenBucket?.percent ?? 0;
+  const tokenUsed = tokenBucket?.used ?? 0;
+  const tokenLimit = tokenBucket?.limit ?? null;
 
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-accent/20 text-xs font-semibold text-accent transition-colors hover:bg-accent/30 overflow-hidden"
-      >
-        {avatarUrl && !avatarBroken ? (
-          <img
-            src={avatarUrl}
-            alt=""
-            className="h-full w-full object-cover"
-            onError={() => setAvatarBroken(true)}
-          />
-        ) : (
-          initials
-        )}
-      </button>
+  const telegramConnected = data.telegram?.connectionStatus === "connected";
+  const telegramStatusLabel =
+    data.telegram?.connectionStatus === "connected"
+      ? t("connected")
+      : data.telegram?.connectionStatus === "claim_required"
+        ? t("telegramClaimRequired")
+        : data.telegram?.connectionStatus === "invalid_token"
+          ? t("telegramInvalidToken")
+          : t("notConnected");
 
-      {open && (
-        <div className="absolute bottom-full left-0 z-50 mb-2 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
-          <div className="px-2.5 py-2 border-b border-border mb-1">
-            <p className="truncate text-xs font-medium text-text">
-              {user?.fullName ?? user?.username ?? "User"}
-            </p>
-            <p className="truncate text-[10px] text-text-muted">
-              {user?.primaryEmailAddress?.emailAddress ?? ""}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onNavigate?.();
-              router.push("/app/profile" as Route);
-            }}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            {t("accountSettings")}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onNavigate?.();
-              void signOut({ redirectUrl: "/" });
-            }}
-            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-destructive transition-colors hover:bg-destructive/10"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            {t("signOut")}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+  const displayName = user?.firstName ?? user?.username ?? "User";
 
-/* ------------------------------------------------------------------ */
-/*  Theme toggle                                                       */
-/* ------------------------------------------------------------------ */
-
-function ThemeToggle() {
-  const t = useTranslations("sidebar");
-  const { theme, toggleTheme } = useTheme();
-  // Tooltip describes the CURRENT state (so the user knows what's active);
-  // a click cycles system → light → dark → system.
-  const Icon = theme === "system" ? Monitor : theme === "light" ? Sun : Moon;
-  const label =
-    theme === "system" ? t("themeSystem") : theme === "light" ? t("themeLight") : t("themeDark");
-  return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-      title={label}
-      aria-label={label}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Locale switcher                                                    */
-/* ------------------------------------------------------------------ */
-
-const LOCALES = [
-  { code: "en", label: "EN" },
-  { code: "ru", label: "RU" }
-] as const;
-
-function LocaleSwitcher() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const current =
+  const currentLocale =
     (typeof document !== "undefined" &&
       document.cookie
         .split("; ")
@@ -552,35 +337,227 @@ function LocaleSwitcher() {
     window.location.reload();
   };
 
+  const themeOptions: { id: "system" | "light" | "dark"; icon: React.ReactNode; label: string }[] =
+    [
+      { id: "system", icon: <Monitor className="h-3.5 w-3.5" />, label: t("themeSystem") },
+      { id: "light", icon: <Sun className="h-3.5 w-3.5" />, label: t("themeLight") },
+      { id: "dark", icon: <Moon className="h-3.5 w-3.5" />, label: t("themeDark") }
+    ];
+
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="shrink-0 cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-        title="Language"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2.5 px-3 py-3 text-left transition-colors hover:bg-surface-hover"
       >
-        <Globe className="h-4 w-4" />
+        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent/20 text-xs font-semibold text-accent">
+          {avatarUrl && !avatarBroken ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => setAvatarBroken(true)}
+            />
+          ) : (
+            initials
+          )}
+          {telegramConnected && (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-surface"
+            />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-text">{displayName}</span>
+          <span className="block truncate text-[11px] text-text-muted">
+            {planName} · {tokenUsage}%
+          </span>
+        </span>
+        <MoreHorizontal className="h-4 w-4 shrink-0 text-text-subtle" />
       </button>
-      {open && (
-        <div className="absolute bottom-full right-0 z-50 mb-2 rounded-lg border border-border bg-surface p-1 shadow-xl">
-          {LOCALES.map((loc) => (
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            className="absolute right-2 bottom-full left-2 z-50 mb-2 rounded-xl border border-border-strong bg-surface-raised p-1.5 shadow-xl"
+            initial={{ opacity: 0, y: 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+          >
+            <div className="border-b border-border px-2.5 py-2">
+              <p className="truncate text-xs font-medium text-text">
+                {user?.fullName ?? displayName}
+              </p>
+              <p className="truncate text-[10px] text-text-muted">
+                {user?.primaryEmailAddress?.emailAddress ?? ""}
+              </p>
+            </div>
+
             <button
-              key={loc.code}
               type="button"
-              onClick={() => switchLocale(loc.code)}
-              className={cn(
-                "block w-full cursor-pointer rounded-md px-3 py-1.5 text-left text-xs font-medium transition-colors",
-                current === loc.code
-                  ? "bg-accent/10 text-accent"
-                  : "text-text-muted hover:bg-surface-hover hover:text-text"
-              )}
+              onClick={() => {
+                setOpen(false);
+                onLimitsClick?.();
+              }}
+              className="mt-1 block w-full cursor-pointer rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-hover"
             >
-              {loc.label}
+              <div className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="text-text-muted">{t("tokenUsage")}</span>
+                <span className="text-text-subtle">
+                  {tokenLimit === null
+                    ? t("tokensUsedOnly", { used: tokenUsed })
+                    : t("tokensUsageValue", { used: tokenUsed, limit: tokenLimit })}
+                </span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    tokenUsage >= 90 ? "bg-destructive" : "bg-accent"
+                  )}
+                  style={{ width: `${Math.min(tokenUsage, 100)}%` }}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-[11px]">
+                <span className="text-text-subtle">{t("tokenPercent", { pct: tokenUsage })}</span>
+                <span className="max-w-[140px] truncate text-text-muted">{planName}</span>
+              </div>
             </button>
-          ))}
-        </div>
-      )}
+
+            <div className="my-1 border-t border-border" />
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onTelegramClick?.();
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-surface-hover"
+            >
+              <Send className="h-3.5 w-3.5 text-text-muted" />
+              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("telegram")}</span>
+              <span className="flex items-center gap-1.5 text-[10px] text-text-subtle">
+                <span
+                  className={cn(
+                    "inline-block h-1.5 w-1.5 rounded-full",
+                    telegramConnected ? "bg-success" : "bg-text-subtle"
+                  )}
+                />
+                {telegramStatusLabel}
+              </span>
+            </button>
+            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 opacity-50">
+              <Smartphone className="h-3.5 w-3.5 text-text-muted" />
+              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("whatsApp")}</span>
+              <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
+            </div>
+            <div className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 opacity-50">
+              <MessageCircle className="h-3.5 w-3.5 text-text-muted" />
+              <span className="min-w-0 flex-1 truncate text-xs text-text">{t("max")}</span>
+              <span className="text-[10px] text-text-subtle">{t("comingSoon")}</span>
+            </div>
+
+            <div className="my-1 border-t border-border" />
+
+            {/* Theme — segmented row */}
+            <div className="flex items-center gap-2 px-2.5 py-1.5">
+              <span className="min-w-0 flex-1 text-[11px] text-text-muted">{t("theme")}</span>
+              <div className="flex items-center rounded-lg bg-surface p-0.5">
+                {themeOptions.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setTheme(opt.id)}
+                    title={opt.label}
+                    aria-label={opt.label}
+                    className={cn(
+                      "rounded-md p-1.5 transition-colors",
+                      theme === opt.id
+                        ? "bg-surface-raised text-text"
+                        : "text-text-subtle hover:text-text"
+                    )}
+                  >
+                    {opt.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Language — segmented row */}
+            <div className="flex items-center gap-2 px-2.5 py-1.5">
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] text-text-muted">
+                <Globe className="h-3 w-3" />
+                {t("language")}
+              </span>
+              <div className="flex items-center rounded-lg bg-surface p-0.5">
+                {LOCALES.map((loc) => (
+                  <button
+                    key={loc.code}
+                    type="button"
+                    onClick={() => switchLocale(loc.code)}
+                    className={cn(
+                      "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                      currentLocale === loc.code
+                        ? "bg-surface-raised text-text"
+                        : "text-text-subtle hover:text-text"
+                    )}
+                  >
+                    {loc.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="my-1 border-t border-border" />
+
+            {data.isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onClose?.();
+                  router.push("/admin" as Route);
+                }}
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {t("adminPanel")}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onClose?.();
+                router.push("/app/profile" as Route);
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              {t("accountSettings")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onClose?.();
+                void signOut({ redirectUrl: "/" });
+              }}
+              className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-destructive transition-colors hover:bg-destructive/10"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              {t("signOut")}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -591,11 +568,13 @@ function LocaleSwitcher() {
 
 function ChatListItem({
   item,
+  locale,
   isActive,
   onNavigate,
   onChanged
 }: {
   item: AssistantWebChatListItemState;
+  locale: string;
   isActive: boolean;
   onNavigate: () => void;
   onChanged: () => void;
@@ -692,15 +671,19 @@ function ChatListItem({
     );
   }
 
+  const timestamp = formatChatRowTimestamp(item.chat.lastMessageAt ?? item.chat.createdAt, locale);
+  const previewTooltip = item.lastMessagePreview ?? null;
+
   return (
     <div className="relative">
       <button
         type="button"
         onClick={onNavigate}
+        title={previewTooltip ?? undefined}
         className={cn(
           "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
           isActive
-            ? "bg-surface-hover text-text"
+            ? "bg-chat-active-tint text-text"
             : "text-text-muted hover:bg-surface-hover hover:text-text"
         )}
       >
@@ -719,12 +702,16 @@ function ChatListItem({
               </span>
             )}
           </span>
-          {item.lastMessagePreview && (
-            <span className="block truncate text-[11px] text-text-subtle">
-              {item.lastMessagePreview}
-            </span>
-          )}
         </span>
+        {timestamp && (
+          <time
+            aria-hidden="true"
+            className="shrink-0 text-[11px] tabular-nums text-text-subtle"
+            dateTime={item.chat.lastMessageAt ?? item.chat.createdAt}
+          >
+            {timestamp}
+          </time>
+        )}
         <span
           role="button"
           tabIndex={0}

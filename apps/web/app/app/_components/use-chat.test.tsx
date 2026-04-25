@@ -676,7 +676,12 @@ describe("useChat", () => {
     expect(assistantApiMocks.stageWebChatAttachment).toHaveBeenCalledWith(
       "token-1",
       "thread-1",
-      file
+      file,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        stallTimeoutMs: expect.any(Number),
+        hardTimeoutMs: expect.any(Number)
+      })
     );
     await waitFor(() => {
       expect(assistantApiMocks.uploadAssistantKnowledgeSource).toHaveBeenCalledWith(
@@ -693,6 +698,181 @@ describe("useChat", () => {
           })
         })
       );
+    });
+  });
+
+  describe("pending-send slot (ADR-075)", () => {
+    afterEach(() => {
+      // Restore navigator.onLine if a test stubbed it.
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    });
+
+    it("marks the user bubble as send_failed immediately when offline", async () => {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("Hello while offline");
+      });
+
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]).toMatchObject({
+        role: "user",
+        content: "Hello while offline",
+        status: "send_failed"
+      });
+    });
+
+    it("blocks a second send while a previous one is in send_failed", async () => {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("first");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+
+      // Second send must be a no-op until the user retries or cancels.
+      await act(async () => {
+        await result.current.send("second");
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]?.content).toBe("first");
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+    });
+
+    it("flips the bubble to committed when the stream returns 2xx headers", async () => {
+      const stream = assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: { id: "u1", chatId: "chat-1" },
+              assistantMessage: { id: "a1", content: "ok" }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("hi");
+      });
+
+      expect(stream).toHaveBeenCalledTimes(1);
+      expect(result.current.pendingSendStatus).toBeNull();
+      const userMsg = result.current.messages.find((m) => m.role === "user");
+      expect(userMsg?.status).toBe("committed");
+    });
+
+    it("flips the bubble to send_failed when the stream aborts before headers", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, _handlers: unknown, signal?: AbortSignal) => {
+          await new Promise<never>((_resolve, reject) => {
+            if (signal?.aborted) {
+              reject(new DOMException("aborted", "AbortError"));
+              return;
+            }
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        const sendPromise = result.current.send("slow");
+        // Force the headers timeout immediately by aborting from outside —
+        // this mirrors what the headersTimer setTimeout does in production
+        // when 10s elapse without the server returning 2xx.
+        await new Promise((r) => setTimeout(r, 0));
+        result.current.stop();
+        await sendPromise;
+      });
+
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+      const userMsg = result.current.messages.find((m) => m.role === "user");
+      expect(userMsg?.status).toBe("send_failed");
+      // Assistant placeholder must not linger after pre-headers failure.
+      expect(result.current.messages.some((m) => m.role === "assistant")).toBe(false);
+    });
+
+    it("retryPendingSend re-dispatches the same payload and clears the slot on success", async () => {
+      let callCount = 0;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { message?: string },
+          handlers: {
+            onHeadersOk?: () => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          callCount++;
+          // First call fails before headers, second succeeds.
+          if (callCount === 1) {
+            throw new TypeError("fetch failed");
+          }
+          handlers.onHeadersOk?.();
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: { id: "u1", chatId: "chat-1" },
+              assistantMessage: { id: "a1", content: payload.message ?? "" }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("retry me");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+
+      await act(async () => {
+        await result.current.retryPendingSend();
+      });
+
+      expect(callCount).toBe(2);
+      expect(result.current.pendingSendStatus).toBeNull();
+      const userMsg = result.current.messages.find((m) => m.role === "user");
+      expect(userMsg?.status).toBe("committed");
+    });
+
+    it("cancelPendingSend removes the bubble and returns the draft text", async () => {
+      Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("draft text");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+
+      let restored: string | null = null;
+      act(() => {
+        restored = result.current.cancelPendingSend();
+      });
+
+      expect(restored).toBe("draft text");
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages).toHaveLength(0);
     });
   });
 });

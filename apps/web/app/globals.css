@@ -6,56 +6,64 @@
 
 :root {
   /*
-   * ChatGPT-style dark palette (cosmetic refresh, 2026-04-23):
-   * sidebar (--surface) is the darkest layer, main chat (--bg) sits one
-   * step above it, and lifted controls / composer / cards (--surface-raised)
-   * sit one step above that. Hover is the lightest neutral. Accent /
-   * destructive / success / warning are unchanged — only neutrals were
-   * remapped per founder request to match the reference screenshot.
+   * Warm tonal palette + bento chrome (cosmetic refresh, 2026-04-25):
+   * One warm achromatic hue with five luminance steps. `--chrome` is the
+   * deepest tone — the outer frame visible *between* panels in the desktop
+   * bento layout. Sidebar (`--surface`) sits on chrome; main chat (`--bg`)
+   * is one step lighter; lifted controls / composer / popups
+   * (`--surface-raised`) sit one step above that; hover is the lightest
+   * neutral. On mobile (Capacitor / phones) the chrome stays hidden behind
+   * full-bleed panels so we don't sacrifice precious screen edges.
+   * Accent is muted sage so it can live next to chat without competing.
    */
   color-scheme: dark;
-  --bg: #212121;
-  --surface: #181818;
-  --surface-raised: #2f2f2f;
-  --surface-hover: #3a3a3a;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --ring: rgba(102, 187, 106, 0.35);
-  --text: #ececec;
-  --text-muted: #b4b4b4;
-  --text-subtle: #6e6e6e;
-  --accent: #66bb6a;
-  --accent-hover: #81c784;
-  --accent-glow: rgba(102, 187, 106, 0.15);
-  --destructive: #ef4444;
-  --destructive-hover: #dc2626;
-  --success: #10b981;
-  --warning: #eab308;
+  --chrome: #161513;
+  --bg: #2a2826;
+  --surface: #1f1d1b;
+  --surface-raised: #322f2c;
+  --surface-hover: #3d3936;
+  --border: rgba(232, 226, 216, 0.08);
+  --border-strong: rgba(232, 226, 216, 0.14);
+  --ring: rgba(122, 155, 130, 0.32);
+  --text: #e8e2d8;
+  --text-muted: #a19c92;
+  --text-subtle: #6f6a62;
+  --accent: #7a9b82;
+  --accent-hover: #9cb8a2;
+  --accent-glow: rgba(122, 155, 130, 0.16);
+  --chat-active-tint: #3f5648;
+  --destructive: #e26a5c;
+  --destructive-hover: #cc5648;
+  --success: #6da888;
+  --warning: #d9a741;
 }
 
 :root.light {
   color-scheme: light;
-  --bg: #f7f6f1;
-  --surface: #ffffff;
-  --surface-raised: #efefe8;
-  --surface-hover: #e5e5db;
-  --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.15);
-  --ring: rgba(67, 160, 71, 0.25);
-  --text: #1a1a15;
-  --text-muted: #6b6b5e;
-  --text-subtle: #9c9c8c;
-  --accent: #43a047;
-  --accent-hover: #388e3c;
-  --accent-glow: rgba(67, 160, 71, 0.1);
-  --destructive: #ef4444;
-  --destructive-hover: #dc2626;
-  --success: #0d9668;
-  --warning: #ca8a04;
+  --chrome: #e0d8c8;
+  --bg: #f5f2ec;
+  --surface: #ede9e1;
+  --surface-raised: #ffffff;
+  --surface-hover: #e4dfd6;
+  --border: rgba(31, 26, 18, 0.08);
+  --border-strong: rgba(31, 26, 18, 0.16);
+  --ring: rgba(90, 120, 100, 0.25);
+  --text: #1f1a12;
+  --text-muted: #5e574c;
+  --text-subtle: #8c8579;
+  --accent: #5a7864;
+  --accent-hover: #496452;
+  --accent-glow: rgba(90, 120, 100, 0.12);
+  --chat-active-tint: #c8d4cc;
+  --destructive: #c9523f;
+  --destructive-hover: #b1432f;
+  --success: #4d8a6b;
+  --warning: #b08416;
 }
 
 /* @theme inline keeps Tailwind classes referencing runtime CSS vars */
 @theme inline {
+  --color-chrome: var(--chrome);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
@@ -69,10 +77,15 @@
   --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-glow: var(--accent-glow);
+  --color-chat-active-tint: var(--chat-active-tint);
   --color-destructive: var(--destructive);
   --color-destructive-hover: var(--destructive-hover);
   --color-success: var(--success);
   --color-warning: var(--warning);
+
+  /* Typography — Geist Sans (UI) + Geist Mono (code), wired by next/font in layout.tsx */
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --animate-fade-in: fade-in 0.6s ease-out;
   --animate-fade-in-up: fade-in-up 0.7s ease-out;
@@ -150,18 +163,18 @@
    ────────────────────────────────────────────────────────── */
 
 .code-block {
-  background: #111111;
+  background: #181614;
+  font-family: var(--font-mono);
 }
 .code-block-fade {
-  background: linear-gradient(to top, #111111, #11111180, transparent);
+  background: linear-gradient(to top, #181614, #18161480, transparent);
 }
 :root.light .code-block {
-  background: #f9f9f6;
+  background: #f9f7f1;
   border-left: 3px solid var(--accent);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 :root.light .code-block-fade {
-  background: linear-gradient(to top, #f9f9f6, #f9f9f680, transparent);
+  background: linear-gradient(to top, #f9f7f1, #f9f7f180, transparent);
 }
 
 /* Dark theme tokens */

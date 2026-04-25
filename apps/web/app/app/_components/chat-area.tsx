@@ -17,7 +17,7 @@ import {
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import { ChatMessageBubble } from "./chat-message";
-import { ChatInput } from "./chat-input";
+import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { ActivityBadge } from "./activity-badge";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
@@ -59,6 +59,7 @@ export function ChatArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [deepMode, setDeepMode] = useState(deepModeEnabled);
@@ -71,6 +72,21 @@ export function ChatArea({
     },
     [assistantReady, chat, deepMode]
   );
+
+  // Restore the cancelled draft into the composer when the user picks
+  // "Cancel" on a failed pending-send bubble (text only — media/voice
+  // blobs cannot be re-attached because they live in the now-removed
+  // bubble's File objects).
+  const handleCancelPendingSend = useCallback(() => {
+    const restoredText = chat.cancelPendingSend();
+    if (restoredText !== null && restoredText.length > 0) {
+      chatInputRef.current?.setDraft(restoredText);
+    }
+  }, [chat]);
+
+  const handleRetryPendingSend = useCallback(() => {
+    void chat.retryPendingSend();
+  }, [chat]);
 
   const handleDoNotRemember = useCallback(
     async (messageId: string) => {
@@ -296,10 +312,10 @@ export function ChatArea({
           <button
             type="button"
             onClick={openSidebar}
-            className="cursor-pointer rounded-xl border border-border bg-surface-raised p-2 text-text-muted shadow-sm transition-colors hover:bg-surface-hover hover:text-text md:hidden"
+            className="cursor-pointer rounded-xl border border-border bg-surface-raised p-2.5 text-text-muted shadow-sm transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
+            aria-label="Open sidebar"
           >
-            <span className="sr-only">Open sidebar</span>
-            <Menu className="h-4 w-4" />
+            <Menu className="h-5 w-5" />
           </button>
           <div className="min-w-0">
             <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-surface-raised px-2 py-1 shadow-sm md:gap-2.5 md:pr-3">
@@ -386,6 +402,16 @@ export function ChatArea({
                       : undefined
                   }
                   forgotten={forgottenIds.has(entry.message.id)}
+                  onRetryPendingSend={
+                    entry.message.role === "user" && entry.message.status === "send_failed"
+                      ? handleRetryPendingSend
+                      : undefined
+                  }
+                  onCancelPendingSend={
+                    entry.message.role === "user" && entry.message.status === "send_failed"
+                      ? handleCancelPendingSend
+                      : undefined
+                  }
                 />
               ) : (
                 <ActivityBadge
@@ -484,11 +510,12 @@ export function ChatArea({
           <div className="mx-auto mb-2 max-w-3xl rounded-lg border border-border/70 bg-surface px-3 py-2">
             <div className="flex items-start gap-2.5">
               <div
-                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${
+                className={cn(
+                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
                   compactionBannerMode === "auto_compacted"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-600"
-                }`}
+                    ? "border-success/30 bg-success/10 text-success"
+                    : "border-warning/30 bg-warning/10 text-warning"
+                )}
               >
                 {compactionBannerMode === "auto_compacted" ? (
                   <Scissors className="h-4 w-4" />
@@ -527,6 +554,7 @@ export function ChatArea({
         </div>
       )}
       <ChatInput
+        ref={chatInputRef}
         onSend={(text, files, options) =>
           void chat.send(text, files, {
             ...(options ?? {}),
@@ -542,6 +570,7 @@ export function ChatArea({
         onStop={chat.stop}
         isStreaming={chat.isStreaming}
         disabled={!assistantReady}
+        pendingSendStatus={chat.pendingSendStatus}
       />
     </div>
   );
@@ -592,7 +621,7 @@ function ChatModeToggle({
           className={cn(
             "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold transition-all md:text-[11px]",
             enabled
-              ? "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-amber-400 text-white shadow-sm"
+              ? "bg-accent/15 text-accent ring-1 ring-accent/30"
               : "text-text-muted hover:text-text",
             disabled && "cursor-not-allowed opacity-50"
           )}
@@ -630,20 +659,20 @@ function EmptyState({
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <AssistantAvatar avatarUrl={avatarUrl} avatarEmoji={avatarEmoji} size="lg" className="mb-6" />
-      <h2 className="text-xl font-bold text-text">{assistantName}</h2>
+      <h2 className="text-xl font-semibold text-text">{assistantName}</h2>
       <p className="mt-2 text-sm text-text-muted">{greeting}</p>
       {daysTogether !== null && daysTogether > 1 && (
         <p className="mt-4 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
           {t("togetherFor", { days: daysTogether })}
         </p>
       )}
-      <div className="mt-6 grid w-full max-w-md grid-cols-1 gap-2 sm:mt-8 sm:grid-cols-2">
+      <div className="mt-8 grid w-full max-w-md grid-cols-1 gap-2.5 sm:mt-10 sm:grid-cols-2">
         {(["prompt1", "prompt2", "prompt3", "prompt4"] as const).map((key) => (
           <button
             key={key}
             type="button"
             onClick={() => onPrompt?.(t(key))}
-            className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
+            className="cursor-pointer rounded-2xl border border-border bg-surface-raised/70 px-4 py-3 text-left text-[13px] leading-snug text-text-muted transition-all hover:border-accent/40 hover:bg-surface-raised hover:text-text"
           >
             {t(key)}
           </button>

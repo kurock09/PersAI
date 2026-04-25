@@ -14,6 +14,10 @@ import {
   uploadAssistantKnowledgeSource,
   WELCOME_THREAD_KEY,
   WELCOME_TURN_SENTINEL,
+  XhrAbortError,
+  XhrNetworkError,
+  XhrStallError,
+  XhrTimeoutError,
   type ChatHistoryAttachment,
   type ChatCompactionResult,
   type ChatCompactionState,
@@ -22,8 +26,37 @@ import {
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 
+/**
+ * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server
+ * does not return 2xx headers within this window, the request is aborted
+ * and the user bubble flips to "send_failed". 10s is well above normal
+ * server response time but short enough to feel responsive on flaky
+ * mobile networks. (ADR-075 § "Single-slot pending send".)
+ */
+const HEADERS_TIMEOUT_MS = 10_000;
+/** Stall watchdog for attachment uploads — see uploadWithProgress. */
+const STAGE_STALL_TIMEOUT_MS = 15_000;
+/** Hard upper bound for a single attachment upload. */
+const STAGE_HARD_TIMEOUT_MS = 5 * 60_000;
+
 export type ChatMessageRole = "user" | "assistant";
-export type ChatMessageStatus = "committed" | "streaming" | "partial";
+/**
+ * Lifecycle of a message bubble.
+ *
+ * "sending" / "send_failed" are the new pending-slot states from
+ * ADR-075 § "Single-slot pending send". Only user bubbles can be in those
+ * states; assistant bubbles still go committed → streaming → partial.
+ *
+ * - "sending"     : optimistic user message, request is in-flight (staging
+ *                   attachments and/or waiting for the stream to return 2xx
+ *                   headers). Composer is disabled, no second send allowed.
+ * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc).
+ *                   Bubble shows a small red exclamation with Retry / Cancel
+ *                   inline; composer stays disabled until user resolves it.
+ */
+export type ChatMessageStatus = "committed" | "streaming" | "partial" | "sending" | "send_failed";
+
+export type PendingSendStatus = "sending" | "send_failed";
 
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
@@ -76,6 +109,19 @@ export interface UseChatReturn {
   reportIssue: (error: unknown) => void;
   loadHistory: (chatId: string) => Promise<void>;
   loadOlderMessages: () => Promise<void>;
+  /**
+   * Current pending-send slot state, or null when no message is awaiting
+   * delivery confirmation. See ADR-075 § "Single-slot pending send".
+   */
+  pendingSendStatus: PendingSendStatus | null;
+  /** Retry the failed pending send. No-op if there is no failed bubble. */
+  retryPendingSend: () => Promise<void>;
+  /**
+   * Cancel the failed pending send. Removes the failed bubble and returns
+   * the original draft text so the composer can restore it. Returns null
+   * if there was nothing to cancel.
+   */
+  cancelPendingSend: () => string | null;
 }
 
 type RuntimeTransportMeta = {
@@ -304,11 +350,26 @@ export function useChat(threadKey: string): UseChatReturn {
   const [recentAutoCompaction, setRecentAutoCompaction] =
     useState<RecentAutoCompactionNotice | null>(null);
   const [compactionRunning, setCompactionRunning] = useState(false);
+  const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyLoadedRef = useRef<Set<string>>(new Set());
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
   const prevThreadKeyRef = useRef(threadKey);
+  // Single-slot pending send (ADR-075). Holds enough info to either retry the
+  // exact same payload or cancel and restore the draft text.
+  const pendingSendRef = useRef<{
+    text: string;
+    files: File[];
+    options?: ChatSendOptions | undefined;
+    userMsgId: string;
+    assistantMsgId: string | null;
+  } | null>(null);
+  const pendingSendStatusRef = useRef<PendingSendStatus | null>(null);
+  const setPendingSendStatus = useCallback((next: PendingSendStatus | null) => {
+    pendingSendStatusRef.current = next;
+    setPendingSendStatusState(next);
+  }, []);
 
   if (prevThreadKeyRef.current !== threadKey) {
     prevThreadKeyRef.current = threadKey;
@@ -325,6 +386,13 @@ export function useChat(threadKey: string): UseChatReturn {
     historyLoadedRef.current = new Set();
     olderCursorRef.current = null;
     activeChatIdRef.current = null;
+    // Failed pending sends are intentionally per-thread and in-memory only
+    // (ADR-075): switching chats discards a failed bubble rather than carrying
+    // it across threads. Voice/file blobs we held in pendingSendRef.files go
+    // out of scope here too.
+    pendingSendRef.current = null;
+    pendingSendStatusRef.current = null;
+    setPendingSendStatusState(null);
   }
 
   const stop = useCallback(() => {
@@ -418,6 +486,10 @@ export function useChat(threadKey: string): UseChatReturn {
     async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
+      // While a previous send is in send_failed state the composer must stay
+      // single-slot — the user has to Retry or Cancel it before another send
+      // can start. (ADR-075 § "Single-slot pending send".)
+      if (pendingSendStatusRef.current === "send_failed") return;
       const compactionBeforeTurn = compaction;
 
       const token = await getToken();
@@ -458,17 +530,58 @@ export function useChat(threadKey: string): UseChatReturn {
           : [];
       let knowledgeActivityAnchorId = userMsgId;
 
+      // Helper used by every pre-headers failure path (offline / staging
+      // stall / 10s headers timeout / network error) to flip the optimistic
+      // user bubble into "send_failed", drop the assistant placeholder if it
+      // was rendered, and arm the single-slot retry/cancel UX.
+      const sendFailedCleanup = (assistantWasMounted: boolean): void => {
+        setMessages((prev) =>
+          prev.flatMap((m) => {
+            if (assistantWasMounted && m.id === assistantMsgId) return [];
+            if (m.id === userMsgId) return [{ ...m, status: "send_failed" as const }];
+            return [m];
+          })
+        );
+        pendingSendRef.current = {
+          text: trimmed,
+          files: pendingFiles,
+          options: options ?? undefined,
+          userMsgId,
+          assistantMsgId: null
+        };
+        setPendingSendStatus("send_failed");
+      };
+
+      const userMsgBase: Omit<ChatMessage, "status"> = {
+        id: userMsgId,
+        role: "user",
+        content: trimmed,
+        attachments: localAttachments.length > 0 ? localAttachments : undefined
+      };
+
+      // Cold offline pre-flight. We deliberately do NOT call setIsStreaming
+      // here — there's no in-flight stream — so the chat-input renders the
+      // pending-send helper line, not the "stop" button.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        const failedUserMsg: ChatMessage = { ...userMsgBase, status: "send_failed" };
+        setMessages((prev) => [...prev, failedUserMsg]);
+        pendingSendRef.current = {
+          text: trimmed,
+          files: pendingFiles,
+          options: options ?? undefined,
+          userMsgId,
+          assistantMsgId: null
+        };
+        setPendingSendStatus("send_failed");
+        abortRef.current = null;
+        return;
+      }
+
       setIsStreaming(true);
       setIssue(null);
       setRecentAutoCompaction(null);
 
-      const userMsg: ChatMessage = {
-        id: userMsgId,
-        role: "user",
-        content: trimmed,
-        status: "committed",
-        attachments: localAttachments.length > 0 ? localAttachments : undefined
-      };
+      const userMsg: ChatMessage = { ...userMsgBase, status: "sending" };
       const assistantMsg: ChatMessage = {
         id: assistantMsgId,
         role: "assistant",
@@ -479,12 +592,27 @@ export function useChat(threadKey: string): UseChatReturn {
         thoughtFinishedAt: null
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      pendingSendRef.current = {
+        text: trimmed,
+        files: pendingFiles,
+        options: options ?? undefined,
+        userMsgId,
+        assistantMsgId
+      };
+      setPendingSendStatus("sending");
 
       if (pendingFiles.length > 0) {
         try {
           for (let i = 0; i < pendingFiles.length; i++) {
             const file = pendingFiles[i]!;
-            const staged = await stageWebChatAttachment(token, threadKey, file);
+            // Stall watchdog: 15s without an upload-progress event aborts.
+            // Hard upper bound: 5 minutes (covers very slow but progressing
+            // uploads on weak mobile signal). Both come from ADR-075.
+            const staged = await stageWebChatAttachment(token, threadKey, file, {
+              signal: controller.signal,
+              stallTimeoutMs: STAGE_STALL_TIMEOUT_MS,
+              hardTimeoutMs: STAGE_HARD_TIMEOUT_MS
+            });
             const u = staged.attachment;
             setMessages((prev) =>
               prev.map((m) => {
@@ -509,7 +637,21 @@ export function useChat(threadKey: string): UseChatReturn {
             );
           }
         } catch (error) {
-          setIssue(toWebChatUxIssue(error));
+          // Staging never reached server-confirmed state. Treat all of
+          // stall/timeout/abort/network/HTTP as a pre-headers failure and
+          // route through the pending-slot UI instead of an issue banner.
+          // (Real server-side validation errors that DID return a structured
+          // envelope still come back here; for those we keep the issue banner
+          // so users get the proper guidance copy in addition to the bubble.)
+          if (
+            !(error instanceof XhrStallError) &&
+            !(error instanceof XhrTimeoutError) &&
+            !(error instanceof XhrAbortError) &&
+            !(error instanceof XhrNetworkError)
+          ) {
+            setIssue(toWebChatUxIssue(error));
+          }
+          sendFailedCleanup(true);
           setIsStreaming(false);
           abortRef.current = null;
           return;
@@ -616,6 +758,22 @@ export function useChat(threadKey: string): UseChatReturn {
         commit();
       };
 
+      // Pre-headers watchdog: if the server never returns 2xx headers within
+      // HEADERS_TIMEOUT_MS, abort the request so the bubble flips to
+      // "send_failed" instead of hanging indefinitely. Tool turns can stay
+      // silent for tens of seconds AFTER headers, which is fine — we only
+      // measure up to the headers, not to the first SSE event.
+      let headersOk = false;
+      const headersTimer = setTimeout(() => {
+        if (!headersOk) {
+          try {
+            controller.abort();
+          } catch {
+            /* ignore */
+          }
+        }
+      }, HEADERS_TIMEOUT_MS);
+
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -628,6 +786,16 @@ export function useChat(threadKey: string): UseChatReturn {
               : { deepModeEnabled: options.deepModeEnabled })
           },
           {
+            onHeadersOk: () => {
+              headersOk = true;
+              clearTimeout(headersTimer);
+              // Server accepted the request — clear the pending-slot UI.
+              setMessages((prev) =>
+                prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
+              );
+              pendingSendRef.current = null;
+              setPendingSendStatus(null);
+            },
             onStarted: ({ chat }) => {
               const c = chat as { id?: string } | null;
               if (typeof c?.id === "string") setChatId(c.id);
@@ -924,29 +1092,39 @@ export function useChat(threadKey: string): UseChatReturn {
           controller.signal
         );
       } catch (error) {
+        clearTimeout(headersTimer);
         flushBufferedAssistantState();
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setIssue(toWebChatUxIssue(error));
+        if (!headersOk) {
+          // Pre-headers failure: the request was aborted or never reached the
+          // server. The whole turn is "didn't fly" — flip the user bubble to
+          // send_failed and drop the unused assistant placeholder. Skip the
+          // existing issue banner: the bubble + composer helper carry the UX.
+          sendFailedCleanup(true);
+        } else {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            setIssue(toWebChatUxIssue(error));
+          }
+          const abortedAt = new Date().toISOString();
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId && m.status === "streaming"
+                ? {
+                    ...m,
+                    status: m.content.trim().length > 0 ? "partial" : "committed",
+                    thoughtFinishedAt:
+                      m.thought && !m.thoughtFinishedAt ? abortedAt : (m.thoughtFinishedAt ?? null)
+                  }
+                : m
+            )
+          );
         }
-        const abortedAt = new Date().toISOString();
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId && m.status === "streaming"
-              ? {
-                  ...m,
-                  status: m.content.trim().length > 0 ? "partial" : "committed",
-                  thoughtFinishedAt:
-                    m.thought && !m.thoughtFinishedAt ? abortedAt : (m.thoughtFinishedAt ?? null)
-                }
-              : m
-          )
-        );
       } finally {
+        clearTimeout(headersTimer);
         setIsStreaming(false);
         abortRef.current = null;
       }
     },
-    [compaction, getToken, isStreaming, refreshCompactionState, t, threadKey]
+    [compaction, getToken, isStreaming, refreshCompactionState, setPendingSendStatus, t, threadKey]
   );
 
   const sendWelcome = useCallback(
@@ -1182,6 +1360,54 @@ export function useChat(threadKey: string): UseChatReturn {
     [compaction, getToken, isStreaming, t]
   );
 
+  // sendRef makes retryPendingSend independent of `send`'s identity so we
+  // do not have to add `send` to the retry callback's dep list (which would
+  // create a circular useCallback). The ref is updated on every render with
+  // the latest `send`, so retry always dispatches the freshest closure.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+
+  const retryPendingSend = useCallback(async () => {
+    const pending = pendingSendRef.current;
+    if (pending === null) return;
+    setMessages((prev) => {
+      const idsToRemove = new Set<string>([pending.userMsgId]);
+      if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
+      for (const m of prev) {
+        if (idsToRemove.has(m.id)) {
+          for (const a of m.attachments ?? []) {
+            if (a.localPreviewUrl !== undefined) URL.revokeObjectURL(a.localPreviewUrl);
+          }
+        }
+      }
+      return prev.filter((m) => !idsToRemove.has(m.id));
+    });
+    pendingSendRef.current = null;
+    setPendingSendStatus(null);
+    await sendRef.current(pending.text, pending.files, pending.options);
+  }, [setPendingSendStatus]);
+
+  const cancelPendingSend = useCallback((): string | null => {
+    const pending = pendingSendRef.current;
+    if (pending === null) return null;
+    setMessages((prev) => {
+      const idsToRemove = new Set<string>([pending.userMsgId]);
+      if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
+      for (const m of prev) {
+        if (idsToRemove.has(m.id)) {
+          for (const a of m.attachments ?? []) {
+            if (a.localPreviewUrl !== undefined) URL.revokeObjectURL(a.localPreviewUrl);
+          }
+        }
+      }
+      return prev.filter((m) => !idsToRemove.has(m.id));
+    });
+    const restoredText = pending.text;
+    pendingSendRef.current = null;
+    setPendingSendStatus(null);
+    return restoredText;
+  }, [setPendingSendStatus]);
+
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       if (historyLoadedRef.current.has(targetChatId)) return;
@@ -1310,6 +1536,9 @@ export function useChat(threadKey: string): UseChatReturn {
     clearIssue,
     reportIssue,
     loadHistory,
-    loadOlderMessages
+    loadOlderMessages,
+    pendingSendStatus,
+    retryPendingSend,
+    cancelPendingSend
   };
 }

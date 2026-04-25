@@ -2,11 +2,10 @@ import "./globals.css";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { Inter } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
-
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
 export const metadata: Metadata = {
   title: "PersAI",
@@ -39,7 +38,7 @@ const clerkAppearance = {
     colorModalBackdrop: "rgba(0,0,0,0.65)",
     borderRadius: "0.5rem",
     spacing: "0.85rem",
-    fontFamily: "Inter, sans-serif",
+    fontFamily: "var(--font-geist-sans), system-ui, -apple-system, sans-serif",
     fontSize: { xs: "0.7rem", sm: "0.8rem", md: "0.875rem", lg: "1rem", xl: "1.15rem" }
   },
   elements: {
@@ -58,14 +57,18 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const messages = await getMessages();
 
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html
+      lang={locale}
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <meta name="color-scheme" content="dark light" />
-        <meta name="theme-color" content="#212121" media="(prefers-color-scheme: dark)" />
-        <meta name="theme-color" content="#f7f6f1" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#161513" media="(prefers-color-scheme: dark)" />
+        <meta name="theme-color" content="#e0d8c8" media="(prefers-color-scheme: light)" />
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
       </head>
-      <body className={`${inter.className} bg-bg text-text antialiased`}>
+      <body className="bg-chrome font-sans text-text antialiased">
         <ClerkProvider appearance={clerkAppearance}>
           <NextIntlClientProvider locale={locale} messages={messages}>
             {children}

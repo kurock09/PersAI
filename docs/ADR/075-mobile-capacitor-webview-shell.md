@@ -2,7 +2,7 @@
 
 **Status:** Accepted (spike verified end-to-end on Android; live-verified by founder; production rollout pending)  
 **Date:** 2026-04-23  
-**Updated:** 2026-04-25 — rewrote Back-button section to match the shipped JS-driven `@capacitor/app` design (manual `MainActivity.onBackPressed` override and `pushState`-marker overlay-close were both abandoned post-spike on the same day); documented the Android `DownloadManager` attachment path that also landed post-spike.  
+**Updated:** 2026-04-25 — rewrote Back-button section to match the shipped JS-driven `@capacitor/app` design (manual `MainActivity.onBackPressed` override and `pushState`-marker overlay-close were both abandoned post-spike on the same day); documented the Android `DownloadManager` attachment path that also landed post-spike. Added "Offline behaviour" section covering the cold-start `offline.html` (Capacitor `errorPath`) and the mid-session `<OfflineGate />` overlay; added "Single-slot pending send" section covering optimistic user bubbles, the 10s pre-headers timeout, the 15s/5min stall+hard upload watchdog, and the inline retry/cancel UX.  
 **Relates to:** ADR-072 (PersAI-native baseline), ADR-073/074 (UX polish program)
 
 ## Context
@@ -93,6 +93,48 @@ This is sufficient to retire the "is the WebView shell viable for PersAI?" quest
 
 This boundary keeps PersAI's verification gates (`pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/web run typecheck`, `pnpm --filter @persai/api run typecheck`) free of native toolchain dependencies and keeps `persai-mobile` free of business logic that must stay versioned with the runtime.
 
+## Offline behaviour
+
+A WebView shell pointing at a remote `server.url` has two orthogonal failure modes that need to be told apart, because the only signal "no network" gives is "the request didn't return". The product policy is the same for both — show a stylised PersAI-branded screen instead of a 404 / `net::ERR_INTERNET_DISCONNECTED` page — but the implementations are necessarily different.
+
+**Cold start (Capacitor-side).** When the shell launches and `server.url` is unreachable (no network, captive portal, DNS broken), the WebView would otherwise render the platform's raw "Webpage not available" error chrome. `persai-mobile/capacitor.config.ts` sets `server.errorPath: "offline.html"`, and `persai-mobile/www/offline.html` is a self-contained static page with inline CSS and JS that:
+
+- respects `prefers-color-scheme: dark` to match the rest of PersAI's surfaces,
+- shows the wordmark, the title "Internet connection required", a short body, and a "Try again" button,
+- localises into `en` / `ru` from `navigator.language`,
+- retries by calling `window.location.reload()` — Capacitor's WebView, on reload, again goes through `server.url`, so a successful retry seamlessly puts the user back into the live `apps/web` UI.
+
+This page is intentionally JS-light (no React, no bundled fonts) so it loads from the APK assets even when the shell has no other state. It is the only HTML asset shipped inside the binary.
+
+**Mid-session (web-side).** Once the WebView has loaded `apps/web` successfully and the user starts interacting with it, network drops are detected inside React. `apps/web/app/app/_components/use-network-online.ts` is a small hook that combines `navigator.onLine` with `online`/`offline` events, plus a `recheck()` action that performs a no-cache `fetch("/api/health")` so the user can force a re-evaluation without waiting for the OS to fire `online`. `apps/web/app/app/_components/offline-gate.tsx` consumes that hook and renders a fullscreen overlay with the same copy/affordances as the cold-start page; the rest of the app keeps mounted state (chat scroll, draft text, recordings) under the overlay so that recovery is non-destructive — closing the overlay just resumes whatever the user was doing. `OfflineGate` is mounted once near the root in `apps/web/app/app/_components/app-shell.tsx`. The overlay deliberately does not freeze any in-flight network call: that is `useChat`'s job (see "Single-slot pending send" below).
+
+i18n keys for both layers live under the `offline` namespace in `apps/web/messages/{en,ru}.json` (`title`, `message`, `retry`, `rechecking`); the cold-start page carries its own embedded copy with the same wording so the two layers stay visually consistent.
+
+## Single-slot pending send
+
+A WebView session on a flaky mobile signal has a third failure mode that neither the cold-start fallback nor the mid-session overlay covers cleanly: the request was sent, but it never arrived (or it stalled mid-upload). For that the design layers a small state machine onto every outgoing user message. The constraint is deliberately strict: at most one message can be in `sending` or `send_failed` at a time. A second send is blocked until the user resolves the first one.
+
+`ChatMessageStatus` (in `apps/web/app/app/_components/use-chat.ts`) gains two states: `sending` (optimistic, request in-flight) and `send_failed` (pre-headers failure). `useChat` exposes `pendingSendStatus`, `retryPendingSend()`, and `cancelPendingSend()` for the UI to wire to.
+
+**Pre-flight gates.**
+
+- If `navigator.onLine === false` at submit time, the user bubble is added with `status: "send_failed"` immediately. No fetch is attempted. The single slot fills, the composer locks until Retry/Cancel.
+- If a previous message is in `send_failed`, `useChat.send()` is a no-op. `chat-input.tsx` reflects this with a disabled Send button, a small destructive-toned helper line ("Message hasn't been delivered. Retry or cancel to send a new one."), and Enter-to-send is gated identically.
+
+**In-flight watchdogs.**
+
+- **Attachment uploads** (`stageWebChatAttachment`, `transcribeVoice`) go through `apps/web/app/app/upload-with-progress.ts`, an XHR helper that emits `progress` events and exposes two timers: a 15s **stall watchdog** (no progress event for 15s ⇒ abort with `XhrStallError`) and a 5min **hard upper bound** (`XhrTimeoutError`). The progress-based stall gate is the smart one — large genuine uploads on weak signal stay healthy as long as bytes keep moving, but a frozen connection trips the watchdog quickly. Both errors funnel into the pre-headers failure path below.
+- **Stream turn** (`streamAssistantWebChatTurn`) gets a 10s **pre-headers timeout** in `useChat`. The success signal is the new `onHeadersOk` callback, which fires on `response.ok` (the server has accepted the request and is now writing SSE). After headers, tool turns may legitimately stay silent for tens of seconds (image generation can run 30–60s); we do not impose a wall-clock cap on the post-headers stream. If the 10s elapses without `onHeadersOk`, the controller is aborted and the user bubble flips to `send_failed`.
+
+**UI surface (Telegram-style, intentionally quiet).**
+
+- `chat-message.tsx` user bubble in `sending` shows a small inline footer: a 12px `Loader2` spinner plus the localised "Sending…" label.
+- The same bubble in `send_failed` shows a small destructive `AlertCircle` plus "Not delivered", with two compact text-buttons underneath: **Retry** (refreshes the same payload — same text, same `File[]`, same `addToKnowledgeBase` flag — through `retryPendingSend()`) and **Cancel** (`cancelPendingSend()` removes the bubble and, for text messages, restores the draft text into the composer via an imperative `ChatInputHandle.setDraft` ref so the user does not lose what they typed). Voice/file blobs cannot be re-attached on cancel because they live inside the now-removed bubble's `File` objects; this is acceptable because voice messages are recorded fresh and file pickers re-open easily.
+
+**Persistence.** Failed-bubble state is in-memory and per-thread. Switching chats discards the failed bubble; reloading the app does the same. This is a deliberate simplification — persisting failed sends across cold starts would force us to also persist the underlying `File`/`Blob` payloads, which doubles storage costs and complicates the file-policy boundary; chat resilience without that complexity is enough for the current product surface.
+
+This whole subsystem is web-side. The mobile shell does not need to know about it because everything happens inside the WebView once `persai.dev` has loaded.
+
 ## Production rollout plan
 
 The current spike points the shell at `https://persai.dev` (the dev origin). Production rollout requires:
@@ -109,4 +151,4 @@ The current spike points the shell at `https://persai.dev` (the dev origin). Pro
 - **Push notifications path.** PersAI currently delivers async assistant updates via Telegram. Whether we want APNs/FCM in the mobile shell or whether we keep Telegram as the async channel is a product call deferred to the production rollout slice.
 - **Apple Developer account and signing identity.** iOS build is scaffolded but we need a real Apple Developer Program enrolment, an Apple ID, and a Mac (or cloud Mac) for the first archive/upload to TestFlight.
 - **Camera attachments.** `Info.plist` already declares `NSCameraUsageDescription` and `NSPhotoLibraryUsageDescription`, but the web app does not currently expose a camera-capture path beyond the standard `<input type="file" accept="image/*" capture>`. If we want a richer in-app camera UI we'll need `@capacitor/camera`; deferred until it becomes a real product ask.
-- **Offline / poor-network behaviour.** A pure WebView shell with `server.url` becomes a blank screen if `persai.dev` is unreachable. A small offline placeholder served from `www/` is in place; richer offline behaviour is deferred until we see real user demand.
+- **Offline / poor-network behaviour.** Resolved by the "Offline behaviour" and "Single-slot pending send" sections above (cold-start `errorPath: "offline.html"`, mid-session `<OfflineGate />` overlay, single-slot pending-send state machine with 10s pre-headers timeout and 15s/5min upload watchdog). Further refinement (background sync, queueing multiple failed sends, persisting them across cold starts) is deferred until real user demand is observed.

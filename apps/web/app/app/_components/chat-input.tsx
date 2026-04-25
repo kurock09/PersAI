@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type KeyboardEvent
+} from "react";
 import {
   SendHorizonal,
   Square,
@@ -10,7 +18,8 @@ import {
   Music,
   Film,
   Mic,
-  Loader2
+  Loader2,
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
@@ -65,17 +74,37 @@ interface ChatInputProps {
   onStop: () => void;
   isStreaming: boolean;
   disabled?: boolean;
+  /**
+   * Single-slot pending send state surfaced from useChat. When the previous
+   * outgoing message failed, sending is blocked until the user retries or
+   * cancels (the chat shell offers both actions on the bubble itself).
+   */
+  pendingSendStatus?: "sending" | "send_failed" | null;
 }
 
-export function ChatInput({
-  onSend,
-  onTranscribeVoice,
-  onVoiceTranscriptionError,
-  onStop,
-  isStreaming,
-  disabled
-}: ChatInputProps) {
+export interface ChatInputHandle {
+  /**
+   * Programmatically set the draft text of the composer, e.g. when the
+   * parent restores a cancelled outgoing message back into the input.
+   * Auto-resizes the textarea, focuses it, and moves the caret to the end.
+   */
+  setDraft: (text: string) => void;
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
+  {
+    onSend,
+    onTranscribeVoice,
+    onVoiceTranscriptionError,
+    onStop,
+    isStreaming,
+    disabled,
+    pendingSendStatus = null
+  }: ChatInputProps,
+  ref
+) {
   const t = useTranslations("chat");
+  const tSend = useTranslations("send");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -106,7 +135,30 @@ export function ChatInput({
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, []);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      setDraft(text: string) {
+        const el = textareaRef.current;
+        if (el === null) return;
+        el.value = text;
+        resize();
+        el.focus();
+        const end = text.length;
+        try {
+          el.setSelectionRange(end, end);
+        } catch {
+          /* setSelectionRange may throw on non-text inputs in old browsers */
+        }
+      }
+    }),
+    [resize]
+  );
+
+  const sendBlockedByFailedSlot = pendingSendStatus === "send_failed";
+
   const handleSend = useCallback(() => {
+    if (sendBlockedByFailedSlot) return;
     const el = textareaRef.current;
     if (!el) return;
     const text = el.value.trim();
@@ -123,7 +175,7 @@ export function ChatInput({
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [addToKnowledgeBase, onSend, pendingFiles]);
+  }, [addToKnowledgeBase, onSend, pendingFiles, sendBlockedByFailedSlot]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -134,12 +186,12 @@ export function ChatInput({
       if (isTouchDevice) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (!isStreaming && !disabled) {
+        if (!isStreaming && !disabled && !sendBlockedByFailedSlot) {
           handleSend();
         }
       }
     },
-    [handleSend, isStreaming, disabled, isTouchDevice]
+    [handleSend, isStreaming, disabled, isTouchDevice, sendBlockedByFailedSlot]
   );
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,7 +213,8 @@ export function ChatInput({
 
   const isRecording = recordingState === "recording";
   const isTranscribing = recordingState === "transcribing";
-  const inputDisabled = disabled || isRecording || isTranscribing;
+  const inputDisabled =
+    disabled === true || isRecording || isTranscribing || sendBlockedByFailedSlot;
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
 
   useEffect(() => {
@@ -338,7 +391,7 @@ export function ChatInput({
   }, [stopRecordingCleanup]);
 
   return (
-    <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:py-3">
+    <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
       <div className="mx-auto max-w-3xl">
         {pendingFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -423,10 +476,18 @@ export function ChatInput({
           </div>
         )}
 
+        {sendBlockedByFailedSlot && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-1.5">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+            <span className="text-xs text-text-muted">{tSend("failedHelper")}</span>
+          </div>
+        )}
+
         <div
           className={cn(
-            "flex items-end gap-2 rounded-xl border border-border bg-surface p-2 transition-colors focus-within:border-border-strong",
-            dragActive && "border-accent bg-accent/5"
+            "flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
+            dragActive && "border-accent bg-accent/5",
+            sendBlockedByFailedSlot && "opacity-90"
           )}
           onDragEnter={handleDragEnter}
           onDragOver={handleDragOver}
@@ -514,11 +575,7 @@ export function ChatInput({
             </button>
           )}
         </div>
-
-        <p className="mt-1.5 hidden text-center text-[11px] text-text-subtle md:block">
-          {t("inputHint")}
-        </p>
       </div>
     </div>
   );
-}
+});

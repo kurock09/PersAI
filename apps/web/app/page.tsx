@@ -4,6 +4,7 @@ import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
+import { LandingThemeToggle } from "./_components/landing-theme-toggle";
 
 function TelegramIcon({ className }: { className?: string }) {
   return (
@@ -22,15 +23,26 @@ export default async function HomePage() {
   const t = await getTranslations("landing");
 
   return (
-    <div className="relative h-screen overflow-hidden">
-      {/* Aurora */}
+    <div className="relative h-screen overflow-hidden bg-chrome">
+      {/* Aurora — three sage halos, soft blur, slow pulse */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-[5%] top-[10%] h-[600px] w-[600px] rounded-full bg-accent/[0.13] blur-[160px] animate-pulse-slow" />
-        <div className="absolute right-[5%] top-[30%] h-[400px] w-[400px] rounded-full bg-emerald-300/[0.07] blur-[130px] animate-pulse-slow [animation-delay:2s]" />
+        <div className="absolute right-[5%] top-[30%] h-[400px] w-[400px] rounded-full bg-accent/[0.07] blur-[130px] animate-pulse-slow [animation-delay:2s]" />
         <div className="absolute bottom-[5%] left-[35%] h-[350px] w-[350px] rounded-full bg-accent/[0.09] blur-[120px] animate-pulse-slow [animation-delay:4s]" />
       </div>
 
-      {/* Top hairline */}
+      {/* Tactile grain — subtle SVG noise overlay, ~3% opacity. Adds the
+          "premium tactile" feel without committing to a background image
+          asset. The data: URI keeps it self-contained and themable. */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.035] mix-blend-overlay"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")"
+        }}
+      />
+
+      {/* Top hairline — sage gradient */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
       <div className="relative z-10 flex h-full flex-col px-6 sm:px-10">
@@ -39,7 +51,11 @@ export default async function HomePage() {
           <span className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted">
             Pers<span className="text-text">AI</span>
           </span>
-          <LandingLocaleSwitcher />
+          <div className="flex items-center gap-3">
+            <LandingThemeToggle />
+            <span className="hidden h-4 w-px bg-border sm:inline-block" />
+            <LandingLocaleSwitcher />
+          </div>
         </header>
 
         {/* Hero */}
@@ -72,16 +88,16 @@ export default async function HomePage() {
               <TelegramIcon className="h-3.5 w-3.5" />
               Telegram
             </span>
-            {/* Coming soon group — stays together on wrap */}
-            <span className="flex items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3.5 py-1.5">
+            {/* Coming soon group — themed pill, stays on the same row when wrapping */}
+            <span className="flex items-center gap-2 rounded-full border border-border bg-surface-raised/40 px-3.5 py-1.5 backdrop-blur-sm">
               <span className="flex items-center gap-2 text-[12px] font-medium">
-                <span className="text-[#0077FF]/45">VK</span>
-                <span className="text-white/15">·</span>
-                <span className="text-[#25D366]/45">WhatsApp</span>
-                <span className="text-white/15">·</span>
-                <span className="text-[#7B5CF6]/45">MAX</span>
+                <span className="text-[#0077FF]/55">VK</span>
+                <span className="text-text-subtle/40">·</span>
+                <span className="text-[#25D366]/55">WhatsApp</span>
+                <span className="text-text-subtle/40">·</span>
+                <span className="text-[#7B5CF6]/55">MAX</span>
               </span>
-              <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-text-subtle/30">
+              <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-text-subtle/60">
                 {t("soon")}
               </span>
             </span>
@@ -90,9 +106,15 @@ export default async function HomePage() {
           <div className="animate-fade-in-up-delay mt-7 flex flex-col items-center gap-3 sm:flex-row">
             <Link
               href={"/sign-up" as Route}
-              className="cursor-pointer rounded-2xl bg-accent px-8 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_rgba(102,187,106,0.2)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_70px_rgba(102,187,106,0.32)]"
+              className="group relative cursor-pointer overflow-hidden rounded-2xl bg-accent px-8 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)]"
             >
-              {t("cta")}
+              {/* Soft sheen on hover — reads as a glassy ridge crossing the
+                  CTA, kept short so it stays calm rather than gimmicky. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition-all duration-700 ease-out group-hover:left-[120%] group-hover:opacity-100"
+              />
+              <span className="relative">{t("cta")}</span>
             </Link>
             <Link
               href={"/sign-in" as Route}

@@ -592,13 +592,13 @@ export default function SetupWizardPage() {
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
             <motion.div
-              className="w-full max-w-md rounded-3xl border border-accent/30 bg-surface px-8 py-10 text-center shadow-[0_0_60px_rgba(102,187,106,0.18)]"
+              className="w-full max-w-md rounded-3xl border border-accent/30 bg-surface px-8 py-10 text-center shadow-[0_0_60px_var(--accent-glow)]"
               initial={{ opacity: 0, y: 24, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.28, ease: "easeOut" }}
             >
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/12 text-accent shadow-[0_0_32px_rgba(102,187,106,0.18)]">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-accent/12 text-accent shadow-[0_0_32px_var(--accent-glow)]">
                 <Sparkles className="h-8 w-8" />
               </div>
               <h2 className="mt-5 text-2xl font-semibold text-text sm:text-3xl">
@@ -835,7 +835,7 @@ export default function SetupWizardPage() {
                   <div className="rounded-[28px] border border-border bg-surface/70 p-5 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-6">
                     <div className="flex items-start gap-4 sm:gap-5">
                       <div className="relative shrink-0">
-                        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-border bg-surface text-4xl shadow-[0_0_32px_rgba(102,187,106,0.12)] sm:h-[72px] sm:w-[72px] sm:text-5xl">
+                        <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[22px] border border-border bg-surface text-4xl shadow-[0_0_32px_var(--accent-glow)] sm:h-[72px] sm:w-[72px] sm:text-5xl">
                           {currentAvatarPreviewUrl ? (
                             <img
                               src={currentAvatarPreviewUrl}
@@ -856,12 +856,12 @@ export default function SetupWizardPage() {
                             {assistantName}
                           </p>
                         ) : null}
-                        <h1 className="mt-1 text-3xl font-bold leading-none text-text sm:text-4xl">
+                        <h1 className="mt-1 text-2xl font-semibold leading-tight text-text sm:text-3xl">
                           {t("step2Title")}
                         </h1>
-                        <div className="mt-3 flex items-center gap-2 text-sm leading-relaxed text-text-muted sm:text-base">
-                          <p className="min-w-0">{t("step2Subtitle", { name: assistantName })}</p>
-                        </div>
+                        <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                          {t("step2Subtitle", { name: assistantName })}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -886,7 +886,7 @@ export default function SetupWizardPage() {
                               className={cn(
                                 "rounded-2xl border px-4 py-3 text-left transition-all",
                                 selectedArchetypeKey === archetype.key
-                                  ? "border-accent bg-accent/10 shadow-[0_0_24px_rgba(102,187,106,0.12)]"
+                                  ? "border-accent bg-accent/10 shadow-[0_0_24px_var(--accent-glow)]"
                                   : "border-border bg-surface hover:border-border-strong hover:bg-surface-hover"
                               )}
                             >
@@ -979,13 +979,10 @@ export default function SetupWizardPage() {
             {/* ===== Step 3: Preview ===== */}
             {step === 3 && (
               <StepContainer key="step-3" className="max-w-4xl">
-                <h1 className="text-3xl font-bold text-text sm:text-4xl">
+                <h1 className="text-2xl font-semibold text-text sm:text-3xl">
                   {t("step3Title", { name: assistantName })}
                 </h1>
-                <p className="mt-3 text-base text-text-muted">{t("step3Subtitle")}</p>
-                <p className="mt-2 max-w-md text-center text-xs text-text-subtle">
-                  {t("previewPromptHint")}
-                </p>
+                <p className="mt-2 text-sm leading-relaxed text-text-muted">{t("step3Subtitle")}</p>
 
                 {/* Simulated chat */}
                 <div className="mt-8 w-full max-w-3xl rounded-3xl border border-border bg-surface p-6 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-7">

@@ -436,7 +436,7 @@ describe("SetupWizardPage", () => {
       "token-runtime-preview"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /create assistant/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledTimes(1);
@@ -494,7 +494,7 @@ describe("SetupWizardPage", () => {
       await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /create assistant/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
@@ -532,7 +532,7 @@ describe("SetupWizardPage", () => {
       await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /recover assistant/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^recover$/i }));
 
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
@@ -577,7 +577,7 @@ describe("SetupWizardPage", () => {
       await screen.findByText("Hi Alex, I'm Nova. I'll keep things clear, warm, and proactive.")
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /recreate assistant/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);

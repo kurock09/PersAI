@@ -80,6 +80,17 @@ import {
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract
 } from "@persai/contracts";
+import {
+  uploadWithProgress,
+  XhrAbortError,
+  XhrNetworkError,
+  XhrStallError,
+  XhrTimeoutError,
+  type XhrUploadOptions,
+  type XhrUploadProgress
+} from "./upload-with-progress";
+
+export { XhrAbortError, XhrNetworkError, XhrStallError, XhrTimeoutError, type XhrUploadProgress };
 
 function getAuthHeaders(token: string): HeadersInit {
   return {
@@ -217,6 +228,17 @@ export interface AssistantWebChatStreamPayload {
 }
 
 export interface AssistantWebChatStreamHandlers {
+  /**
+   * Fired exactly once, the moment the server accepts the request and we
+   * receive 2xx response headers (before any SSE event has been parsed).
+   *
+   * This is the "message has flown out" signal — it is what the chat-input
+   * pending-slot uses to clear the "sending" state. We deliberately do NOT
+   * tie success to the first SSE event because tool turns (e.g. image
+   * generation) can keep the stream silent for 30-60s while still being a
+   * fully accepted in-flight request. See ADR-075 "Single-slot pending send".
+   */
+  onHeadersOk?: () => void;
   onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
   onThinking?: (payload: { delta: string; accumulated: string }) => void;
   onDelta?: (payload: { delta: string }) => void;
@@ -273,19 +295,37 @@ async function readApiErrorEnvelope(
   if (!ct.includes("application/json")) return null;
   try {
     const payload = (await response.json()) as unknown;
-    if (typeof payload !== "object" || payload === null) return null;
-    const env = payload as { error?: { code?: unknown; message?: unknown; details?: unknown } };
-    const err = env.error;
-    if (!err || typeof err.code !== "string" || typeof err.message !== "string") return null;
-    const details =
-      typeof err.details === "object" && err.details !== null && !Array.isArray(err.details)
-        ? (err.details as Record<string, unknown>)
-        : null;
-    return {
-      code: err.code,
-      message: err.message,
-      ...(details !== null ? { details } : {})
-    };
+    return parseApiErrorEnvelope(payload);
+  } catch {
+    return null;
+  }
+}
+
+function parseApiErrorEnvelope(
+  payload: unknown
+): { code: string; message: string; details?: Record<string, unknown> } | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const env = payload as { error?: { code?: unknown; message?: unknown; details?: unknown } };
+  const err = env.error;
+  if (!err || typeof err.code !== "string" || typeof err.message !== "string") return null;
+  const details =
+    typeof err.details === "object" && err.details !== null && !Array.isArray(err.details)
+      ? (err.details as Record<string, unknown>)
+      : null;
+  return {
+    code: err.code,
+    message: err.message,
+    ...(details !== null ? { details } : {})
+  };
+}
+
+function readXhrErrorEnvelope(
+  responseText: string,
+  contentType: string
+): { code: string; message: string; details?: Record<string, unknown> } | null {
+  if (!contentType.toLowerCase().includes("application/json")) return null;
+  try {
+    return parseApiErrorEnvelope(JSON.parse(responseText) as unknown);
   } catch {
     return null;
   }
@@ -887,6 +927,11 @@ export async function streamAssistantWebChatTurn(
 
     throw new ContractsApiError(message, response.status, errorPayload, code);
   }
+
+  // Signal "request accepted" the moment we have 2xx headers, so the chat
+  // input can clear its pending-slot indicator without waiting for the first
+  // SSE event (image-tool turns can stay silent for tens of seconds).
+  handlers.onHeadersOk?.();
 
   if (response.body === null) {
     throw new Error("Streaming response has no body.");
@@ -2517,29 +2562,48 @@ export type AdminKnowledgeConnectorState = {
   notes: string[];
 };
 
+export interface UploadResilienceOptions {
+  signal?: AbortSignal;
+  onProgress?: (progress: XhrUploadProgress) => void;
+  /** Abort the upload if no upload-progress event fires within this many ms. */
+  stallTimeoutMs?: number;
+  /** Hard upper bound (ms) for the entire upload (covers slow-but-progressing too). */
+  hardTimeoutMs?: number;
+}
+
+function toXhrOptions(token: string, opts?: UploadResilienceOptions): XhrUploadOptions {
+  return {
+    authToken: token,
+    ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
+    ...(opts?.onProgress !== undefined ? { onProgress: opts.onProgress } : {}),
+    ...(opts?.stallTimeoutMs !== undefined ? { stallTimeoutMs: opts.stallTimeoutMs } : {}),
+    ...(opts?.hardTimeoutMs !== undefined ? { hardTimeoutMs: opts.hardTimeoutMs } : {})
+  };
+}
+
 export async function stageWebChatAttachment(
   token: string,
   surfaceThreadKey: string,
-  file: File
+  file: File,
+  opts?: UploadResilienceOptions
 ): Promise<StagedAttachmentResult> {
   const base = getApiBaseUrl();
   const formData = new FormData();
   formData.append("surfaceThreadKey", surfaceThreadKey);
   formData.append("file", file);
-  const res = await fetch(`${base}/assistant/chat/web/stage-attachment`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData
-  });
+  const res = await uploadWithProgress(
+    `${base}/assistant/chat/web/stage-attachment`,
+    formData,
+    toXhrOptions(token, opts)
+  );
   if (!res.ok) {
-    const envelope = await readApiErrorEnvelope(res);
+    const envelope = readXhrErrorEnvelope(res.responseText, res.headers.get("content-type") ?? "");
     if (envelope) {
       throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
     }
     throw new Error("Failed to stage attachment.");
   }
-  const data = (await res.json()) as StagedAttachmentResult;
-  return data;
+  return JSON.parse(res.responseText) as StagedAttachmentResult;
 }
 
 export async function uploadChatAttachment(
@@ -2835,24 +2899,32 @@ export async function postAdminForceReapplyAll(token: string): Promise<ForceReap
 export async function transcribeVoice(
   token: string,
   audioBlob: Blob,
-  filename: string
+  filename: string,
+  opts?: UploadResilienceOptions
 ): Promise<string> {
   const base = getApiBaseUrl();
   const formData = new FormData();
   formData.append("file", audioBlob, filename);
-  const res = await fetch(`${base}/assistant/voice/transcribe`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData
-  });
+  const res = await uploadWithProgress(
+    `${base}/assistant/voice/transcribe`,
+    formData,
+    toXhrOptions(token, opts)
+  );
   if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const message =
-      body && typeof body === "object" && "message" in body
-        ? String((body as Record<string, unknown>).message)
-        : "Voice transcription failed.";
+    let message = "Voice transcription failed.";
+    try {
+      const body = JSON.parse(res.responseText) as unknown;
+      if (typeof body === "object" && body !== null && "message" in body) {
+        const candidate = (body as Record<string, unknown>).message;
+        if (typeof candidate === "string" && candidate.trim().length > 0) {
+          message = candidate;
+        }
+      }
+    } catch {
+      /* keep default message */
+    }
     throw new Error(message);
   }
-  const data = (await res.json()) as { text: string };
+  const data = JSON.parse(res.responseText) as { text: string };
   return data.text;
 }
