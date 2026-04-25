@@ -421,11 +421,23 @@ export function ChatArea({
                 <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
               </div>
             )}
-            {chat.entries.map((entry) =>
-              entry.kind === "message" ? (
+            {chat.entries.map((entry, index) => {
+              const nextEntry = chat.entries[index + 1];
+              const preResponseStatus =
+                entry.kind === "message" &&
+                entry.message.role === "assistant" &&
+                entry.message.status === "streaming" &&
+                entry.message.content.trim().length === 0
+                  ? nextEntry?.kind === "activity" && nextEntry.event.type === "tool_use"
+                    ? "working"
+                    : "thinking"
+                  : undefined;
+
+              return entry.kind === "message" ? (
                 <ChatMessageBubble
                   key={entry.message.id}
                   message={entry.message}
+                  preResponseStatus={preResponseStatus}
                   assistantAvatarUrl={assistantAvatarUrl}
                   assistantAvatarEmoji={assistantAvatarEmoji}
                   onDoNotRemember={
@@ -453,8 +465,8 @@ export function ChatArea({
                   event={entry.event}
                   showShadowRoutingLabel={showShadowRoutingBadge}
                 />
-              )
-            )}
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         )}

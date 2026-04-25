@@ -82,6 +82,7 @@ interface ChatMessageBubbleProps {
   message: ChatMessage;
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
+  preResponseStatus?: "thinking" | "working" | undefined;
   onDoNotRemember?: ((messageId: string) => void) | undefined;
   forgotten?: boolean | undefined;
   /**
@@ -558,12 +559,15 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   onDoNotRemember,
   forgotten,
   onRetryPendingSend,
-  onCancelPendingSend
+  onCancelPendingSend,
+  preResponseStatus
 }: ChatMessageBubbleProps) {
   const t = useTranslations("chat");
   const tSend = useTranslations("send");
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming" && message.role === "assistant";
+  const showPreResponseStatus =
+    isStreaming && message.content.trim().length === 0 && preResponseStatus !== undefined;
   const isUserSending = isUser && message.status === "sending";
   const isUserSendFailed = isUser && message.status === "send_failed";
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
@@ -689,15 +693,28 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         ) : (
           <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
             <ThoughtBlock message={message} />
-            {isStreaming ? (
-              <StreamingMarkdownMessageContent content={message.content} />
+            {showPreResponseStatus ? (
+              <span className="inline-flex items-center gap-2 text-sm font-medium text-text-muted">
+                <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                <span>
+                  {preResponseStatus === "working"
+                    ? t("preResponseWorking")
+                    : t("preResponseThinking")}
+                </span>
+              </span>
             ) : (
-              <MarkdownMessageContent content={message.content} />
-            )}
+              <>
+                {isStreaming ? (
+                  <StreamingMarkdownMessageContent content={message.content} />
+                ) : (
+                  <MarkdownMessageContent content={message.content} />
+                )}
 
-            {/* Streaming cursor */}
-            {isStreaming && (
-              <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                {/* Streaming cursor */}
+                {isStreaming && (
+                  <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/70 align-middle" />
+                )}
+              </>
             )}
             {message.attachments && message.attachments.length > 0 && (
               <AttachmentStrip attachments={message.attachments} />

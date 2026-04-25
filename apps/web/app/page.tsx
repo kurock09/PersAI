@@ -21,6 +21,13 @@ export default async function HomePage() {
   }
 
   const t = await getTranslations("landing");
+  const footerLinks = [
+    { label: t("plans"), href: "/sign-up" },
+    { label: t("termsLink"), href: "#terms" },
+    { label: t("privacyLink"), href: "#privacy" },
+    { label: t("contactsLink"), href: "mailto:support@persai.app" },
+    { label: t("requisitesLink"), href: "#requisites" }
+  ];
 
   return (
     <div className="relative h-screen overflow-hidden bg-chrome">
@@ -45,9 +52,9 @@ export default async function HomePage() {
       {/* Top hairline — sage gradient */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
 
-      <div className="relative z-10 flex h-full flex-col px-6 sm:px-10">
+      <div className="relative z-10 flex h-full flex-col px-5 sm:px-10">
         {/* Header */}
-        <header className="flex items-center justify-between pt-6 sm:pt-8">
+        <header className="flex shrink-0 items-center justify-between pt-5 sm:pt-7">
           <span className="select-none text-xs font-semibold uppercase tracking-[0.22em] text-text-muted">
             Pers<span className="text-text">AI</span>
           </span>
@@ -59,28 +66,34 @@ export default async function HomePage() {
         </header>
 
         {/* Hero */}
-        <main className="flex flex-1 flex-col items-center justify-center text-center">
-          <p className="animate-fade-in text-[10px] font-semibold uppercase tracking-[0.25em] text-text-subtle sm:text-[11px]">
+        <main className="flex min-h-0 flex-1 flex-col items-center justify-center py-4 text-center sm:py-6">
+          <p className="animate-fade-in text-[9px] font-semibold uppercase tracking-[0.26em] text-text-subtle sm:text-[10px]">
             {t("eyebrow")}
           </p>
 
-          <h1 className="animate-fade-in-up mt-6 leading-[1.08] tracking-[-0.035em]">
-            <span className="block text-[clamp(2rem,5.5vw,4rem)] font-semibold text-text">
+          <h1 className="animate-fade-in-up mt-5 max-w-4xl leading-[1.05] tracking-[-0.04em] sm:mt-6">
+            <span className="block text-[clamp(2.25rem,5.4vw,4.6rem)] font-semibold text-text">
               {t("headlineLine1")}
             </span>
-            <span className="block text-[clamp(2rem,5.5vw,4rem)] font-light text-text-muted">
+            <span className="block text-[clamp(2.1rem,5vw,4.2rem)] font-light text-text-muted">
               {t("headlineLine2")}
             </span>
           </h1>
 
-          <p className="animate-fade-in-up-delay mx-auto mt-6 max-w-xs text-sm leading-relaxed text-text-muted sm:max-w-md sm:text-base">
+          <p className="animate-fade-in-up-delay mx-auto mt-5 max-w-[22rem] text-sm leading-relaxed text-text-muted sm:max-w-[34rem] sm:text-base">
             {t("subtitle")}
           </p>
 
+          <div className="animate-fade-in-up-delay mt-6 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-3">
+            <CapabilityPill label={t("capabilityMemory")} />
+            <CapabilityPill label={t("capabilityChannels")} />
+            <CapabilityPill label={t("capabilityTasks")} />
+          </div>
+
           {/* Platforms */}
-          <div className="animate-fade-in-up-delay mt-6 flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
+          <div className="animate-fade-in-up-delay mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-2">
             {/* Telegram — active */}
-            <span className="flex items-center gap-2 rounded-full border border-[#2AABEE]/30 bg-[#2AABEE]/[0.08] px-4 py-1.5 text-[12px] font-medium text-[#2AABEE]">
+            <span className="flex items-center gap-2 rounded-full border border-[#2AABEE]/25 bg-[#2AABEE]/[0.07] px-3.5 py-1.5 text-[11px] font-medium text-[#2AABEE]">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2AABEE] opacity-60" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#2AABEE]" />
@@ -89,15 +102,15 @@ export default async function HomePage() {
               Telegram
             </span>
             {/* Coming soon group — themed pill, stays on the same row when wrapping */}
-            <span className="flex items-center gap-2 rounded-full border border-border bg-surface-raised/40 px-3.5 py-1.5 backdrop-blur-sm">
-              <span className="flex items-center gap-2 text-[12px] font-medium">
+            <span className="flex items-center gap-2 rounded-full border border-border/70 bg-surface-raised/35 px-3 py-1.5 backdrop-blur-sm">
+              <span className="flex items-center gap-2 text-[11px] font-medium">
                 <span className="text-[#0077FF]/55">VK</span>
                 <span className="text-text-subtle/40">·</span>
                 <span className="text-[#25D366]/55">WhatsApp</span>
                 <span className="text-text-subtle/40">·</span>
                 <span className="text-[#7B5CF6]/55">MAX</span>
               </span>
-              <span className="ml-1 text-[10px] font-medium uppercase tracking-wider text-text-subtle/60">
+              <span className="ml-1 text-[9px] font-medium uppercase tracking-wider text-text-subtle/60">
                 {t("soon")}
               </span>
             </span>
@@ -106,7 +119,7 @@ export default async function HomePage() {
           <div className="animate-fade-in-up-delay mt-7 flex flex-col items-center gap-3 sm:flex-row">
             <Link
               href={"/sign-up" as Route}
-              className="group relative cursor-pointer overflow-hidden rounded-2xl bg-accent px-8 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)]"
+              className="group relative cursor-pointer overflow-hidden rounded-2xl bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)] sm:px-8"
             >
               {/* Soft sheen on hover — reads as a glassy ridge crossing the
                   CTA, kept short so it stays calm rather than gimmicky. */}
@@ -115,6 +128,12 @@ export default async function HomePage() {
                 className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 transition-all duration-700 ease-out group-hover:left-[120%] group-hover:opacity-100"
               />
               <span className="relative">{t("cta")}</span>
+            </Link>
+            <Link
+              href={"/sign-up" as Route}
+              className="cursor-pointer rounded-2xl border border-border/70 bg-surface-raised/45 px-5 py-3 text-sm font-medium text-text-muted backdrop-blur-sm transition-colors hover:bg-surface-hover hover:text-text"
+            >
+              {t("plans")}
             </Link>
             <Link
               href={"/sign-in" as Route}
@@ -126,10 +145,39 @@ export default async function HomePage() {
         </main>
 
         {/* Footer */}
-        <footer className="pb-6 pt-4 text-center">
-          <p className="text-[11px] text-text-subtle">{t("terms")}</p>
+        <footer className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+          <nav className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] text-text-subtle sm:gap-x-4 sm:text-[11px]">
+            {footerLinks.map((link) =>
+              link.href.startsWith("mailto:") || link.href.startsWith("#") ? (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  className="transition-colors hover:text-text-muted"
+                >
+                  {link.label}
+                </a>
+              ) : (
+                <Link
+                  key={link.label}
+                  href={link.href as Route}
+                  className="transition-colors hover:text-text-muted"
+                >
+                  {link.label}
+                </Link>
+              )
+            )}
+          </nav>
+          <p className="mt-2 text-[10px] text-text-subtle/60">{t("terms")}</p>
         </footer>
       </div>
+    </div>
+  );
+}
+
+function CapabilityPill({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-surface-raised/30 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm sm:px-4 sm:py-2.5 sm:text-xs">
+      {label}
     </div>
   );
 }

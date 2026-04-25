@@ -1,6 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ActivityBadge } from "./activity-badge";
+
+vi.mock("next-intl", () => ({
+  useTranslations: () => (key: string) => key
+}));
 
 describe("ActivityBadge", () => {
   const event = {
@@ -14,7 +18,7 @@ describe("ActivityBadge", () => {
   it("hides shadow routing details by default", () => {
     render(<ActivityBadge event={event} />);
 
-    expect(screen.getByText("Response generated")).toBeInTheDocument();
+    expect(screen.getByText("activityResponseDone")).toBeInTheDocument();
     expect(screen.getByText("20:05")).toBeInTheDocument();
     expect(screen.queryByText(/premium \(llm\)/i)).toBeNull();
   });
@@ -23,5 +27,37 @@ describe("ActivityBadge", () => {
     render(<ActivityBadge event={event} showShadowRoutingLabel />);
 
     expect(screen.getByText(/20:05 · premium \(llm\)/i)).toBeInTheDocument();
+  });
+
+  it("humanizes raw tool lifecycle labels", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-2",
+          type: "tool_use",
+          label: "knowledge_search_finished",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityKnowledgeSearchDone")).toBeInTheDocument();
+    expect(screen.queryByText("knowledge_search_finished")).toBeNull();
+  });
+
+  it("humanizes files tool lifecycle labels", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-3",
+          type: "tool_use",
+          label: "files_finished",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityFilesDone")).toBeInTheDocument();
+    expect(screen.queryByText("files_finished")).toBeNull();
   });
 });

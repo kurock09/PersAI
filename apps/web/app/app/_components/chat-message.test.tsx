@@ -107,6 +107,16 @@ function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]
   };
 }
 
+function makeAssistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id: "assistant-1",
+    role: "assistant",
+    content: "",
+    status: "streaming",
+    ...overrides
+  };
+}
+
 const ATTACHMENTS_ONLY_PLACEHOLDER_TEXT = "(attached files)";
 
 const SENDING_INDICATOR_TESTID = "message-sending-indicator";
@@ -255,5 +265,31 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
     // the bubble renders content unchanged so future regressions in the
     // composer can't silently swallow user-visible text.
     expect(screen.getByText(ATTACHMENTS_ONLY_PLACEHOLDER_TEXT)).toBeInTheDocument();
+  });
+});
+
+describe("ChatMessageBubble — pre-response status", () => {
+  it("shows thinking before the first assistant token", () => {
+    render(<ChatMessageBubble message={makeAssistantMessage()} preResponseStatus="thinking" />);
+
+    expect(screen.getByText("preResponseThinking")).toBeInTheDocument();
+  });
+
+  it("shows working while a tool is active before text starts", () => {
+    render(<ChatMessageBubble message={makeAssistantMessage()} preResponseStatus="working" />);
+
+    expect(screen.getByText("preResponseWorking")).toBeInTheDocument();
+  });
+
+  it("hides pre-response status after text starts streaming", () => {
+    render(
+      <ChatMessageBubble
+        message={makeAssistantMessage({ content: "Hello" })}
+        preResponseStatus="thinking"
+      />
+    );
+
+    expect(screen.queryByText("preResponseThinking")).toBeNull();
+    expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 });

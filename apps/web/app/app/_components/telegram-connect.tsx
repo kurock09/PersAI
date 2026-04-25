@@ -39,6 +39,19 @@ interface TelegramConnectProps {
 
 type Feedback = { type: "ok" | "err"; text: string } | null;
 
+function resolveSystemNoteLabel(note: string, t: (key: string) => string): string {
+  switch (note) {
+    case "Telegram is modeled as one provider + one interaction surface binding.":
+      return t("systemNoteProviderSurface");
+    case "Telegram direct messages are owner-only after claim.":
+      return t("systemNoteOwnerOnlyDm");
+    case "Web remains the primary control-plane surface for assistant configuration.":
+      return t("systemNoteWebControlPlane");
+    default:
+      return note;
+  }
+}
+
 function openTelegramUrl(url: string): void {
   if (typeof window === "undefined") {
     return;
@@ -788,7 +801,7 @@ function ConnectedView({
           <ul className="space-y-1">
             {integration.notes.map((note, i) => (
               <li key={i} className="text-xs text-text-subtle">
-                {note}
+                {resolveSystemNoteLabel(note, t)}
               </li>
             ))}
           </ul>

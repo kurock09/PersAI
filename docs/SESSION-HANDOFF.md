@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (Telegram settings system notes localization) — Telegram architecture notes no longer render raw English inside RU UI (`apps/web`; focused typecheck green)
+
+### Why this session
+
+Founder noticed the Telegram settings panel still showed raw English system notes under `Системные заметки`:
+
+- `Telegram is modeled as one provider + one interaction surface binding.`
+- `Telegram direct messages are owner-only after claim.`
+- `Web remains the primary control-plane surface for assistant configuration.`
+
+### What changed
+
+- `apps/web/app/app/_components/telegram-connect.tsx` now maps those known API note strings to localized UI labels.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add the corresponding `telegram.systemNote*` translations.
+- Unknown future backend notes still render as provided, preserving a safe fallback.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/telegram-connect.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+
+### Risks / residuals
+
+- This keeps the backend contract unchanged. If new API notes are added later, they need a matching client translation key or they will appear as raw server text by design.
+
+### Next recommended step
+
+Deploy `apps/web` and open Telegram settings in RU and EN to confirm the system notes read naturally in both locales.
+
+---
+
+## 2026-04-25 (Chat pre-response thinking/working polish) — Empty streaming assistant bubble shows a quiet localized status before the first token (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder clarified the desired chat waiting state: do not surface `Thought for N s`; instead, while the assistant has not emitted text yet, show a quiet inline status next to the streaming cursor. If no tool is active, say `Думаю...` / `Thinking...`; if a tool badge is already active, say `Работаю...` / `Working...` while keeping the concrete activity badge visible.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-message.tsx` adds a `preResponseStatus` prop and renders a subtle cursor + localized status only when the assistant message is streaming and still has empty content.
+- `apps/web/app/app/_components/chat-area.tsx` derives that prop from live entries: empty assistant streaming bubble + following `tool_use` activity becomes `working`; otherwise it becomes `thinking`.
+- `apps/web/messages/en.json` and `apps/web/messages/ru.json` add `preResponseThinking` / `preResponseWorking`.
+- `apps/web/app/app/_components/chat-message.test.tsx` covers thinking, working, and hiding the status once text starts streaming.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/chat-area.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/chat-message.tsx" "apps/web/app/app/_components/chat-message.test.tsx" "apps/web/app/app/_components/chat-area.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+
+### Risks / residuals
+
+- This is frontend-only status inference. It does not add provider/runtime reasoning events, and intentionally does not show elapsed thinking time.
+- The `working` state depends on the live `tool_use` activity entry being adjacent to the empty streaming assistant bubble, which matches the current chat entry model.
+
+### Next recommended step
+
+Deploy `apps/web`, then live-test a slow first-token answer and a slow tool turn on web + Android: before text starts the bubble should show `Думаю...` or `Работаю...`, and the label should disappear immediately once streamed text appears.
+
+---
+
 ## 2026-04-25 (Avatar center crop + image lightbox actions) — Tall assistant avatars crop from center, chat image lightbox adds save/share actions (`apps/api` + `apps/web`; focused tests/typechecks green)
 
 ### Why this session
@@ -23782,3 +23843,54 @@ The founder reviewed the desktop chat surface and asked to reduce noise: the des
 ### Next recommended step
 
 - Manually check desktop chat: paperclip opens one `File` tile, title reads as subdued context, and active voice recording looks calm while preserving `Cancel` / `Send`.
+
+---
+
+## Founder gateway polish — one-screen entry and human activity labels
+
+### What changed
+
+1. **Public home is now a one-screen product gateway:** `apps/web/app/page.tsx` stays within `h-screen` and positions the unauthenticated entry as a compact product doorway rather than a sales landing. It now emphasizes context memory, web/Telegram continuity, and task carry-over with three quiet capability pills.
+
+2. **Footer links are present without adding scroll:** the gateway now includes bottom links for plans, terms, privacy, contacts, and company details, plus the existing free-start/sign-in path. `Plans` is also available as a secondary CTA near the primary button.
+
+3. **Landing copy was rewritten RU/EN:** `apps/web/messages/en.json` and `apps/web/messages/ru.json` now describe PersAI as an AI that remembers context and remains nearby, with less decorative channel noise.
+
+4. **Activity badges no longer leak raw tool codes:** `apps/web/app/app/_components/activity-badge.tsx` now maps known tool/runtime lifecycle labels to human RU/EN copy and defensively falls back to neutral labels for unknown tool events instead of rendering snake_case such as `knowledge_search_finished`. Follow-up added explicit `files` tool copy (`Работаю с файлами`, `Файл готов`, `Файл создан`, etc.).
+
+### Why changed
+
+The founder asked to reduce noise, increase meaning, and make both the public entry screen and chat activity cards feel human and product-directed. The decision remains that the current public page is not a sales landing; it is a premium one-screen gateway into the app.
+
+### Slice boundary
+
+- Web UI and translation polish only.
+- No auth, billing, legal-document routing, API, runtime, provider, native, or persistence change.
+- Footer legal/company links are placeholders/anchors until real public legal pages exist.
+
+### Key files changed
+
+- `apps/web/app/page.tsx`
+- `apps/web/app/app/_components/activity-badge.tsx`
+- `apps/web/app/app/_components/activity-badge.test.tsx`
+- `apps/web/messages/en.json`
+- `apps/web/messages/ru.json`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/activity-badge.tsx" "apps/web/app/app/_components/activity-badge.test.tsx" "apps/web/app/page.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/activity-badge.tsx" "apps/web/app/app/_components/activity-badge.test.tsx" "apps/web/messages/en.json" "apps/web/messages/ru.json"`
+- `ReadLints` on touched landing/activity/translation files
+
+### Risks
+
+1. Public legal/company links currently point to anchors/placeholders because the app has no dedicated public terms/privacy/requisites pages yet.
+2. The one-screen gateway is designed not to scroll, so very small mobile viewports may need a final real-device spacing pass after visual QA.
+
+### Next recommended step
+
+- Manually validate the unauthenticated home on desktop and mobile viewport: no required scroll, clear CTA hierarchy, footer links visible, and chat activity badges read as human copy in RU/EN.
