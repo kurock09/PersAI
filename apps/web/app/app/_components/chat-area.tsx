@@ -414,7 +414,7 @@ export function ChatArea({
             onPrompt={sendPrompt}
           />
         ) : (
-          <div className="mx-auto max-w-3xl py-4">
+          <div className="mx-auto w-full max-w-[50rem] py-4">
             <div ref={sentinelRef} className="h-1" />
             {chat.olderMessagesLoading && (
               <div className="flex justify-center py-3">
@@ -578,7 +578,7 @@ export function ChatArea({
       {/* Input */}
       {showCompactionBanner && (
         <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 max-w-3xl rounded-lg border border-border/70 bg-surface px-3 py-2">
+          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-border/70 bg-surface px-3 py-2">
             <div className="flex items-start gap-2.5">
               <div
                 className={cn(

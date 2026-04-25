@@ -21,6 +21,7 @@ export default async function HomePage() {
   }
 
   const t = await getTranslations("landing");
+  const headlineLine2 = t("headlineLine2").trim();
   const footerLinks = [
     { label: t("plans"), href: "/sign-up" },
     { label: t("termsLink"), href: "#terms" },
@@ -75,53 +76,35 @@ export default async function HomePage() {
             <span className="block text-[clamp(2.25rem,5.4vw,4.6rem)] font-semibold text-text">
               {t("headlineLine1")}
             </span>
-            <span className="block text-[clamp(2.1rem,5vw,4.2rem)] font-light text-text-muted">
-              {t("headlineLine2")}
-            </span>
+            {headlineLine2.length > 0 ? (
+              <span className="block text-[clamp(2.1rem,5vw,4.2rem)] font-light text-text-muted">
+                {headlineLine2}
+              </span>
+            ) : null}
           </h1>
 
-          <p className="animate-fade-in-up-delay mx-auto mt-4 max-w-[20rem] text-xs leading-relaxed text-text-muted sm:max-w-[30rem] sm:text-sm">
+          <p className="animate-fade-in-up-delay mx-auto mt-5 max-w-[22rem] text-sm leading-relaxed text-text-muted sm:max-w-[34rem] sm:text-lg">
             {t("subtitle")}
           </p>
 
-          <div className="animate-fade-in-up-delay mt-4 flex max-w-xl flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-[10px] font-medium text-text-subtle/80 sm:gap-x-3 sm:text-[11px]">
-            <span>{t("capabilityMemory")}</span>
-            <span aria-hidden="true" className="h-1 w-1 rounded-full bg-text-subtle/30" />
-            <span>{t("capabilityChannels")}</span>
-            <span aria-hidden="true" className="h-1 w-1 rounded-full bg-text-subtle/30" />
-            <span>{t("capabilityTasks")}</span>
+          <div className="animate-fade-in-up-delay mt-5 flex w-full max-w-[34rem] flex-col items-center gap-3">
+            <div className="grid w-full max-w-[30rem] grid-cols-1 gap-2 sm:grid-cols-3">
+              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+                {t("capabilityMemory")}
+              </span>
+              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+                {t("capabilityChannels")}
+              </span>
+              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+                {t("capabilityTasks")}
+              </span>
+            </div>
           </div>
 
-          {/* Platforms */}
-          <div className="animate-fade-in-up-delay mt-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-2">
-            {/* Telegram — active */}
-            <span className="flex items-center gap-1.5 rounded-full border border-[#2AABEE]/15 bg-[#2AABEE]/[0.045] px-3 py-1.5 text-[10px] font-medium text-[#2AABEE]/85">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2AABEE] opacity-35" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#2AABEE]" />
-              </span>
-              <TelegramIcon className="h-3 w-3" />
-              Telegram
-            </span>
-            {/* Coming soon group — themed pill, stays on the same row when wrapping */}
-            <span className="flex items-center gap-2 rounded-full border border-border/45 bg-surface-raised/20 px-3 py-1.5 backdrop-blur-sm">
-              <span className="flex items-center gap-2 text-[10px] font-medium">
-                <span className="text-[#0077FF]/55">VK</span>
-                <span className="text-text-subtle/40">·</span>
-                <span className="text-[#25D366]/55">WhatsApp</span>
-                <span className="text-text-subtle/40">·</span>
-                <span className="text-[#7B5CF6]/55">MAX</span>
-              </span>
-              <span className="ml-1 text-[9px] font-medium uppercase tracking-wider text-text-subtle/60">
-                {t("soon")}
-              </span>
-            </span>
-          </div>
-
-          <div className="animate-fade-in-up-delay mt-6 flex flex-col items-center gap-3">
+          <div className="animate-fade-in-up-delay mt-6 flex w-full max-w-[15rem] flex-col items-stretch gap-2.5">
             <Link
               href={"/sign-up" as Route}
-              className="group relative cursor-pointer overflow-hidden rounded-2xl bg-accent px-7 py-3.5 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)] sm:px-8"
+              className="group relative flex min-h-12 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent px-6 text-sm font-semibold text-white shadow-[0_0_48px_var(--accent-glow)] transition-all duration-300 hover:bg-accent-hover hover:shadow-[0_0_72px_var(--accent-glow)]"
             >
               {/* Soft sheen on hover — reads as a glassy ridge crossing the
                   CTA, kept short so it stays calm rather than gimmicky. */}
@@ -133,10 +116,35 @@ export default async function HomePage() {
             </Link>
             <Link
               href={"/sign-in" as Route}
-              className="cursor-pointer rounded-2xl border border-border/60 bg-surface-raised/20 px-6 py-2.5 text-sm font-medium text-text-muted backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface-raised/35 hover:text-text"
+              className="flex min-h-12 cursor-pointer items-center justify-center rounded-2xl border border-border/60 bg-surface-raised/20 px-6 text-sm font-medium text-text-muted backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface-raised/35 hover:text-text"
             >
               {t("ctaSecondary")} →
             </Link>
+          </div>
+
+          {/* Platforms */}
+          <div className="animate-fade-in-up-delay mt-4 flex w-full max-w-[24rem] flex-wrap items-center justify-center gap-x-2 gap-y-2 opacity-80">
+            {/* Telegram — active */}
+            <span className="flex items-center justify-center gap-1.5 rounded-full border border-[#2AABEE]/12 bg-[#2AABEE]/[0.035] px-3 py-1.5 text-[10px] font-medium text-[#2AABEE]/75">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2AABEE] opacity-25" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#2AABEE]/85" />
+              </span>
+              <TelegramIcon className="h-3 w-3" />
+              Telegram
+            </span>
+            <span className="flex items-center justify-center gap-2 rounded-full border border-border/35 bg-surface-raised/10 px-3 py-1.5 backdrop-blur-sm">
+              <span className="flex items-center gap-2 text-[10px] font-medium">
+                <span className="text-[#0077FF]/45">VK</span>
+                <span className="text-text-subtle/30">·</span>
+                <span className="text-[#25D366]/45">WhatsApp</span>
+                <span className="text-text-subtle/30">·</span>
+                <span className="text-[#7B5CF6]/45">MAX</span>
+              </span>
+              <span className="ml-1 text-[9px] font-medium uppercase tracking-wider text-text-subtle/45">
+                {t("soon")}
+              </span>
+            </span>
           </div>
         </main>
 

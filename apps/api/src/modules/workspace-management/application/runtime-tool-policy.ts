@@ -50,6 +50,7 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   memory_search: "inline",
   memory_get: "inline",
   scheduled_action: "worker",
+  background_task: "worker",
   files: "inline",
   exec: "sandbox",
   shell: "sandbox",
@@ -199,7 +200,8 @@ function hasNativeModelExecution(
     runtimeToolCode === "compact_context" ||
     runtimeToolCode === "memory_write" ||
     runtimeToolCode === "quota_status" ||
-    runtimeToolCode === "scheduled_action"
+    runtimeToolCode === "scheduled_action" ||
+    runtimeToolCode === "background_task"
   ) {
     return true;
   }

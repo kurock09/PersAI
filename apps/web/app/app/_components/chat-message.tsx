@@ -155,9 +155,9 @@ function CodeBlock({
   }, [text, lang]);
 
   return (
-    <div className="code-block group relative my-3 overflow-hidden rounded-lg border border-border">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="text-[11px] font-medium text-text-subtle">
+    <div className="code-block group relative my-3 overflow-hidden rounded-xl border border-border">
+      <div className="flex w-full items-center justify-between border-b border-border bg-surface-raised/45 py-1.5 ps-4 pe-1.5 md:ps-5">
+        <span className="min-w-0 max-w-[75%] truncate text-[11px] font-medium text-text-subtle">
           {lang || t("code")}
           {isLong && (
             <span className="ml-1.5 text-text-subtle/50">{t("lines", { count: lineCount })}</span>
@@ -166,7 +166,7 @@ function CodeBlock({
         <CopyButton text={text} />
       </div>
       <div className={cn("relative", !expanded && "max-h-[240px] overflow-hidden")}>
-        <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+        <pre className="overflow-x-auto p-3 text-[13px] leading-relaxed md:p-4">
           <code ref={codeRef} className={className} />
         </pre>
         {!expanded && (
@@ -621,7 +621,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 "flex max-w-[92%] flex-col items-end gap-1 sm:max-w-[85%] md:max-w-[75%]",
                 hideUserVoiceTranscript && "w-[min(100%,320px)] max-w-[min(100%,320px)]"
               )
-            : "max-w-[92%] flex-1 sm:max-w-[85%] md:max-w-2xl"
+            : "max-w-full flex-1 sm:max-w-[85%] md:max-w-2xl"
         )}
       >
         {isUser ? (
