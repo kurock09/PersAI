@@ -95,6 +95,20 @@ function makeUserMessage(
   };
 }
 
+function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
+  return {
+    id,
+    attachmentType: "image",
+    originalFilename: "photo.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 1024,
+    processingStatus: "ready",
+    createdAt: "2026-04-25T12:00:00.000Z"
+  };
+}
+
+const ATTACHMENTS_ONLY_PLACEHOLDER_TEXT = "(attached files)";
+
 const SENDING_INDICATOR_TESTID = "message-sending-indicator";
 const FAILED_SHORT_LABEL = "failedShort";
 
@@ -185,5 +199,61 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
     expect(screen.getByText(FAILED_SHORT_LABEL)).toBeInTheDocument();
+  });
+});
+
+describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
+  it("does not render the literal '(attached files)' placeholder when the user sent only attachments", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [makeImageAttachment("att-1")]
+        })}
+      />
+    );
+
+    expect(screen.queryByText(ATTACHMENTS_ONLY_PLACEHOLDER_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("does not render any user text node when content is empty after trim and attachments are present", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: "   ",
+          attachments: [makeImageAttachment("att-2")]
+        })}
+      />
+    );
+
+    expect(container.querySelector("p.whitespace-pre-wrap")).toBeNull();
+  });
+
+  it("still renders the user's real text when both text and attachments are present", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: "Look at this please",
+          attachments: [makeImageAttachment("att-3")]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Look at this please")).toBeInTheDocument();
+  });
+
+  it("renders the placeholder text verbatim when there are no attachments (defensive — should never happen in production)", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT
+        })}
+      />
+    );
+
+    // Suppression is gated on attachments.length > 0; without attachments
+    // the bubble renders content unchanged so future regressions in the
+    // composer can't silently swallow user-visible text.
+    expect(screen.getByText(ATTACHMENTS_ONLY_PLACEHOLDER_TEXT)).toBeInTheDocument();
   });
 });

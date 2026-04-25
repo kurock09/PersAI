@@ -77,6 +77,27 @@ The first user UI polish wave is now complete on the active path:
 
 Future user-surface work should now follow the remaining economics/scale program rather than staying as a separate top-priority polish track.
 
+### 4a. Pre-prod polish 2026 — chat-turn lifecycle correctness wave
+
+A bounded follow-up wave landed against the active path under the umbrella name "pre-prod polish 2026". It is not a separate program track — these are correctness fixes to the existing chat-turn lifecycle that the first user UI wave assumed but did not enforce. They are recorded here because they touch architectural truth (the SSE / runtime cooperation contract and the LLM-visible tool-result shape), not just CSS.
+
+Four fixes are in scope:
+
+- **FIX 1, Slice 1.1 — per-thread streaming UI state.** `useChat`'s `isStreaming` flag was global, so a stream in chat A blocked input in chat B. The flag is now keyed by `threadKey` through the new `StreamingThreadsContext`, and the sidebar shows a per-thread "generating" indicator. Per-thread `AbortController` wiring is the prerequisite for Slice 1.2's stop dispatch.
+- **FIX 1, Slice 1.2 — server-side soft-detach.** The SSE controller used to abort the runtime turn on any client disconnect — including a phone screen lock or backgrounded tab. Slice 1.2 splits "explicit stop" from "passive disconnect": a new `POST /api/v1/assistant/chat/web/stop` endpoint dispatches a hard abort through the new in-memory `WebChatTurnHardStopRegistry`, and SSE socket close on the stream route no longer touches the runtime abort signal. On a soft-detach the runtime keeps generating, the existing persistence path stores the full assistant message, and the client recovers via history fetch on reconnection. On hard-stop the existing `client-aborted → persistInterruptedOutcome` path is unchanged. Slice 1.2 is intentionally process-local; cross-replica routing of stop dispatch is recorded as a known residual under this section.
+- **FIX 2 — tool-result filename hygiene for the LLM.** Runtime tool results carried full `RuntimeOutputArtifact` records (including `filename`, `objectKey`, `artifactId`, `sizeBytes`) into the LLM-visible JSON, which made the model echo internal file names back into chat text. The active runtime now serializes tool-result payloads through `stringifyToolResultPayloadForModel`, which strips presentation-only fields from artifact-shaped entries while preserving `kind`, `mimeType`, `voiceNote`, and `caption`. Storage-side artifact records are unchanged.
+- **FIX 3 — attachments-only message display.** The web client used to send the literal `"(attached files)"` placeholder as message content for attachments-only sends, and that placeholder leaked into the bubble. The placeholder is now defined by a shared `ATTACHMENTS_ONLY_PLACEHOLDER` constant; the chat bubble renderer suppresses the text node whenever the user message has attachments and matches the sentinel, while still rendering the attachment strip.
+
+Boundary changes from this wave:
+
+- `docs/API-BOUNDARY.md` adds the hard-stop route and pins the soft-detach contract on the stream route.
+- The runtime tool-result wire format for LLM-visible JSON is now defined as "redacted artifact shape" rather than "raw runtime payload"; the storage-side shape is unchanged.
+
+Known residuals tracked under this section:
+
+- Multi-replica `WebChatTurnHardStopRegistry` routing. Today the registry is process-local: a Stop POST that lands on the wrong replica returns 204 (idempotent) but does not dispatch the abort, and the client's local SSE-socket teardown becomes the only effective stop signal — strictly no worse than pre-Slice-1.2 behavior. A sticky-session or pubsub fanout solution is deferred until multi-replica web-chat traffic is real.
+- Live resume of an in-flight stream after soft-detach. The current contract is "runtime continues, full message shows up on next history fetch". A future slice may add an explicit SSE re-attach endpoint so the user sees the deltas as they arrive after reconnection; this is not part of the pre-prod polish wave.
+
 ### 5. Memory, knowledge, and search audit
 
 The active runtime already has a real PersAI-owned knowledge layer, but it is still an economy-first baseline rather than the final quality architecture:

@@ -13,24 +13,19 @@ async function run(): Promise<void> {
   process.env.PERSAI_INTERNAL_API_TOKEN =
     process.env.PERSAI_INTERNAL_API_TOKEN ?? "internal-token-1234567890";
 
-  const png = Buffer.from("hello-png-bytes");
-  const jpg = Buffer.from("hello-jpeg-bytes");
+  // ADR-076 follow-up (2026-04-25): server normalizes every avatar to JPEG
+  // before hashing, so the URL extension is always `.jpg` and the hash is
+  // taken from the normalized bytes (input to `buildAssistantAvatarUrl`).
+  const normalized = Buffer.from("hello-normalized-jpeg-bytes");
+  const expectedHash = createHash("sha256").update(normalized).digest("hex").slice(0, 16);
 
-  const expectedPngHash = createHash("sha256").update(png).digest("hex").slice(0, 16);
-  const expectedJpgHash = createHash("sha256").update(jpg).digest("hex").slice(0, 16);
-
-  assert.equal(buildAssistantAvatarUrl(png, "image/png"), `/api/avatar/${expectedPngHash}.png`);
-  assert.equal(buildAssistantAvatarUrl(jpg, "image/jpeg"), `/api/avatar/${expectedJpgHash}.jpg`);
-  assert.equal(buildAssistantAvatarUrl(jpg, "image/JPEG"), `/api/avatar/${expectedJpgHash}.jpg`);
-  assert.equal(
-    buildAssistantAvatarUrl(png, "application/x-rogue"),
-    `/api/avatar/${expectedPngHash}.bin`
-  );
+  assert.equal(buildAssistantAvatarUrl(normalized), `/api/avatar/${expectedHash}.jpg`);
 
   assert.equal(extractAvatarHashFromUrl(null), null);
   assert.equal(extractAvatarHashFromUrl("https://legacy.example.com/avatar.png"), null);
-  assert.equal(extractAvatarHashFromUrl(`/api/avatar/${expectedPngHash}.png`), expectedPngHash);
-  assert.equal(extractAvatarHashFromUrl(`/api/avatar/${expectedPngHash}`), expectedPngHash);
+  assert.equal(extractAvatarHashFromUrl(`/api/avatar/${expectedHash}.jpg`), expectedHash);
+  assert.equal(extractAvatarHashFromUrl(`/api/avatar/${expectedHash}.png`), expectedHash);
+  assert.equal(extractAvatarHashFromUrl(`/api/avatar/${expectedHash}`), expectedHash);
   assert.equal(extractAvatarHashFromUrl(`/api/avatar/zzzzz.png`), null);
 }
 

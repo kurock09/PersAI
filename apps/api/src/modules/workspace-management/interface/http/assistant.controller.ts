@@ -33,6 +33,7 @@ import { AssistantRuntimePreflightService } from "../../application/assistant-ru
 import { SendWebChatTurnService } from "../../application/send-web-chat-turn.service";
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
+import { WebChatTurnHardStopRegistry } from "../../application/web-chat-turn-hard-stop-registry.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
 import { PreviewAssistantSetupService } from "../../application/preview-assistant-setup.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
@@ -88,6 +89,7 @@ export class AssistantController {
     private readonly sendWebChatTurnService: SendWebChatTurnService,
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
+    private readonly webChatTurnHardStopRegistry: WebChatTurnHardStopRegistry,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly previewAssistantSetupService: PreviewAssistantSetupService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
@@ -221,7 +223,7 @@ export class AssistantController {
   }
 
   @Post("assistant/avatar")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 2 * 1024 * 1024 } }))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 12 * 1024 * 1024 } }))
   async uploadAvatar(
     @Req() req: RequestWithPlatformContext,
     @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
@@ -968,18 +970,46 @@ export class AssistantController {
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
 
+    // Pre-prod polish 2026 / FIX 1, Slice 1.2 — server-side soft-detach.
+    //
+    // Two distinct conditions used to be conflated under a single
+    // "client gone" flag:
+    //   1) SSE socket is dead — we can no longer write deltas to it.
+    //   2) The user explicitly asked the runtime to stop generating.
+    //
+    // The previous handler aborted the runtime on (1), which corrupted
+    // long-running turns whenever the user just backgrounded their tab,
+    // locked their phone screen, or briefly lost connectivity. Slice 1.2
+    // splits the two: `clientClosed` tracks (1) and only suppresses SSE
+    // writes; `clientAbortController` is now triggered exclusively by
+    // (2), which arrives via the new `POST assistant/chat/web/stop`
+    // endpoint after the user presses the Stop button. On a passive
+    // disconnect the runtime keeps generating, the existing persistence
+    // path stores the full assistant message, and the client picks it
+    // up via history fetch on reconnect. The hard-stop path still walks
+    // through `client-aborted` → `persistInterruptedOutcome` exactly as
+    // before, so the partial-message contract for explicit stops is
+    // unchanged.
     let clientClosed = false;
     const clientAbortController = new AbortController();
     req.on("aborted", () => {
       clientClosed = true;
-      clientAbortController.abort();
     });
     res.on("close", () => {
       if (!res.writableEnded) {
         clientClosed = true;
-        clientAbortController.abort();
       }
     });
+
+    const clientTurnIdForRegistry =
+      preparation.mode === "prepared" ? preparation.prepared.clientTurnId : undefined;
+    if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
+      this.webChatTurnHardStopRegistry.register({
+        clientTurnId: clientTurnIdForRegistry,
+        userId: preparation.prepared.userId,
+        controller: clientAbortController
+      });
+    }
 
     const sseWriterInstrumentation = createStreamWriterInstrumentation();
     const sendSse = (event: string, payload: unknown): void => {
@@ -1024,7 +1054,12 @@ export class AssistantController {
       prepared.traceHandle?.stage("sse_started_sent");
 
       const outcome = await this.streamWebChatTurnService.streamToCompletion(prepared, {
-        isClientAborted: () => clientClosed,
+        // After Slice 1.2, "client aborted" means the user explicitly
+        // asked the runtime to stop — only the hard-stop POST flips the
+        // signal. A dead SSE socket alone never sets this, which is what
+        // routes a soft-detached turn through the regular full-message
+        // persistence path.
+        isClientAborted: () => clientAbortController.signal.aborted,
         clientAbortSignal: clientAbortController.signal,
         onDelta: (delta) => {
           sendSse("delta", { delta });
@@ -1065,7 +1100,50 @@ export class AssistantController {
       res.end();
     } finally {
       clearInterval(heartbeat);
+      if (clientTurnIdForRegistry !== undefined) {
+        this.webChatTurnHardStopRegistry.release({
+          clientTurnId: clientTurnIdForRegistry,
+          controller: clientAbortController
+        });
+      }
     }
+  }
+
+  /**
+   * Pre-prod polish 2026 / FIX 1, Slice 1.2 — explicit hard-stop endpoint.
+   *
+   * Web client calls this fire-and-forget right before locally aborting
+   * its EventSource when the user clicks Stop. The body carries the same
+   * `clientTurnId` already used by the streaming endpoint and persistence
+   * layer to identify the turn end-to-end. We respond 204 unconditionally
+   * (idempotent) — if no in-flight turn is registered (turn already
+   * finished, request hit the wrong replica, or a stale Stop click), the
+   * client falls back to its local socket abort, which preserves the
+   * pre-Slice-1.2 behavior. Authorization is enforced both at the
+   * controller boundary (via `resolveRequestUserId`) and inside the
+   * registry (refusing cross-user dispatch); the 204 does not leak
+   * existence.
+   */
+  @Post("assistant/chat/web/stop")
+  @HttpCode(204)
+  async stopWebChatTurn(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+
+    if (typeof body !== "object" || body === null) {
+      throw new BadRequestException("Stop request body must be a JSON object.");
+    }
+    const { clientTurnId } = body as { clientTurnId?: unknown };
+    if (typeof clientTurnId !== "string" || clientTurnId.trim().length === 0) {
+      throw new BadRequestException("clientTurnId must be a non-empty string.");
+    }
+
+    this.webChatTurnHardStopRegistry.signalHardStop({
+      clientTurnId,
+      userId
+    });
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

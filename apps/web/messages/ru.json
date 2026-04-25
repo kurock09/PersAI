@@ -197,6 +197,7 @@
     "confirmDelete": "Точно удалить",
     "deleting": "Удаляем...",
     "deepModeBadge": "Умнее",
+    "streamingIndicator": "Генерирует ответ",
     "assistantSettingsHint": "Настройки ассистента"
   },
   "home": {

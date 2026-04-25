@@ -4430,6 +4430,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageGenerateCompleted.assistantText, "reply after image");
   assert.equal(imageGenerateCompleted.artifacts.length, 1);
   assert.equal(imageGenerateCompleted.artifacts[0]?.kind, "image");
+  // FIX 2 — `filename` / `objectKey` / `sizeBytes` / `artifactId` MUST stay
+  // on the runtime-side artifact record (this surface flows to the API and
+  // ends up as the chat attachment's persisted metadata). Only the
+  // *model-visible* JSON below has these stripped.
+  assert.equal(imageGenerateCompleted.artifacts[0]?.filename, "poster.png");
   assert.equal(
     imageGenerateCompleted.artifacts[0]?.objectKey.includes(
       "/runtime-output/sessions/session-1/requests/request-1/"
@@ -4473,6 +4478,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     artifacts?: Array<{
       kind?: string;
       filename?: string | null;
+      objectKey?: string | null;
+      artifactId?: string | null;
+      sizeBytes?: number | null;
     }>;
   };
   assert.equal(imageGenerateToolHistory.action, "generated");
@@ -4480,7 +4488,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageGenerateToolHistory.model, "gpt-image-1");
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
   assert.equal(imageGenerateToolHistory.artifacts?.[0]?.kind, "image");
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, "poster.png");
+  // FIX 2 — model-visible JSON must NOT carry `filename`, `objectKey`,
+  // `artifactId`, or `sizeBytes`. Models that see these fields tend to
+  // quote them back into assistant text, producing duplicate filename
+  // chatter alongside the actually-attached image.
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, undefined);
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.objectKey, undefined);
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.artifactId, undefined);
+  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.sizeBytes, undefined);
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.video_generate = {
@@ -4573,6 +4588,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(videoGenerateCompleted.assistantText, "reply after video");
   assert.equal(videoGenerateCompleted.artifacts.length, 1);
   assert.equal(videoGenerateCompleted.artifacts[0]?.kind, "video");
+  // FIX 2 — `filename` stays on the runtime-side artifact record (storage
+  // surface); only the model-visible JSON below has it stripped.
+  assert.equal(videoGenerateCompleted.artifacts[0]?.filename, "sunrise-clip.mp4");
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeVideoGenerate]?.tools?.some(
@@ -4618,6 +4636,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     artifact?: {
       kind?: string;
       filename?: string | null;
+      objectKey?: string | null;
+      artifactId?: string | null;
+      sizeBytes?: number | null;
     } | null;
   };
   assert.equal(videoGenerateToolHistory.action, "generated");
@@ -4629,7 +4650,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(videoGenerateToolHistory.referenceImageIndex, 1);
   assert.equal(videoGenerateToolHistory.artifact?.kind, "video");
-  assert.equal(videoGenerateToolHistory.artifact?.filename, "sunrise-clip.mp4");
+  // FIX 2 — model-visible JSON must NOT carry presentation-only fields.
+  assert.equal(videoGenerateToolHistory.artifact?.filename, undefined);
+  assert.equal(videoGenerateToolHistory.artifact?.objectKey, undefined);
+  assert.equal(videoGenerateToolHistory.artifact?.artifactId, undefined);
+  assert.equal(videoGenerateToolHistory.artifact?.sizeBytes, undefined);
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {
@@ -4714,6 +4739,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageEditCompleted.assistantText, "reply after image edit");
   assert.equal(imageEditCompleted.artifacts.length, 1);
   assert.equal(imageEditCompleted.artifacts[0]?.kind, "image");
+  // FIX 2 — `filename` stays on the runtime-side artifact record (storage
+  // surface); only the model-visible JSON below has it stripped.
+  assert.equal(imageEditCompleted.artifacts[0]?.filename, "living-room-edit.png");
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeImageEdit]?.tools?.some(
@@ -4755,6 +4783,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     artifacts?: Array<{
       kind?: string;
       filename?: string | null;
+      objectKey?: string | null;
+      artifactId?: string | null;
+      sizeBytes?: number | null;
     }>;
   };
   assert.equal(imageEditToolHistory.action, "generated");
@@ -4763,10 +4794,19 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
   assert.equal(imageEditToolHistory.sourceImageIndex, 1);
   assert.equal(imageEditToolHistory.referenceImageIndex, null);
+  // `sourceFilename` and `referenceFilename` are user-supplied input
+  // filenames — the model already saw them in the user's message context,
+  // so echoing them in the tool result is not a leak. FIX 2 only strips
+  // *output*-artifact filenames, which the model otherwise has no reason
+  // to know.
   assert.equal(imageEditToolHistory.sourceFilename, "living-room.png");
   assert.equal(imageEditToolHistory.referenceFilename, null);
   assert.equal(imageEditToolHistory.artifacts?.[0]?.kind, "image");
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.filename, "living-room-edit.png");
+  // FIX 2 — model-visible JSON must NOT carry presentation-only fields.
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.filename, undefined);
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.objectKey, undefined);
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.artifactId, undefined);
+  assert.equal(imageEditToolHistory.artifacts?.[0]?.sizeBytes, undefined);
 
   const yardImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03]);
   const carImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x04]);

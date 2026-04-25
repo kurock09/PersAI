@@ -66,6 +66,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
@@ -1960,7 +1961,15 @@ export class TurnExecutionService {
         toolResult: {
           toolCallId: toolCall.id,
           name: toolCall.name,
-          content: JSON.stringify(payload),
+          // FIX 2 — strip presentation-only fields (`filename`, `objectKey`,
+          // `artifactId`, `sizeBytes`) from `RuntimeOutputArtifact`-shaped
+          // entries in the LLM-visible JSON. The model used to quote
+          // `filename` back into its assistant text (e.g., the bug case
+          // "interesting_scene.png" appearing both as inline text AND as
+          // the attached image label). The internal `payload` and
+          // `outcome.artifacts` continue to carry full metadata for
+          // observability and for the API/storage attachment pipeline.
+          content: stringifyToolResultPayloadForModel(payload),
           isError
         }
       },

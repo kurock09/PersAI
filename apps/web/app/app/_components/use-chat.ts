@@ -9,6 +9,7 @@ import {
   getChatMessages,
   getChatCompactionState,
   stageWebChatAttachment,
+  stopAssistantWebChatTurn,
   streamAssistantWebChatTurn,
   toWebChatUxIssue,
   uploadAssistantKnowledgeSource,
@@ -25,6 +26,7 @@ import {
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
+import { useStreamingThreadsRegistry } from "./streaming-threads";
 
 /**
  * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server
@@ -341,7 +343,16 @@ export function useChat(threadKey: string): UseChatReturn {
     Record<string, string>
   >({});
   const [chatId, setChatId] = useState<string | null>(null);
-  const [isStreaming, setIsStreaming] = useState(false);
+  // Slice 1.1 — per-thread streaming flag.
+  //
+  // `isStreaming` used to be a single `useState(false)` local to this hook.
+  // That meant Chat A's in-flight stream blocked the composer in Chat B as
+  // soon as the user switched threads. We now lift "which threads are
+  // streaming?" into a shared registry keyed by `surfaceThreadKey`, so each
+  // thread has its own independent boolean and AbortController.
+  // See `streaming-threads.tsx`.
+  const { activeThreads, markStreaming } = useStreamingThreadsRegistry();
+  const isStreaming = activeThreads.has(threadKey);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
@@ -351,7 +362,21 @@ export function useChat(threadKey: string): UseChatReturn {
     useState<RecentAutoCompactionNotice | null>(null);
   const [compactionRunning, setCompactionRunning] = useState(false);
   const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // Slice 1.1 — abort controllers are per-thread now (was a single `useRef`).
+  // The single ref clobbered itself when Chat A's stream cleaned up while
+  // Chat B was already mid-flight, which made `stop()` either no-op or abort
+  // the wrong stream. Keying by `threadKey` keeps each turn's controller
+  // independent until *its* stream completes or the user explicitly stops it
+  // from that thread's view.
+  //
+  // Slice 1.2 — each entry now also carries the `clientTurnId` of the
+  // turn it owns. `stop()` needs the id to call the new
+  // `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see
+  // the `stop` callback below for why this distinction matters
+  // (soft-detach vs hard-stop).
+  const abortControllersByThreadRef = useRef<
+    Map<string, { controller: AbortController; clientTurnId: string }>
+  >(new Map());
   const historyLoadedRef = useRef<Set<string>>(new Set());
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
@@ -396,9 +421,40 @@ export function useChat(threadKey: string): UseChatReturn {
   }
 
   const stop = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-  }, []);
+    // Per-thread stop: abort only the stream attached to the thread the
+    // user is currently looking at. Streams in other threads keep going so
+    // switching away from a generating image doesn't kill it.
+    //
+    // Slice 1.2 — `stop()` is the *user-visible* hard-stop affordance
+    // (the Stop button on the composer). The API can no longer infer
+    // hard-stop from a dead SSE socket, because that signal also fires
+    // for soft-detach cases like locking the screen mid-image-generate.
+    // So before tearing down the local controller we send an explicit
+    // `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`,
+    // which is the only path that flips the server-side abort signal.
+    // The POST is best-effort and intentionally not awaited: a failure
+    // here just means the runtime keeps generating in the background
+    // (the same fate as a soft-detach), which is strictly safer than
+    // the pre-Slice-1.2 "always kill on any disconnect" default.
+    const entry = abortControllersByThreadRef.current.get(threadKey);
+    if (entry === undefined) {
+      return;
+    }
+    const { controller, clientTurnId } = entry;
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (token === null || token === undefined) {
+          return;
+        }
+        await stopAssistantWebChatTurn(token, clientTurnId);
+      } catch {
+        // Swallow; local abort below is the user-visible guarantee.
+      }
+    })();
+    controller.abort();
+    abortControllersByThreadRef.current.delete(threadKey);
+  }, [threadKey, getToken]);
 
   const clearIssue = useCallback(() => setIssue(null), []);
   const reportIssue = useCallback((error: unknown) => {
@@ -490,6 +546,10 @@ export function useChat(threadKey: string): UseChatReturn {
       // single-slot — the user has to Retry or Cancel it before another send
       // can start. (ADR-075 § "Single-slot pending send".)
       if (pendingSendStatusRef.current === "send_failed") return;
+      // Capture the thread key at send time so every subsequent
+      // markStreaming / abort-map mutation in this turn targets the *originating*
+      // thread, even if the user navigates away mid-stream.
+      const sendThreadKey = threadKey;
       const compactionBeforeTurn = compaction;
 
       const token = await getToken();
@@ -523,7 +583,16 @@ export function useChat(threadKey: string): UseChatReturn {
       const assistantMsgId = `local-assistant-${Date.now()}`;
       const clientTurnId = createClientTurnId();
       const controller = new AbortController();
-      abortRef.current = controller;
+      abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
+      // Helper used at every cleanup point to drop *this* turn's controller
+      // without disturbing a newer controller that may have replaced it
+      // (e.g. user retried fast, or another turn started in the same thread).
+      const releaseAbortController = () => {
+        const entry = abortControllersByThreadRef.current.get(sendThreadKey);
+        if (entry !== undefined && entry.controller === controller) {
+          abortControllersByThreadRef.current.delete(sendThreadKey);
+        }
+      };
       const knowledgeEligibleFiles =
         options?.addToKnowledgeBase === true
           ? pendingFiles.filter((file) => isKnowledgeEligibleFile(file))
@@ -559,7 +628,7 @@ export function useChat(threadKey: string): UseChatReturn {
         attachments: localAttachments.length > 0 ? localAttachments : undefined
       };
 
-      // Cold offline pre-flight. We deliberately do NOT call setIsStreaming
+      // Cold offline pre-flight. We deliberately do NOT call markStreaming
       // here — there's no in-flight stream — so the chat-input renders the
       // pending-send helper line, not the "stop" button.
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -573,11 +642,11 @@ export function useChat(threadKey: string): UseChatReturn {
           assistantMsgId: null
         };
         setPendingSendStatus("send_failed");
-        abortRef.current = null;
+        releaseAbortController();
         return;
       }
 
-      setIsStreaming(true);
+      markStreaming(sendThreadKey, true);
       setIssue(null);
       setRecentAutoCompaction(null);
 
@@ -652,8 +721,8 @@ export function useChat(threadKey: string): UseChatReturn {
             setIssue(toWebChatUxIssue(error));
           }
           sendFailedCleanup(true);
-          setIsStreaming(false);
-          abortRef.current = null;
+          markStreaming(sendThreadKey, false);
+          releaseAbortController();
           return;
         }
       }
@@ -1120,11 +1189,20 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       } finally {
         clearTimeout(headersTimer);
-        setIsStreaming(false);
-        abortRef.current = null;
+        markStreaming(sendThreadKey, false);
+        releaseAbortController();
       }
     },
-    [compaction, getToken, isStreaming, refreshCompactionState, setPendingSendStatus, t, threadKey]
+    [
+      compaction,
+      getToken,
+      isStreaming,
+      markStreaming,
+      refreshCompactionState,
+      setPendingSendStatus,
+      t,
+      threadKey
+    ]
   );
 
   const sendWelcome = useCallback(
@@ -1136,11 +1214,18 @@ export function useChat(threadKey: string): UseChatReturn {
         return;
       }
 
+      const sendThreadKey = threadKey;
       const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
       const clientTurnId = createClientTurnId();
       const controller = new AbortController();
-      abortRef.current = controller;
-      setIsStreaming(true);
+      abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
+      const releaseAbortController = () => {
+        const entry = abortControllersByThreadRef.current.get(sendThreadKey);
+        if (entry !== undefined && entry.controller === controller) {
+          abortControllersByThreadRef.current.delete(sendThreadKey);
+        }
+      };
+      markStreaming(sendThreadKey, true);
       setIssue(null);
 
       const assistantMsg: ChatMessage = {
@@ -1353,11 +1438,11 @@ export function useChat(threadKey: string): UseChatReturn {
           )
         );
       } finally {
-        setIsStreaming(false);
-        abortRef.current = null;
+        markStreaming(sendThreadKey, false);
+        releaseAbortController();
       }
     },
-    [compaction, getToken, isStreaming, t]
+    [compaction, getToken, isStreaming, markStreaming, t, threadKey]
   );
 
   // sendRef makes retryPendingSend independent of `send`'s identity so we

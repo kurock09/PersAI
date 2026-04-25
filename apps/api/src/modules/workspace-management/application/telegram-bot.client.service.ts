@@ -139,13 +139,26 @@ export class TelegramBotClientService {
     });
   }
 
+  /**
+   * Telegram Bot API 9.x — `setMyProfilePhoto` expects an `InputProfilePhoto`
+   * envelope, not a raw multipart file at the `photo` field. The static
+   * variant references an uploaded multipart attachment via `attach://<name>`,
+   * so we send `photo` as a JSON-encoded string and attach the JPG bytes
+   * under the same `<name>` key in the same multipart body.
+   *
+   * Sources:
+   *   - https://core.telegram.org/bots/api#setmyprofilephoto
+   *   - https://core.telegram.org/bots/api#inputprofilephotostatic
+   */
   async setBotProfilePhoto(params: {
     botToken: string;
     buffer: Buffer;
     filename: string;
   }): Promise<void> {
+    const attachmentField = "profile_photo_file";
     await this.requestMultipart(params.botToken, "setMyProfilePhoto", {
-      photo: {
+      photo: JSON.stringify({ type: "static", photo: `attach://${attachmentField}` }),
+      [attachmentField]: {
         buffer: params.buffer,
         filename: params.filename
       }

@@ -59,6 +59,9 @@ importers:
       rxjs:
         specifier: ^7.8.2
         version: 7.8.2
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
       word-extractor:
         specifier: ^1.0.4
         version: 1.0.4

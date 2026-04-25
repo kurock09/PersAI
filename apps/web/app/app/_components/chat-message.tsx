@@ -48,6 +48,7 @@ import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
 import { getAttachmentDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
+import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
 
 hljs.registerLanguage("cpp", cpp);
 hljs.registerLanguage("c", cpp);
@@ -564,6 +565,14 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isUserSending = isUser && message.status === "sending";
   const isUserSendFailed = isUser && message.status === "send_failed";
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
+  // FIX 3 — when a user sends only attachments, the composer fills `content`
+  // with the canonical placeholder so the API contract stays satisfied. The
+  // bubble must not echo that placeholder back as visible text — the
+  // attachment strip below already conveys what was sent.
+  const hideUserTextForAttachmentsOnly =
+    isUser &&
+    (message.attachments?.length ?? 0) > 0 &&
+    isAttachmentsOnlyPlaceholderText(message.content);
 
   // ADR-076 Section M — arm the 1 s delay only while the bubble is in
   // `sending`. Any status change (committed / send_failed) clears the timer
@@ -617,7 +626,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 isUserSendFailed && "opacity-80"
               )}
             >
-              {!hideUserVoiceTranscript && (
+              {!hideUserVoiceTranscript && !hideUserTextForAttachmentsOnly && (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed break-words">
                   {message.content}
                 </p>
@@ -625,7 +634,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               {message.attachments && message.attachments.length > 0 && (
                 <AttachmentStrip
                   attachments={message.attachments}
-                  {...(hideUserVoiceTranscript ? { className: "mt-0" } : {})}
+                  {...(hideUserVoiceTranscript || hideUserTextForAttachmentsOnly
+                    ? { className: "mt-0" }
+                    : {})}
                 />
               )}
             </div>

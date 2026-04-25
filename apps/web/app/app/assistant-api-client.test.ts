@@ -10,6 +10,7 @@ import {
   postAssistantTelegramDisconnect,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
+  stopAssistantWebChatTurn,
   streamAssistantWebChatTurn
 } from "./assistant-api-client";
 
@@ -657,6 +658,55 @@ describe("streamAssistantWebChatTurn", () => {
     );
 
     expect(order).toEqual(["delta:Preface ", "tool:start:summarize_context"]);
+  });
+});
+
+describe("stopAssistantWebChatTurn (FIX 1 / Slice 1.2)", () => {
+  it("POSTs the clientTurnId to /assistant/chat/web/stop with the bearer token", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: async () => ({}),
+      text: async () => ""
+    } as Response) as typeof fetch;
+
+    await stopAssistantWebChatTurn("token-1", "turn-42");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/assistant/chat/web/stop"),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-1",
+          "Content-Type": "application/json"
+        }),
+        body: JSON.stringify({ clientTurnId: "turn-42" })
+      })
+    );
+  });
+
+  it("resolves cleanly on a 204 No Content response", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: async () => ({}),
+      text: async () => ""
+    } as Response) as typeof fetch;
+
+    await expect(stopAssistantWebChatTurn("token-1", "turn-42")).resolves.toBeUndefined();
+  });
+
+  it("throws ContractsApiError on a non-2xx response", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: "unauthorized" } }),
+      text: async () => ""
+    } as Response) as typeof fetch;
+
+    await expect(stopAssistantWebChatTurn("token-1", "turn-42")).rejects.toThrow(
+      /Stop request failed with status 401/
+    );
   });
 });
 

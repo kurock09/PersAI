@@ -1,5 +1,569 @@
 # SESSION-HANDOFF
 
+## 2026-04-25 (post-ADR-076 hotfix wave) — Avatar pipeline hardening: validator accepts content-addressed paths, server-side `sharp` normalization for any uploaded format, raised upload limit, Telegram bot photo dispatch fixed, middleware allowlist closed for parameterized GET, Clerk default-avatar customization made resilient (`apps/api` + `apps/web`; verification gate green)
+
+### Why this session
+
+Three founder-reported bugs surfaced after Slice 076 landed and one more emerged immediately after the first wave was verified. They all sit on the avatar / Clerk identity surface:
+
+1. «Аватарка ломается часто не загружается при попытке сохранить — `avatarUrl must use the https:// scheme.`» — saving a draft after upload rejected the new content-addressed URL produced by the 076 cold-start pipeline.
+2. «Иногда загружается но не отображается, некоторые файлы не проходят или тяжёлые, походу нет оптимизации.» — large or HEIC-encoded uploads either 413'd at the upload endpoint or stored a buffer that the browser couldn't render.
+3. «В TG-бот имя меняется при смене, а аватарка нет.» — `setMyProfilePhoto` calls were silently rejected; the multipart envelope did not match the Telegram Bot API 9.x `InputProfilePhotoStatic` contract introduced earlier this year.
+4. After the first three were verified, founder reported on top of that: «проблема с аватаркой Clerk не работает или работает через раз, всё очень нестабильно — в настройках Clerk я подстроил пустую аватарку под мой стиль, но она не обновилась в web» — the customised default avatar set in the Clerk dashboard never appeared in the sidebar; sometimes the sidebar fell back to initials, sometimes it showed an old cached avatar.
+
+GKE log inspection on the active deploy showed the matching server-side fingerprints: `POST /api/v1/assistant/avatar` returning 413 on heavier iPhone HEIC uploads; `GET /api/v1/assistant/avatar/:hash` returning 401 with `userId=null` (the parameterised route was missing from the `ClerkAuthMiddleware` allowlist); `update-assistant-draft` rejecting the very URL we had just produced; and Telegram refusing the `setMyProfilePhoto` call.
+
+### Root cause (one line per bug)
+
+1. `validateAvatarUrl` in `update-assistant-draft.service.ts` only accepted absolute `https://` URLs, but Slice 076's `manage-assistant-avatar.service.ts` now writes content-addressed `/api/avatar/<hash>.<ext>` paths.
+2. `FileInterceptor` had a 2 MB hard cap and `manage-assistant-avatar.service.ts` stored uploads byte-for-byte without normalisation, so any 12 MP iPhone HEIC was either rejected upstream or persisted in a format the browser cannot render and that Telegram cannot accept.
+3. The Telegram client built `setMyProfilePhoto` as a flat multipart with `photo: <bytes>`; Telegram Bot API 9.x requires `photo` to be a JSON-encoded `InputProfilePhotoStatic` envelope referencing the actual bytes via `attach://<field>` (a separate multipart part).
+4. `IdentityAccessModule.configure(...)` registered `GET /api/v1/assistant/avatar` (no params) but not `GET /api/v1/assistant/avatar/:hash`, so the new content-addressed URL hit Nest's auth-less default branch and `userId` was `null`. Separately, the sidebar/profile components rendered Clerk `user.imageUrl` with a cache-buster bound only to `user.updatedAt` — that field doesn't change when the org-level dashboard avatar config changes, so the browser kept the previous image cached for ~24h, and any transient CDN error fell straight to initials with no retry.
+
+### What changed
+
+**A. Avatar validator accepts content-addressed paths.** `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts` — `validateAvatarUrl` now matches `/^\/api\/avatar\/[a-f0-9]{8,64}(?:\.[a-z0-9]{2,8})?$/i` first, then falls through to the existing `https://` branch. Both formats parse via the WHATWG `URL` constructor; insecure schemes (`javascript:`, `http:`) and traversal attempts are still rejected.
+
+**B. Upload limit raised + server-side normalisation via `sharp`.** `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` bumps `FileInterceptor`'s `fileSize` to 12 MB. `apps/api/src/modules/workspace-management/application/manage-assistant-avatar.service.ts` adds a private `normalizeAvatarBuffer(buffer, mimeType)` that dynamically imports `sharp` and pipes the input through `.rotate()` (EXIF) → `.resize(1024, 1024, { fit: "cover", position: "attention", withoutEnlargement: false })` → `.jpeg({ quality: 85, mozjpeg: true })`. The normalised buffer is what we hash for the content-addressed URL, what we persist in object storage, and what we hand to Telegram. HEIC/HEIF inputs are decoded by `sharp` and re-encoded as JPEG. `buildAssistantAvatarUrl(buffer)` is simplified to a single argument because the output extension is fixed at `.jpg`. `apps/api/package.json` pins `sharp: "^0.34.5"` as an explicit (no longer transitive) dependency.
+
+**C. Telegram `setMyProfilePhoto` multipart envelope corrected.** `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts` — `setBotProfilePhoto` now builds the multipart with `photo` as a JSON-encoded `InputProfilePhotoStatic` (`{"type":"static","photo":"attach://profile_photo_file"}`) and the actual JPEG bytes attached as a separate field named `profile_photo_file`. Match for Telegram Bot API 9.x.
+
+**D. Middleware allowlist closes the parameterised GET.** `apps/api/src/modules/identity-access/identity-access.module.ts` — `forRoutes(...)` adds `{ path: "api/v1/assistant/avatar/:hash", method: RequestMethod.GET }` next to the existing POST + base GET entries. `ClerkAuthMiddleware` now resolves a `userId` for `GET /api/v1/assistant/avatar/<hash>.jpg`.
+
+**E. Clerk avatar resilience hook (`useClerkAvatar`).** New `apps/web/app/app/_components/use-clerk-avatar.ts` (52 lines) plus a 6-test vitest suite. Three layers of defence:
+
+- One `user.reload()` per browser session (gated by `sessionStorage["persai-clerk-user-reloaded"]`) so the next page load after a Clerk dashboard avatar-config change pulls a fresh `user.imageUrl`. Best-effort and `Promise.resolve(user.reload?.())`-wrapped so vi.fn() returning undefined in unit tests doesn't crash.
+- Cache-buster `?v=<updatedAt>-<YYYY-MM-DD>-<attempt>` — the `<YYYY-MM-DD>` day-bucket forces at most a one-day delay between an org-level dashboard change and every device picking it up, instead of "whenever the per-device 24h Cache-Control TTL happens to expire from first fetch".
+- One transient retry on `<img onError>` (bumps `attempt`, recomputes URL) before the hook surfaces `broken=true` and the caller falls back to initials. Stops the "работает через раз" flicker on transient `img.clerk.com` 5xx/DNS blips.
+- Hook is consumed by `apps/web/app/app/_components/sidebar.tsx` (replaces the old `setAvatarBroken` ad-hoc state) and `apps/web/app/app/profile/page.tsx` (only when `user.hasImage === true`, otherwise we keep the local-blob preview path; the previous `avatarRefreshKey` counter goes away because `user.updatedAt` changes naturally on `user.reload()` after `user.setProfileImage()`). Both `<img>` tags now also carry `referrerPolicy="no-referrer"` so the Clerk CDN sees no domain in the Referer header.
+
+### Files touched
+
+- `apps/api/package.json` (sharp 0.34.5 explicit)
+- `apps/api/src/modules/identity-access/identity-access.module.ts` (`:hash` GET in middleware allowlist)
+- `apps/api/src/modules/workspace-management/application/update-assistant-draft.service.ts` (content-addressed URL accepted)
+- `apps/api/src/modules/workspace-management/application/manage-assistant-avatar.service.ts` (`normalizeAvatarBuffer`, fixed `.jpg` output, single-arg URL builder)
+- `apps/api/src/modules/workspace-management/application/telegram-bot.client.service.ts` (`setBotProfilePhoto` multipart envelope)
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` (12 MB upload cap)
+- `apps/api/test/identity-access.module.test.ts` (asserts both POST and `:hash` GET routes are guarded)
+- `apps/api/test/manage-assistant-avatar.service.test.ts` (single-arg URL builder; `.jpg` extension)
+- `apps/api/test/telegram-bot-client.set-profile-photo.test.ts` (new — pins multipart envelope)
+- `apps/api/test/update-assistant-draft.service.test.ts` (new — pins validator; insecure URLs still rejected)
+- `apps/web/app/app/_components/use-clerk-avatar.ts` (new — resilience hook)
+- `apps/web/app/app/_components/use-clerk-avatar.test.tsx` (new — 6 tests)
+- `apps/web/app/app/_components/sidebar.tsx` (uses the hook; `referrerPolicy="no-referrer"`)
+- `apps/web/app/app/profile/page.tsx` (uses the hook for Clerk path; preview path keeps `previewBroken`)
+
+### Tests run
+
+- `corepack pnpm -r --if-present run lint` — clean.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/runtime run typecheck` — clean.
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` — clean.
+- `corepack pnpm -r --if-present run test` — green across all workspaces.
+
+### Risks and residuals
+
+- **Browser HTTP cache.** The day-bucket cache-buster reduces the visibility lag of dashboard avatar customisation from "whenever per-device TTL expires" to "next pageload after midnight UTC". We cannot bypass the 24h `Cache-Control: max-age=86400` Clerk's CDN sets without paying a fresh fetch on every render. Acceptable trade-off; documented inline in `use-clerk-avatar.ts`.
+- **`sharp` cold-start.** First avatar upload after a runtime restart pays a one-time WebAssembly init cost (`sharp` lazy-imported). On GKE this is bounded by the pod-warmup probe; we do not block boot on it.
+- **Multi-replica `user.reload()` flag.** `sessionStorage["persai-clerk-user-reloaded"]` is per-tab. A user opening multiple tabs in the same session triggers one reload per tab. Acceptable — `user.reload()` is cheap and idempotent.
+
+### Next recommended step
+
+Founder asked for two follow-up slices in the same conversation:
+
+1. Generalise the avatar `sharp` pipeline into chat-attachment normalisation (target: 2048 px long side, JPEG q85, EXIF rotate, HEIC→JPEG) so OpenAI vision ceiling (2048×2048) and `gpt-image-1` edits ceiling (1536×1024) aren't wasted by oversized iPhone uploads.
+2. Promote the Sora video model registry pattern (`PERSAI_RUNTIME_VIDEO_GENERATE_MODEL_KEYS` in `runtime-contract`) into an admin-managed catalog under the existing global runtime settings — three textareas per provider (CHAT / IMAGE / VIDEO), plan-level selectors for `imageGenerateModelKey` / `imageEditModelKey` mirroring `videoGenerateModelKey`, OpenAPI regen, Prisma JSONB column. Bigger architectural slice — tracked separately, not in this hotfix.
+
+---
+
+## 2026-04-25 (pre-prod polish, FIX 1 / Slice 1.2) — Server-side soft-detach for the web-chat SSE turn: passive disconnects no longer abort the runtime; explicit Stop is now a separate POST (`apps/api` + `apps/web`; verification gate green)
+
+### Why this session
+
+After Slice 1.1 unblocked the per-thread UI (composer in chat B no longer freezes while chat A streams), one architectural bug remained on the chat-turn lifecycle: the SSE controller in `assistant.controller.ts` aborted the runtime turn on _any_ client disconnect. Both `req.on("aborted")` and `res.on("close")` fed the same `clientAbortController.abort()`. So a user locking their phone screen mid-`image_generate`, briefly losing WiFi, or just letting the OS background the tab caused the runtime to bail out, the side-channel media tools to drop their result, and the persisted assistant message to be a stub. On reopening the app the user saw a half-written reply with no image attached. This was the same class of bug the Telegram channel never had — Telegram has no SSE socket coupled to runtime liveness. Slice 1.2 is the architectural fix on the web side: split "explicit Stop" (hard abort) from "passive disconnect" (soft-detach), and make the SSE socket no longer the source of truth for turn liveness.
+
+### Root cause (one line)
+
+The SSE handler conflated two distinct conditions — "client cannot receive deltas anymore" and "user explicitly asked the runtime to stop generating" — into a single `clientAbortController`, and that controller was the runtime's abort signal, so any TCP-level client departure deleted the in-flight turn.
+
+### What changed
+
+Three coordinated edits, one new in-memory service, one new HTTP route, one client-side `useChat` change, and accompanying tests/docs.
+
+**1. New service `apps/api/src/modules/workspace-management/application/web-chat-turn-hard-stop-registry.service.ts`.** In-memory `Map<clientTurnId, { controller, userId, registeredAt }>`. Three operations: `register({clientTurnId, userId, controller})`, `release({clientTurnId, controller})` (no-op if a newer registration replaced ours; production race: rapid retry), and `signalHardStop({clientTurnId, userId})` → returns `true` and aborts the controller, or `false` if the turn is not in this process's registry or the userId doesn't match. Defense-in-depth: the controller-layer auth already rejects unauthenticated requests, but the registry does its own userId match before dispatching. Multi-replica caveat is documented inline and recorded as a known residual under ADR-073 § 4a — a Stop POST that lands on the wrong replica returns 204 (idempotent) and the client falls back to the local SSE-socket teardown, which is strictly no worse than the pre-Slice-1.2 behavior.
+
+**2. Refactor `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts`.**
+
+- `req.on("aborted")` and `res.on("close")` now only flip `clientClosed = true` (which suppresses further `sendSse` writes); they no longer call `clientAbortController.abort()`. The runtime keeps generating on a passive disconnect.
+- `streamToCompletion` is now passed `isClientAborted: () => clientAbortController.signal.aborted` instead of `() => clientClosed`, so the existing `client-aborted → persistInterruptedOutcome` path triggers on hard-stop only. Soft-detach turns walk through the regular full-message persistence path.
+- The SSE handler registers `(clientTurnId, userId, controller)` with the new registry on entry and releases it in `finally`. Registration is conditional on the request carrying a `clientTurnId` (the web client always generates one; replay/welcome paths that lack one simply don't get hard-stop coverage, consistent with prior behavior).
+- New endpoint `POST /api/v1/assistant/chat/web/stop`. Body: `{ "clientTurnId": string }`. Auth via the same `resolveRequestUserId` flow as every other workspace-management route. Looks up the turn in the registry, calls `signalHardStop`, returns 204 unconditionally (idempotent — does not leak existence). On success the registered controller fires its abort signal, the SSE handler's runtime fetch sees the signal, and the existing `client-aborted` persistence path produces a partial assistant message.
+
+**3. NestJS module wiring.** `apps/api/src/modules/workspace-management/workspace-management.module.ts` adds `WebChatTurnHardStopRegistry` to the providers list (process-singleton, no exports needed — only the controller in this module injects it).
+
+**4. Web client.** `apps/web/app/app/assistant-api-client.ts` gets a new `stopAssistantWebChatTurn(token, clientTurnId)` function — POST `/assistant/chat/web/stop`, throws `ContractsApiError` on non-2xx. `apps/web/app/app/_components/use-chat.ts`:
+
+- The per-thread abort map (`abortControllersByThreadRef`) now holds `{ controller, clientTurnId }` instead of just the controller.
+- `stop()` reads the entry for the current thread, fires `stopAssistantWebChatTurn(token, entry.clientTurnId)` as a fire-and-forget IIFE (errors swallowed), and then aborts the local controller. The ordering matters: the local abort runs synchronously, so the UI flips out of streaming state immediately; the POST is best-effort and only affects whether the runtime continues or aborts server-side.
+- Both registration sites (`send` for normal turns, the welcome-turn branch) updated to populate the new shape.
+
+The SSE/runtime cooperation contract therefore becomes:
+
+| signal                                       | flips `clientClosed`? | flips runtime abort signal? | runtime outcome                  | persisted message                       |
+| -------------------------------------------- | --------------------- | --------------------------- | -------------------------------- | --------------------------------------- |
+| `req.on("aborted")` (TCP RST / half-close)   | yes                   | **no**                      | runs to completion server-side   | full assistant message                  |
+| `res.on("close")` while not `writableEnded`  | yes                   | **no**                      | runs to completion server-side   | full assistant message                  |
+| `POST /assistant/chat/web/stop` (registered) | no (sse may be alive) | **yes**                     | breaks via `client-aborted` path | partial / interrupted (existing path)   |
+| `POST /assistant/chat/web/stop` (no match)   | n/a                   | n/a                         | runs to completion server-side   | full assistant message (idempotent 204) |
+
+### Files touched
+
+- `apps/api/src/modules/workspace-management/application/web-chat-turn-hard-stop-registry.service.ts` (new)
+- `apps/api/src/modules/workspace-management/interface/http/assistant.controller.ts` (SSE handler refactor + new `stopWebChatTurn` route)
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` (provider registration)
+- `apps/api/test/web-chat-turn-hard-stop-registry.test.ts` (new — 6 unit tests)
+- `apps/web/app/app/assistant-api-client.ts` (new `stopAssistantWebChatTurn` export)
+- `apps/web/app/app/assistant-api-client.test.ts` (3 new tests)
+- `apps/web/app/app/_components/use-chat.ts` (abort-map shape + `stop()` POST + cleanup helpers)
+- `apps/web/app/app/_components/use-chat.test.tsx` (mock plumbing + 3 new tests under "server-side soft-detach (slice 1.2)")
+- `docs/API-BOUNDARY.md` (web-chat section)
+- `docs/ADR/073-post-adr072-residue-and-polish-program.md` (new § 4a covering the full pre-prod polish wave)
+- `docs/CHANGELOG.md` (FIX 1 / Slice 1.2 entry)
+- `docs/SESSION-HANDOFF.md` (this entry)
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/web-chat-turn-hard-stop-registry.test.ts` — 6/6 pass.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 20/20 pass (17 prior + 3 new).
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts` — 31/31 pass (28 prior + 3 new).
+- Full verification gate (lint, format:check, api typecheck, web typecheck) below.
+
+### Risks and residuals
+
+- **Process-local registry.** Multi-replica deployments need sticky-session routing or pubsub fanout for `signalHardStop` to land on the replica that owns the turn. Today this is fine — staging runs single-replica web-chat. Documented under ADR-073 § 4a.
+- **Live resume of an in-flight stream after soft-detach.** The current contract is "runtime continues, client sees the full message on next history fetch". A future slice may add an SSE re-attach endpoint so the user sees deltas after reconnection. Out of scope for this slice; recorded under ADR-073 § 4a.
+- **No controller-level integration test for SSE soft-detach yet.** The unit-level registry tests pin down the dispatcher contract, the existing `stream-web-chat-turn.service.test.ts` continues to exercise both `client-aborted: false` (full persist) and the runtime stream callbacks, and the web-side tests cover the `stop()` POST + local abort interplay. A full end-to-end SSE/runtime/Stop test would require standing up Nest + Express in-process and is deferred until soft-detach regression risk warrants it.
+- **`clientTurnId`-less turns.** Replay paths and any caller that doesn't pass `clientTurnId` are not registered for hard-stop dispatch. Behavior matches pre-Slice-1.2: SSE socket close is still the only stop path for those callers, but those callers never had an explicit Stop button bound to them either.
+
+### Next recommended step
+
+The pre-prod polish 2026 wave is now complete (FIX 1.1, FIX 1.2, FIX 2, FIX 3, FIX 4). Next bounded slice should re-enter the ADR-073 economics program (item 3 in the execution order) — provider-native cached-input-first prompt assembly is the highest-value remaining track.
+
+---
+
+## 2026-04-25 (pre-prod polish, FIX 4) — Sidebar SSR/CSR hydration mismatch crashed React in Capacitor WebView and silently broke hold-to-record voice + attachment menu (web-only)
+
+### Why this session
+
+Founder reported that the hold-to-record voice message implementation (added earlier today) was not working on the Samsung Galaxy Z Fold 6 — pressing and holding the microphone produced no recording overlay, no haptic, no upload. The deploy had clearly landed (the production web bundle on commit `81afe34cba30791fab5874ecb4bdb40c1a1a9ad8` contained `voiceHoldToRecord`, `cancelArmed`, `HOLD_MIN_MS`, the new i18n keys), `RECORD_AUDIO` was granted (`adb shell dumpsys package com.persai.app | grep RECORD_AUDIO` → `granted=true`), and the app version on device matched (`versionName=1.0`). The user even ran an Android Studio Clean+Build and reinstalled the APK. Still nothing.
+
+We dropped into `adb logcat` filtering on `chromium`, `Capacitor`, `WebView`, `MediaRecorder`, `AudioRecord`, `getUserMedia`, asked the user to perform a hold-press, and inspected the captured log.
+
+### Root cause (one line)
+
+`Sidebar` rendered `groupChatsByDate(...)` and `formatChatRowTimestamp(iso, locale)` during SSR with `new Date()` in the GKE pod's UTC timezone, then rehydrated on the device in `Europe/Moscow` (UTC+3) — text and group buckets diverged → React error #418 fired on every cold load → Capacitor's WebView mishandled the post-error recovery → freshly-mounted pointer event handlers for the mic button and attachment menu did not attach to the post-recovery DOM nodes → the user's hold-press generated zero `pointerdown` events.
+
+### What logcat showed
+
+```
+04-25 19:23:08.938 24488 24488 E Capacitor/Console:
+  Uncaught Error: Minified React error #418
+  https://react.dev/errors/418?args[]=HTML&args[]=
+  File: https://persai.dev/_next/static/chunks/17gx_p_5pp_1q.js
+```
+
+React error #418 unminified is "Text content does not match server-rendered HTML." After this throws, React falls back to a full client-side re-render of the affected subtree; in stock Chrome that's a one-frame visual flicker, in Capacitor's WebView shell it's enough to lose pointer event handler attachment for components mounted later in the tree.
+
+There were also repeated `ERROR:net/socket/ssl_client_socket_impl.cc:924] handshake failed; returned -1, SSL error code 1, net_error -100` lines (`net_error -100 == ERR_CONNECTION_CLOSED`) — those are unrelated background handshake retries against telemetry endpoints; they do not block app function and are not part of this fix.
+
+### Why `formatChatRowTimestamp` produces SSR/CSR drift
+
+`apps/web/app/app/_components/sidebar.tsx` line 70:
+
+```ts
+function formatChatRowTimestamp(iso: string | null, locale: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // ...
+  if (d >= todayStart) {
+    return new Intl.DateTimeFormat(locale, {
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).format(d);
+  }
+```
+
+`Intl.DateTimeFormat` without an explicit `timeZone` option uses the host's local timezone. The GKE pod runs in UTC; the device is in Europe/Moscow (UTC+3). For a chat with `lastMessageAt = 2026-04-25T07:23:00Z`:
+
+- Pod renders `"07:23"`.
+- Device renders `"10:23"`.
+
+`groupChatsByDate` has the same problem on day boundaries: a chat at `2026-04-25T20:30:00Z` (= `23:30 МСК`) lands in `today` on the device and `today` on the pod most of the time, but at `2026-04-25T22:30:00Z` (= `01:30 МСК next day`) the device puts it in `today` (24th-25th transition) while the pod still calls it `today` (Apr 25). The chat list group headers (`<p className="mb-1 px-2 text-[11px] ...">{group.label}</p>`) thus differ in count → structural HTML mismatch → unrecoverable `<aside>` subtree → React reconciler trashes the whole sidebar subtree on hydration.
+
+### What we changed
+
+`apps/web/app/app/_components/sidebar.tsx` only. Two surgical edits.
+
+**Edit 1.** `chatGroups` becomes `mounted`-gated:
+
+```diff
+-  const chatGroups = groupChatsByDate(data.chats, {
+-    today: t("today"),
+-    yesterday: t("yesterday"),
+-    previous7: t("previous7"),
+-    older: t("older")
+-  });
++  /*
++   * Hydration safety: groupChatsByDate / formatChatRowTimestamp depend on
++   * `new Date()` and the device timezone. On the server (UTC pod) and on
++   * the client (local TZ) this can yield different group buckets and
++   * timestamp strings, which trips React error #418 in production builds
++   * and forces a full client re-render. In Capacitor's WebView that
++   * re-render reliably loses freshly-mounted pointer event handlers
++   * (mic hold-to-record, attachment menu, etc.). We defer all date-aware
++   * rendering until after mount so the SSR and first client render are
++   * structurally identical.
++   */
++  const chatGroups = mounted
++    ? groupChatsByDate(data.chats, { today: t("today"), yesterday: t("yesterday"), previous7: t("previous7"), older: t("older") })
++    : [];
+```
+
+**Edit 2.** Chat-list render branch leads with `!mounted ||`:
+
+```diff
+-  {data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
++  {!mounted || data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
+     <ChatListSkeleton />
+```
+
+The `mounted` state itself was already in the file (line 137-138) for `AccountFooter`'s popup wiring; we are reusing it.
+
+### Why this fix works structurally
+
+- SSR pass: `mounted === false` → renders `<ChatListSkeleton />` → no `new Date()` call.
+- First client render: `mounted === false` (initial state matches SSR) → renders `<ChatListSkeleton />` → bytes match SSR → no #418.
+- After hydration commits: `useEffect(() => setMounted(true), [])` fires → `mounted === true` → second render produces the grouped list with timestamps. The server's render is already discarded; only client truth is in the DOM.
+
+The skeleton is the same `<ChatListSkeleton />` already used for `data.isLoading`, so visually the gate is indistinguishable from a normal cold-load.
+
+### Why this also unblocks hold-to-record on Capacitor
+
+Without #418 firing on every load:
+
+- React's effect-and-handler attachment runs once cleanly against the SSR DOM rather than re-running against a post-recovery DOM with stale handler closures.
+- The `pointerdown` listener on `<button onPointerDown={handleMicPointerDown}>` in `chat-input.tsx` registers on the first try.
+- The `useTouchDevice()` hook's `useEffect`-driven media query subscribes to `"(pointer: coarse)"` correctly.
+- The floating-overlay `<AnimatePresence>` renders without losing its mounted-vs-pre-mount race.
+
+### Verification gate (PASSED)
+
+- `corepack pnpm --filter @persai/web run typecheck` — clean (`tsc --noEmit`).
+- `corepack pnpm exec prettier --write apps/web/app/app/_components/sidebar.tsx` — `unchanged`.
+- `corepack pnpm --filter @persai/web run lint` — clean (0 warnings, `--max-warnings=0`).
+- `corepack pnpm --filter @persai/web run test` — **125/125 passing across 24 web test files**, including `sidebar.test.tsx` (5 tests) which exercises chat-list rendering branches.
+
+### Files touched
+
+- `apps/web/app/app/_components/sidebar.tsx` — two surgical edits (chatGroups gate + render-branch gate).
+- `docs/CHANGELOG.md` — full FIX 4 entry.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### Out of scope (deliberate)
+
+- No backend / API / contracts / data-model change.
+- No new ADR — `mounted` gating is a well-established React idiom for client-only render branches, not system-truth.
+- No `persai-mobile` Java/Kotlin change — the WebView picks up the new web bundle on next reload after deploy.
+- No deploy command run — caller must `pnpm --filter @persai/web run build && docker build && push && kubectl rollout` per existing GitOps flow before the device sees the fix.
+- No FIX 3 work — already shipped earlier today.
+- No Slice 1.2 work — still the next recommended step.
+
+### Risks / residuals
+
+- A one-frame skeleton flash appears on cold load of the sidebar; visually indistinguishable from the existing `data.isLoading` skeleton because the same `<ChatListSkeleton />` component is reused.
+- If a future refactor re-introduces a date-dependent client component without a `mounted` gate, #418 returns and Capacitor handlers regress. The `formatChatRowTimestamp` JSDoc block at line 70 calls this out, and `groupChatsByDate` should be similarly annotated in a follow-up.
+- The `Intl.DateTimeFormat` weekday/month strings depend on locale + browser ICU data; in theory a server `Intl` build that lacks `ru` data and a client that has it could disagree even after the gate. We are not seeing this in production (`@formatjs/intl-localematcher` is bundled), but worth noting for future refactors.
+
+### Streaming turn lifecycle Slice 1.2 still pending
+
+Closing the phone screen mid-image-generation still truncates the assistant text because `assistant.controller.ts` calls `clientAbortController.abort()` on SSE close. Slice 1.2 distinguishes hard-abort (Stop button) from soft-disconnect (tab/screen backgrounded) so the runtime keeps the turn alive and the next reconnect can resume it. This fix is unrelated; FIX 4 closes the «mobile feels broken» class of bug, not the «long stream interrupted by screen lock» class.
+
+### Next recommended step
+
+Deploy this web change to staging/prod, then ask the founder to reload the WebView and re-verify hold-to-record. After that, **Slice 1.2** (server-side soft-detach for streaming turns) closes FIX 1 and finishes the pre-prod polish batch.
+
+---
+
+## 2026-04-25 (pre-prod polish, FIX 2) — Tool-result filename hygiene: stop the LLM echoing artifact filenames into assistant text (FIX 2 of the 3-fix pre-prod batch; runtime-only)
+
+### Why this session
+
+Continuation of the founder's pre-prod polish batch (`1.1 → 3 → 2 → 1.2`). Slice 1.1 (per-thread `isStreaming`) and FIX 3 (attachments-only placeholder) already shipped today; this session executes **FIX 2**.
+
+The bug: after a worker tool such as `image_generate` produces an image, the assistant text bubble often contains a literal mention of the output filename — e.g., the model writes `Готово, держи interesting_scene.png` while the actual image is _also_ attached to the same message. The filename appears twice: once as inline text inside the speech bubble, once as the attachment label. Founder flagged it on Telegram parity testing.
+
+### Diagnostic walk
+
+The runtime serializes the entire tool-result `payload` to JSON in `apps/runtime/src/modules/turns/turn-execution.service.ts:1963` and feeds it back into the model's tool-history channel as the next provider call's `toolResult.content`:
+
+```ts
+toolResult: {
+  toolCallId: toolCall.id,
+  name: toolCall.name,
+  content: JSON.stringify(payload),
+  isError
+}
+```
+
+Tools like `image_generate` produce `RuntimeOutputArtifact[]` with `filename` (e.g., `"interesting_scene.png"` derived from the user's `filename` argument), `objectKey`, `artifactId`, and `sizeBytes`. The model sees this JSON in its next call and empirically loves to quote the `filename` value back into its assistant text. The filename leak is structural, not a content-filtering bug — the model simply has the string and uses it.
+
+The artifacts also flow to the API/storage pipeline through a _separate_ path: `outcome.artifacts` (parallel field on `ToolExecutionOutcome`, plumbed through `applyToolExecutionOutcome` → `assistant-runtime.facade.ts: runtimeOutputArtifactsToMediaArtifacts`). That path is what attaches the image to the chat message and persists `filename` to the DB so users see meaningful download names. Two independent surfaces.
+
+### Architecture decision
+
+Sanitize only the model-visible JSON; leave the runtime-side artifact records and the outer `outcome.artifacts` array untouched.
+
+- `apps/runtime/src/modules/turns/sanitize-tool-result-for-model.ts` — **new file.** Exports `stringifyToolResultPayloadForModel(payload)`. Internally a `JSON.stringify` replacer that detects `RuntimeOutputArtifact`-shaped objects (string `artifactId` + string `kind` — that's the unique signature distinguishing them from `RuntimeAttachmentRef` which uses `attachmentId`) and strips four presentation-only fields: `artifactId`, `objectKey`, `filename`, `sizeBytes`. Keeps `kind`, `mimeType`, `voiceNote`, `caption` so the model retains every semantically meaningful signal it needs to reason about its own next turn.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — `createToolExecutionOutcome` now calls `stringifyToolResultPayloadForModel(payload)` instead of `JSON.stringify(payload)`. The `payload` field on `ToolExecutionOutcome` (used by observability) and the optional `artifacts: RuntimeOutputArtifact[]` field (used by the API attachment pipeline) are unchanged.
+
+The shape-based detection means:
+
+- `RuntimeOutputArtifact` (generated by `image_generate` / `image_edit` / `video_generate` / `tts` / files / sandbox) — fields stripped.
+- `RuntimeAttachmentRef` (user-uploaded inputs) — pass through unchanged. The model already saw the user's filename in the user-message context, so echoing it isn't a leak.
+- Top-level `sourceFilename` / `referenceFilename` on `image_edit` / `video_generate` results — pass through unchanged. These are user-supplied input filenames, same justification as above.
+- `prompt`, `revisedPrompt`, `provider`, `model`, `usage`, `action`, `reason`, `warning`, `sourceImageIndex`, `referenceImageIndex` — pass through unchanged.
+- Non-artifact-bearing payloads (e.g., `web_search`, `knowledge_search`) — `stringifyToolResultPayloadForModel(payload)` returns byte-equivalent output to `JSON.stringify(payload)`. Zero impact.
+
+### Files touched
+
+- `apps/runtime/src/modules/turns/sanitize-tool-result-for-model.ts` — **new file.** ~70 lines: the replacer, the field allow-list, the public `stringifyToolResultPayloadForModel` entry point, and a header comment explaining the bug + the two-surface invariant (model-visible JSON vs storage-side artifact metadata).
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` — imports the new helper and swaps the `JSON.stringify(payload)` call inside `createToolExecutionOutcome` for `stringifyToolResultPayloadForModel(payload)`. A short comment marks the line as the FIX 2 enforcement point so future readers see why it isn't a plain `JSON.stringify`.
+- `apps/runtime/test/sanitize-tool-result-for-model.test.ts` — **new file.** Single exported `runSanitizeToolResultForModelTest()` (matches the runtime suite's runner pattern, not node:test) with seven scenarios:
+  - plural `artifacts: RuntimeOutputArtifact[]` (image_generate shape) — strips all four fields, keeps `kind`/`mimeType`/`voiceNote`;
+  - singular `artifact` field (video_generate / tts shape) — same redaction;
+  - artifact with a model-relevant `caption` — `caption` is preserved;
+  - `RuntimeAttachmentRef`-shaped object (uses `attachmentId`) — passes through verbatim;
+  - non-artifact-bearing payload (web_search) — `stringifyToolResultPayloadForModel` is byte-equivalent to `JSON.stringify`;
+  - `sourceFilename` / `referenceFilename` at top level alongside an output artifact — top-level filenames preserved, artifact filename stripped;
+  - `artifact: null` on a skipped tool result — replacer doesn't crash.
+- `apps/runtime/test/run-suite.ts` — registers `runSanitizeToolResultForModelTest` alongside the other runtime tests.
+- `apps/runtime/test/turn-execution.service.test.ts` — updates the existing `image_generate` / `image_edit` / `video_generate` end-to-end happy-path tests:
+  - the model-visible JSON assertions now require `filename` / `objectKey` / `artifactId` / `sizeBytes` to be `undefined` (regression pin for FIX 2);
+  - the runtime-side `*Completed.artifacts[0].filename` assertions are added/kept so the storage surface continues to receive the full filename (`poster.png`, `sunrise-clip.mp4`, `living-room-edit.png`).
+- `docs/CHANGELOG.md` — new top entry.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### Verification gate (run, all green)
+
+- `corepack pnpm --filter @persai/runtime run test` → exit 0 (full runtime suite including the new `runSanitizeToolResultForModelTest` and the updated `turn-execution.service` filename-redaction assertions).
+- `corepack pnpm --filter @persai/api run test` → 45 / 45 pass (sanity, since runtime contract changes can echo into API consumers).
+- `corepack pnpm -r --if-present run lint` → all 6 lint scopes done, 0 warnings.
+- `corepack pnpm run format:check` → all matched files use Prettier code style (after one auto-format on the two new runtime files).
+- `corepack pnpm --filter @persai/api run typecheck` → exit 0.
+- `corepack pnpm --filter @persai/web run typecheck` → exit 0.
+
+### Risks / residuals
+
+- **Provider behavior under reduced metadata.** Models that previously relied on seeing the artifact filename in the JSON to construct a textual handoff ("here is `poster.png`") now have to phrase the response without that token. In practice frontier models (gpt-5.4, sonnet-4.6) handle this fine because the artifact still appears in their next-turn input via the attachment pipeline; the bubble shows the image directly. If a regression surfaces where a model becomes confused about whether an attachment landed, restore `caption` if needed (already kept) or re-introduce a redacted `description` field — but do **not** re-add `filename`.
+- **Future tool authors.** Anyone adding a new tool whose result includes a custom artifact-like shape that is _not_ `RuntimeOutputArtifact` (i.e., doesn't have both `artifactId` and `kind` strings) will pass through verbatim. That's the intended escape hatch — explicit opt-in. If they want the same hygiene, they should use the `RuntimeOutputArtifact` shape; otherwise their fields stay model-visible.
+- **`sourceFilename` / `referenceFilename` echo.** These are user-supplied filenames; the model legitimately knows them already from the user's message context. No additional leak surface beyond what the user already typed.
+- **Storage surface unchanged.** The `outcome.artifacts` and `payload.artifacts` (internal observability) carry the full filename / objectKey / sizeBytes / artifactId. The DB attachment metadata still receives `poster.png` etc. so download URLs stay meaningful.
+
+### Stack-rank state
+
+- ✅ FIX 1, slice 1.1 — per-thread `isStreaming` + sidebar live indicator (shipped earlier today).
+- ✅ FIX 3 — attachments-only placeholder (shipped earlier today).
+- ✅ FIX 2 — tool-result filename hygiene (this session).
+- ⏭ FIX 1, slice 1.2 — server-side soft-detach (next).
+
+### Next recommended step
+
+Open **FIX 1 / slice 1.2**: server-side soft-detach for the streaming turn lifecycle. The browser/Telegram client closing its SSE socket while the model is still mid-stream currently triggers a hard abort on the runtime side, which loses the partially-generated text and aborts the image side-channel. The slice should differentiate "user pressed Stop" (hard abort, propagate `AbortController`) from "client tab/screen went background" (soft disconnect, let the runtime finish writing to durable session state, allow the next reconnect to resume from the persisted partial). Touches `apps/api/src/modules/workspace-management/application/stream-web-chat-turn.service.ts` and the runtime turn finalization path; protocol-level change requires an ADR amendment under ADR-073.
+
+## 2026-04-25 (pre-prod polish, FIX 3) — Attachments-only user message no longer renders «(attached files)» (FIX 3 of the 3-fix pre-prod batch; web-only)
+
+### Why this session
+
+Continuation of the founder's pre-prod polish batch (`1.1 → 3 → 2 → 1.2`). Slice 1.1 (per-thread `isStreaming`) shipped earlier today; this session executes **FIX 3**.
+
+The bug: when the user sends a message that is only attachments (no typed text), the user bubble in the chat shows a literal «(attached files)» line above the attachment thumbnails. That string was the composer's hack to satisfy the API's `message must be a non-empty string` validation in `SendWebChatTurnService.parseInput` (`apps/api`), but it leaks into the UI as if it were the user's typed text. On Z Fold 6 / Telegram parity testing the founder flagged it as user-visible noise.
+
+### Diagnostic walk
+
+Single source of the placeholder is `apps/web/app/app/_components/chat-input.tsx:180`:
+
+```ts
+onSend(
+  text.length > 0 ? text : "(attached files)",
+  pendingFiles.length > 0 ? pendingFiles : undefined,
+  ...
+);
+```
+
+That string flows through `useChat.send()` (which trims and rejects empty text — line 488) and lands as the user message's `content` field both in the optimistic bubble and in the persisted history. Because `SendWebChatTurnService.parseInput` rejects empty `message` (`apps/api/src/modules/workspace-management/application/send-web-chat-turn.service.ts:166`), the composer cannot simply send `""` without an API contract change.
+
+A contract change would touch `packages/contracts/openapi.yaml`, the Nest service, the runtime prompt (LLM would now see an empty user turn), tests in api + contracts, and is system-truth territory — out of scope for a pre-prod polish slice. The right scope here is a **renderer-only suppression**: keep the placeholder going to the API, but recognize it at render time and hide the `<p>` for user bubbles whose only content is the placeholder (or empty after trim, defensively for any prior history).
+
+### Architecture decision
+
+Introduce a tiny shared module so producer (`chat-input.tsx`) and renderer (`chat-message.tsx`) read the sentinel from the same place and cannot drift:
+
+- `apps/web/app/app/_components/attachments-only-placeholder.ts` — **new file.** Exports `ATTACHMENTS_ONLY_PLACEHOLDER = "(attached files)"` and `isAttachmentsOnlyPlaceholderText(content: string): boolean` (returns `true` when the trimmed content is empty or matches the placeholder exactly).
+
+`chat-input.tsx` imports the constant and uses it in place of the hard-coded string. `chat-message.tsx` imports the predicate and computes a derived flag inside `ChatMessageBubble`:
+
+```ts
+const hideUserTextForAttachmentsOnly =
+  isUser &&
+  (message.attachments?.length ?? 0) > 0 &&
+  isAttachmentsOnlyPlaceholderText(message.content);
+```
+
+The user-side `<p>` render is gated on `!hideUserVoiceTranscript && !hideUserTextForAttachmentsOnly`. The same flag also forces `AttachmentStrip`'s `mt-0` override (already used for the voice-only path) so the bubble's accent background doesn't carry an awkward empty top gap where the missing text used to live.
+
+The suppression is **deliberately gated on `attachments.length > 0`**: if a future composer regression were to write the placeholder text without staging any attachment, the bubble would render it verbatim instead of silently swallowing user-visible content. There is a regression test for that case.
+
+### Files touched
+
+- `apps/web/app/app/_components/attachments-only-placeholder.ts` — **new file.** 33 lines: the constant, the predicate, and a comment block explaining why the placeholder still has to reach the API.
+- `apps/web/app/app/_components/chat-input.tsx` — imports `ATTACHMENTS_ONLY_PLACEHOLDER` and uses it on line ~185 instead of the hard-coded string. No behavior change at the network layer.
+- `apps/web/app/app/_components/chat-message.tsx`:
+  - imports `isAttachmentsOnlyPlaceholderText`;
+  - `ChatMessageBubble` computes `hideUserTextForAttachmentsOnly` next to the existing `hideUserVoiceTranscript` flag;
+  - the user-side text `<p>` is gated by both flags;
+  - `AttachmentStrip`'s `mt-0` override fires for both voice and attachments-only cases.
+- `apps/web/app/app/_components/chat-message.test.tsx` — adds a `describe("ChatMessageBubble — attachments-only user message (FIX 3)")` block with four tests:
+  - placeholder text «(attached files)» + image attachment → no `<p>` containing the placeholder in the DOM;
+  - whitespace-only content + image attachment → no user-text `<p>` rendered at all (queried via `container.querySelector("p.whitespace-pre-wrap")`);
+  - real user text + image attachment → text still renders verbatim;
+  - placeholder text alone (no attachments) → renders verbatim, defensive against composer regressions.
+- `docs/CHANGELOG.md` — new top entry.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### What is intentionally NOT changed in this slice
+
+- **Server-side validation in `SendWebChatTurnService.parseInput` is left as-is.** Allowing empty `message` is a contract change with downstream effects on the runtime prompt and on consumers in `apps/runtime` + `packages/contracts`; that is system-truth territory and would need an ADR if we ever decide to do it. For pre-prod polish, the renderer-side suppression is sufficient.
+- **The placeholder string remains the canonical sentinel.** Switching to a more obviously-internal token (e.g., `"\u200B"` or `"<attachments>"`) would only matter if the placeholder ever escaped the renderer guard, but it cannot — every code path that displays user `content` for a user-role message goes through `ChatMessageBubble`. Keeping the human-readable placeholder also means any historical row that already has it persisted is suppressed by the same predicate.
+- **Assistant messages with attachment-only payloads are not touched.** Those go through the markdown renderer, not the user-side `<p>`. FIX 2 (tool-result filename hygiene) is the slice that addresses assistant-side leakage of filenames into text.
+- **No mobile-side change.** The web bundle loaded into Capacitor inherits the fix automatically; `persai-mobile` is unchanged.
+
+### Verification gate
+
+- `corepack pnpm -r --if-present run lint` — clean (5 of 5 lint-bearing workspace projects).
+- `corepack pnpm run format:check` — clean (one prettier write on the new `attachments-only-placeholder.ts` to match the project's import-block style; nothing else moved).
+- `corepack pnpm --filter @persai/api run typecheck` — clean (Prisma generate + `tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run typecheck` — clean (`tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run test` — **119/119 passing** (was 115/115 after Slice 1.1; +4 from the new `chat-message.test.tsx` block). All 23 web test files pass.
+
+### Risks / residuals
+
+- **The user message's `content` field still equals «(attached files)» in the database.** The fix is render-only; persisted rows keep the placeholder. The runtime prompt sent to the LLM also still contains «(attached files)» as the user turn's text. Empirically the model handles this gracefully because the staged attachments are also delivered to the model in the same turn, but if we ever observe LLM responses that fixate on the literal phrase, the right correction is the contract change described above (allow empty `message`), not a different sentinel.
+- **A bubble that contains only the attachment strip is shorter than a bubble with text.** Visual review of the rendered DOM (and the snapshot test for whitespace-only content) confirms the bubble's accent background, padding, and bottom-corner radius still look correct. The `mt-0` override on `AttachmentStrip` is the reason; if a future refactor strips that override, the bubble will gain a small empty top gap — the test that checks for absence of `p.whitespace-pre-wrap` will still pass, so add a visual-regression check before that refactor lands.
+- **Streaming turn lifecycle Slice 1.2 still pending** (server-side soft-detach + per-thread message buffer). FIX 1 is not closed until that lands.
+
+### Out of scope (deliberate)
+
+No backend changes. No contract changes. No new ADR — this is a UI polish, not a system-truth change. No telemetry add — the user already has visual confirmation through the absent placeholder.
+
+### Next recommended step
+
+Per the founder's stack-rank `1.1 → 3 → 2 → 1.2`: proceed to **FIX 2 — tool-result filename hygiene**. The bug: when an assistant tool emits an image (e.g., `image_generate` returning `interesting_scene.png` plus the binary), the filename leaks into the assistant's text bubble while the image is also rendered as an attachment. The fix path likely lives in the tool-result formatter on the runtime side or in the assistant message normalization on the API side; needs a diagnostic walk to identify the exact emission point before scoping. Start by greping the runtime + api for the emission site of attachment filenames in chat content.
+
+After FIX 2, FIX 1 closes with Slice 1.2 (server-side soft-detach + stream resume).
+
+---
+
+## 2026-04-25 (pre-prod polish, slice 1.1) — Streaming turn lifecycle: per-thread `isStreaming` + per-thread AbortController + sidebar live indicator (FIX 1.1 of the 3-fix pre-prod batch; web-only)
+
+### Why this session
+
+Founder opened a 3-fix pre-prod polish batch (`1.1 → 3 → 2 → 1.2`) tied to live observations on Z Fold 6 / Telegram parity testing of the GKE-deployed PersAI:
+
+1. **FIX 1 — Streaming turn lifecycle**: closing the phone screen mid-image-generation truncates the assistant text, and switching chats while a stream is live blocks the composer in the new chat. Split into:
+   - **Slice 1.1** (this session) — frontend-only: per-thread `isStreaming` so the new chat's composer is never blocked by another chat's in-flight stream, plus a small live indicator in the sidebar so the user can see which chats are still generating in the background.
+   - **Slice 1.2** (next) — server-side soft-detach: distinguish hard-abort (user pressed Stop) from soft-disconnect (tab/screen backgrounded) so the runtime keeps the turn alive and the next reconnect can resume it. Requires API + runtime changes; out of scope here.
+2. **FIX 3** — attachments-only message must not display the «(attached files)» placeholder text.
+3. **FIX 2** — tool-result filename hygiene: `interesting_scene.png` and similar tool-generated filenames must not leak into the assistant text bubble while the image is already attached separately.
+
+This session executes Slice 1.1 only.
+
+### Diagnostic walk
+
+Before writing code I read the mandatory startup order (`AGENTS.md` → `docs/SESSION-HANDOFF.md` → `docs/CHANGELOG.md` → `docs/ARCHITECTURE.md` → `docs/API-BOUNDARY.md` → `docs/DATA-MODEL.md` → `docs/TEST-PLAN.md` → ADR-072 + ADR-073) and confirmed the active path is native-only. The streaming surface I'm touching is `apps/web/app/app/_components/use-chat.ts` (chat client hook) which already implements the ADR-075 pending-send slot. The composer disable rule in `chat-input.tsx` derives from `inputDisabled || isStreaming`, where `isStreaming` flows through `useChat(threadKey)`.
+
+Walked the bug source in `use-chat.ts`:
+
+- `const [isStreaming, setIsStreaming] = useState(false)` — single boolean local to the hook. When `useChat(threadKey)` re-renders with a new `threadKey`, the same hook instance keeps that boolean. The thread-switch reset block (lines 374–396) clears `messages` / `activities` / `compaction` but does **not** clear `isStreaming` (deliberately, to preserve the previous behavior of "the in-flight request is still live"). Effect: switch from Chat A (mid-stream) to Chat B → `isStreaming === true` → `chat-input.tsx`'s textarea is disabled → user cannot type until A finishes.
+- `const abortRef = useRef<AbortController | null>(null)` — single ref. Storing controller B over controller A would clobber the ability to abort A independently, but a more pernicious case fires _after_ A finishes: A's `finally` block runs `abortRef.current = null`, which now also wipes B's controller, so a `Stop` button click for B becomes a no-op (and conversely, B's `finally` tries to clear what was already cleared, which is harmless but indicates the design is racy).
+
+So the structural fix is: **lift "which threads are currently streaming?" out of the per-call hook and into a tree-shared registry keyed by `surfaceThreadKey`, with a parallel per-thread map of AbortControllers.** Each `useChat(...)` consumer reads `isStreaming = activeThreads.has(threadKey)` from the registry, and `stop()` aborts only the controller for the thread the user is currently viewing.
+
+### Architecture decision
+
+New file: `apps/web/app/app/_components/streaming-threads.tsx`. Exports a `StreamingThreadsProvider`, a `useStreamingThreadsRegistry()` hook returning `{ activeThreads: ReadonlySet<string>; markStreaming(threadKey, active) }`, and a narrow `useIsThreadStreaming(threadKey)` consumer hook. The registry's `activeThreads` is a `ReadonlySet<string>` updated through `useState` so React schedules re-renders for subscribers when a thread enters or leaves the active set. `markStreaming` is idempotent — repeated calls with the same value short-circuit on identity, so subscribers don't churn.
+
+A subtle gotcha: existing `useChat` tests use `renderHook(() => useChat("thread-1"))` _without_ a wrapper, and forcing every test to wrap with `<StreamingThreadsProvider>` would be intrusive boilerplate. Solution: `useStreamingThreadsRegistry()` falls back to a hook-local registry (its own `useRegistryState()` instance) when no provider is mounted in the context tree. Production always has a provider (mounted by `AppShell`), so consumers see one shared instance. Tests that don't care about cross-thread sharing keep working as-is.
+
+The provider is wired into `apps/web/app/app/_components/app-shell.tsx` inside both branches (the setup-page short-circuit and the main shell) so every authenticated surface that mounts `useChat` is under the provider.
+
+### Files touched
+
+- `apps/web/app/app/_components/streaming-threads.tsx` — **new file.** Context, provider, registry hook, narrow `useIsThreadStreaming(threadKey)` selector. Internal `useRegistryState()` shared between the provider and the no-provider fallback.
+- `apps/web/app/app/_components/streaming-threads.test.tsx` — **new file.** Three tests: tracks two threads independently, repeated marks return the same `Set` reference (no-op), no-provider fallback works.
+- `apps/web/app/app/_components/app-shell.tsx` — wraps both render branches in `<StreamingThreadsProvider>`.
+- `apps/web/app/app/_components/use-chat.ts`:
+  - replaces `const [isStreaming, setIsStreaming] = useState(false)` with `const { activeThreads, markStreaming } = useStreamingThreadsRegistry(); const isStreaming = activeThreads.has(threadKey)`;
+  - replaces `const abortRef = useRef<AbortController | null>(null)` with `const abortControllersByThreadRef = useRef<Map<string, AbortController>>(new Map())`;
+  - `send()` and `sendWelcome()` capture `const sendThreadKey = threadKey` at call time so every subsequent `markStreaming` / abort-map mutation in that turn targets the _originating_ thread (not the thread the user happens to be viewing when the `finally` block runs);
+  - introduces a per-turn `releaseAbortController()` helper that only deletes the map entry if it still equals _this_ turn's controller, so a fast retry that overwrites the entry doesn't get nuked by the older turn's cleanup;
+  - `stop()` now aborts only `abortControllersByThreadRef.current.get(threadKey)` — the stream attached to the thread the user is currently looking at — not "whatever was in the global ref"; streams in other threads keep going so switching away from a generating image doesn't kill it.
+- `apps/web/app/app/_components/sidebar.tsx` — `ChatListItem` reads `useIsThreadStreaming(item.chat.surfaceThreadKey)` and renders a small `h-1.5 w-1.5 animate-pulse rounded-full bg-accent` dot next to the chat title when the thread is in flight, with a `title` / `aria-label` from the new `sidebar.streamingIndicator` translation.
+- `apps/web/messages/en.json` — adds `sidebar.streamingIndicator: "Generating reply"`.
+- `apps/web/messages/ru.json` — adds `sidebar.streamingIndicator: "Генерирует ответ"`.
+- `apps/web/app/app/_components/use-chat.test.tsx` — adds a `describe("per-thread streaming (slice 1.1)")` block with two tests:
+  - thread B's view never observes thread A's `isStreaming === true`;
+  - `stop()` aborts only the _current_ thread's controller while the other thread's controller stays untouched (verified by reading `signal.aborted` per-stream).
+- `docs/CHANGELOG.md` — new top entry.
+- `docs/SESSION-HANDOFF.md` — this entry.
+
+### What is intentionally NOT changed in this slice
+
+- The thread-switch reset block in `useChat` (clears `messages` / `activities` / `compaction`) is **left as-is.** The downside is that an in-flight stream from Chat A continues calling `setMessages((prev) => prev.map(... assistantMsgId ...))` against an empty array, so the deltas accumulated after the switch are silently dropped from Chat A's UI even after the user switches back. Resuming "the text I missed while I was elsewhere" is a Slice 1.2 problem (server-side soft-detach + per-thread message buffer); shoehorning it into this slice would conflate the two fixes and make the diff much harder to review.
+- `chat-input.tsx`'s `inputDisabled || isStreaming` rule is unchanged — it consumes `chat.isStreaming` from `useChat`, which is now per-thread, so the composer for Chat B is not disabled while Chat A streams. No code change in `chat-input.tsx` was needed.
+- The Stop button continues to live in `chat-input.tsx`, governed by per-thread `isStreaming`. Pressing Stop in Chat B aborts B's controller; A's controller is untouched. This matches the new sidebar indicator: dots stay lit on every thread that's still generating.
+
+### Verification gate
+
+- `corepack pnpm -r --if-present run lint` — clean (5 of 5 lint-bearing workspace projects).
+- `corepack pnpm run format:check` — clean (after `prettier --write` on the four touched files).
+- `corepack pnpm --filter @persai/api run typecheck` — clean (Prisma generate + `tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run typecheck` — clean (`tsc --noEmit`).
+- `corepack pnpm --filter @persai/web run test` — 115/115 passing (was 110/110 before; +3 from `streaming-threads.test.tsx`, +2 from the new `use-chat.test.tsx` block).
+
+### Risks / residuals
+
+- **Race window between `markStreaming` setState and React re-render.** The classic "double-send in the same render frame" race (call `send()` twice synchronously, both see `isStreaming === false`) is unchanged from before — the original code had the exact same race against `useState`-backed `isStreaming`. Acceptable; not introduced here, and the user-facing Stop UI only allows one click per render.
+- **Fallback registry per consumer (no-provider path).** When no provider is mounted, `useStreamingThreadsRegistry()` builds a hook-local registry. Two unrelated consumers would have independent registries, which is the _desired_ behavior in tests that pass a single `threadKey` and don't compare across hooks. In production the provider is always mounted.
+- **Sidebar indicator depends on `surfaceThreadKey` matching the chat's URL key.** The router push in `ChatListItem.onNavigate` uses `item.chat.surfaceThreadKey`, which is exactly what `useChat(threadKey)` receives, so the `markStreaming(sendThreadKey, true)` set membership and the `useIsThreadStreaming(item.chat.surfaceThreadKey)` lookup live in the same string-key namespace. If a future refactor splits the URL thread param from the registry key, the dot would silently drift; documented here so the next refactor catches it.
+- **Slice 1.2 still required to fix the "screen turned off mid-image-generation truncates the text" bug.** The current slice only unblocks input in _other_ chats — it does not preserve the streamed text of the currently-viewed chat when the user switches away or backgrounds the tab. The server still aborts the runtime turn on SSE close (`assistant.controller.ts` calls `clientAbortController.abort()` on disconnect). That is the soft-detach work for slice 1.2.
+
+### Out of scope (deliberate)
+
+No backend, no API contract, no data-model changes. No new ADR — Slice 1.1 is a refactor of frontend state shape, not a system-truth change. No mobile-side change in `persai-mobile` (this is purely client-side state that lives in the web shell loaded into Capacitor; the WebView gets the new behavior automatically). No telemetry yet — if Slice 1.2 lands soon and the lifecycle gets more complex, a single counter for "streams completed in background" is the right add, not now.
+
+### Next recommended step
+
+Per the founder's stack-rank `1.1 → 3 → 2 → 1.2`: proceed to **FIX 3 (attachments-only message must not show «(attached files)»)**. The change lives in `chat-message.tsx` rendering — when `message.content.trim().length === 0` and `message.attachments.length > 0`, suppress the placeholder line that currently reads «(attached files)» and let the attachments speak for themselves.
+
+After FIX 3 is committed, FIX 2 (tool-result filename hygiene) is next, and FIX 1 closes with Slice 1.2 (server-side soft-detach + resume).
+
+---
+
 ## 2026-04-25 (post-close hotfix) — ADR-076 Slice 3 cold-start bootstrap returning 401 for every authenticated user; root-cause + two-layer fix (PersAI repo only)
 
 ### Why this session
@@ -115,7 +679,7 @@ The Slice-7 deferral was the substantive call. Pre-session founder asked «по-
 | 2b. Capacitor cold-start visual continuity                                                  | landed   | `persai-mobile`. `colors.xml` chrome tokens; `splash_logo.xml` four-pointed PersAI sparkle; `AppTheme.NoActionBarLaunch` modernised to `Theme.SplashScreen` API; `capacitor.config.ts` `android.backgroundColor` + `ios.backgroundColor` = `#161513`; iOS `LaunchScreen.storyboard` rewritten to chrome bg + centred PersAI label.                                                                     |
 | 3. RSC bootstrap + `GET /api/v1/app/bootstrap`                                              | landed   | `apps/api` + `apps/web`. `Promise.allSettled` fan-out across six lifecycle services; per-section `{ ok, data \| error }` envelope; `apps/web/app/app/layout.tsx` async RSC seeds `<AppShell initialData={...}>`; `useAppData` skips cold-start fan-out when seeded.                                                                                                                                    |
 | 4. Cookie-auth versioned avatar pipeline                                                    | landed   | `apps/api` + `apps/web`. `assistant.{draft,published}.avatarUrl` flips to `/api/avatar/<hash>.<ext>` content-addressed; new internal `GET /assistant/avatar/:hash` (bearer); new BFF `apps/web/app/api/avatar/[hash]/route.ts` (Clerk cookie auth); `Cache-Control: private, max-age=31536000, immutable` + `ETag`; `assistant-avatar.tsx` collapses to thin `<img>`; legacy URLs sanitised to `null`. |
-| 5. Skeleton contracts only where data is genuinely pending                                  | landed   | `apps/web` only. `useAppData` exposes `isLoading` (cold-start only), `isReloading` (general `reload()`), `isReloadingChats` (`reloadChats()`); `sidebar.tsx` swaps global `Loader2` for targeted `ChatListSkeleton` that fires only when the list is genuinely empty during a pending window; non-empty lists keep all rows visible during reloads.                                                   |
+| 5. Skeleton contracts only where data is genuinely pending                                  | landed   | `apps/web` only. `useAppData` exposes `isLoading` (cold-start only), `isReloading` (general `reload()`), `isReloadingChats` (`reloadChats()`); `sidebar.tsx` swaps global `Loader2` for targeted `ChatListSkeleton` that fires only when the list is genuinely empty during a pending window; non-empty lists keep all rows visible during reloads.                                                    |
 | 6. Slide-over code-splitting + initial-bundle audit                                         | landed   | `apps/web` only. `AssistantSettings` + `TelegramConnect` switched to `next/dynamic({ ssr: false })` gated on sticky open flags. Measured: 78,726 B (~76.9 KiB) deferred from initial `/app` route bundle into 3 lazy chunks fetched on first slide-over open. Audit: lucide-react named-imports clean across 32 files; framer-motion 7 sites kept (each relies on spring/`AnimatePresence`).           |
 | 7. Service-Worker PWA shell                                                                 | deferred | Re-evaluate only after (a) ADR-075 offline-pipeline hardening lands AND (b) production baseline measured on real devices. The PWA-installable manifest portion stays bundled with Slice 7 — not split out — because the manifest+SW pair is what makes "Add-to-Home-Screen" useful for RU-desktop fallback.                                                                                            |
 

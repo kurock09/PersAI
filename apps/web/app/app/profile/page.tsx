@@ -17,6 +17,7 @@ import {
   User
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
+import { useClerkAvatar } from "../_components/use-clerk-avatar";
 
 export default function ProfilePage() {
   const { user } = useUser();
@@ -24,6 +25,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const t = useTranslations("profile");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const clerkAvatar = useClerkAvatar();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
@@ -41,8 +43,7 @@ export default function ProfilePage() {
     text: string;
   } | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
-  const [avatarRefreshKey, setAvatarRefreshKey] = useState(0);
-  const [profileImageBroken, setProfileImageBroken] = useState(false);
+  const [previewBroken, setPreviewBroken] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -96,7 +97,6 @@ export default function ProfilePage() {
       try {
         await user.setProfileImage({ file });
         await user.reload();
-        setAvatarRefreshKey((value) => value + 1);
         setAvatarFeedback({ type: "ok", text: t("avatarSaved") });
         setAvatarPreviewUrl((previous) => {
           if (previous) {
@@ -143,15 +143,13 @@ export default function ProfilePage() {
       setPasswordSaving(false);
     }
   }, [confirmPassword, currentPassword, newPassword, t, user]);
-  const profileImage =
-    avatarPreviewUrl ??
-    (user?.hasImage && user.imageUrl
-      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${avatarRefreshKey}`
-      : null);
+  const isUsingClerkAvatar = avatarPreviewUrl === null && user?.hasImage === true;
+  const profileImage = avatarPreviewUrl ?? (isUsingClerkAvatar ? clerkAvatar.imageSrc : null);
+  const profileImageBroken = isUsingClerkAvatar ? clerkAvatar.broken : previewBroken;
 
   useEffect(() => {
-    setProfileImageBroken(false);
-  }, [profileImage]);
+    setPreviewBroken(false);
+  }, [avatarPreviewUrl]);
 
   if (!user) return null;
 
@@ -186,7 +184,14 @@ export default function ProfilePage() {
                     src={profileImage}
                     alt=""
                     className="h-full w-full object-cover"
-                    onError={() => setProfileImageBroken(true)}
+                    onError={() => {
+                      if (isUsingClerkAvatar) {
+                        clerkAvatar.onError();
+                      } else {
+                        setPreviewBroken(true);
+                      }
+                    }}
+                    referrerPolicy="no-referrer"
                   />
                 ) : (
                   initials

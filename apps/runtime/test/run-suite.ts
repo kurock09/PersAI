@@ -25,6 +25,7 @@ import { runRuntimeScheduledActionToolServiceTest } from "./runtime-scheduled-ac
 import { runRuntimeTtsToolServiceTest } from "./runtime-tts-tool.service.test";
 import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate-tool.service.test";
 import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-tool.service.test";
+import { runSanitizeToolResultForModelTest } from "./sanitize-tool-result-for-model.test";
 import { runToolBudgetPolicyTest } from "./tool-budget-policy.test";
 
 async function run(): Promise<void> {
@@ -53,6 +54,7 @@ async function run(): Promise<void> {
   await runPresenceRendererTest();
   await runTurnContextHydrationServiceTest();
   await runToolBudgetPolicyTest();
+  await runSanitizeToolResultForModelTest();
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();
   await runTurnLeaseHeartbeatServiceTest();

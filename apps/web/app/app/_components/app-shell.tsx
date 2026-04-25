@@ -20,6 +20,7 @@ import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
 import { OfflineGate } from "./offline-gate";
+import { StreamingThreadsProvider } from "./streaming-threads";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
 
 /**
@@ -126,9 +127,11 @@ export function AppShell({
     return (
       <AppDataContext.Provider value={appData}>
         <ShellActionsContext.Provider value={shellActions}>
-          <BackButtonBridge />
-          <OfflineGate />
-          {children}
+          <StreamingThreadsProvider>
+            <BackButtonBridge />
+            <OfflineGate />
+            {children}
+          </StreamingThreadsProvider>
         </ShellActionsContext.Provider>
       </AppDataContext.Provider>
     );
@@ -137,144 +140,146 @@ export function AppShell({
   return (
     <AppDataContext.Provider value={appData}>
       <ShellActionsContext.Provider value={shellActions}>
-        <BackButtonBridge />
-        <OfflineGate />
-        {/*
+        <StreamingThreadsProvider>
+          <BackButtonBridge />
+          <OfflineGate />
+          {/*
           Bento layout on desktop: outer chrome frame (`bg-chrome`) shows
           between the sidebar and main panels via `md:gap-2 md:p-2`. On
           mobile the panels run full-bleed so we don't waste precious edges
           on phones / Capacitor webviews.
         */}
-        <div className="flex h-dvh flex-col overflow-hidden bg-chrome">
-          <div className="flex flex-1 overflow-hidden md:gap-2 md:p-2">
-            {/* Desktop sidebar — always visible */}
-            <Suspense>
-              <div className="hidden md:flex">
-                <Sidebar
-                  data={appData}
-                  onAssistantCardClick={() => {
-                    setSettingsInitialSection(undefined);
-                    setSettingsOpen(true);
-                  }}
-                  onTelegramClick={() => setTelegramOpen(true)}
-                  onLimitsClick={() => {
-                    setSettingsInitialSection("limits");
-                    setSettingsOpen(true);
-                  }}
-                />
-              </div>
-            </Suspense>
-
-            {/* Mobile sidebar — overlay */}
-            <AnimatePresence>
-              {sidebarOpen && (
-                <>
-                  <motion.div
-                    className="fixed inset-0 z-40 bg-black/60 md:hidden"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={() => setSidebarOpen(false)}
+          <div className="flex h-dvh flex-col overflow-hidden bg-chrome">
+            <div className="flex flex-1 overflow-hidden md:gap-2 md:p-2">
+              {/* Desktop sidebar — always visible */}
+              <Suspense>
+                <div className="hidden md:flex">
+                  <Sidebar
+                    data={appData}
+                    onAssistantCardClick={() => {
+                      setSettingsInitialSection(undefined);
+                      setSettingsOpen(true);
+                    }}
+                    onTelegramClick={() => setTelegramOpen(true)}
+                    onLimitsClick={() => {
+                      setSettingsInitialSection("limits");
+                      setSettingsOpen(true);
+                    }}
                   />
-                  <motion.div
-                    className="fixed inset-y-0 left-0 z-50 md:hidden"
-                    initial={{ x: "-100%" }}
-                    animate={{ x: 0 }}
-                    exit={{ x: "-100%" }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                  >
-                    <Suspense>
-                      <Sidebar
-                        data={appData}
-                        onClose={() => setSidebarOpen(false)}
-                        onAssistantCardClick={() => {
-                          setSidebarOpen(false);
-                          setSettingsInitialSection(undefined);
-                          setSettingsOpen(true);
-                        }}
-                        onTelegramClick={() => {
-                          setSidebarOpen(false);
-                          setTelegramOpen(true);
-                        }}
-                        onLimitsClick={() => {
-                          setSidebarOpen(false);
-                          setSettingsInitialSection("limits");
-                          setSettingsOpen(true);
-                        }}
-                      />
-                    </Suspense>
-                  </motion.div>
-                </>
-              )}
-            </AnimatePresence>
+                </div>
+              </Suspense>
 
-            {/* Main panel — bento card on desktop, full-bleed on mobile */}
-            <div className="flex flex-1 flex-col overflow-hidden bg-bg md:rounded-2xl md:border md:border-border">
-              {!isChatPage && (
-                <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
-                  <button
-                    type="button"
-                    onClick={() => setSidebarOpen(true)}
-                    className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    <span className="sr-only">Open sidebar</span>
-                    <svg
-                      className="h-5 w-5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
+              {/* Mobile sidebar — overlay */}
+              <AnimatePresence>
+                {sidebarOpen && (
+                  <>
+                    <motion.div
+                      className="fixed inset-0 z-40 bg-black/60 md:hidden"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => setSidebarOpen(false)}
+                    />
+                    <motion.div
+                      className="fixed inset-y-0 left-0 z-50 md:hidden"
+                      initial={{ x: "-100%" }}
+                      animate={{ x: 0 }}
+                      exit={{ x: "-100%" }}
+                      transition={{ type: "spring", damping: 25, stiffness: 200 }}
                     >
-                      <line x1="3" y1="12" x2="21" y2="12" />
-                      <line x1="3" y1="6" x2="21" y2="6" />
-                      <line x1="3" y1="18" x2="21" y2="18" />
-                    </svg>
-                  </button>
-                  <span className="text-sm font-semibold tracking-tight text-text">
-                    Pers<span className="text-accent">AI</span>
-                  </span>
-                </header>
-              )}
+                      <Suspense>
+                        <Sidebar
+                          data={appData}
+                          onClose={() => setSidebarOpen(false)}
+                          onAssistantCardClick={() => {
+                            setSidebarOpen(false);
+                            setSettingsInitialSection(undefined);
+                            setSettingsOpen(true);
+                          }}
+                          onTelegramClick={() => {
+                            setSidebarOpen(false);
+                            setTelegramOpen(true);
+                          }}
+                          onLimitsClick={() => {
+                            setSidebarOpen(false);
+                            setSettingsInitialSection("limits");
+                            setSettingsOpen(true);
+                          }}
+                        />
+                      </Suspense>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
 
-              {/* Page content */}
-              <div className="flex-1 overflow-y-auto">{children}</div>
+              {/* Main panel — bento card on desktop, full-bleed on mobile */}
+              <div className="flex flex-1 flex-col overflow-hidden bg-bg md:rounded-2xl md:border md:border-border">
+                {!isChatPage && (
+                  <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
+                    <button
+                      type="button"
+                      onClick={() => setSidebarOpen(true)}
+                      className="cursor-pointer rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      <span className="sr-only">Open sidebar</span>
+                      <svg
+                        className="h-5 w-5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <line x1="3" y1="12" x2="21" y2="12" />
+                        <line x1="3" y1="6" x2="21" y2="6" />
+                        <line x1="3" y1="18" x2="21" y2="18" />
+                      </svg>
+                    </button>
+                    <span className="text-sm font-semibold tracking-tight text-text">
+                      Pers<span className="text-accent">AI</span>
+                    </span>
+                  </header>
+                )}
+
+                {/* Page content */}
+                <div className="flex-1 overflow-y-auto">{children}</div>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Assistant settings slide-over (lazy-loaded — ADR-076 Slice 6) */}
-        <SlideOver
-          open={settingsOpen}
-          onClose={() => {
-            setSettingsOpen(false);
-            setSettingsInitialSection(undefined);
-          }}
-          title={ts("title")}
-          size="narrow"
-        >
-          {hasOpenedSettings && (
-            <AssistantSettings data={appData} initialSection={settingsInitialSection} />
-          )}
-        </SlideOver>
+          {/* Assistant settings slide-over (lazy-loaded — ADR-076 Slice 6) */}
+          <SlideOver
+            open={settingsOpen}
+            onClose={() => {
+              setSettingsOpen(false);
+              setSettingsInitialSection(undefined);
+            }}
+            title={ts("title")}
+            size="narrow"
+          >
+            {hasOpenedSettings && (
+              <AssistantSettings data={appData} initialSection={settingsInitialSection} />
+            )}
+          </SlideOver>
 
-        {/* Telegram integration slide-over (lazy-loaded — ADR-076 Slice 6) */}
-        <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
-          {hasOpenedTelegram && (
-            <TelegramConnect
-              integration={appData.telegram}
-              capabilityAllowed={appData.plan?.entitlements.channelsAndSurfaces.telegram ?? false}
-              assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
-              assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
-              assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}
-              onUpdated={() => {
-                void appData.reload();
-              }}
-            />
-          )}
-        </SlideOver>
+          {/* Telegram integration slide-over (lazy-loaded — ADR-076 Slice 6) */}
+          <SlideOver open={telegramOpen} onClose={() => setTelegramOpen(false)} title={tt("title")}>
+            {hasOpenedTelegram && (
+              <TelegramConnect
+                integration={appData.telegram}
+                capabilityAllowed={appData.plan?.entitlements.channelsAndSurfaces.telegram ?? false}
+                assistantAvatarUrl={appData.assistant?.draft.avatarUrl ?? undefined}
+                assistantAvatarEmoji={appData.assistant?.draft.avatarEmoji ?? undefined}
+                assistantDisplayName={appData.assistant?.draft.displayName ?? undefined}
+                onUpdated={() => {
+                  void appData.reload();
+                }}
+              />
+            )}
+          </SlideOver>
+        </StreamingThreadsProvider>
       </ShellActionsContext.Provider>
     </AppDataContext.Provider>
   );

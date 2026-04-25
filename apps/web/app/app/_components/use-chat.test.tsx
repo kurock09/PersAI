@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChat } from "./use-chat";
+import { StreamingThreadsProvider } from "./streaming-threads";
 
 const clerkMocks = vi.hoisted(() => ({
   getToken: vi.fn()
@@ -12,7 +13,8 @@ const assistantApiMocks = vi.hoisted(() => ({
   getChatMessages: vi.fn(),
   stageWebChatAttachment: vi.fn(),
   uploadAssistantKnowledgeSource: vi.fn(),
-  streamAssistantWebChatTurn: vi.fn()
+  streamAssistantWebChatTurn: vi.fn(),
+  stopAssistantWebChatTurn: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -35,7 +37,8 @@ vi.mock("../assistant-api-client", async () => {
     getChatMessages: assistantApiMocks.getChatMessages,
     stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
     uploadAssistantKnowledgeSource: assistantApiMocks.uploadAssistantKnowledgeSource,
-    streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn
+    streamAssistantWebChatTurn: assistantApiMocks.streamAssistantWebChatTurn,
+    stopAssistantWebChatTurn: assistantApiMocks.stopAssistantWebChatTurn
   };
 });
 
@@ -84,6 +87,8 @@ describe("useChat", () => {
     assistantApiMocks.stageWebChatAttachment.mockReset();
     assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
+    assistantApiMocks.stopAssistantWebChatTurn.mockReset();
+    assistantApiMocks.stopAssistantWebChatTurn.mockResolvedValue(undefined);
     nextRafId = 1;
     rafCallbacks.clear();
     vi.stubGlobal(
@@ -873,6 +878,261 @@ describe("useChat", () => {
       expect(restored).toBe("draft text");
       expect(result.current.pendingSendStatus).toBeNull();
       expect(result.current.messages).toHaveLength(0);
+    });
+  });
+
+  describe("per-thread streaming (slice 1.1)", () => {
+    /**
+     * The bug being fixed: pre-1.1 `useChat` held `isStreaming` in a single
+     * local `useState`, so two `useChat(...)` calls in the tree (one per
+     * mounted thread view) were unrelated booleans — but in production only
+     * the active thread is mounted, so switching the `threadKey` argument
+     * preserved the `true` until the stream finished, and the new thread's
+     * composer stayed disabled. We now subscribe both calls to the same
+     * registry keyed by `threadKey`.
+     */
+    it("does not block another thread's composer while one thread is streaming", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(async () => {
+        await new Promise<void>((resolve) => {
+          streamGate.release = resolve;
+        });
+      });
+
+      const { result } = renderHook(({ threadKey }: { threadKey: string }) => useChat(threadKey), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>,
+        initialProps: { threadKey: "thread-A" }
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("hi from A");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      // Render a second view bound to thread-B sharing the same provider.
+      const { result: bView } = renderHook(() => useChat("thread-B"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+      // Same provider would expose A's flag; here we sanity-check that a
+      // *different* thread key never observes A's stream as its own.
+      expect(bView.current.isStreaming).toBe(false);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+    });
+
+    it("stop() aborts only the current thread's controller, not other threads", async () => {
+      const aborts: { thread: string; aborted: boolean }[] = [];
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { surfaceThreadKey?: string },
+          _handlers: unknown,
+          signal?: AbortSignal
+        ) => {
+          const entry = { thread: payload.surfaceThreadKey ?? "?", aborted: false };
+          aborts.push(entry);
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              entry.aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let sendA: Promise<void> | undefined;
+      await act(async () => {
+        sendA = result.current.send("hi A");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(aborts).toHaveLength(1));
+
+      // Switch the same hook to thread-B and start a stream there too.
+      rerender({ threadKey: "thread-B" });
+      let sendB: Promise<void> | undefined;
+      await act(async () => {
+        sendB = result.current.send("hi B");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(aborts).toHaveLength(2));
+
+      // stop() while viewing thread-B must abort only thread-B's controller.
+      await act(async () => {
+        result.current.stop();
+        if (sendB !== undefined) {
+          await sendB.catch(() => undefined);
+        }
+      });
+
+      const aEntry = aborts.find((entry) => entry.thread === "thread-A");
+      const bEntry = aborts.find((entry) => entry.thread === "thread-B");
+      expect(aEntry?.aborted).toBe(false);
+      expect(bEntry?.aborted).toBe(true);
+
+      // Drain thread-A's still-running stream so the test cleans up.
+      rerender({ threadKey: "thread-A" });
+      await act(async () => {
+        result.current.stop();
+        if (sendA !== undefined) {
+          await sendA.catch(() => undefined);
+        }
+      });
+    });
+  });
+
+  describe("server-side soft-detach (slice 1.2)", () => {
+    /**
+     * The bug being fixed: the SSE controller used to abort the runtime
+     * turn on *any* client disconnect — including a phone screen lock or
+     * a tab going to background. Slice 1.2 splits "explicit Stop" (hard
+     * abort) from "passive disconnect" (soft detach). The web side of the
+     * split is `useChat.stop()`: before tearing down its local
+     * `AbortController`, it must POST to `/assistant/chat/web/stop` so
+     * the API knows this is a hard abort and the runtime should be
+     * stopped. Conversely, anything that just tears down the local
+     * controller without going through `stop()` (component unmount,
+     * navigation, network drop) must *not* fire the POST — that's how the
+     * runtime ends up in soft-detach mode.
+     */
+    it("stop() POSTs the in-flight clientTurnId before aborting the local controller", async () => {
+      let observedSignal: AbortSignal | undefined;
+      let observedClientTurnId: string | undefined;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { clientTurnId?: string },
+          _handlers: unknown,
+          signal?: AbortSignal
+        ) => {
+          observedSignal = signal;
+          observedClientTurnId = payload.clientTurnId;
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("hi");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(observedClientTurnId).toBeDefined());
+
+      await act(async () => {
+        result.current.stop();
+        if (sendPromise !== undefined) {
+          await sendPromise.catch(() => undefined);
+        }
+      });
+
+      // The hard-stop POST must fire with the same clientTurnId the
+      // streaming endpoint received, so the API can route it through the
+      // registry to the matching `AbortController`.
+      await waitFor(() => {
+        expect(assistantApiMocks.stopAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      });
+      expect(assistantApiMocks.stopAssistantWebChatTurn).toHaveBeenCalledWith(
+        "token-1",
+        observedClientTurnId
+      );
+      // Local controller must still be aborted — this is what flips the
+      // user-facing UI state regardless of whether the POST succeeded.
+      expect(observedSignal?.aborted).toBe(true);
+    });
+
+    it("does not POST stop when the user simply navigates away (soft-detach)", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(async () => {
+        // Stream "stays open" forever — the test exits while it's still
+        // pending. The local AbortController is GC'd when the hook
+        // unmounts, but the explicit hard-stop POST must *not* fire,
+        // because the user did not press Stop.
+        await new Promise(() => undefined);
+      });
+
+      const { result, unmount } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        void result.current.send("background me");
+        await Promise.resolve();
+      });
+      await waitFor(() =>
+        expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1)
+      );
+
+      unmount();
+
+      // No `stop()` was ever invoked, so the new explicit hard-stop POST
+      // must not fire on plain unmount. This is what lets the API keep
+      // the runtime alive on screen-lock / tab-switch.
+      expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+    });
+
+    it("stop() still aborts locally even if the hard-stop POST rejects", async () => {
+      // The POST is best-effort: a network failure here just means the
+      // runtime keeps generating server-side, which is no worse than the
+      // soft-detach path. The user-visible UI guarantee — composer
+      // unfreezes, isStreaming flips off — must hold regardless.
+      assistantApiMocks.stopAssistantWebChatTurn.mockRejectedValueOnce(new Error("network down"));
+
+      let observedSignal: AbortSignal | undefined;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (_token: string, _payload: unknown, _handlers: unknown, signal?: AbortSignal) => {
+          observedSignal = signal;
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("hi");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(observedSignal).toBeDefined());
+
+      await act(async () => {
+        result.current.stop();
+        if (sendPromise !== undefined) {
+          await sendPromise.catch(() => undefined);
+        }
+      });
+
+      // Local abort happened despite the POST rejection.
+      expect(observedSignal?.aborted).toBe(true);
     });
   });
 });

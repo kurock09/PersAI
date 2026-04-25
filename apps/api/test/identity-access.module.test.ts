@@ -161,6 +161,29 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "GET /api/v1/app/bootstrap must be guarded by ClerkAuthMiddleware"
   );
+  // ADR-076 Slice 4 follow-up (2026-04-25 founder report): GET avatar bytes
+  // hit `apps/api` via a parameterized path — `/assistant/avatar/:hash` —
+  // but the allowlist initially registered the bare `/assistant/avatar`,
+  // which Nest does not match against `:hash` URLs. The middleware was
+  // skipped, `req.resolvedAppUser` stayed null, and the controller returned
+  // 401 in ~1ms. The browser <img> source then 404'd through the BFF and
+  // the avatar never displayed. Pin both shapes so we never lose either.
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/avatar",
+      method: RequestMethod.POST
+    }),
+    true,
+    "POST /api/v1/assistant/avatar must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/assistant/avatar/:hash",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET /api/v1/assistant/avatar/:hash must be guarded by ClerkAuthMiddleware"
+  );
 }
 
 void runIdentityAccessModuleTest().catch((error: unknown) => {

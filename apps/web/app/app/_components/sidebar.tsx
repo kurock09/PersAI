@@ -33,11 +33,13 @@ import { AssistantAvatar } from "./assistant-avatar";
 import type { AppData, AssistantStatus } from "./use-app-data";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { useTheme } from "./use-theme";
+import { useClerkAvatar } from "./use-clerk-avatar";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
   deleteAssistantWebChat
 } from "../assistant-api-client";
+import { useIsThreadStreaming } from "./streaming-threads";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -148,12 +150,25 @@ export function Sidebar({
     none: ts("notCreated")
   };
   const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
-  const chatGroups = groupChatsByDate(data.chats, {
-    today: t("today"),
-    yesterday: t("yesterday"),
-    previous7: t("previous7"),
-    older: t("older")
-  });
+  /*
+   * Hydration safety: groupChatsByDate / formatChatRowTimestamp depend on
+   * `new Date()` and the device timezone. On the server (UTC pod) and on
+   * the client (local TZ) this can yield different group buckets and
+   * timestamp strings, which trips React error #418 in production builds
+   * and forces a full client re-render. In Capacitor's WebView that
+   * re-render reliably loses freshly-mounted pointer event handlers
+   * (mic hold-to-record, attachment menu, etc.). We defer all date-aware
+   * rendering until after mount so the SSR and first client render are
+   * structurally identical.
+   */
+  const chatGroups = mounted
+    ? groupChatsByDate(data.chats, {
+        today: t("today"),
+        yesterday: t("yesterday"),
+        previous7: t("previous7"),
+        older: t("older")
+      })
+    : [];
   return (
     <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
       {/* Mobile close button */}
@@ -237,7 +252,7 @@ export function Sidebar({
          *     mutations (that path uses `isReloading` now), so settings
          *     saves never wipe the sidebar.
          */}
-        {data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
+        {!mounted || data.isLoading || (data.isReloadingChats && chatGroups.length === 0) ? (
           <ChatListSkeleton />
         ) : chatGroups.length === 0 ? (
           <p className="pb-4 pt-6 text-center text-xs text-text-subtle">{t("startFirst")}</p>
@@ -336,8 +351,12 @@ function AccountFooter({
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [open, setOpen] = useState(false);
-  const [avatarBroken, setAvatarBroken] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const {
+    imageSrc: avatarUrl,
+    broken: avatarBroken,
+    onError: handleAvatarError
+  } = useClerkAvatar();
 
   useEffect(() => {
     if (!open) return;
@@ -349,13 +368,6 @@ function AccountFooter({
   }, [open]);
 
   const initials = (user?.firstName?.[0] ?? user?.username?.[0] ?? "U").toUpperCase();
-  const avatarVersion =
-    user?.updatedAt instanceof Date ? user.updatedAt.getTime() : (user?.updatedAt ?? "");
-  const avatarUrl =
-    user?.imageUrl && user.imageUrl.trim().length > 0
-      ? `${user.imageUrl}${user.imageUrl.includes("?") ? "&" : "?"}v=${String(avatarVersion)}`
-      : null;
-  useEffect(() => setAvatarBroken(false), [avatarUrl]);
 
   const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
   const tokenBucket =
@@ -413,7 +425,9 @@ function AccountFooter({
               src={avatarUrl}
               alt=""
               className="h-full w-full object-cover"
-              onError={() => setAvatarBroken(true)}
+              onError={handleAvatarError}
+              referrerPolicy="no-referrer"
+              loading="eager"
             />
           ) : (
             initials
@@ -635,6 +649,10 @@ function ChatListItem({
 }) {
   const t = useTranslations("sidebar");
   const { getToken } = useAuth();
+  // Slice 1.1 — surface a small pulsing dot on rows whose stream is in
+  // flight. Pure read of the shared registry — no work happens here when
+  // the thread is idle.
+  const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -768,14 +786,12 @@ function ChatListItem({
   }
 
   const timestamp = formatChatRowTimestamp(item.chat.lastMessageAt ?? item.chat.createdAt, locale);
-  const previewTooltip = item.lastMessagePreview ?? null;
 
   return (
     <div className="relative">
       <button
         type="button"
         onClick={onNavigate}
-        title={previewTooltip ?? undefined}
         className={cn(
           "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors",
           isActive
@@ -788,6 +804,13 @@ function ChatListItem({
             <span className="min-w-0 truncate text-xs font-medium">
               {item.chat.title ?? item.chat.surfaceThreadKey}
             </span>
+            {isThreadStreaming && (
+              <span
+                title={t("streamingIndicator")}
+                aria-label={t("streamingIndicator")}
+                className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent"
+              />
+            )}
             {item.chat.deepModeEnabled && (
               <span
                 title={t("deepModeBadge")}

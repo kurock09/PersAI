@@ -197,6 +197,7 @@
     "confirmDelete": "Confirm delete",
     "deleting": "Deleting...",
     "deepModeBadge": "Smarter",
+    "streamingIndicator": "Generating reply",
     "assistantSettingsHint": "Assistant settings"
   },
   "home": {

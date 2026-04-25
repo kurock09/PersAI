@@ -50,6 +50,7 @@
     "file-type": "^21.3.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "sharp": "^0.34.5",
     "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5"
   },

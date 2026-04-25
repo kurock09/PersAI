@@ -32,6 +32,7 @@ import {
   isKnowledgeEligibleFile
 } from "../chat-file-policy";
 import { useTouchDevice } from "./use-touch-device";
+import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
 
@@ -177,7 +178,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     const shouldAddToKnowledgeBase =
       addToKnowledgeBase && pendingFiles.some((file) => isKnowledgeEligibleFile(file));
     onSend(
-      text.length > 0 ? text : "(attached files)",
+      // FIX 3 — keep the placeholder going to the API (server-side `message`
+      // is required non-empty after trim) but route it through a shared
+      // sentinel so `chat-message.tsx` can recognize and hide it at render
+      // time. The user's bubble shows just the attachments instead of a
+      // literal "(attached files)" line.
+      text.length > 0 ? text : ATTACHMENTS_ONLY_PLACEHOLDER,
       pendingFiles.length > 0 ? pendingFiles : undefined,
       shouldAddToKnowledgeBase ? { addToKnowledgeBase: true } : undefined
     );

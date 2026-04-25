@@ -74,9 +74,24 @@ function normalizeOptionalDraftField(value: unknown, fieldName: string): string 
   return trimmed;
 }
 
+const CONTENT_ADDRESSED_AVATAR_URL_PATTERN = /^\/api\/avatar\/[a-f0-9]{8,64}(?:\.[a-z0-9]{2,8})?$/i;
+
+/**
+ * ADR-076 Slice 4 — assistant avatars are stored content-addressed under
+ * `/api/avatar/<hash>.<ext>` and that path is what surfaces in lifecycle
+ * state. Any draft mutation that round-trips this URL (assistant settings
+ * "Save", setup wizard "Create" after upload) PATCHes the same value back,
+ * so the validator must accept it. Legacy callers that still supply absolute
+ * URLs continue to require https:// for defense in depth.
+ */
 function validateAvatarUrl(url: string): void {
+  if (CONTENT_ADDRESSED_AVATAR_URL_PATTERN.test(url)) {
+    return;
+  }
   if (!url.startsWith("https://")) {
-    throw new BadRequestException("avatarUrl must use the https:// scheme.");
+    throw new BadRequestException(
+      "avatarUrl must be a server-issued /api/avatar/<hash>.<ext> path or use the https:// scheme."
+    );
   }
   try {
     new URL(url);

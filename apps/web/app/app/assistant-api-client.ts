@@ -1025,6 +1025,44 @@ export async function streamAssistantWebChatTurn(
   }
 }
 
+/**
+ * Pre-prod polish 2026 / FIX 1, Slice 1.2 — explicit hard-stop signal.
+ *
+ * Pairs with `POST /assistant/chat/web/stop` on the API. Used by
+ * `useChat.stop()` to tell the API "this Stop click is a hard abort, not
+ * just a tab-switch" *before* tearing down the local SSE controller.
+ * Best-effort: the call is fire-and-forget from the caller's POV, but we
+ * still await the network round-trip so transient errors surface in the
+ * console without blocking the local abort path. A failure here only
+ * means the runtime keeps producing in the background — which is the
+ * documented soft-detach behavior, strictly safer than the pre-Slice-1.2
+ * "always abort on any disconnect" default.
+ */
+export async function stopAssistantWebChatTurn(token: string, clientTurnId: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/assistant/chat/web/stop`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ clientTurnId })
+  });
+
+  if (!response.ok && response.status !== 204) {
+    let errorPayload: unknown = null;
+    try {
+      errorPayload = await response.json();
+    } catch {
+      errorPayload = await response.text();
+    }
+    throw new ContractsApiError(
+      `Stop request failed with status ${response.status}.`,
+      response.status,
+      errorPayload
+    );
+  }
+}
+
 export async function getAssistant(token: string): Promise<AssistantLifecycleState | null> {
   try {
     const response = await getAssistantContract({
