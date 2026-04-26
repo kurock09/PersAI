@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-04-26 (Background-completed chat stream restore) — completed turns survive returning to inactive chats (`apps/web`; focused regression green)
+
+### Why this session
+
+Founder reported that a long answer works when returning while the stream is still active, but if the stream completes while the user is in another chat or the phone is backgrounded, returning to the original chat can lose both the sent user message and the assistant answer until refresh/history catches up.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now writes a successfully completed inactive turn into the per-thread in-memory history cache before clearing its live `activeTurnSnapshotsRef` entry.
+- The cache merge preserves existing cached history and upserts the completed user/assistant messages by id, so live-stream restoration behavior stays unchanged while completed background turns have a committed place to restore from.
+- `apps/web/app/app/_components/use-chat.test.tsx` covers the exact regression: stream in `thread-A`, switch to `thread-B`, complete in the background, then return to `thread-A` and see the committed user message plus assistant answer immediately.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+
+### Risks / residuals
+
+- This is in-memory resilience, not durable offline outbox/history storage. A full hard refresh after completion still relies on the normal server history fetch.
+
+### Next recommended step
+
+Deploy web and live-check on Android: start a long answer, switch chats or background the app until completion, return to the original chat, and confirm the sent message plus final answer appear without refresh.
+
+---
+
 ## 2026-04-26 (Chat attachment upload navigation resilience) — large uploads preserve pending state and stop leaning on XHR staging (`apps/web`; focused tests/typecheck green)
 
 ### Why this session

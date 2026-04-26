@@ -531,6 +531,30 @@ export function useChat(threadKey: string): UseChatReturn {
     }
   }, []);
 
+  const cacheThreadHistorySnapshot = useCallback(
+    (targetThreadKey: string, snapshot: ActiveTurnSnapshot) => {
+      const existing = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
+      const messagesById = new Map<string, ChatMessage>();
+      for (const message of existing?.messages ?? []) {
+        messagesById.set(message.id, message);
+      }
+      for (const message of snapshot.messages) {
+        messagesById.set(message.id, message);
+      }
+      const messages = Array.from(messagesById.values());
+      cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
+        ...snapshot,
+        messages,
+        olderCursor: existing?.olderCursor ?? null,
+        hasOlderMessages: existing?.hasOlderMessages ?? false
+      });
+      if (snapshot.chatId !== null) {
+        cachedThreadKeyByChatIdRef.current.set(snapshot.chatId, targetThreadKey);
+      }
+    },
+    []
+  );
+
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -1148,6 +1172,7 @@ export function useChat(threadKey: string): UseChatReturn {
       // measure up to the headers, not to the first SSE event.
       let headersOk = false;
       let softDetached = false;
+      let completedSuccessfully = false;
       const headersTimer = setTimeout(() => {
         if (!headersOk) {
           try {
@@ -1421,6 +1446,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   baselineCompaction: compactionBeforeTurn
                 });
               }
+              completedSuccessfully = true;
 
               // Files are already staged before the stream — no post-stream upload needed
             },
@@ -1540,6 +1566,10 @@ export function useChat(threadKey: string): UseChatReturn {
           const hasFailedPending =
             pendingSendsByThreadRef.current.get(sendThreadKey)?.status === "send_failed";
           if (!hasFailedPending) {
+            const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (completedSuccessfully && snapshot !== undefined) {
+              cacheThreadHistorySnapshot(sendThreadKey, snapshot);
+            }
             activeTurnSnapshotsRef.current.delete(sendThreadKey);
           }
           releaseAbortController();
@@ -1552,6 +1582,7 @@ export function useChat(threadKey: string): UseChatReturn {
       isStreaming,
       applyThreadLiveActivities,
       applyThreadMessages,
+      cacheThreadHistorySnapshot,
       clearSoftDetachReconcileTimer,
       markStreaming,
       refreshCompactionState,

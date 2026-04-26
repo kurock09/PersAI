@@ -1104,6 +1104,80 @@ describe("useChat", () => {
       });
     });
 
+    it("restores a turn that completed while its thread was in the background", async () => {
+      const streamGate: { release: () => void } = { release: () => undefined };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "user-msg-A", chatId: "chat-A", attachments: [] }
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: { id: "user-msg-A", chatId: "chat-A", attachments: [] },
+              assistantMessage: { id: "assistant-msg-A", content: "Long answer", attachments: [] }
+            }
+          });
+        }
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("write a long speech");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+      rerender({ threadKey: "thread-B" });
+      expect(result.current.messages).toHaveLength(0);
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) await sendPromise;
+      });
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.messages).toHaveLength(0);
+
+      rerender({ threadKey: "thread-A" });
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "user-msg-A",
+          role: "user",
+          content: "write a long speech",
+          status: "committed"
+        }),
+        expect.objectContaining({
+          id: "assistant-msg-A",
+          role: "assistant",
+          content: "Long answer",
+          status: "committed"
+        })
+      ]);
+      expect(result.current.historyLoading).toBe(false);
+    });
+
     it("keeps a failed attachment upload on the originating thread after switching away", async () => {
       const uploadGate: { reject: (error: unknown) => void } = {
         reject: () => undefined
