@@ -20,10 +20,12 @@
  * `web_fetch`, etc. — routinely take 15–60 s to complete and produce no intermediate
  * chunks; without suspension the silent timer would fire ~`silentMs` after the start
  * and falsely report the stream as stalled, which then aborts the runtime fetch and
- * loses the tool's side effects. Use `recordToolStarted()` / `recordToolFinished()`
- * for tool phase events instead of the generic `recordActivity()`. The watchdog is
- * meant to detect slow TEXT streaming, not slow tool execution — per-tool execution
- * timeouts live elsewhere (provider gateway / runtime).
+ * loses the tool's side effects. After the last tool finishes, we keep the watchdog
+ * quiet until the next model activity/delta; provider/runtime stream timeouts are the
+ * correct guard for a slow post-tool final answer. Use `recordToolStarted()` /
+ * `recordToolFinished()` for tool phase events instead of the generic
+ * `recordActivity()`. The watchdog is meant to detect slow TEXT streaming, not slow
+ * tool execution or post-tool thinking latency.
  *
  * The watchdog fires `onStall` at most once and then becomes inert. Callers must
  * always invoke `dispose()` (typically in a `finally` block) so that the silent
@@ -90,9 +92,11 @@ export interface CadenceWatchdog {
   recordToolStarted(): void;
   /**
    * Record that a native tool call finished. Decrements the inflight-tool
-   * counter and, if the count transitions to 0, re-arms the silent timer
-   * with `lastDeltaAtMs = now()` so the post-tool quiet window is measured
-   * from the moment the tool returned (not from before it started).
+   * counter and moves `lastDeltaAtMs` forward so the next delta is measured
+   * from the moment the tool returned (not from before it started). It does
+   * not arm the silent timer; the model's first post-tool token may be slow
+   * and should be governed by provider/runtime stream timeouts, not this
+   * mid-text cadence watchdog.
    * Tolerates over-decrement (extra `recordToolFinished` calls are no-ops)
    * so callers do not need to track pairing perfectly across edge cases.
    */
@@ -247,10 +251,9 @@ export function createCadenceWatchdog(
       // Anchor the next text-delta gap measurement at "now" so a healthy
       // post-tool stream is not penalized by the tool's execution span.
       lastDeltaAtMs = now();
-      // Re-arm the silent timer once the last in-flight tool resolves.
-      // While more tools are still in flight, `startSilentTimer` will
-      // short-circuit and keep the suspension active.
-      startSilentTimer();
+      // Do not re-arm the silent timer here. Slow post-tool finalization can
+      // legitimately take longer than the text-cadence threshold; the next
+      // delta/activity will re-arm the watchdog once streaming resumes.
     },
     dispose() {
       disposed = true;

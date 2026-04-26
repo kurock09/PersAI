@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-04-26 (Web-search post-tool stream finalization) — post-tool thinking no longer trips the 8s cadence watchdog (`apps/api`; focused watchdog regression green)
+
+### Why this session
+
+Founder reproduced the old "answer broke after web search" symptom before the next deploy. The visible chat had a web-search result and partial/final-looking text, while OpenAI's UI showed the tool call and answer had actually completed.
+
+### What changed
+
+- Fresh GKE logs showed request `7bf4b4d8-4c02-4979-9167-5b47b9d6c52a` entering `tool_loop_followup` at the provider gateway, then failing before the first follow-up stream event with `Request was aborted` about 8 seconds later.
+- Root cause: `apps/api/src/modules/workspace-management/application/cadence-watchdog.ts` re-armed the silent watchdog immediately on `recordToolFinished()`. For `web_search`/`web_fetch`, the model can legitimately need more than 8 seconds after tool results before emitting the first final-answer event, so the API itself aborted a healthy runtime/provider stream.
+- `recordToolFinished()` now keeps the watchdog quiet until the next model activity/delta. Slow post-tool finalization is governed by the existing runtime/provider stream timeouts instead of the text-cadence watchdog.
+- `apps/api/test/cadence-watchdog.test.ts` was updated to pin the new behavior: long tool spans and long post-tool thinking do not fire a false silent stall, while resumed text deltas still re-arm the watchdog.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/cadence-watchdog.test.ts`
+
+### Risks / residuals
+
+- This intentionally stops the API cadence watchdog from aborting silent post-tool finalization. A truly hung post-tool provider stream will now be handled by the broader provider/runtime stream timeout rather than the 8s cadence threshold.
+
+### Next recommended step
+
+Deploy API, reproduce with a web-search query on `persai-dev`, and confirm no `web_stream_stall_unrecovered` / `failed-before-event: Request was aborted` appears for the follow-up while the chat receives a normal completed event.
+
+---
+
 ## 2026-04-26 (Background-completed chat stream restore) — completed turns survive returning to inactive chats (`apps/web`; focused regression green)
 
 ### Why this session

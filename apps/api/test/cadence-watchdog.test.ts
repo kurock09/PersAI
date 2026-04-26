@@ -444,14 +444,14 @@ describe("CadenceWatchdog", () => {
     clock.advance(60_000);
     assert.equal(reports.length, 0);
     assert.equal(wd.hasStalled(), false);
-    // Tool finishes — silent timer re-arms from "now".
+    // Tool finishes — post-tool finalization may be slow, so the silent timer
+    // stays quiet until text/activity resumes.
     wd.recordToolFinished();
-    assert.equal(clock.pendingCount(), 1);
-    clock.advance(4999);
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(60_000);
     assert.equal(reports.length, 0);
-    clock.advance(2);
-    assert.equal(reports.length, 1);
-    assert.equal(reports[0]?.reason, "silent");
+    wd.recordDelta();
+    assert.equal(clock.pendingCount(), 1);
     wd.dispose();
   });
 
@@ -481,6 +481,8 @@ describe("CadenceWatchdog", () => {
     clock.advance(30_000);
     assert.equal(reports.length, 0);
     wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 0);
+    wd.recordDelta();
     assert.equal(clock.pendingCount(), 1);
     wd.dispose();
   });
@@ -514,10 +516,11 @@ describe("CadenceWatchdog", () => {
     clock.advance(20_000);
     assert.equal(reports.length, 0);
     wd.recordToolFinished();
+    assert.equal(clock.pendingCount(), 0);
+    clock.advance(60_000);
+    assert.equal(reports.length, 0);
+    wd.recordDelta();
     assert.equal(clock.pendingCount(), 1);
-    clock.advance(5001);
-    assert.equal(reports.length, 1);
-    assert.equal(reports[0]?.reason, "silent");
     wd.dispose();
   });
 
@@ -549,7 +552,7 @@ describe("CadenceWatchdog", () => {
     clock.advance(60_000);
     assert.equal(reports.length, 0);
     wd.recordToolFinished();
-    assert.equal(clock.pendingCount(), 1);
+    assert.equal(clock.pendingCount(), 0);
     wd.dispose();
   });
 
