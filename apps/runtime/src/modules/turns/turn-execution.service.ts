@@ -1116,7 +1116,7 @@ export class TurnExecutionService {
 
   private buildSystemPrompt(bundle: AssistantRuntimeBundle): string | null {
     // ADR-074 P1: `systemPrompt` is the cached stable prefix only. Per-turn variability (routing
-    // guidance, heartbeat) is moved to `developerInstructions` so provider prompt caching stays
+    // guidance, presence) is moved to `developerInstructions` so provider prompt caching stays
     // hot across turns for the same assistant + bundle.
     return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
   }
@@ -1128,20 +1128,18 @@ export class TurnExecutionService {
     routeDecision: TurnRouteDecision | undefined,
     presenceBlock: string | null
   ): string | null {
-    const heartbeatBlock = this.normalizeOptionalText(bundle.promptDocuments.heartbeat ?? null);
     const routingGuidance = this.buildTurnRoutingPrompt(
       projectedTools,
       routeDecision,
       deepModeEnabled
     );
-    // ADR-074 Slice T1: developer-tail order is fixed —
-    // routingGuidance → presence → heartbeat. Presence sits AFTER routing
-    // (so the model first knows which mode to operate in) and BEFORE
-    // heartbeat (so the heartbeat's "create a follow-up scheduled_action"
-    // guidance can react to the freshly-rendered "time since last user
-    // message" signal).
+    // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
+    // Background Task Evaluation prompt. It must never be appended to a normal
+    // user-visible chat turn; otherwise the main assistant may return service
+    // decisions like `no_push` as chat text. Background evaluation consumes
+    // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
     const presenceSection = this.normalizeOptionalText(presenceBlock);
-    const sections = [routingGuidance, presenceSection, heartbeatBlock]
+    const sections = [routingGuidance, presenceSection]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;

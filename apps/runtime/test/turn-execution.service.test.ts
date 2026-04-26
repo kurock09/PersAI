@@ -1042,7 +1042,9 @@ class FakeTurnContextHydrationService {
   // ADR-074 Slice T1: TurnExecutionService now asks the hydration service
   // to compute the per-turn `presence` developer-tail block. Tests can
   // override this string to assert the developer-tail order
-  // (routingGuidance → presence → heartbeat); default is `null` which
+  // (routingGuidance → presence). ADR-077 moved background evaluation out
+  // of normal chat turns, so the old heartbeat tail is no longer appended
+  // here. Default is `null` which
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
 
