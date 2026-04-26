@@ -35,7 +35,7 @@ export function useClerkAvatar(): {
   broken: boolean;
   onError: () => void;
 } {
-  const { user } = useUser();
+  const user = useUser()?.user ?? null;
   const [attempt, setAttempt] = useState(0);
   const [broken, setBroken] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -56,14 +56,22 @@ export function useClerkAvatar(): {
     }
     window.sessionStorage.setItem(reloadFlag, "1");
     reloadedRef.current = true;
+    let cancelled = false;
     // `user.reload()` is `Promise<UserResource>` in production; in unit tests
     // `vi.fn()` may return `undefined`, so we coerce through `Promise.resolve`
     // before attaching `.catch`. Reloading is best-effort: if Clerk is
     // unreachable we keep the cached user object — the regular render path
     // still produces a valid URL.
     void Promise.resolve(user.reload?.())
-      .then(() => setReloadNonce((current) => current + 1))
+      .then(() => {
+        if (!cancelled) {
+          setReloadNonce((current) => current + 1);
+        }
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [user, userId]);
 
   useEffect(() => {

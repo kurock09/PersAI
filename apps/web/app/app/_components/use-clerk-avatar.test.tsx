@@ -1,6 +1,6 @@
 "use client";
 
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clerkMocks = vi.hoisted(() => ({
@@ -22,7 +22,11 @@ beforeEach(() => {
   clerkMocks.useUser.mockReset();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => {
+    await Promise.resolve();
+  });
+  cleanup();
   vi.useRealTimers();
 });
 

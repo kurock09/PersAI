@@ -23,6 +23,7 @@ Founder reported that while a large PDF/photo upload was in progress, chat switc
 - `apps/web/app/app/_components/sidebar.test.tsx` covers that chat switching uses local history rather than `router.push`.
 - `apps/runtime/src/modules/turns/turn-execution.service.ts` now handles the root stream-finalization failure where a provider/model returns an empty `completed` after tools: when tool history exists and the assistant text is still empty, runtime performs a safe final-text-only retry with tools disabled and explicit developer instructions to produce the final visible answer from existing tool results.
 - `apps/runtime/test/turn-execution.service.test.ts` covers the streaming regression: tool executes, first follow-up completes empty, runtime retries without tools, and the turn completes with assistant text instead of surfacing as an interrupted/broken stream.
+- `apps/web/app/app/_components/use-clerk-avatar.ts` and its test were hardened after GitHub CI failed on a full-suite-only unhandled error: the hook now tolerates `useUser()` returning `undefined` in tests and ignores late `user.reload()` state updates after unmount; the test flushes and cleans up the reload microtask.
 
 ### Tests run
 
@@ -33,6 +34,8 @@ Founder reported that while a large PDF/photo upload was in progress, chat switc
 - `corepack pnpm --filter @persai/web run typecheck`
 - `corepack pnpm --filter @persai/runtime test -- turn-execution.service.test.ts`
 - `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-clerk-avatar.test.tsx`
+- `corepack pnpm --filter @persai/web run test`
 
 ### Risks / residuals
 
