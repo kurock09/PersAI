@@ -225,6 +225,13 @@ const DELIVERY_CLAIM_PATTERNS = [
   /(?:вот|держи)\s+(?:файл|документ|вложение)/i
 ] as const;
 
+const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
+  BACKGROUND_TASK_TOOL_CODE,
+  SCHEDULED_ACTION_TOOL_CODE,
+  "summarize_context",
+  "compact_context"
+]);
+
 @Injectable()
 export class TurnExecutionService {
   private readonly logger = new Logger(TurnExecutionService.name);
@@ -273,6 +280,42 @@ export class TurnExecutionService {
       case "accepted": {
         const execution = await this.prepareTurnExecution(input, {
           allowModelToolExposure: true
+        });
+        const turnState = this.createTurnExecutionState();
+        this.applyPreparedTurnExecutionState(turnState, execution);
+        const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
+        return this.finalizeAcceptedTurnWithPostTurnEffects({
+          acceptedTurn,
+          result,
+          input,
+          bundle: execution.bundle,
+          turnState
+        });
+      }
+    }
+  }
+
+  async createBackgroundTaskToolRun(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
+    this.assertSupportedTurnRequest(input, "createBackgroundTaskToolRun");
+
+    const acceptedTurn = await this.turnAcceptanceService.acceptTurn(input);
+    switch (acceptedTurn.outcome) {
+      case "busy":
+        throw new ConflictException(
+          `Background task session "${acceptedTurn.session.sessionId}" is already processing another turn.`
+        );
+      case "in_flight":
+        throw new ConflictException(
+          acceptedTurn.requestId === null
+            ? "A matching background task turn is already in flight."
+            : `Background task turn "${acceptedTurn.requestId}" is already in flight.`
+        );
+      case "replayed":
+        return this.resolveReplayResult(acceptedTurn.receipt);
+      case "accepted": {
+        const execution = await this.prepareTurnExecution(input, {
+          allowModelToolExposure: true,
+          excludedToolNames: BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS
         });
         const turnState = this.createTurnExecutionState();
         this.applyPreparedTurnExecutionState(turnState, execution);
@@ -354,6 +397,7 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     options?: {
       allowModelToolExposure?: boolean;
+      excludedToolNames?: ReadonlySet<string>;
       trace?: RuntimeStreamTraceCollector;
     }
   ): Promise<PreparedTurnExecution> {
@@ -404,12 +448,21 @@ export class TurnExecutionService {
     const baselineProjectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
       allowModelToolExposure: options?.allowModelToolExposure ?? true
     });
+    const projectedTools =
+      options?.excludedToolNames === undefined || options.excludedToolNames.size === 0
+        ? baselineProjectedTools
+        : {
+            ...baselineProjectedTools,
+            tools: baselineProjectedTools.tools.filter(
+              (tool) => !options.excludedToolNames?.has(tool.name)
+            )
+          };
     options?.trace?.stage("prepare.tools_projected");
     const executionPlan = await this.resolveTurnExecutionPlan(
       bundleEntry.parsedBundle,
       input,
       hydratedMessages,
-      baselineProjectedTools
+      projectedTools
     );
     options?.trace?.stage("prepare.execution_plan_ready");
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
@@ -422,7 +475,7 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle,
       providerSelection,
       hydratedMessages,
-      baselineProjectedTools,
+      projectedTools,
       input.deepMode === true,
       executionPlan.routeDecision,
       presenceBlock
@@ -430,7 +483,7 @@ export class TurnExecutionService {
     options?.trace?.stage("prepare.provider_request_built");
     return {
       bundle: bundleEntry.parsedBundle,
-      projectedTools: baselineProjectedTools,
+      projectedTools,
       runtimeTier: input.runtimeTier,
       currentMessageAttachments: input.message.attachments,
       deepModeEnabled: input.deepMode === true,
@@ -1313,7 +1366,7 @@ export class TurnExecutionService {
 
   private assertSupportedTurnRequest(
     input: RuntimeTurnRequest,
-    operation: "createTurn" | "streamTurn"
+    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun"
   ): void {
     if (input.message.text.trim().length === 0) {
       throw new BadRequestException(

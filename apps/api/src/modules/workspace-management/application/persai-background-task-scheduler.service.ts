@@ -10,6 +10,7 @@ import {
   type InternalRuntimeBackgroundTaskEvaluationOutcome
 } from "./internal-runtime-background-task.client.service";
 import { computeReminderNextRunAtMs, parseReminderSchedule } from "./reminder-schedule";
+import { readRuntimeAssignmentStateFromMaterializedLayers } from "./runtime-assignment";
 
 const BACKGROUND_TASK_POLL_INTERVAL_MS = 5_000;
 const BACKGROUND_TASK_BATCH_SIZE = 8;
@@ -251,6 +252,9 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     const outcome = await this.internalRuntimeBackgroundTaskClientService.evaluate({
       assistantId: task.assistantId,
       workspaceId: task.workspaceId,
+      runtimeTier:
+        readRuntimeAssignmentStateFromMaterializedLayers(spec.layers)?.effectiveTier ??
+        "free_shared_restricted",
       runtimeBundleDocument: spec.runtimeBundleDocument,
       task: {
         id: task.id,
@@ -297,7 +301,8 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
         assistantId: task.assistantId,
         jobId: task.externalRef ?? task.id,
         status: "ok",
-        summary: result.pushText
+        summary: result.pushText,
+        artifacts: result.artifacts
       });
       deliveryResultJson = {
         deliveredTo: deliveryTarget,
@@ -337,7 +342,16 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
           decisionJson: {
             decision: result.decision,
             rationale: result.rationale,
-            confidence: result.confidence
+            confidence: result.confidence,
+            toolRunText: result.toolRunText,
+            artifacts: result.artifacts.map((artifact) => ({
+              artifactId: artifact.artifactId,
+              kind: artifact.kind,
+              objectKey: artifact.objectKey,
+              mimeType: artifact.mimeType,
+              filename: artifact.filename,
+              sizeBytes: artifact.sizeBytes
+            }))
           } as Prisma.InputJsonValue,
           pushText: result.pushText,
           deliveryTarget,

@@ -109,6 +109,8 @@
 
 ### Fixed
 
+- **Chat attachment upload navigation resilience (`apps/web`; focused tests/typecheck green):** large chat attachment staging now uses `fetch` instead of XHR and no longer applies an absolute client-side hard timeout to chat attachments. This keeps the Android WebView/sidebar navigation path more responsive while a PDF/photo upload is in flight, avoids failing slow-but-progressing uploads just because the wall clock passed 5 minutes, and pairs with the per-thread pending-send state so switching away no longer loses the originating chat's pending/failed attachment message. Attachment sends no longer show the duplicate off-bubble spinner on the right; the in-card pending indicator remains the single upload cue.
+
 - **Admin presets reset-to-default reliability (`apps/api` + `apps/web`; focused tests/typechecks green):** prompt-template reset now uses an API-backed factory-default endpoint instead of a stale frontend copy of defaults, and the content-editable editor immediately refreshes its local text after reset. This fixes `/admin/presets` resets appearing to do nothing from the top prompt blocks through the tool prompt area.
 
 - **Admin presets use-code-default persistence (`apps/api`; focused tests/typecheck green):** the tool catalog boot sync no longer writes code-default model descriptions/guidance into `providerHints` as manual overrides. Explicit `null` / use-code-default choices now survive API deploy/reseed, legacy rows that stored the exact code default are normalized back to `null`, and real custom overrides are preserved.

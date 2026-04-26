@@ -154,6 +154,22 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     expect(screen.getByTestId(SENDING_INDICATOR_TESTID)).toBeInTheDocument();
   });
 
+  it("does not render the off-bubble spinner for attachment sends", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("sending", {
+          attachments: [{ ...makeImageAttachment("att-pending"), processingStatus: "pending" }]
+        })}
+      />
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
+  });
+
   it("removes the spinner when the bubble flips to `committed`", () => {
     const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 

@@ -1435,6 +1435,7 @@ export interface RuntimeBackgroundTaskToolResult {
 export interface RuntimeBackgroundTaskEvaluationRequest {
   assistantId: string;
   workspaceId: string;
+  runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
   task: {
     id: string;
@@ -1454,6 +1455,8 @@ export interface RuntimeBackgroundTaskEvaluationResult {
   pushText: string | null;
   rationale: string | null;
   confidence: "low" | "medium" | "high";
+  toolRunText: string | null;
+  artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
   rawText: string | null;
 }

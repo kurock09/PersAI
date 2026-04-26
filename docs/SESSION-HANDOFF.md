@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-04-26 (Chat attachment upload navigation resilience) — large uploads preserve pending state and stop leaning on XHR staging (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder reported that while a large PDF/photo upload was in progress, chat switching felt blocked for many taps/clicks; after navigation eventually happened, the originating chat could lose the pending attachment/message state.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` keeps pending send state per `threadKey`, so upload/send failures restore on the originating chat after switching away and back.
+- `apps/web/app/app/_components/use-chat.ts` no longer passes an absolute hard timeout for chat attachment staging, because slow mobile uploads can keep making progress for minutes and should not fail just because the wall clock crossed 5 minutes.
+- `apps/web/app/app/assistant-api-client.ts` stages chat attachments with `fetch` instead of XHR, avoiding the Android WebView/XHR path that can make sidebar navigation feel stuck during large multipart uploads.
+- `apps/web/app/app/_components/chat-message.tsx` suppresses the off-bubble right-side sending spinner for user messages with attachments; the in-card file/media pending indicator remains the single upload cue.
+- `apps/web/app/app/_components/use-chat.test.tsx` covers switching away during an attachment upload and returning to the original thread after failure.
+- `apps/web/app/app/_components/chat-message.test.tsx` covers that attachment sends do not render the duplicate off-bubble spinner.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Needs one live Android/Capacitor validation with a slow 8-10 MB PDF/photo upload: while the spinner is active, switch to another chat, then return and confirm the original chat still shows the pending/failed send or the completed model reply.
+
+### Next recommended step
+
+Deploy web and run the live large-attachment navigation repro on Android WebView before closing this polish item.
+
+---
+
 ## 2026-04-26 (Landing CTA + textarea chrome polish) — Hero actions are quieter and textarea resize handles are globally suppressed (`apps/web`; focused typecheck/format green)
 
 ### Why this session

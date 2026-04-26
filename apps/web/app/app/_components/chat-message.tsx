@@ -570,6 +570,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     isStreaming && message.content.trim().length === 0 && preResponseStatus !== undefined;
   const isUserSending = isUser && message.status === "sending";
   const isUserSendFailed = isUser && message.status === "send_failed";
+  const hasUserAttachments = isUser && (message.attachments?.length ?? 0) > 0;
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
   // FIX 3 — when a user sends only attachments, the composer fills `content`
   // with the canonical placeholder so the API contract stays satisfied. The
@@ -587,7 +588,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   // `Not delivered` block without a spinner flash.
   const [showSendingIndicator, setShowSendingIndicator] = useState(false);
   useEffect(() => {
-    if (!isUserSending) {
+    if (!isUserSending || hasUserAttachments) {
       setShowSendingIndicator(false);
       return;
     }
@@ -595,7 +596,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
       setShowSendingIndicator(true);
     }, SENDING_INDICATOR_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [isUserSending]);
+  }, [hasUserAttachments, isUserSending]);
 
   return (
     <div

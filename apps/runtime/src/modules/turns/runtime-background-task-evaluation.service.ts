@@ -1,12 +1,18 @@
 import { BadGatewayException, BadRequestException, Injectable } from "@nestjs/common";
-import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
+import {
+  hashAssistantRuntimeBundleDocument,
+  type AssistantRuntimeBundle
+} from "@persai/runtime-bundle";
 import type {
   PersaiRuntimeModelRole,
   ProviderGatewayTextGenerateRequest,
   RuntimeBackgroundTaskEvaluationRequest,
-  RuntimeBackgroundTaskEvaluationResult
+  RuntimeBackgroundTaskEvaluationResult,
+  RuntimeTurnRequest,
+  RuntimeTurnResult
 } from "@persai/runtime-contract";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { TurnExecutionService } from "./turn-execution.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
@@ -15,7 +21,10 @@ const EVALUATION_MAX_OUTPUT_TOKENS = 700;
 
 @Injectable()
 export class RuntimeBackgroundTaskEvaluationService {
-  constructor(private readonly providerGatewayClientService: ProviderGatewayClientService) {}
+  constructor(
+    private readonly providerGatewayClientService: ProviderGatewayClientService,
+    private readonly turnExecutionService: TurnExecutionService
+  ) {}
 
   async evaluate(
     input: RuntimeBackgroundTaskEvaluationRequest
@@ -28,27 +37,93 @@ export class RuntimeBackgroundTaskEvaluationService {
       throw new BadRequestException("runtimeBundleDocument workspaceId does not match request.");
     }
 
+    const toolRun = await this.turnExecutionService.createBackgroundTaskToolRun(
+      this.buildToolRunRequest(input, bundle)
+    );
     const providerSelection = this.resolveProviderSelection(bundle, "system_tool");
-    const request = this.buildProviderRequest(input, bundle, providerSelection);
+    const request = this.buildProviderRequest(input, bundle, providerSelection, toolRun);
     const result = await this.providerGatewayClientService.generateText(request);
     const parsed = this.parseEvaluationJson(result.text);
     return {
       ...parsed,
+      toolRunText: toolRun.assistantText.trim() || null,
+      artifacts: toolRun.artifacts,
       usage: result.usage,
       rawText: result.text
+    };
+  }
+
+  private buildToolRunRequest(
+    input: RuntimeBackgroundTaskEvaluationRequest,
+    bundle: AssistantRuntimeBundle
+  ): RuntimeTurnRequest {
+    const bundleHash = hashAssistantRuntimeBundleDocument(input.runtimeBundleDocument);
+    const scheduledKey = this.safeKey(input.task.scheduledRunAt);
+    const prompt = [
+      "You are running a PersAI background task outside the visible user chat.",
+      "Use the available tools when needed to gather facts, search knowledge/chat/memory, browse the web, run generation tools, or create artifacts requested by the task.",
+      "Do not create or modify scheduled reminders or background tasks from this synthetic run.",
+      "Do not send a final push yourself. After this run, a separate evaluator will decide push/no_push/complete.",
+      "Return a concise evidence report for that evaluator. Include exact values, sources, timestamps, and mention every generated artifact.",
+      "",
+      JSON.stringify(
+        {
+          currentTimeIso: new Date().toISOString(),
+          task: input.task,
+          assistant: {
+            name: bundle.persona.displayName,
+            userLocale: bundle.userContext.locale,
+            userTimezone: bundle.userContext.timezone
+          }
+        },
+        null,
+        2
+      )
+    ].join("\n");
+
+    return {
+      requestId: `background-task-tool-run:${input.task.id}:${scheduledKey}`,
+      idempotencyKey: `background-task-tool-run:${input.task.id}:${scheduledKey}`,
+      runtimeTier: input.runtimeTier,
+      bundle: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        bundleId: `background-task:${input.task.id}:${bundle.metadata.publishedVersionId}`,
+        publishedVersionId: bundle.metadata.publishedVersionId,
+        bundleHash,
+        compiledAt: new Date().toISOString()
+      },
+      conversation: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        channel: "web",
+        externalThreadKey: `system:background-task:${input.task.id}`,
+        externalUserKey: null,
+        mode: "direct"
+      },
+      message: {
+        text: prompt,
+        attachments: [],
+        locale: bundle.userContext.locale,
+        timezone: bundle.userContext.timezone,
+        receivedAt: new Date().toISOString()
+      },
+      modelRoleOverride: "reasoning"
     };
   }
 
   private buildProviderRequest(
     input: RuntimeBackgroundTaskEvaluationRequest,
     bundle: AssistantRuntimeBundle,
-    providerSelection: ProviderSelection
+    providerSelection: ProviderSelection,
+    toolRun: RuntimeTurnResult
   ): ProviderGatewayTextGenerateRequest {
     const systemPrompt = [
       bundle.promptConstructor.ordinary.systemPrompt,
       "",
       "You are the PersAI background-task evaluator. You run outside a user chat turn.",
       "Return only the requested structured JSON. Do not call tools, do not create reminders, and do not write conversational prose.",
+      "You already received the complete output of a separate tool-enabled background run. Base your decision on that evidence.",
       "Decision rules:",
       "The platform calls you only after task.scheduledRunAt is due. Never return no_push because scheduledRunAt has not been reached.",
       '- decision="push" only when the brief condition is met and the user should receive pushText now.',
@@ -74,6 +149,11 @@ export class RuntimeBackgroundTaskEvaluationService {
                 {
                   currentTimeIso: new Date().toISOString(),
                   task: input.task,
+                  toolRun: {
+                    assistantText: toolRun.assistantText,
+                    artifacts: toolRun.artifacts,
+                    toolInvocations: toolRun.toolInvocations ?? []
+                  },
                   assistant: {
                     name: bundle.persona.displayName,
                     userLocale: bundle.userContext.locale,
@@ -115,7 +195,10 @@ export class RuntimeBackgroundTaskEvaluationService {
 
   private parseEvaluationJson(
     text: string | null
-  ): Omit<RuntimeBackgroundTaskEvaluationResult, "usage" | "rawText"> {
+  ): Omit<
+    RuntimeBackgroundTaskEvaluationResult,
+    "toolRunText" | "artifacts" | "usage" | "rawText"
+  > {
     if (text === null || text.trim().length === 0) {
       throw new BadGatewayException("Background-task evaluator returned empty output.");
     }
@@ -239,5 +322,9 @@ export class RuntimeBackgroundTaskEvaluationService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private safeKey(value: string): string {
+    return value.replace(/[^a-zA-Z0-9_.:-]/g, "_");
   }
 }

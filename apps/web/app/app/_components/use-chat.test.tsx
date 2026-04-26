@@ -683,10 +683,14 @@ describe("useChat", () => {
       "thread-1",
       file,
       expect.objectContaining({
-        signal: expect.any(AbortSignal),
-        stallTimeoutMs: expect.any(Number),
-        hardTimeoutMs: expect.any(Number)
+        signal: expect.any(AbortSignal)
       })
+    );
+    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[3]).not.toHaveProperty(
+      "hardTimeoutMs"
+    );
+    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[3]).not.toHaveProperty(
+      "stallTimeoutMs"
     );
     await waitFor(() => {
       expect(assistantApiMocks.uploadAssistantKnowledgeSource).toHaveBeenCalledWith(
@@ -1020,6 +1024,59 @@ describe("useChat", () => {
       await act(async () => {
         if (sendPromise !== undefined) await sendPromise;
       });
+    });
+
+    it("keeps a failed attachment upload on the originating thread after switching away", async () => {
+      const uploadGate: { reject: (error: unknown) => void } = {
+        reject: () => undefined
+      };
+      assistantApiMocks.stageWebChatAttachment.mockImplementation(
+        () =>
+          new Promise((_resolve, reject) => {
+            uploadGate.reject = reject;
+          })
+      );
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("read this", [
+          new File(["large pdf"], "large.pdf", { type: "application/pdf" })
+        ]);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.pendingSendStatus).toBe("sending"));
+      rerender({ threadKey: "thread-B" });
+      expect(result.current.pendingSendStatus).toBeNull();
+
+      await act(async () => {
+        uploadGate.reject(new Error("Network dropped during upload."));
+        if (sendPromise !== undefined) await sendPromise;
+      });
+
+      rerender({ threadKey: "thread-A" });
+      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.entries).toEqual([
+        expect.objectContaining({
+          kind: "message",
+          message: expect.objectContaining({
+            role: "user",
+            content: "read this",
+            status: "send_failed"
+          })
+        })
+      ]);
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
     });
 
     it("stop() aborts only the current thread's controller, not other threads", async () => {

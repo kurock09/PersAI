@@ -131,6 +131,8 @@ export class InternalRuntimeBackgroundTaskClientService {
       (row.pushText === null || typeof row.pushText === "string") &&
       (row.rationale === null || typeof row.rationale === "string") &&
       (row.confidence === "low" || row.confidence === "medium" || row.confidence === "high") &&
+      (row.toolRunText === null || typeof row.toolRunText === "string") &&
+      Array.isArray(row.artifacts) &&
       (row.usage === null || this.asObject(row.usage) !== null) &&
       (row.rawText === null || typeof row.rawText === "string")
     );

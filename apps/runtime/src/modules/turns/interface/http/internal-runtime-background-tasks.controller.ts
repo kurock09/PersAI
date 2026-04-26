@@ -1,8 +1,10 @@
 import { BadRequestException, Body, Controller, HttpCode, Inject, Post, Req } from "@nestjs/common";
 import type { RuntimeConfig } from "@persai/config";
-import type {
-  RuntimeBackgroundTaskEvaluationRequest,
-  RuntimeBackgroundTaskEvaluationResult
+import {
+  PERSAI_RUNTIME_TIERS,
+  type PersaiRuntimeTier,
+  type RuntimeBackgroundTaskEvaluationRequest,
+  type RuntimeBackgroundTaskEvaluationResult
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../../../runtime-config";
 import { RuntimeBackgroundTaskEvaluationService } from "../../runtime-background-task-evaluation.service";
@@ -51,6 +53,7 @@ export class InternalRuntimeBackgroundTasksController {
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
+      runtimeTier: this.runtimeTier(row.runtimeTier),
       runtimeBundleDocument: this.requiredString(
         row.runtimeBundleDocument,
         "runtimeBundleDocument"
@@ -84,5 +87,12 @@ export class InternalRuntimeBackgroundTasksController {
       throw new BadRequestException(`${fieldName} must be a non-negative integer.`);
     }
     return value;
+  }
+
+  private runtimeTier(value: unknown): PersaiRuntimeTier {
+    if (typeof value !== "string" || !PERSAI_RUNTIME_TIERS.includes(value as PersaiRuntimeTier)) {
+      throw new BadRequestException("runtimeTier must be a valid runtime tier.");
+    }
+    return value as PersaiRuntimeTier;
   }
 }

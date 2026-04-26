@@ -105,6 +105,14 @@ When a background task fires, the executor runs a controlled evaluator step and 
 }
 ```
 
+Runtime execution is two-phase:
+
+1. A synthetic background tool run uses the assistant's allowed runtime tools to gather
+   evidence or produce artifacts. It is not a visible user chat turn and cannot recursively
+   create `scheduled_action` or `background_task` rows.
+2. A separate structured evaluator receives the tool-run report, tool invocation summary,
+   and artifacts, then returns the final decision JSON.
+
 Rules:
 
 - `pushText` is required when `decision="push"`.
@@ -114,7 +122,8 @@ Rules:
 - `reschedule` may only move the task according to the stored schedule policy and platform limits.
 - malformed evaluator output is a task-run failure and enters retry/dead-letter handling.
 
-The evaluator may use LLM and allowed evidence tools, but it does not create a second `scheduled_action`. The executor owns the final state transition.
+The tool run may use LLM and allowed evidence tools, but neither phase creates a second
+`scheduled_action`. The executor owns the final state transition.
 
 ### 4. Push directly through the existing notification delivery preference
 
@@ -124,6 +133,8 @@ If the evaluator returns `decision="push"`, the background task executor deliver
 - reuse the existing channel binding truth, including Telegram/web fallback behavior
 - do not introduce a second channel selector for background tasks
 - do not duplicate reminder delivery target state unless the existing delivery service needs a small generalized adapter
+- deliver generated artifacts through the same media-delivery adapters when the selected
+  channel supports them
 
 The delivery path becomes:
 

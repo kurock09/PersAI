@@ -10,6 +10,7 @@ function createHandleInternalCronFireService(params: {
   resolveAssistantInboundRuntimeContextService: unknown;
   enforceAssistantCapabilityAndQuotaService: unknown;
   renderAssistantInboundSurfaceMessageService: unknown;
+  mediaDeliveryService?: unknown;
   assistantChatRepository: unknown;
 }): HandleInternalCronFireService {
   const deliveryService = new DeliverReminderNotificationService(
@@ -18,6 +19,7 @@ function createHandleInternalCronFireService(params: {
     params.resolveAssistantInboundRuntimeContextService as never,
     params.enforceAssistantCapabilityAndQuotaService as never,
     params.renderAssistantInboundSurfaceMessageService as never,
+    (params.mediaDeliveryService ?? { deliver: async () => undefined }) as never,
     params.assistantChatRepository as never
   );
   return new HandleInternalCronFireService(
