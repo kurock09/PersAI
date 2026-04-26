@@ -3500,6 +3500,106 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         result: {
           provider: "openai",
           model: "gpt-5.4",
+          text: null,
+          respondedAt: "2026-04-11T12:00:05.500Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 12,
+            outputTokens: 0,
+            totalTokens: 12
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-empty-followup-1",
+              name: "summarize_context",
+              arguments: {
+                instructions: "Summarize and then answer."
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: null,
+          respondedAt: "2026-04-11T12:00:06.000Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 20,
+            outputTokens: 0,
+            totalTokens: 20
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ],
+    [
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "final answer after empty follow-up",
+          respondedAt: "2026-04-11T12:00:06.500Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 22,
+            outputTokens: 6,
+            totalTokens: 28
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  const streamCallCountBeforeEmptyFollowupRetry = providerGatewayClient.streamCalls.length;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const emptyFollowupRetryStream = await service.streamTurn(request);
+  const emptyFollowupRetryEvents = await collectStreamEvents(emptyFollowupRetryStream);
+  assert.deepEqual(
+    emptyFollowupRetryEvents.map((event) => event.type),
+    ["started", "tool_started", "tool_finished", "completed"]
+  );
+  assert.equal(
+    providerGatewayClient.streamCalls.length,
+    streamCallCountBeforeEmptyFollowupRetry + 3
+  );
+  const retryRequest = providerGatewayClient.streamCalls.at(-1);
+  assert.equal(retryRequest?.toolChoice, "none");
+  assert.deepEqual(retryRequest?.tools, []);
+  assert.match(
+    retryRequest?.developerInstructions ?? "",
+    /previous tool follow-up returned no visible answer/i
+  );
+  const emptyFollowupRetryCompletedEvent = emptyFollowupRetryEvents.at(-1);
+  assert.equal(emptyFollowupRetryCompletedEvent?.type, "completed");
+  if (emptyFollowupRetryCompletedEvent?.type === "completed") {
+    assert.equal(
+      emptyFollowupRetryCompletedEvent.result.assistantText,
+      "final answer after empty follow-up"
+    );
+  }
+
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
           text: "reply before tool ",
           respondedAt: "2026-04-11T12:00:06.000Z",
           usage: {

@@ -1,8 +1,13 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar } from "./sidebar";
 import type { AppData } from "./use-app-data";
+
+const navigationMocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn()
+}));
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({ getToken: vi.fn(async () => null) }),
@@ -11,7 +16,7 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => navigationMocks,
   useSearchParams: () => new URLSearchParams()
 }));
 
@@ -36,6 +41,8 @@ vi.mock("../assistant-api-client", () => ({
 
 afterEach(() => {
   cleanup();
+  navigationMocks.push.mockClear();
+  navigationMocks.replace.mockClear();
 });
 
 function makeAppData(overrides: Partial<AppData>): AppData {
@@ -109,5 +116,19 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     render(<Sidebar data={data} />);
     expect(screen.queryByTestId("chat-list-skeleton")).toBeNull();
     expect(screen.queryByText(/Chat c-1/)).not.toBeNull();
+  });
+
+  it("switches chats with local history so uploads do not wait for app-router navigation", () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+    const data = makeAppData({
+      chats: [makeChat("thread-a")]
+    });
+
+    render(<Sidebar data={data} />);
+
+    fireEvent.click(screen.getByText("Chat thread-a"));
+
+    expect(pushState).toHaveBeenCalledWith(null, "", "/app/chat?thread=thread-a");
+    expect(navigationMocks.push).not.toHaveBeenCalled();
   });
 });

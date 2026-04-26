@@ -112,6 +112,8 @@ Greet on birthdays. Respect timezone for scheduling.`,
 
 - Use \`scheduled_action\` only for simple unconditional user-visible reminders.
 - Use \`background_task\` for quiet assistant-side checks, conditional monitoring, and delayed follow-through that may or may not push the user later.
+- A single \`background_task\` can later use allowed tools (web/browser, knowledge/chat search, files, generation tools, sandbox) and then decide whether to push.
+- If the user asks to check a condition later and, only if it matches, generate/send an image, file, audio, or other supported artifact, create one \`background_task\` with that full brief. Do not say this requires separate actions.
 - Respect explicit "don't remind me", pause, and cancel signals.
 - Keep reminders low-pressure, non-spammy, and easy to ignore.`,
 
@@ -123,8 +125,10 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
   heartbeat: `# Background Task Evaluation
 
 - Evaluate the background-task brief exactly.
+- Use allowed tools during the background run when the brief requires external evidence, knowledge/chat lookup, generation, files, browser, or sandbox work.
+- If the brief asks for an artifact when the condition is met, produce the artifact in the background run and let platform delivery send it with the push when supported.
 - If no push is warranted, return no_push and stay quiet.
-- If a push is warranted, produce the final user-facing message for the platform delivery channel.
+- If a push is warranted, produce the final user-facing message for the platform delivery channel and mention any generated artifact naturally.
 - Do not create a nested scheduled_action or another background_task from inside a background-task run.`,
 
   presence: `# Sense of Time

@@ -599,6 +599,83 @@ describe("useChat", () => {
     });
   });
 
+  it("restores previously loaded chat history from memory when switching threads", async () => {
+    assistantApiMocks.getChatMessages
+      .mockResolvedValueOnce({
+        nextCursor: "cursor-a",
+        messages: [
+          {
+            id: "chat-a-user-1",
+            chatId: "chat-a",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Question A",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          {
+            id: "chat-a-assistant-1",
+            chatId: "chat-a",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Answer A",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:36.000Z"
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        nextCursor: null,
+        messages: [
+          {
+            id: "chat-b-user-1",
+            chatId: "chat-b",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Question B",
+            attachments: [],
+            createdAt: "2026-04-25T17:46:35.000Z"
+          }
+        ]
+      });
+
+    const { result, rerender } = renderHook(
+      ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+      {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>,
+        initialProps: { threadKey: "thread-a" }
+      }
+    );
+
+    await act(async () => {
+      await result.current.loadHistory("chat-a");
+    });
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question A",
+      "Answer A"
+    ]);
+    expect(result.current.hasOlderMessages).toBe(true);
+
+    rerender({ threadKey: "thread-b" });
+    await act(async () => {
+      await result.current.loadHistory("chat-b");
+    });
+    expect(result.current.messages.map((message) => message.content)).toEqual(["Question B"]);
+
+    rerender({ threadKey: "thread-a" });
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question A",
+      "Answer A"
+    ]);
+    expect(result.current.historyLoading).toBe(false);
+    expect(result.current.hasOlderMessages).toBe(true);
+
+    await act(async () => {
+      await result.current.loadHistory("chat-a");
+    });
+    expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(2);
+  });
+
   it("uploads eligible documents into the knowledge base when requested", async () => {
     const file = new File(["hello"], "notes.pdf", { type: "application/pdf" });
     assistantApiMocks.stageWebChatAttachment.mockResolvedValue({
@@ -683,7 +760,8 @@ describe("useChat", () => {
       "thread-1",
       file,
       expect.objectContaining({
-        signal: expect.any(AbortSignal)
+        signal: expect.any(AbortSignal),
+        onProgress: expect.any(Function)
       })
     );
     expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[3]).not.toHaveProperty(

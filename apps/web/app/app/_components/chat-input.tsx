@@ -957,6 +957,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             onInput={resize}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            style={{ resize: "none" }}
             className={cn(
               "flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-subtle",
               "outline-none",

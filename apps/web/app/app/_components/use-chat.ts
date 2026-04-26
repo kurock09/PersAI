@@ -63,6 +63,7 @@ export type PendingSendStatus = "sending" | "send_failed";
 
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
+  uploadProgressPercent?: number | undefined;
 };
 
 export interface ChatMessage {
@@ -164,6 +165,11 @@ type ActiveTurnSnapshot = {
   shadowRoutingLabelsByMessageId: Record<string, string>;
   chatId: string | null;
   compactionRunning: boolean;
+};
+
+type CachedThreadHistorySnapshot = ActiveTurnSnapshot & {
+  olderCursor: string | null;
+  hasOlderMessages: boolean;
 };
 
 type PendingSendSlot = {
@@ -434,6 +440,10 @@ export function useChat(threadKey: string): UseChatReturn {
     Map<string, { controller: AbortController; clientTurnId: string }>
   >(new Map());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
+  const cachedThreadHistorySnapshotsRef = useRef<Map<string, CachedThreadHistorySnapshot>>(
+    new Map()
+  );
+  const cachedThreadKeyByChatIdRef = useRef<Map<string, string>>(new Map());
   const softDetachReconcileTimersByThreadRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
@@ -532,20 +542,22 @@ export function useChat(threadKey: string): UseChatReturn {
   if (prevThreadKeyRef.current !== threadKey) {
     prevThreadKeyRef.current = threadKey;
     const pendingForThread = pendingSendsByThreadRef.current.get(threadKey) ?? null;
+    const cachedHistorySnapshot = cachedThreadHistorySnapshotsRef.current.get(threadKey);
     const liveSnapshot =
       activeThreads.has(threadKey) || pendingForThread !== null
         ? activeTurnSnapshotsRef.current.get(threadKey)
         : undefined;
-    setMessages(liveSnapshot?.messages ?? []);
+    const restoredSnapshot = liveSnapshot ?? cachedHistorySnapshot;
+    setMessages(restoredSnapshot?.messages ?? []);
     setActivities([]);
     setLiveActivitiesByMessageId(liveSnapshot?.liveActivitiesByMessageId ?? {});
     setShadowRoutingLabelsByMessageId(liveSnapshot?.shadowRoutingLabelsByMessageId ?? {});
-    setChatId(liveSnapshot?.chatId ?? null);
+    setChatId(restoredSnapshot?.chatId ?? null);
     setIssue(null);
     setCompaction(null);
     setRecentAutoCompaction(null);
-    setCompactionRunning(liveSnapshot?.compactionRunning ?? false);
-    setHasOlderMessages(false);
+    setCompactionRunning(restoredSnapshot?.compactionRunning ?? false);
+    setHasOlderMessages(cachedHistorySnapshot?.hasOlderMessages ?? false);
     /*
      * Optimistically flip historyLoading to true the moment the user
      * navigates to a different thread. Without this, there is one render
@@ -558,10 +570,10 @@ export function useChat(threadKey: string): UseChatReturn {
      * to false when the active thread is brand-new and has no history to
      * load.
      */
-    setHistoryLoading(liveSnapshot === undefined);
+    setHistoryLoading(restoredSnapshot === undefined);
     historyLoadedRef.current = new Set();
-    olderCursorRef.current = null;
-    activeChatIdRef.current = liveSnapshot?.chatId ?? null;
+    olderCursorRef.current = cachedHistorySnapshot?.olderCursor ?? null;
+    activeChatIdRef.current = restoredSnapshot?.chatId ?? null;
     pendingSendRef.current = pendingForThread;
     pendingSendStatusRef.current = pendingForThread?.status ?? null;
     setPendingSendStatusState(pendingForThread?.status ?? null);
@@ -856,6 +868,7 @@ export function useChat(threadKey: string): UseChatReturn {
         sizeBytes: f.size,
         processingStatus: "pending",
         createdAt: new Date().toISOString(),
+        uploadProgressPercent: 0,
         localPreviewUrl:
           f.type.startsWith("image/") || f.type.startsWith("audio/") || f.type.startsWith("video/")
             ? URL.createObjectURL(f)
@@ -968,7 +981,19 @@ export function useChat(threadKey: string): UseChatReturn {
             // large PDF can keep making progress for minutes, and killing that
             // upload would be worse than letting the pending bubble continue.
             const staged = await stageWebChatAttachment(token, threadKey, file, {
-              signal: controller.signal
+              signal: controller.signal,
+              onProgress: (progress) => {
+                applyThreadMessages(sendThreadKey, (prev) =>
+                  prev.map((m) => {
+                    if (m.id !== userMsgId) return m;
+                    const next = [...(m.attachments ?? [])];
+                    const current = next[i];
+                    if (current === undefined) return m;
+                    next[i] = { ...current, uploadProgressPercent: progress.percent };
+                    return { ...m, attachments: next };
+                  })
+                );
+              }
             });
             const u = staged.attachment;
             applyThreadMessages(sendThreadKey, (prev) =>
@@ -987,6 +1012,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   sizeBytes: u.sizeBytes,
                   processingStatus: u.processingStatus as ChatAttachment["processingStatus"],
                   createdAt: u.createdAt,
+                  uploadProgressPercent: undefined,
                   localPreviewUrl: undefined
                 };
                 return { ...m, attachments: next };
@@ -1835,6 +1861,21 @@ export function useChat(threadKey: string): UseChatReturn {
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       if (historyLoadedRef.current.has(targetChatId)) return;
+      const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
+      const cachedHistory =
+        cachedThreadKey === undefined
+          ? undefined
+          : cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+      if (cachedHistory !== undefined) {
+        setMessages(cachedHistory.messages);
+        olderCursorRef.current = cachedHistory.olderCursor;
+        activeChatIdRef.current = targetChatId;
+        setHasOlderMessages(cachedHistory.hasOlderMessages);
+        setChatId(targetChatId);
+        setHistoryLoading(false);
+        historyLoadedRef.current.add(targetChatId);
+        return;
+      }
       const token = await getToken();
       if (!token) return;
 
@@ -1857,6 +1898,16 @@ export function useChat(threadKey: string): UseChatReturn {
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
+        cachedThreadHistorySnapshotsRef.current.set(currentThreadKeyRef.current, {
+          messages: loaded,
+          liveActivitiesByMessageId: {},
+          shadowRoutingLabelsByMessageId: {},
+          chatId: targetChatId,
+          compactionRunning: false,
+          olderCursor: page.nextCursor,
+          hasOlderMessages: page.nextCursor !== null
+        });
+        cachedThreadKeyByChatIdRef.current.set(targetChatId, currentThreadKeyRef.current);
         void refreshCompactionState(targetChatId);
         historyLoadedRef.current.add(targetChatId);
       } catch {

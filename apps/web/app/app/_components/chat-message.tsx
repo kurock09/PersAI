@@ -412,6 +412,10 @@ function AttachmentStrip({
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
+        const progressLabel =
+          isPending && typeof att.uploadProgressPercent === "number"
+            ? `${String(att.uploadProgressPercent)}%`
+            : null;
         const inlineUrl = att.id.startsWith("local-")
           ? undefined
           : getAttachmentDownloadUrl(att.id);
@@ -456,8 +460,11 @@ function AttachmentStrip({
                 />
               )}
               {isPending && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-accent" />
+                <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/10 backdrop-blur-[1px]">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-raised/85 px-2 py-1 text-[10px] font-medium text-text-muted shadow-sm">
+                    <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                    {progressLabel}
+                  </span>
                 </div>
               )}
               {isFailed && (
@@ -487,6 +494,7 @@ function AttachmentStrip({
                 <div className="flex items-center gap-2 rounded-full border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   <span className="truncate">{att.originalFilename ?? "Audio"}</span>
+                  {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
                 </div>
               )}
             </div>
@@ -509,6 +517,7 @@ function AttachmentStrip({
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
                   {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   <span>{att.originalFilename ?? "Video"}</span>
+                  {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
                 </div>
               )}
             </div>
@@ -533,7 +542,7 @@ function AttachmentStrip({
             <span className="max-w-[150px] truncate text-text-muted">
               {att.originalFilename ?? "File"}
             </span>
-            <span className="text-text-subtle">{formatBytes(att.sizeBytes)}</span>
+            <span className="text-text-subtle">{progressLabel ?? formatBytes(att.sizeBytes)}</span>
           </a>
         );
       })}

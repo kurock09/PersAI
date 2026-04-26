@@ -533,6 +533,7 @@ export class TurnExecutionService {
     let deliveredText = "";
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let completionFinalizationAttempted = false;
+    let forceFinalTextOnly = false;
 
     yield {
       type: "started",
@@ -550,6 +551,7 @@ export class TurnExecutionService {
         const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: iterationBaseText,
           toolHistory,
+          forceFinalTextOnly,
           requestMetadata: this.createTurnProviderRequestMetadata({
             acceptedTurn,
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -616,6 +618,7 @@ export class TurnExecutionService {
               usage: event.result.usage
             });
             assembledText = this.mergeAssistantTurnText(assembledText, event.result.text);
+            forceFinalTextOnly = false;
             if (event.result.toolCalls.length === 0) {
               throw new TurnExecutionError(
                 "native_tool_result_invalid",
@@ -710,6 +713,16 @@ export class TurnExecutionService {
                 event.result.text
               )
             );
+            if (
+              (completedProviderResult.text ?? "").trim().length === 0 &&
+              toolHistory.length > 0 &&
+              iteration + 1 < maxToolLoopIterations
+            ) {
+              forceFinalTextOnly = true;
+              advancedToNextIteration = true;
+              trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
+              break;
+            }
             const correctedAssistantText = this.applyUndeliveredAttachmentCorrection(
               completedProviderResult.text ?? "",
               turnState.artifacts,
@@ -1410,6 +1423,7 @@ export class TurnExecutionService {
   ): Promise<ProviderGatewayTextGenerateResult> {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let accumulatedText = "";
+    let forceFinalTextOnly = false;
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
@@ -1418,6 +1432,7 @@ export class TurnExecutionService {
         this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: accumulatedText,
           toolHistory,
+          forceFinalTextOnly,
           requestMetadata: this.createTurnProviderRequestMetadata({
             acceptedTurn,
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1432,6 +1447,14 @@ export class TurnExecutionService {
       });
       accumulatedText = this.mergeAssistantTurnText(accumulatedText, providerResult.text);
       if (providerResult.stopReason === "completed") {
+        if (
+          accumulatedText.trim().length === 0 &&
+          toolHistory.length > 0 &&
+          iteration + 1 < maxToolLoopIterations
+        ) {
+          forceFinalTextOnly = true;
+          continue;
+        }
         return this.withAssistantText(
           providerResult,
           this.applyUndeliveredAttachmentCorrection(
@@ -1449,6 +1472,7 @@ export class TurnExecutionService {
           )
         );
       }
+      forceFinalTextOnly = false;
 
       const exchanges: ProviderGatewayToolExchange[] = [];
       let durableCompactionExecuted = false;
@@ -2051,12 +2075,19 @@ export class TurnExecutionService {
     input: {
       assistantText: string;
       toolHistory: ProviderGatewayToolExchange[];
+      forceFinalTextOnly?: boolean;
       requestMetadata: ProviderGatewayRequestMetadata;
     }
   ): ProviderGatewayTextGenerateRequest {
     const assistantText = this.normalizeOptionalText(input.assistantText);
+    const developerInstructions = this.buildToolLoopDeveloperInstructions(
+      baseRequest.developerInstructions ?? null,
+      input.toolHistory.length > 0,
+      input.forceFinalTextOnly === true
+    );
     return {
       ...baseRequest,
+      ...(developerInstructions === null ? {} : { developerInstructions }),
       messages:
         assistantText === null
           ? baseRequest.messages
@@ -2068,8 +2099,25 @@ export class TurnExecutionService {
               }
             ],
       ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory }),
+      ...(input.forceFinalTextOnly === true ? { tools: [], toolChoice: "none" as const } : {}),
       requestMetadata: input.requestMetadata
     };
+  }
+
+  private buildToolLoopDeveloperInstructions(
+    existing: string | null,
+    hasToolHistory: boolean,
+    forceFinalTextOnly: boolean
+  ): string | null {
+    if (!hasToolHistory) {
+      return existing;
+    }
+    const finalAnswerInstruction = forceFinalTextOnly
+      ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
+      : "After using tools, always return a concise final user-visible answer. Do not finish the turn with empty output.";
+    return existing === null || existing.trim().length === 0
+      ? finalAnswerInstruction
+      : `${existing}\n\n${finalAnswerInstruction}`;
   }
 
   private mergeAssistantTurnText(existingText: string, nextText: string | null): string {

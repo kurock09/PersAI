@@ -9,17 +9,30 @@ Founder reported that while a large PDF/photo upload was in progress, chat switc
 ### What changed
 
 - `apps/web/app/app/_components/use-chat.ts` keeps pending send state per `threadKey`, so upload/send failures restore on the originating chat after switching away and back.
-- `apps/web/app/app/_components/use-chat.ts` no longer passes an absolute hard timeout for chat attachment staging, because slow mobile uploads can keep making progress for minutes and should not fail just because the wall clock crossed 5 minutes.
-- `apps/web/app/app/assistant-api-client.ts` stages chat attachments with `fetch` instead of XHR, avoiding the Android WebView/XHR path that can make sidebar navigation feel stuck during large multipart uploads.
+- `apps/web/app/app/_components/sidebar.tsx` switches chat rows via local History API URL updates instead of `router.push`, avoiding App Router/RSC navigation waits while a large upload is in flight.
+- `apps/web/app/app/_components/use-chat.ts` caches loaded chat histories in memory per `threadKey`/`chatId`, so returning to an already visited chat during a large upload restores messages immediately instead of requiring another history API fetch on a saturated connection.
+- `apps/web/app/app/_components/use-chat.ts` no longer passes absolute hard/stall timeouts for chat attachment staging, because slow mobile uploads can keep making progress for minutes and should not fail just because the wall clock crossed 5 minutes.
+- `apps/web/app/app/assistant-api-client.ts` stages chat attachments through XHR progress again, but without client hard/stall upload timeouts, so file/media cards can show compact upload percentages without timer-based false failures.
 - `apps/web/app/app/_components/chat-message.tsx` suppresses the off-bubble right-side sending spinner for user messages with attachments; the in-card file/media pending indicator remains the single upload cue.
+- `apps/web/app/app/_components/chat-message.tsx` renders compact upload percentages inside pending file/media cards when the browser reports computable upload progress.
+- `apps/web/app/app/_components/chat-input.tsx` explicitly disables manual textarea resize in the chat composer, preserving autosize-to-content plus max-height scrolling without showing the native resize corner.
 - `apps/web/app/app/_components/use-chat.test.tsx` covers switching away during an attachment upload and returning to the original thread after failure.
+- `apps/web/app/app/_components/use-chat.test.tsx` covers restoring previously loaded chat history from memory after switching threads, without another `getChatMessages` call.
 - `apps/web/app/app/_components/chat-message.test.tsx` covers that attachment sends do not render the duplicate off-bubble spinner.
+- `apps/web/app/app/_components/chat-input.test.tsx` covers that the composer textarea cannot be manually resized.
+- `apps/web/app/app/_components/sidebar.test.tsx` covers that chat switching uses local history rather than `router.push`.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` now handles the root stream-finalization failure where a provider/model returns an empty `completed` after tools: when tool history exists and the assistant text is still empty, runtime performs a safe final-text-only retry with tools disabled and explicit developer instructions to produce the final visible answer from existing tool results.
+- `apps/runtime/test/turn-execution.service.test.ts` covers the streaming regression: tool executes, first follow-up completes empty, runtime retries without tools, and the turn completes with assistant text instead of surfacing as an interrupted/broken stream.
 
 ### Tests run
 
 - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts`
 - `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/sidebar.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx app/app/assistant-api-client.test.ts`
 - `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime test -- turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
 
 ### Risks / residuals
 

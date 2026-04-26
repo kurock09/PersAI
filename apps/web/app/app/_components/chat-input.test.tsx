@@ -126,6 +126,19 @@ describe("ChatInput", () => {
     expect(screen.queryByText("attachMenuPhotos")).toBeNull();
   });
 
+  it("does not allow manual resizing of the composer textarea", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    expect(screen.getByPlaceholderText("placeholder")).toHaveStyle({ resize: "none" });
+  });
+
   it("shows a live camera preview in the mobile camera tile", async () => {
     const stop = vi.fn();
     const stream = {

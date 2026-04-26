@@ -228,7 +228,9 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => {
-            router.push("/app/chat" as Route);
+            if (!pushLocalChatUrl("/app/chat")) {
+              router.push("/app/chat" as Route);
+            }
             onClose?.();
           }}
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2.5 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover"
@@ -267,7 +269,10 @@ export function Sidebar({
                   locale={locale}
                   isActive={activeThread === item.chat.surfaceThreadKey}
                   onNavigate={() => {
-                    router.push(`/app/chat?thread=${item.chat.surfaceThreadKey}` as Route);
+                    const url = `/app/chat?thread=${encodeURIComponent(item.chat.surfaceThreadKey)}`;
+                    if (!pushLocalChatUrl(url)) {
+                      router.push(url as Route);
+                    }
                     onClose?.();
                   }}
                   onChanged={data.reloadChats}
@@ -333,6 +338,12 @@ const LOCALES = [
   { code: "en", label: "EN" },
   { code: "ru", label: "RU" }
 ] as const;
+
+function pushLocalChatUrl(url: string) {
+  if (typeof window === "undefined") return false;
+  window.history.pushState(null, "", url);
+  return true;
+}
 
 function AccountFooter({
   data,

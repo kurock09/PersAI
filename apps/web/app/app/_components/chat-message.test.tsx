@@ -170,6 +170,24 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
   });
 
+  it("shows a compact upload percent inside pending attachment cards", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("sending", {
+          attachments: [
+            {
+              ...makeImageAttachment("att-pending-progress"),
+              processingStatus: "pending",
+              uploadProgressPercent: 42
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByText("42%")).toBeInTheDocument();
+  });
+
   it("removes the spinner when the bubble flips to `committed`", () => {
     const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 

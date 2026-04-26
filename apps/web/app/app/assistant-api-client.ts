@@ -2784,50 +2784,19 @@ export async function stageWebChatAttachment(
   const formData = new FormData();
   formData.append("surfaceThreadKey", surfaceThreadKey);
   formData.append("file", file);
-  const controller = new AbortController();
-  let timedOut = false;
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  const onAbort = () => controller.abort();
-  try {
-    if (opts?.signal?.aborted === true) {
-      throw new XhrAbortError();
+  const res = await uploadWithProgress(
+    `${base}/assistant/chat/web/stage-attachment`,
+    formData,
+    toXhrOptions(token, opts)
+  );
+  if (!res.ok) {
+    const envelope = readXhrErrorEnvelope(res.responseText, res.headers.get("content-type") ?? "");
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
     }
-    opts?.signal?.addEventListener("abort", onAbort, { once: true });
-    if (opts?.hardTimeoutMs !== undefined && opts.hardTimeoutMs > 0) {
-      timeout = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, opts.hardTimeoutMs);
-    }
-    const res = await fetch(`${base}/assistant/chat/web/stage-attachment`, {
-      method: "POST",
-      headers: getAuthHeaders(token),
-      body: formData,
-      signal: controller.signal
-    });
-    const responseText = await res.text();
-    if (!res.ok) {
-      const envelope = readXhrErrorEnvelope(responseText, res.headers.get("content-type") ?? "");
-      if (envelope) {
-        throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
-      }
-      throw new Error("Failed to stage attachment.");
-    }
-    return JSON.parse(responseText) as StagedAttachmentResult;
-  } catch (error) {
-    if (error instanceof ApiStructuredError) throw error;
-    if (timedOut) throw new XhrTimeoutError();
-    if (opts?.signal?.aborted === true || error instanceof DOMException) {
-      throw new XhrAbortError();
-    }
-    if (error instanceof TypeError) {
-      throw new XhrNetworkError();
-    }
-    throw error;
-  } finally {
-    if (timeout !== null) clearTimeout(timeout);
-    opts?.signal?.removeEventListener("abort", onAbort);
+    throw new Error("Failed to stage attachment.");
   }
+  return JSON.parse(res.responseText) as StagedAttachmentResult;
 }
 
 export async function uploadChatAttachment(
