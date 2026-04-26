@@ -47,6 +47,7 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/runtime/preflight", method: RequestMethod.GET },
       { path: "api/v1/assistant/chat/web", method: RequestMethod.POST },
       { path: "api/v1/assistant/chat/web/stream", method: RequestMethod.POST },
+      { path: "api/v1/assistant/chat/web/stop", method: RequestMethod.POST },
       { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.POST },
       { path: "api/v1/assistant/knowledge-sources", method: RequestMethod.GET },
@@ -79,6 +80,19 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/tasks/items/:itemId/disable", method: RequestMethod.POST },
       { path: "api/v1/assistant/tasks/items/:itemId/enable", method: RequestMethod.POST },
       { path: "api/v1/assistant/tasks/items/:itemId/cancel", method: RequestMethod.POST },
+      { path: "api/v1/assistant/background-tasks/items", method: RequestMethod.GET },
+      {
+        path: "api/v1/assistant/background-tasks/items/:itemId/disable",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/assistant/background-tasks/items/:itemId/enable",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/assistant/background-tasks/items/:itemId/cancel",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/assistant/integrations/telegram", method: RequestMethod.GET },
       { path: "api/v1/assistant/integrations/telegram/connect", method: RequestMethod.POST },
       { path: "api/v1/assistant/integrations/telegram/rotate", method: RequestMethod.POST },

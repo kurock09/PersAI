@@ -404,7 +404,10 @@ export function ChatArea({
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-x-hidden overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
+      >
         {isEmpty ? (
           <EmptyState
             name={assistantName}
@@ -414,7 +417,7 @@ export function ChatArea({
             onPrompt={sendPrompt}
           />
         ) : (
-          <div className="mx-auto w-full max-w-[50rem] px-3 py-4 md:px-0">
+          <div className="mx-auto w-full max-w-[50rem] px-3 pt-4 pb-24 md:px-0 md:pb-28">
             <div ref={sentinelRef} className="h-1" />
             {chat.olderMessagesLoading && (
               <div className="flex justify-center py-3">

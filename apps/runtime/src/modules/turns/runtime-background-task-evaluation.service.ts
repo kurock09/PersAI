@@ -50,6 +50,7 @@ export class RuntimeBackgroundTaskEvaluationService {
       "You are the PersAI background-task evaluator. You run outside a user chat turn.",
       "Return only the requested structured JSON. Do not call tools, do not create reminders, and do not write conversational prose.",
       "Decision rules:",
+      "The platform calls you only after task.scheduledRunAt is due. Never return no_push because scheduledRunAt has not been reached.",
       '- decision="push" only when the brief condition is met and the user should receive pushText now.',
       '- decision="no_push" when the condition is not met and the task should continue according to its schedule.',
       '- decision="complete" when the task is finished without a push or should be closed now.',
@@ -71,6 +72,7 @@ export class RuntimeBackgroundTaskEvaluationService {
               type: "text",
               text: JSON.stringify(
                 {
+                  currentTimeIso: new Date().toISOString(),
                   task: input.task,
                   assistant: {
                     name: bundle.persona.displayName,
