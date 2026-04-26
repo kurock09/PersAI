@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "../src/modules/workspace-management/application/consume-internal-runtime-tool-daily-limit.service";
+import { ResolveInternalRuntimeToolDailyPolicyService } from "../src/modules/workspace-management/application/resolve-internal-runtime-tool-daily-policy.service";
 
 async function run(): Promise<void> {
   const consumeCalls: Array<{
@@ -161,6 +162,50 @@ async function run(): Promise<void> {
   });
   assert.deepEqual(unlimitedResult, { ok: true, currentCount: 17, limit: null });
   assert.deepEqual(unlimitedCalls, [{ limit: null }]);
+
+  // ── Platform-managed system tools are not plan activations. They must
+  // still be consumable for observability on every plan.
+  const platformManagedResolver = new ResolveInternalRuntimeToolDailyPolicyService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistant,
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          workspaceId: assistant.workspaceId
+        };
+      }
+    } as never,
+    {
+      async findByAssistantId() {
+        return {
+          assistantPlanOverrideCode: null,
+          quotaPlanCode: null
+        };
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          planCode: "starter_trial"
+        };
+      }
+    } as never,
+    {
+      async findByCode() {
+        return {
+          toolActivations: []
+        };
+      }
+    } as never
+  );
+  const platformManagedPolicy = await platformManagedResolver.execute({
+    assistantId: "assistant-1",
+    toolCode: "memory_write"
+  });
+  assert.deepEqual(platformManagedPolicy.tools, [
+    { toolCode: "memory_write", activationStatus: "active", dailyCallLimit: null }
+  ]);
 
   // ── Tool deactivated mid-flight remains a hard rejection (only blocking
   // path left after L1.1).

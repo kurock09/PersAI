@@ -17,6 +17,15 @@ export type ResolvedInternalRuntimeToolDailyPolicyRow = {
   dailyCallLimit: number | null;
 };
 
+const PLATFORM_MANAGED_DAILY_QUOTA_TOOL_CODES = new Set([
+  "summarize_context",
+  "compact_context",
+  "memory_write",
+  "quota_status",
+  "knowledge_search",
+  "knowledge_fetch"
+]);
+
 @Injectable()
 export class ResolveInternalRuntimeToolDailyPolicyService {
   constructor(
@@ -53,6 +62,13 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
 
     const planCode = subscription.planCode;
     if (planCode === null) {
+      if (params.toolCode && PLATFORM_MANAGED_DAILY_QUOTA_TOOL_CODES.has(params.toolCode)) {
+        return {
+          assistant: resolved.assistant,
+          planCode,
+          tools: [this.platformManagedToolPolicy(params.toolCode)]
+        };
+      }
       if (params.toolCode) {
         throw new BadRequestException(
           `Tool "${params.toolCode}" is not present on effective plan "${String(planCode)}".`
@@ -63,6 +79,13 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
 
     const plan = await this.planCatalogRepository.findByCode(planCode);
     if (plan === null) {
+      if (params.toolCode && PLATFORM_MANAGED_DAILY_QUOTA_TOOL_CODES.has(params.toolCode)) {
+        return {
+          assistant: resolved.assistant,
+          planCode,
+          tools: [this.platformManagedToolPolicy(params.toolCode)]
+        };
+      }
       if (params.toolCode) {
         throw new BadRequestException(
           `Tool "${params.toolCode}" is not present on effective plan "${planCode}".`
@@ -75,6 +98,13 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
     if (params.toolCode) {
       activations = activations.filter((activation) => activation.toolCode === params.toolCode);
       if (activations.length === 0) {
+        if (PLATFORM_MANAGED_DAILY_QUOTA_TOOL_CODES.has(params.toolCode)) {
+          return {
+            assistant: resolved.assistant,
+            planCode,
+            tools: [this.platformManagedToolPolicy(params.toolCode)]
+          };
+        }
         throw new BadRequestException(
           `Tool "${params.toolCode}" is not present on effective plan "${planCode}".`
         );
@@ -89,6 +119,14 @@ export class ResolveInternalRuntimeToolDailyPolicyService {
         activationStatus: activation.activationStatus,
         dailyCallLimit: activation.dailyCallLimit
       }))
+    };
+  }
+
+  private platformManagedToolPolicy(toolCode: string): ResolvedInternalRuntimeToolDailyPolicyRow {
+    return {
+      toolCode,
+      activationStatus: "active",
+      dailyCallLimit: null
     };
   }
 }
