@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-04-27 (Web attachment staging live regression) — staged uploads no longer pre-claim the web turn (`apps/api`; focused tests/typecheck green)
+
+### Why this session
+
+Founder reported that chat attachments now appear in the composer/chat temporarily and then the send fails instead of delivering. Fresh `persai-dev` API logs showed the staged upload itself succeeding, but the next stream request was rejected:
+
+- `POST /api/v1/assistant/chat/web/stage-attachment` returned `201`.
+- `ManageChatMediaService` logged `web_attachment_stage_completed ... clientTurnId=...`.
+- `WebChatTurnAttemptService` had already logged `web_turn_attempt_accepted` for that same `clientTurnId`.
+- The subsequent `POST /api/v1/assistant/chat/web/stream` hit `web_turn_attempt_duplicate_inflight status=accepted` and completed with `409`.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts` no longer calls `WebChatTurnAttemptService.claim()` while staging a web attachment.
+- Staging still persists `clientTurnId` and `clientAttachmentId` on the attachment so retry/idempotent replay and later merge-by-`clientTurnId` still work.
+- The actual logical turn is now claimed only by `send` / `stream`, so a normal image/file send can stage first and then start the runtime turn with the same `clientTurnId`.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+
+### Risks / residuals
+
+- Needs deploy/live validation: send an image/file from web or Capacitor and confirm logs show `web_attachment_stage_completed`, then `web_turn_attempt_accepted/running/completed` from `/chat/web/stream`, not `duplicate_inflight` / `409`.
+- The 401 status-lookups observed after the failed send were secondary retry/status checks after the primary `409`; re-check after this fix before treating them as a separate auth bug.
+
+### Next recommended step
+
+Commit/push this hotfix, let Dev Image Publish + Argo CD deploy it, then repeat the same attachment send in GKE and verify the stream starts after staging.
+
 ## 2026-04-27 (Web chat send reliability) — retries now reconcile by durable client turn/attachment ids (`apps/web`, `apps/api`; focused tests/typechecks green pending full gate)
 
 ### Why this session

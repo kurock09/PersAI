@@ -24,7 +24,6 @@ import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
 } from "./assistant-inbound-error";
-import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -55,8 +54,7 @@ export class ManageChatMediaService {
     private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
-    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
   async uploadAttachment(params: {
@@ -204,18 +202,6 @@ export class ManageChatMediaService {
           outcome = "success";
           return { chatId: chat.id, messageId: existing.messageId, attachment: existing };
         }
-      }
-
-      if (params.clientTurnId && this.webChatTurnAttemptService) {
-        await this.webChatTurnAttemptService.claim({
-          assistantId: assistant.id,
-          userId: assistant.userId,
-          workspaceId: assistant.workspaceId,
-          surfaceThreadKey: params.surfaceThreadKey,
-          clientTurnId: params.clientTurnId,
-          claimedAt: new Date(),
-          staleAfterMs: 120_000
-        });
       }
 
       const stagingMessage = await this.chatRepository.createMessage({
