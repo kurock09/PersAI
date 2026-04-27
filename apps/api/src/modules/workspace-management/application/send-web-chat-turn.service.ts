@@ -32,6 +32,7 @@ import {
   SendNativeWebChatTurnService,
   type SendNativeWebChatTurnInput
 } from "./send-native-web-chat-turn.service";
+import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -135,7 +136,8 @@ export class SendWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaDeliveryService: MediaDeliveryService,
-    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
+    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
   parseInput(payload: unknown): SendWebChatTurnRequest {
@@ -185,7 +187,7 @@ export class SendWebChatTurnService {
     userId: string,
     request: SendWebChatTurnRequest
   ): Promise<AssistantWebChatTurnState> {
-    const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
+    const replayTransport = await this.claimOrReplayWebTurn(userId, request);
     if (replayTransport !== null) {
       this.overviewLatencyTraceService
         .start({
@@ -214,9 +216,20 @@ export class SendWebChatTurnService {
         ...(request.title !== undefined ? { title: request.title } : {}),
         ...(request.deepModeEnabled === undefined
           ? {}
-          : { deepModeEnabled: request.deepModeEnabled })
+          : { deepModeEnabled: request.deepModeEnabled }),
+        ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
       preparedAssistantId = prepared.assistantId;
+      if (request.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+        await this.webChatTurnAttemptService.markRunning({
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          clientTurnId: request.clientTurnId,
+          chatId: prepared.chat.id,
+          userMessageId: prepared.userMessage.id
+        });
+      }
       trace.stage("prepared");
 
       const userAttachments = await this.attachmentRepository.listByMessageId(
@@ -311,24 +324,36 @@ export class SendWebChatTurnService {
       trace.stage("quota_recorded");
 
       if (request.clientTurnId !== undefined) {
+        const replayState = {
+          clientTurnId: request.clientTurnId,
+          chatId: prepared.chat.id,
+          userMessageId: prepared.userMessage.id,
+          assistantMessageId: assistantMessage.id,
+          respondedAt: runtimeResponse.respondedAt,
+          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+          quotaFallbackReason: prepared.quotaDegradeReason,
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+          ...(runtimeResponse.turnRouting === undefined
+            ? {}
+            : { turnRouting: runtimeResponse.turnRouting }),
+          completedAt: new Date().toISOString()
+        };
+        if (this.webChatTurnAttemptService) {
+          await this.webChatTurnAttemptService.markCompleted({
+            assistantId: prepared.assistantId,
+            userId: prepared.userId,
+            surfaceThreadKey: prepared.chat.surfaceThreadKey,
+            clientTurnId: request.clientTurnId,
+            assistantMessageId: assistantMessage.id,
+            respondedAt: runtimeResponse.respondedAt,
+            terminalPayload: replayState
+          });
+        }
         await this.bindingRepository.completeWebTurnProcessing(
           prepared.assistantId,
           WEB_TURN_PROVIDER_KEY,
           WEB_TURN_SURFACE_TYPE,
-          {
-            clientTurnId: request.clientTurnId,
-            chatId: prepared.chat.id,
-            userMessageId: prepared.userMessage.id,
-            assistantMessageId: assistantMessage.id,
-            respondedAt: runtimeResponse.respondedAt,
-            degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
-            quotaFallbackReason: prepared.quotaDegradeReason,
-            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-            ...(runtimeResponse.turnRouting === undefined
-              ? {}
-              : { turnRouting: runtimeResponse.turnRouting }),
-            completedAt: new Date().toISOString()
-          }
+          replayState
         );
         trace.stage("replay_completed");
       }
@@ -361,6 +386,16 @@ export class SendWebChatTurnService {
       };
     } catch (error) {
       if (request.clientTurnId !== undefined && preparedAssistantId !== null) {
+        if (this.webChatTurnAttemptService !== undefined) {
+          await this.webChatTurnAttemptService.markFailed({
+            assistantId: preparedAssistantId,
+            userId,
+            surfaceThreadKey: request.surfaceThreadKey,
+            clientTurnId: request.clientTurnId,
+            code: "web_turn_failed",
+            message: error instanceof Error ? error.message : "Web turn failed."
+          });
+        }
         await this.bindingRepository.releaseWebTurnProcessing(
           preparedAssistantId,
           WEB_TURN_PROVIDER_KEY,
@@ -375,43 +410,67 @@ export class SendWebChatTurnService {
 
   private async claimOrReplayWebTurn(
     userId: string,
-    clientTurnId: string | undefined
+    request: SendWebChatTurnRequest
   ): Promise<AssistantWebChatTurnState | null> {
+    const clientTurnId = request.clientTurnId;
     if (clientTurnId === undefined) {
       return null;
     }
     const resolved =
       await this.resolveAssistantInboundRuntimeContextService.resolveByUserId(userId);
-    const claim = await this.bindingRepository.claimWebTurnProcessing(
-      resolved.assistantId,
-      WEB_TURN_PROVIDER_KEY,
-      WEB_TURN_SURFACE_TYPE,
-      clientTurnId,
-      new Date(),
-      WEB_TURN_CLAIM_STALE_MS
-    );
+    const claimedAt = new Date();
+    const claim = this.webChatTurnAttemptService
+      ? await this.webChatTurnAttemptService.claim({
+          assistantId: resolved.assistantId,
+          userId,
+          workspaceId: resolved.assistant.workspaceId,
+          surfaceThreadKey: request.surfaceThreadKey,
+          clientTurnId,
+          claimedAt,
+          staleAfterMs: WEB_TURN_CLAIM_STALE_MS
+        })
+      : await this.bindingRepository.claimWebTurnProcessing(
+          resolved.assistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          clientTurnId,
+          claimedAt,
+          WEB_TURN_CLAIM_STALE_MS
+        );
     if (claim === "claimed") {
       return null;
     }
 
     if (claim === "duplicate_handled") {
-      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
-        resolved.assistantId,
-        WEB_TURN_PROVIDER_KEY,
-        WEB_TURN_SURFACE_TYPE,
-        clientTurnId
-      );
+      const completed = this.webChatTurnAttemptService
+        ? await this.webChatTurnAttemptService.getCompletedReplay({
+            assistantId: resolved.assistantId,
+            userId,
+            clientTurnId
+          })
+        : await this.bindingRepository.getCompletedWebTurnProcessing(
+            resolved.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            clientTurnId
+          );
       return completed ? this.rebuildStoredWebTurnState(resolved.assistantId, completed) : null;
     }
 
     const startedAt = Date.now();
     while (Date.now() - startedAt < WEB_TURN_REPLAY_WAIT_MS) {
-      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
-        resolved.assistantId,
-        WEB_TURN_PROVIDER_KEY,
-        WEB_TURN_SURFACE_TYPE,
-        clientTurnId
-      );
+      const completed = this.webChatTurnAttemptService
+        ? await this.webChatTurnAttemptService.getCompletedReplay({
+            assistantId: resolved.assistantId,
+            userId,
+            clientTurnId
+          })
+        : await this.bindingRepository.getCompletedWebTurnProcessing(
+            resolved.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            clientTurnId
+          );
       if (completed !== null) {
         return this.rebuildStoredWebTurnState(resolved.assistantId, completed);
       }

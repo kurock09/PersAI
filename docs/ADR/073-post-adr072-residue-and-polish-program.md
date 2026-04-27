@@ -99,6 +99,13 @@ Known residuals tracked under this section:
 - Multi-replica `WebChatTurnHardStopRegistry` routing. Today the registry is process-local: a Stop POST that lands on the wrong replica returns 204 (idempotent) but does not dispatch the abort, and the client's local SSE-socket teardown becomes the only effective stop signal — strictly no worse than pre-Slice-1.2 behavior. A sticky-session or pubsub fanout solution is deferred until multi-replica web-chat traffic is real.
 - Live SSE re-attach after soft-detach. Slice 1.3 closes the practical UX gap by refreshing committed history on browser resume, but it still does not reattach to an in-flight SSE stream and replay live deltas while the turn is still running. A future slice may add an explicit SSE re-attach endpoint if live-progress continuity after reconnection becomes important.
 
+2026-04-27 reliability follow-through:
+
+- web/Capacitor sends now use a stable client envelope (`clientTurnId` plus per-file `clientAttachmentId`s) across upload, stream, retry, and status reconciliation.
+- `assistant_web_chat_turn_attempts` is the durable logical-turn registry for web-chat retry/status truth. It supersedes the single last-completed binding cell as current retry authority while the old write may remain as transitional replay telemetry.
+- Normal staged upload merge is keyed by `clientTurnId`; the prior 5-minute adjacency scan is a legacy/orphan fallback, not active behavior.
+- The client calls the turn-status endpoint before retrying an ambiguous failure, so a completed server turn is reconciled locally instead of sent again.
+
 ### 5. Memory, knowledge, and search audit
 
 The active runtime already has a real PersAI-owned knowledge layer, but it is still an economy-first baseline rather than the final quality architecture:

@@ -43,6 +43,7 @@ import {
   StreamNativeWebChatTurnService,
   type StreamNativeWebChatTurnInput
 } from "./stream-native-web-chat-turn.service";
+import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import {
   createCadenceWatchdog,
   DEFAULT_CADENCE_THRESHOLDS,
@@ -163,7 +164,8 @@ export class StreamWebChatTurnService {
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaDeliveryService: MediaDeliveryService,
-    private readonly overviewLatencyTraceService: OverviewLatencyTraceService
+    private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
+    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
   async prepare(
@@ -177,7 +179,7 @@ export class StreamWebChatTurnService {
     });
     trace.stage("prepare_begin");
     try {
-      const replayTransport = await this.claimOrReplayWebTurn(userId, request.clientTurnId);
+      const replayTransport = await this.claimOrReplayWebTurn(userId, request);
       trace.stage("replay_claim_checked");
       if (replayTransport !== null) {
         trace.finish({
@@ -195,9 +197,20 @@ export class StreamWebChatTurnService {
         ...(request.title !== undefined ? { title: request.title } : {}),
         ...(request.deepModeEnabled === undefined
           ? {}
-          : { deepModeEnabled: request.deepModeEnabled })
+          : { deepModeEnabled: request.deepModeEnabled }),
+        ...(request.clientTurnId === undefined ? {} : { clientTurnId: request.clientTurnId })
       });
       trace.stage("prepared");
+      if (request.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+        await this.webChatTurnAttemptService.markRunning({
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          clientTurnId: request.clientTurnId,
+          chatId: prepared.chat.id,
+          userMessageId: prepared.userMessage.id
+        });
+      }
       return {
         mode: "prepared",
         prepared: {
@@ -393,7 +406,23 @@ export class StreamWebChatTurnService {
           status: "interrupted",
           outputPreview: accumulated
         });
-        return this.persistInterruptedOutcome(prepared, accumulated, respondedAt);
+        const interrupted = await this.persistInterruptedOutcome(
+          prepared,
+          accumulated,
+          respondedAt
+        );
+        if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+          await this.webChatTurnAttemptService.markInterrupted({
+            assistantId: prepared.assistantId,
+            userId: prepared.userId,
+            surfaceThreadKey: prepared.chat.surfaceThreadKey,
+            clientTurnId: prepared.clientTurnId,
+            assistantMessageId: interrupted.transport?.assistantMessage.id ?? null,
+            code: "client_aborted",
+            message: "The user stopped this web chat turn."
+          });
+        }
+        return interrupted;
       }
 
       if (
@@ -415,6 +444,16 @@ export class StreamWebChatTurnService {
       const cleanedAccumulated = accumulated.trim();
       if (cleanedAccumulated.length === 0 && collectedMedia.length === 0) {
         if (prepared.clientTurnId !== undefined) {
+          if (this.webChatTurnAttemptService) {
+            await this.webChatTurnAttemptService.markFailed({
+              assistantId: prepared.assistantId,
+              userId: prepared.userId,
+              surfaceThreadKey: prepared.chat.surfaceThreadKey,
+              clientTurnId: prepared.clientTurnId,
+              code: "runtime_invalid_response",
+              message: "Runtime stream finished without assistant output."
+            });
+          }
           await this.bindingRepository.releaseWebTurnProcessing(
             prepared.assistantId,
             WEB_TURN_PROVIDER_KEY,
@@ -480,22 +519,34 @@ export class StreamWebChatTurnService {
       });
       trace.stage("quota_recorded");
       if (prepared.clientTurnId !== undefined) {
+        const replayState = {
+          clientTurnId: prepared.clientTurnId,
+          chatId: prepared.chat.id,
+          userMessageId: prepared.userMessage.id,
+          assistantMessageId: assistantMessage.id,
+          respondedAt: respondedAt ?? new Date().toISOString(),
+          degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
+          quotaFallbackReason: prepared.quotaDegradeReason,
+          quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
+          ...(turnRouting === undefined ? {} : { turnRouting }),
+          completedAt: new Date().toISOString()
+        };
+        if (this.webChatTurnAttemptService) {
+          await this.webChatTurnAttemptService.markCompleted({
+            assistantId: prepared.assistantId,
+            userId: prepared.userId,
+            surfaceThreadKey: prepared.chat.surfaceThreadKey,
+            clientTurnId: prepared.clientTurnId,
+            assistantMessageId: assistantMessage.id,
+            respondedAt: replayState.respondedAt,
+            terminalPayload: replayState
+          });
+        }
         await this.bindingRepository.completeWebTurnProcessing(
           prepared.assistantId,
           WEB_TURN_PROVIDER_KEY,
           WEB_TURN_SURFACE_TYPE,
-          {
-            clientTurnId: prepared.clientTurnId,
-            chatId: prepared.chat.id,
-            userMessageId: prepared.userMessage.id,
-            assistantMessageId: assistantMessage.id,
-            respondedAt: respondedAt ?? new Date().toISOString(),
-            degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
-            quotaFallbackReason: prepared.quotaDegradeReason,
-            quotaFallbackModel: prepared.quotaDegradeModelOverride?.model ?? null,
-            ...(turnRouting === undefined ? {} : { turnRouting }),
-            completedAt: new Date().toISOString()
-          }
+          replayState
         );
         trace.stage("replay_completed");
       }
@@ -570,6 +621,17 @@ export class StreamWebChatTurnService {
         accumulated,
         respondedAt
       );
+      if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+        await this.webChatTurnAttemptService.markInterrupted({
+          assistantId: prepared.assistantId,
+          userId: prepared.userId,
+          surfaceThreadKey: prepared.chat.surfaceThreadKey,
+          clientTurnId: prepared.clientTurnId,
+          assistantMessageId: interruptedOutcome.transport?.assistantMessage.id ?? null,
+          code: normalized.code,
+          message: normalized.message
+        });
+      }
       trace.finish({
         status: "failed",
         outputPreview: accumulated
@@ -936,42 +998,66 @@ export class StreamWebChatTurnService {
 
   private async claimOrReplayWebTurn(
     userId: string,
-    clientTurnId: string | undefined
+    request: StreamWebChatTurnRequest
   ): Promise<AssistantWebChatTurnState | null> {
+    const clientTurnId = request.clientTurnId;
     if (clientTurnId === undefined) {
       return null;
     }
     const resolved =
       await this.resolveAssistantInboundRuntimeContextService.resolveByUserId(userId);
-    const claim = await this.bindingRepository.claimWebTurnProcessing(
-      resolved.assistantId,
-      WEB_TURN_PROVIDER_KEY,
-      WEB_TURN_SURFACE_TYPE,
-      clientTurnId,
-      new Date(),
-      WEB_TURN_CLAIM_STALE_MS
-    );
+    const claimedAt = new Date();
+    const claim = this.webChatTurnAttemptService
+      ? await this.webChatTurnAttemptService.claim({
+          assistantId: resolved.assistantId,
+          userId,
+          workspaceId: resolved.assistant.workspaceId,
+          surfaceThreadKey: request.surfaceThreadKey,
+          clientTurnId,
+          claimedAt,
+          staleAfterMs: WEB_TURN_CLAIM_STALE_MS
+        })
+      : await this.bindingRepository.claimWebTurnProcessing(
+          resolved.assistantId,
+          WEB_TURN_PROVIDER_KEY,
+          WEB_TURN_SURFACE_TYPE,
+          clientTurnId,
+          claimedAt,
+          WEB_TURN_CLAIM_STALE_MS
+        );
     if (claim === "claimed") {
       return null;
     }
     if (claim === "duplicate_handled") {
-      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
-        resolved.assistantId,
-        WEB_TURN_PROVIDER_KEY,
-        WEB_TURN_SURFACE_TYPE,
-        clientTurnId
-      );
+      const completed = this.webChatTurnAttemptService
+        ? await this.webChatTurnAttemptService.getCompletedReplay({
+            assistantId: resolved.assistantId,
+            userId,
+            clientTurnId
+          })
+        : await this.bindingRepository.getCompletedWebTurnProcessing(
+            resolved.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            clientTurnId
+          );
       return completed ? this.rebuildStoredWebTurnState(resolved.assistantId, completed) : null;
     }
 
     const startedAt = Date.now();
     while (Date.now() - startedAt < WEB_TURN_REPLAY_WAIT_MS) {
-      const completed = await this.bindingRepository.getCompletedWebTurnProcessing(
-        resolved.assistantId,
-        WEB_TURN_PROVIDER_KEY,
-        WEB_TURN_SURFACE_TYPE,
-        clientTurnId
-      );
+      const completed = this.webChatTurnAttemptService
+        ? await this.webChatTurnAttemptService.getCompletedReplay({
+            assistantId: resolved.assistantId,
+            userId,
+            clientTurnId
+          })
+        : await this.bindingRepository.getCompletedWebTurnProcessing(
+            resolved.assistantId,
+            WEB_TURN_PROVIDER_KEY,
+            WEB_TURN_SURFACE_TYPE,
+            clientTurnId
+          );
       if (completed !== null) {
         return this.rebuildStoredWebTurnState(resolved.assistantId, completed);
       }

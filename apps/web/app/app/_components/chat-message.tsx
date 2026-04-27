@@ -577,8 +577,9 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   const isStreaming = message.status === "streaming" && message.role === "assistant";
   const showPreResponseStatus =
     isStreaming && message.content.trim().length === 0 && preResponseStatus !== undefined;
-  const isUserSending = isUser && message.status === "sending";
-  const isUserSendFailed = isUser && message.status === "send_failed";
+  const isUserSending =
+    isUser && (message.status === "sending" || message.status === "reconciling");
+  const isUserSendFailed = isUser && message.status.startsWith("send_failed");
   const hasUserAttachments = isUser && (message.attachments?.length ?? 0) > 0;
   const hideUserVoiceTranscript = isUser && userMessageHasVoiceAttachment(message.attachments);
   // FIX 3 — when a user sends only attachments, the composer fills `content`
@@ -667,7 +668,13 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                     aria-hidden="true"
                     className="inline-block h-1.5 w-1.5 rounded-full bg-destructive/80"
                   />
-                  <span>{tSend("failedShort")}</span>
+                  <span>
+                    {message.status === "send_failed_unconfirmed"
+                      ? tSend("failedUnconfirmed")
+                      : message.status === "send_failed_confirmed"
+                        ? tSend("failedConfirmed")
+                        : tSend("failedShort")}
+                  </span>
                 </span>
                 {onRetryPendingSend ? (
                   <>
@@ -789,7 +796,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
               key="sending-indicator"
               data-testid="message-sending-indicator"
               role="status"
-              aria-label={tSend("sending")}
+              aria-label={message.status === "reconciling" ? tSend("checking") : tSend("sending")}
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 22, opacity: 1 }}
               exit={{ width: 0, opacity: 0 }}

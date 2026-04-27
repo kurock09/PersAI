@@ -34,6 +34,10 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { WebChatTurnHardStopRegistry } from "../../application/web-chat-turn-hard-stop-registry.service";
+import {
+  WebChatTurnAttemptService,
+  type WebChatTurnStatusState
+} from "../../application/web-chat-turn-attempt.service";
 import { UpdateAssistantDraftService } from "../../application/update-assistant-draft.service";
 import { PreviewAssistantSetupService } from "../../application/preview-assistant-setup.service";
 import { ResolvePlanVisibilityService } from "../../application/resolve-plan-visibility.service";
@@ -117,6 +121,7 @@ export class AssistantController {
     private readonly manageAssistantAvatarService: ManageAssistantAvatarService,
     private readonly manageAssistantWorkspaceMemoryService: ManageAssistantWorkspaceMemoryService,
     private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
+    private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
@@ -981,6 +986,22 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       chat
+    };
+  }
+
+  @Get("assistant/chat/web/turns/:clientTurnId")
+  async getWebChatTurnStatus(
+    @Req() req: RequestWithPlatformContext,
+    @Param("clientTurnId") clientTurnId: string
+  ): Promise<{ requestId: string | null; turn: WebChatTurnStatusState }> {
+    const userId = this.resolveRequestUserId(req);
+    const normalizedClientTurnId = clientTurnId.trim();
+    if (normalizedClientTurnId.length === 0) {
+      throw new BadRequestException("clientTurnId must be a non-empty string.");
+    }
+    return {
+      requestId: req.requestId ?? null,
+      turn: await this.webChatTurnAttemptService.getStatusForUser(userId, normalizedClientTurnId)
     };
   }
 

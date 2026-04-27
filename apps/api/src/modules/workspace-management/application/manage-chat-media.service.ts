@@ -24,6 +24,7 @@ import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
 } from "./assistant-inbound-error";
+import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -54,7 +55,8 @@ export class ManageChatMediaService {
     private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly platformHttpMetricsService: PlatformHttpMetricsService
+    private readonly platformHttpMetricsService: PlatformHttpMetricsService,
+    private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
   async uploadAttachment(params: {
@@ -147,6 +149,8 @@ export class ManageChatMediaService {
   async stageForWebThread(params: {
     userId: string;
     surfaceThreadKey: string;
+    clientTurnId?: string | null;
+    clientAttachmentId?: string | null;
     file: { buffer: Buffer; mimetype: string; originalname: string };
   }): Promise<{ chatId: string; messageId: string; attachment: AssistantChatMessageAttachment }> {
     const startedAt = process.hrtime.bigint();
@@ -186,6 +190,33 @@ export class ManageChatMediaService {
         );
       }
       const chat = chatResult.chat;
+
+      if (params.clientAttachmentId && params.clientAttachmentId.trim().length > 0) {
+        const existing = await this.attachmentRepository.findStagedByClientAttachment({
+          assistantId: assistant.id,
+          chatId: chat.id,
+          clientAttachmentId: params.clientAttachmentId.trim()
+        });
+        if (existing !== null) {
+          this.logger.log(
+            `web_attachment_stage_replay assistantId=${assistant.id} threadKey=${params.surfaceThreadKey} clientTurnId=${params.clientTurnId ?? "n/a"} clientAttachmentId=${params.clientAttachmentId.trim()} attachmentId=${existing.id}`
+          );
+          outcome = "success";
+          return { chatId: chat.id, messageId: existing.messageId, attachment: existing };
+        }
+      }
+
+      if (params.clientTurnId && this.webChatTurnAttemptService) {
+        await this.webChatTurnAttemptService.claim({
+          assistantId: assistant.id,
+          userId: assistant.userId,
+          workspaceId: assistant.workspaceId,
+          surfaceThreadKey: params.surfaceThreadKey,
+          clientTurnId: params.clientTurnId,
+          claimedAt: new Date(),
+          staleAfterMs: 120_000
+        });
+      }
 
       const stagingMessage = await this.chatRepository.createMessage({
         chatId: chat.id,
@@ -260,10 +291,17 @@ export class ManageChatMediaService {
         metadata: buildStoredAttachmentMetadata({
           source: "web_staged_upload",
           textExtract: processed?.textExtract ?? null
-        })
+        }),
+        clientTurnId: params.clientTurnId?.trim() || null,
+        clientAttachmentId: params.clientAttachmentId?.trim() || null
       });
 
       outcome = "success";
+      if (params.clientAttachmentId) {
+        this.logger.log(
+          `web_attachment_stage_completed assistantId=${assistant.id} threadKey=${params.surfaceThreadKey} clientTurnId=${params.clientTurnId ?? "n/a"} clientAttachmentId=${params.clientAttachmentId} attachmentId=${attachment.id}`
+        );
+      }
       return { chatId: chat.id, messageId: stagingMessage.id, attachment };
     } catch (error) {
       await this.rollbackFailedStagedUpload({

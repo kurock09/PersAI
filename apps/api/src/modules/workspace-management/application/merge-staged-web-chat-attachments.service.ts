@@ -25,8 +25,40 @@ export class MergeStagedWebChatAttachmentsService {
     assistantId: string;
     userMessageId: string;
     userMessageCreatedAt: Date;
+    clientTurnId?: string | null;
   }): Promise<void> {
     const { chatId, assistantId, userMessageId, userMessageCreatedAt } = params;
+
+    if (params.clientTurnId && params.clientTurnId.trim().length > 0) {
+      const staged = await this.prisma.assistantChatMessageAttachment.findMany({
+        where: {
+          chatId,
+          assistantId,
+          clientTurnId: params.clientTurnId.trim()
+        },
+        select: { messageId: true }
+      });
+      const stagingMessageIds = Array.from(
+        new Set(staged.map((attachment) => attachment.messageId))
+      );
+      if (stagingMessageIds.length === 0) {
+        return;
+      }
+      await this.prisma.$transaction([
+        this.prisma.assistantChatMessageAttachment.updateMany({
+          where: {
+            messageId: { in: stagingMessageIds },
+            chatId,
+            clientTurnId: params.clientTurnId.trim()
+          },
+          data: { messageId: userMessageId }
+        }),
+        this.prisma.assistantChatMessage.deleteMany({
+          where: { id: { in: stagingMessageIds }, chatId, assistantId }
+        })
+      ]);
+      return;
+    }
 
     const prior = await this.prisma.assistantChatMessage.findMany({
       where: {

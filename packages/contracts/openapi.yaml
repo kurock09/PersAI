@@ -973,6 +973,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chat/web/turns/{clientTurnId}:
+    get:
+      operationId: getAssistantWebChatTurnStatus
+      summary: Read idempotent web chat turn status for retry/reconcile
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: clientTurnId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current status for the logical client turn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatTurnStatusResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/abuse-controls/unblock:
     post:
       operationId: postAdminAbuseControlsUnblock
@@ -5261,6 +5304,50 @@ components:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
+    AssistantWebChatTurnStatusState:
+      type: object
+      required:
+        - status
+        - chat
+        - userMessage
+        - assistantMessage
+        - runtime
+        - error
+      properties:
+        status:
+          type: string
+          enum:
+            - unknown
+            - accepted
+            - running
+            - completed
+            - failed
+            - interrupted
+        chat:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatState"
+        userMessage:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatMessageState"
+        assistantMessage:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatMessageState"
+        runtime:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatRuntimeState"
+        error:
+          type: object
+          nullable: true
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              nullable: true
+            message:
+              type: string
+              nullable: true
     AssistantWebChatCompactionState:
       type: object
       required:
@@ -5553,6 +5640,17 @@ components:
           nullable: true
         transport:
           $ref: "#/components/schemas/AssistantWebChatTurnState"
+    GetAssistantWebChatTurnStatusResponse:
+      type: object
+      required:
+        - requestId
+        - turn
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        turn:
+          $ref: "#/components/schemas/AssistantWebChatTurnStatusState"
     GetAssistantWebChatListResponse:
       type: object
       required:

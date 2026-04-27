@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import {
   compactChat,
+  getAssistantWebChatTurnStatus,
   getChatMessages,
   getChatCompactionState,
   stageWebChatAttachment,
@@ -57,9 +58,22 @@ export type ChatMessageRole = "user" | "assistant";
  *                   Bubble shows a small red exclamation with Retry / Cancel
  *                   inline; composer stays disabled until user resolves it.
  */
-export type ChatMessageStatus = "committed" | "streaming" | "partial" | "sending" | "send_failed";
+export type ChatMessageStatus =
+  | "committed"
+  | "streaming"
+  | "partial"
+  | "sending"
+  | "reconciling"
+  | "send_failed"
+  | "send_failed_unconfirmed"
+  | "send_failed_confirmed";
 
-export type PendingSendStatus = "sending" | "send_failed";
+export type PendingSendStatus =
+  | "sending"
+  | "reconciling"
+  | "send_failed"
+  | "send_failed_unconfirmed"
+  | "send_failed_confirmed";
 
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
@@ -151,6 +165,8 @@ type RuntimeTransportMeta = {
 export interface ChatSendOptions {
   addToKnowledgeBase?: boolean | undefined;
   deepModeEnabled?: boolean | undefined;
+  clientTurnId?: string | undefined;
+  clientAttachmentIds?: string[] | undefined;
 }
 
 type LiveActivitySource = "tool" | "compaction" | "runtime";
@@ -178,6 +194,8 @@ type PendingSendSlot = {
   options?: ChatSendOptions | undefined;
   userMsgId: string;
   assistantMsgId: string | null;
+  clientTurnId: string;
+  clientAttachmentIds: string[];
   status: PendingSendStatus;
 };
 
@@ -455,13 +473,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const lastResumeRefreshAtRef = useRef(0);
   // Single-slot pending send (ADR-075). Holds enough info to either retry the
   // exact same payload or cancel and restore the draft text.
-  const pendingSendRef = useRef<{
-    text: string;
-    files: File[];
-    options?: ChatSendOptions | undefined;
-    userMsgId: string;
-    assistantMsgId: string | null;
-  } | null>(null);
+  const pendingSendRef = useRef<PendingSendSlot | null>(null);
   const pendingSendsByThreadRef = useRef<Map<string, PendingSendSlot>>(new Map());
   const pendingSendStatusRef = useRef<PendingSendStatus | null>(null);
   const setPendingSendStatus = useCallback((next: PendingSendStatus | null) => {
@@ -562,6 +574,23 @@ export function useChat(threadKey: string): UseChatReturn {
       softDetachReconcileTimersByThreadRef.current.delete(targetThreadKey);
     }
   }, []);
+
+  const finalizeReconciledDetachedTurn = useCallback(
+    (targetThreadKey: string) => {
+      clearSoftDetachReconcileTimer(targetThreadKey);
+      markStreaming(targetThreadKey, false);
+      const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+      if (snapshot !== undefined) {
+        cacheThreadHistorySnapshot(targetThreadKey, snapshot);
+      }
+      activeTurnSnapshotsRef.current.delete(targetThreadKey);
+
+      const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+      controllerEntry?.controller.abort();
+      abortControllersByThreadRef.current.delete(targetThreadKey);
+    },
+    [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
+  );
 
   if (prevThreadKeyRef.current !== threadKey) {
     prevThreadKeyRef.current = threadKey;
@@ -696,7 +725,13 @@ export function useChat(threadKey: string): UseChatReturn {
           const loadedById = new Map(loaded.map((message) => [message.id, message]));
           const prevIds = new Set(prev.map((message) => message.id));
           const hasNewServerMessages = loaded.some((message) => !prevIds.has(message.id));
-          if (hasNewServerMessages && prev.some(isOptimisticLocalMessage)) {
+          const hasOptimisticTurn = prev.some(isOptimisticLocalMessage);
+          const hasNewServerAssistantMessage = loaded.some(
+            (message) => message.role === "assistant" && !prevIds.has(message.id)
+          );
+          const shouldReplaceOptimisticTurn =
+            hasNewServerMessages && hasOptimisticTurn && hasNewServerAssistantMessage;
+          if (shouldReplaceOptimisticTurn) {
             reconciledOptimisticTurn = true;
           }
           const next = prev.flatMap((message) => {
@@ -704,7 +739,7 @@ export function useChat(threadKey: string): UseChatReturn {
             if (replacement !== undefined) {
               return [replacement];
             }
-            if (hasNewServerMessages && isOptimisticLocalMessage(message)) {
+            if (shouldReplaceOptimisticTurn && isOptimisticLocalMessage(message)) {
               for (const attachment of message.attachments ?? []) {
                 if (attachment.localPreviewUrl !== undefined) {
                   URL.revokeObjectURL(attachment.localPreviewUrl);
@@ -715,7 +750,10 @@ export function useChat(threadKey: string): UseChatReturn {
             return [message];
           });
           const nextIds = new Set(next.map((message) => message.id));
-          const missing = loaded.filter((message) => !nextIds.has(message.id));
+          const missing =
+            hasOptimisticTurn && !shouldReplaceOptimisticTurn
+              ? []
+              : loaded.filter((message) => !nextIds.has(message.id));
           return [...next, ...missing];
         });
 
@@ -834,7 +872,16 @@ export function useChat(threadKey: string): UseChatReturn {
         return;
       }
       lastResumeRefreshAtRef.current = now;
-      void refreshLatestHistory(targetChatId, { clearIssueOnReconcile: true });
+      const targetThreadKey = currentThreadKeyRef.current;
+      void (async () => {
+        const reconciled = await refreshLatestHistory(targetChatId, {
+          clearIssueOnReconcile: true,
+          targetThreadKey
+        });
+        if (reconciled) {
+          finalizeReconciledDetachedTurn(targetThreadKey);
+        }
+      })();
     };
 
     const onVisibilityChange = () => {
@@ -855,7 +902,7 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       softDetachReconcileTimersByThreadRef.current.clear();
     };
-  }, [chatId, refreshLatestHistory]);
+  }, [chatId, finalizeReconciledDetachedTurn, refreshLatestHistory]);
 
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
@@ -864,7 +911,7 @@ export function useChat(threadKey: string): UseChatReturn {
       // While a previous send is in send_failed state the composer must stay
       // single-slot — the user has to Retry or Cancel it before another send
       // can start. (ADR-075 § "Single-slot pending send".)
-      if (pendingSendStatusRef.current === "send_failed") return;
+      if (pendingSendStatusRef.current !== null) return;
       // Capture the thread key at send time so every subsequent
       // markStreaming / abort-map mutation in this turn targets the *originating*
       // thread, even if the user navigates away mid-stream.
@@ -878,8 +925,13 @@ export function useChat(threadKey: string): UseChatReturn {
       }
 
       const pendingFiles = files ?? [];
+      const clientTurnId = options?.clientTurnId ?? createClientTurnId();
+      const clientAttachmentIds =
+        options?.clientAttachmentIds?.length === pendingFiles.length
+          ? options.clientAttachmentIds
+          : pendingFiles.map(() => createClientTurnId());
       const localAttachments: ChatAttachment[] = pendingFiles.map((f, i) => ({
-        id: `local-att-${Date.now()}-${String(i)}`,
+        id: clientAttachmentIds[i] ?? `local-att-${Date.now()}-${String(i)}`,
         attachmentType: f.type.startsWith("image/")
           ? "image"
           : f.type.startsWith("audio/")
@@ -901,7 +953,6 @@ export function useChat(threadKey: string): UseChatReturn {
 
       const userMsgId = `local-user-${Date.now()}`;
       const assistantMsgId = `local-assistant-${Date.now()}`;
-      const clientTurnId = createClientTurnId();
       const controller = new AbortController();
       abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
       // Helper used at every cleanup point to drop *this* turn's controller
@@ -927,7 +978,7 @@ export function useChat(threadKey: string): UseChatReturn {
         applyThreadMessages(sendThreadKey, (prev) =>
           prev.flatMap((m) => {
             if (assistantWasMounted && m.id === assistantMsgId) return [];
-            if (m.id === userMsgId) return [{ ...m, status: "send_failed" as const }];
+            if (m.id === userMsgId) return [{ ...m, status: "send_failed_unconfirmed" as const }];
             return [m];
           })
         );
@@ -937,7 +988,9 @@ export function useChat(threadKey: string): UseChatReturn {
           options: options ?? undefined,
           userMsgId,
           assistantMsgId: null,
-          status: "send_failed"
+          clientTurnId,
+          clientAttachmentIds,
+          status: "send_failed_unconfirmed"
         });
       };
 
@@ -952,7 +1005,7 @@ export function useChat(threadKey: string): UseChatReturn {
       // here — there's no in-flight stream — so the chat-input renders the
       // pending-send helper line, not the "stop" button.
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        const failedUserMsg: ChatMessage = { ...userMsgBase, status: "send_failed" };
+        const failedUserMsg: ChatMessage = { ...userMsgBase, status: "send_failed_confirmed" };
         setMessages((prev) => [...prev, failedUserMsg]);
         setThreadPendingSend(sendThreadKey, {
           text: trimmed,
@@ -960,7 +1013,9 @@ export function useChat(threadKey: string): UseChatReturn {
           options: options ?? undefined,
           userMsgId,
           assistantMsgId: null,
-          status: "send_failed"
+          clientTurnId,
+          clientAttachmentIds,
+          status: "send_failed_confirmed"
         });
         releaseAbortController();
         return;
@@ -994,6 +1049,8 @@ export function useChat(threadKey: string): UseChatReturn {
         options: options ?? undefined,
         userMsgId,
         assistantMsgId,
+        clientTurnId,
+        clientAttachmentIds,
         status: "sending"
       });
 
@@ -1004,21 +1061,28 @@ export function useChat(threadKey: string): UseChatReturn {
             // Do not use an absolute hard timeout here: on weak mobile signal a
             // large PDF can keep making progress for minutes, and killing that
             // upload would be worse than letting the pending bubble continue.
-            const staged = await stageWebChatAttachment(token, threadKey, file, {
-              signal: controller.signal,
-              onProgress: (progress) => {
-                applyThreadMessages(sendThreadKey, (prev) =>
-                  prev.map((m) => {
-                    if (m.id !== userMsgId) return m;
-                    const next = [...(m.attachments ?? [])];
-                    const current = next[i];
-                    if (current === undefined) return m;
-                    next[i] = { ...current, uploadProgressPercent: progress.percent };
-                    return { ...m, attachments: next };
-                  })
-                );
+            const staged = await stageWebChatAttachment(
+              token,
+              threadKey,
+              clientTurnId,
+              clientAttachmentIds[i] ?? createClientTurnId(),
+              file,
+              {
+                signal: controller.signal,
+                onProgress: (progress) => {
+                  applyThreadMessages(sendThreadKey, (prev) =>
+                    prev.map((m) => {
+                      if (m.id !== userMsgId) return m;
+                      const next = [...(m.attachments ?? [])];
+                      const current = next[i];
+                      if (current === undefined) return m;
+                      next[i] = { ...current, uploadProgressPercent: progress.percent };
+                      return { ...m, attachments: next };
+                    })
+                  );
+                }
               }
-            });
+            );
             const u = staged.attachment;
             applyThreadMessages(sendThreadKey, (prev) =>
               prev.map((m) => {
@@ -1361,7 +1425,12 @@ export function useChat(threadKey: string): UseChatReturn {
                             delete next.localPreviewUrl;
                             return next;
                           });
-                    return { ...m, id: realUserMsgId, attachments: nextUserAtts };
+                    return {
+                      ...m,
+                      id: realUserMsgId,
+                      status: "committed" as const,
+                      attachments: nextUserAtts
+                    };
                   }
                   return m;
                 })
@@ -1447,6 +1516,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 });
               }
               completedSuccessfully = true;
+              setThreadPendingSend(sendThreadKey, null);
 
               // Files are already staged before the stream — no post-stream upload needed
             },
@@ -1564,7 +1634,9 @@ export function useChat(threadKey: string): UseChatReturn {
           clearSoftDetachReconcileTimer(sendThreadKey);
           markStreaming(sendThreadKey, false);
           const hasFailedPending =
-            pendingSendsByThreadRef.current.get(sendThreadKey)?.status === "send_failed";
+            pendingSendsByThreadRef.current
+              .get(sendThreadKey)
+              ?.status?.startsWith("send_failed") === true;
           if (!hasFailedPending) {
             const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
             if (completedSuccessfully && snapshot !== undefined) {
@@ -1847,6 +1919,47 @@ export function useChat(threadKey: string): UseChatReturn {
   const retryPendingSend = useCallback(async () => {
     const pending = pendingSendRef.current;
     if (pending === null) return;
+    const token = await getToken();
+    if (token === null) {
+      setIssue(toWebChatUxIssue(t("sessionExpired")));
+      return;
+    }
+    setThreadPendingSend(threadKey, { ...pending, status: "reconciling" });
+    setMessages((prev) =>
+      prev.map((m) => (m.id === pending.userMsgId ? { ...m, status: "reconciling" } : m))
+    );
+    try {
+      const status = await getAssistantWebChatTurnStatus(token, pending.clientTurnId);
+      if (
+        status.status === "completed" &&
+        status.userMessage !== null &&
+        status.assistantMessage !== null
+      ) {
+        const committed = [status.userMessage, status.assistantMessage]
+          .map(toCommittedChatMessage)
+          .filter((m): m is ChatMessage => m !== null);
+        setMessages((prev) => {
+          const idsToRemove = new Set<string>([pending.userMsgId]);
+          if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
+          return [...prev.filter((m) => !idsToRemove.has(m.id)), ...committed];
+        });
+        activeTurnSnapshotsRef.current.delete(threadKey);
+        setThreadPendingSend(threadKey, null);
+        return;
+      }
+      if (status.status === "accepted" || status.status === "running") {
+        setThreadPendingSend(threadKey, { ...pending, status: "reconciling" });
+        return;
+      }
+    } catch {
+      setThreadPendingSend(threadKey, { ...pending, status: "send_failed_unconfirmed" });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === pending.userMsgId ? { ...m, status: "send_failed_unconfirmed" } : m
+        )
+      );
+      return;
+    }
     setMessages((prev) => {
       const idsToRemove = new Set<string>([pending.userMsgId]);
       if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
@@ -1861,8 +1974,12 @@ export function useChat(threadKey: string): UseChatReturn {
     });
     activeTurnSnapshotsRef.current.delete(threadKey);
     setThreadPendingSend(threadKey, null);
-    await sendRef.current(pending.text, pending.files, pending.options);
-  }, [setThreadPendingSend, threadKey]);
+    await sendRef.current(pending.text, pending.files, {
+      ...(pending.options ?? {}),
+      clientTurnId: pending.clientTurnId,
+      clientAttachmentIds: pending.clientAttachmentIds
+    });
+  }, [getToken, setThreadPendingSend, t, threadKey]);
 
   const cancelPendingSend = useCallback((): string | null => {
     const pending = pendingSendRef.current;

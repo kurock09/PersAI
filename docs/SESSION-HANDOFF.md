@@ -1,5 +1,80 @@
 # SESSION-HANDOFF
 
+## 2026-04-27 (Web chat send reliability) — retries now reconcile by durable client turn/attachment ids (`apps/web`, `apps/api`; focused tests/typechecks green pending full gate)
+
+### Why this session
+
+Founder reported intermittent duplicate/lost-looking web chat messages and image uploads on poor internet/VPN, especially after retrying a failed-looking send. Root cause was an incomplete idempotency envelope: retry created a new logical turn, attachment staging had no stable client attachment id, and server replay lived in one last-completed surface-binding cell instead of durable per-turn truth.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now stores `clientTurnId` and per-file `clientAttachmentId`s in the pending-send slot and reuses them on retry.
+- Before retrying, the web client calls the new turn-status endpoint. If the server already completed the turn, the local failed bubble is replaced with committed server user/assistant messages and no second stream request is sent.
+- `apps/api` now persists `assistant_web_chat_turn_attempts` keyed by assistant/user/thread/clientTurnId and exposes `GET /api/v1/assistant/chat/web/turns/:clientTurnId`.
+- Attachment staging accepts `clientTurnId` + `clientAttachmentId` and replays the existing staged attachment for the same logical file instead of creating another image/file bubble.
+- Normal staged-attachment merge now moves attachments by `clientTurnId`; the older adjacency heuristic remains only as fallback cleanup for legacy/orphan staging rows.
+- Logs now correlate accepted/running/completed/replayed turns and staged attachment replay with `clientTurnId` / `clientAttachmentId`.
+
+### Live validation matrix
+
+- Android lock/unlock during image generation: completed image should reconcile and Stop should clear.
+- Android + VPN upload/retry: retry should call status/stage replay and not duplicate image bubbles.
+- iOS background/foreground if available: passive disconnect should reconcile from committed status/history.
+- Desktop Chrome slow network/tab sleep: retry should either replay completed state or resend only when status is unknown/failed.
+- Chat switch during upload and long stream: pending state should remain thread-scoped.
+
+### Tests run
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/merge-staged-web-chat-attachments.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+
+### Risks / residuals
+
+- Full live mobile/VPN validation still needs a deployed build and real flaky-network repros.
+- The old surface-binding replay write remains as transitional compatibility telemetry, but new retry/status behavior reads durable attempts.
+
+### Next recommended step
+
+Deploy API/web, run the live matrix above, and confirm logs show `web_turn_attempt_*` / `web_attachment_stage_*` outcomes without duplicate uploads or turns.
+
+## 2026-04-27 (Mobile unlock image-turn stale streaming cleanup) — resume reconciliation now clears hung local stream state after completed media turns (`apps/web`; focused regression/typecheck green)
+
+### Why this session
+
+Founder reported a mobile repro: ask the assistant to draw an image, lock the phone while the turn is running, unlock later, and the image/message is visible but the composer still shows the red stop button forever as if the stream is still active.
+
+### What changed
+
+- Root cause: the existing soft-detach recovery cleared `isStreaming` only when the stream transport threw a passive disconnect and entered the soft-detach reconcile loop. On mobile WebView/screen-lock, the local SSE/fetch transport can instead remain pending forever after unlock, while resume history refresh already loads the completed server-side assistant message with the generated image.
+- `apps/web/app/app/_components/use-chat.ts` now treats a resume history refresh that replaces a local optimistic turn with a committed server assistant message as terminal for the local stream state.
+- In that terminal reconciliation path, the client clears the per-thread streaming flag, caches the committed thread snapshot, drops the active-turn snapshot, and aborts only the stale local transport controller. It does not call the hard-stop endpoint, so a completed or still-server-owned soft-detached turn is not killed as a user stop.
+- The optimistic-turn replacement check now waits for a committed server assistant message before dropping local optimistic bubbles, avoiding premature cleanup if history only has the server user message while the assistant turn is still running.
+- `apps/web/app/app/_components/use-chat.test.tsx` covers the exact stale-stream case: stream starts, tab/phone is hidden, history after unlock contains the completed image assistant message, UI clears `isStreaming`, local signal is aborted, and `stopAssistantWebChatTurn` is not called.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/use-chat.ts" "apps/web/app/app/_components/use-chat.test.tsx"`
+- `ReadLints` on `apps/web/app/app/_components/use-chat.ts` and `apps/web/app/app/_components/use-chat.test.tsx`
+
+### Risks / residuals
+
+- This is still resume-by-history reconciliation, not live SSE reattach. If a turn is genuinely still running when the user unlocks, the client should keep the stream state until a committed assistant message appears in history or the transport ends.
+
+### Next recommended step
+
+Deploy web and live-check on Android: start an image generation, lock the phone until the image finishes, unlock, and confirm the image appears while the composer returns to the normal send state without pressing Stop or refreshing.
+
+---
+
 ## 2026-04-26 (Web-search post-tool stream finalization) — post-tool thinking no longer trips the 8s cadence watchdog (`apps/api`; focused watchdog regression green)
 
 ### Why this session

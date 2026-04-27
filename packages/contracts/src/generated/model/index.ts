@@ -374,3 +374,7 @@ export * from "./userPlanVisibilityState";
 export * from "./workspaceSummary";
 export * from "./workspaceSummaryRole";
 export * from "./workspaceSummaryStatus";
+export * from "./assistantWebChatTurnStatusState";
+export * from "./assistantWebChatTurnStatusStateError";
+export * from "./assistantWebChatTurnStatusStateStatus";
+export * from "./getAssistantWebChatTurnStatusResponse";

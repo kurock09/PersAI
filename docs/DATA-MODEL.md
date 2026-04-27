@@ -13,6 +13,7 @@ PersAI is the source of truth for:
 - runtime bundle materialization
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
+- durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
 - assistant/global knowledge source metadata and indexed chunks
 - persisted assistant workspace files through `assistant_files`
 - assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
@@ -29,6 +30,14 @@ The native runtime path uses PersAI-owned runtime state models for:
 - runtime sessions
 - turn receipts and idempotency state
 - session compaction metadata
+
+## Web chat send reliability
+
+Web/Capacitor chat sends now carry a stable client envelope:
+
+- `assistant_web_chat_turn_attempts` records each logical send with status `accepted`, `running`, `completed`, `failed`, or `interrupted`, plus chat/message ids and terminal replay payloads when available.
+- `assistant_chat_message_attachments.client_turn_id` and `client_attachment_id` bind staged uploads to the same logical send. Normal attachment merge uses `clientTurnId` ownership instead of the prior "nearby empty message" heuristic.
+- the old surface-binding last-completed replay metadata may remain as a transitional compatibility write, but the durable attempt registry is the current authority for retry/status reconciliation.
 
 ## Sandbox and assistant workspace state
 

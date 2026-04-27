@@ -56,6 +56,7 @@ import type {
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
   GetAssistantWebChatTransportResponse,
+  GetAssistantWebChatTurnStatusResponse,
   GetMeResponse,
   GlobalKnowledgeSourceScope,
   OnboardingRequest,
@@ -1515,6 +1516,68 @@ export const postAssistantWebChatTurnStream = async (
       method: "POST",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(assistantWebChatTurnRequest)
+    }
+  );
+};
+
+/**
+ * @summary Read idempotent web chat turn status for retry/reconcile
+ */
+export type getAssistantWebChatTurnStatusResponse200 = {
+  data: GetAssistantWebChatTurnStatusResponse;
+  status: 200;
+};
+
+export type getAssistantWebChatTurnStatusResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAssistantWebChatTurnStatusResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantWebChatTurnStatusResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantWebChatTurnStatusResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantWebChatTurnStatusResponseSuccess =
+  getAssistantWebChatTurnStatusResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantWebChatTurnStatusResponseError = (
+  | getAssistantWebChatTurnStatusResponse400
+  | getAssistantWebChatTurnStatusResponse401
+  | getAssistantWebChatTurnStatusResponse404
+  | getAssistantWebChatTurnStatusResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantWebChatTurnStatusResponse =
+  | getAssistantWebChatTurnStatusResponseSuccess
+  | getAssistantWebChatTurnStatusResponseError;
+
+export const getGetAssistantWebChatTurnStatusUrl = (clientTurnId: string) => {
+  return `/assistant/chat/web/turns/${clientTurnId}`;
+};
+
+export const getAssistantWebChatTurnStatus = async (
+  clientTurnId: string,
+  options?: RequestInit
+): Promise<getAssistantWebChatTurnStatusResponse> => {
+  return customFetch<getAssistantWebChatTurnStatusResponse>(
+    getGetAssistantWebChatTurnStatusUrl(clientTurnId),
+    {
+      ...options,
+      method: "GET"
     }
   );
 };

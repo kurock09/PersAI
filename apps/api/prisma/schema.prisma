@@ -387,6 +387,7 @@ model Workspace {
   assistantBackgroundCompactionJobs AssistantBackgroundCompactionJob[]
   assistantBackgroundTasks          AssistantBackgroundTask[]
   assistantBackgroundTaskRuns       AssistantBackgroundTaskRun[]
+  assistantWebChatTurnAttempts      AssistantWebChatTurnAttempt[]
 
   @@map("workspaces")
 }
@@ -477,6 +478,7 @@ model Assistant {
   assistantWorkspaceLeases             AssistantWorkspaceLease[]
   assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
+  webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -1166,6 +1168,7 @@ model AssistantChat {
   workspaceMember             WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
   messages                    AssistantChatMessage[]
   attachments                 AssistantChatMessageAttachment[]
+  webTurnAttempts             AssistantWebChatTurnAttempt[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -1188,33 +1191,71 @@ model AssistantChatMessage {
 }
 
 model AssistantChatMessageAttachment {
-  id               String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  messageId        String                     @map("message_id") @db.Uuid
-  chatId           String                     @map("chat_id") @db.Uuid
-  assistantId      String                     @map("assistant_id") @db.Uuid
-  workspaceId      String                     @map("workspace_id") @db.Uuid
-  attachmentType   AttachmentType             @map("attachment_type")
-  storagePath      String                     @map("storage_path") @db.VarChar(512)
-  originalFilename String?                    @map("original_filename") @db.VarChar(255)
-  mimeType         String                     @map("mime_type") @db.VarChar(128)
-  sizeBytes        BigInt                     @map("size_bytes")
-  durationMs       Int?                       @map("duration_ms")
-  width            Int?
-  height           Int?
-  processingStatus AttachmentProcessingStatus @default(ready) @map("processing_status")
-  transcription    String?                    @db.Text
-  metadata         Json?                      @db.JsonB
-  createdAt        DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  message          AssistantChatMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  chat             AssistantChat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  assistant        Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                 String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  messageId          String                     @map("message_id") @db.Uuid
+  chatId             String                     @map("chat_id") @db.Uuid
+  assistantId        String                     @map("assistant_id") @db.Uuid
+  workspaceId        String                     @map("workspace_id") @db.Uuid
+  attachmentType     AttachmentType             @map("attachment_type")
+  storagePath        String                     @map("storage_path") @db.VarChar(512)
+  originalFilename   String?                    @map("original_filename") @db.VarChar(255)
+  mimeType           String                     @map("mime_type") @db.VarChar(128)
+  sizeBytes          BigInt                     @map("size_bytes")
+  durationMs         Int?                       @map("duration_ms")
+  width              Int?
+  height             Int?
+  processingStatus   AttachmentProcessingStatus @default(ready) @map("processing_status")
+  transcription      String?                    @db.Text
+  metadata           Json?                      @db.JsonB
+  clientTurnId       String?                    @map("client_turn_id") @db.VarChar(128)
+  clientAttachmentId String?                    @map("client_attachment_id") @db.VarChar(128)
+  createdAt          DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  message            AssistantChatMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  chat               AssistantChat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant          Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  @@unique([assistantId, chatId, clientAttachmentId])
   @@index([messageId])
   @@index([chatId])
+  @@index([chatId, clientTurnId])
   @@index([assistantId])
   @@index([workspaceId, createdAt(sort: Desc)])
   @@map("assistant_chat_message_attachments")
+}
+
+model AssistantWebChatTurnAttempt {
+  id                 String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String         @map("assistant_id") @db.Uuid
+  userId             String         @map("user_id") @db.Uuid
+  workspaceId        String         @map("workspace_id") @db.Uuid
+  surfaceThreadKey   String         @map("surface_thread_key")
+  clientTurnId       String         @map("client_turn_id") @db.VarChar(128)
+  surfaceClient      String?        @map("surface_client") @db.VarChar(64)
+  status             String         @db.VarChar(32)
+  chatId             String?        @map("chat_id") @db.Uuid
+  userMessageId      String?        @map("user_message_id") @db.Uuid
+  assistantMessageId String?        @map("assistant_message_id") @db.Uuid
+  respondedAt        DateTime?      @map("responded_at") @db.Timestamptz(6)
+  terminalPayload    Json?          @map("terminal_payload") @db.JsonB
+  errorCode          String?        @map("error_code") @db.VarChar(128)
+  errorMessage       String?        @map("error_message") @db.Text
+  acceptedAt         DateTime?      @map("accepted_at") @db.Timestamptz(6)
+  runningAt          DateTime?      @map("running_at") @db.Timestamptz(6)
+  completedAt        DateTime?      @map("completed_at") @db.Timestamptz(6)
+  failedAt           DateTime?      @map("failed_at") @db.Timestamptz(6)
+  interruptedAt      DateTime?      @map("interrupted_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant      @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat               AssistantChat? @relation(fields: [chatId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([assistantId, userId, surfaceThreadKey, clientTurnId])
+  @@index([assistantId, userId, clientTurnId])
+  @@index([chatId])
+  @@index([status, updatedAt])
+  @@map("assistant_web_chat_turn_attempts")
 }
 
 model AssistantMemoryRegistryItem {

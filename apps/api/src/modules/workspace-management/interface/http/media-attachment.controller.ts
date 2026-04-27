@@ -29,7 +29,8 @@ export class MediaAttachmentController {
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_FILE_BYTES } }))
   async stageAttachment(
     @Req() req: RequestWithPlatformContext,
-    @Body() body: { surfaceThreadKey?: string },
+    @Body()
+    body: { surfaceThreadKey?: string; clientTurnId?: string; clientAttachmentId?: string },
     @UploadedFile() file: { buffer: Buffer; mimetype: string; originalname: string } | undefined
   ) {
     const userId = this.resolveRequestUserId(req);
@@ -45,6 +46,14 @@ export class MediaAttachmentController {
     const result = await this.manageChatMediaService.stageForWebThread({
       userId,
       surfaceThreadKey,
+      clientTurnId:
+        typeof body.clientTurnId === "string" && body.clientTurnId.trim().length > 0
+          ? body.clientTurnId.trim()
+          : null,
+      clientAttachmentId:
+        typeof body.clientAttachmentId === "string" && body.clientAttachmentId.trim().length > 0
+          ? body.clientAttachmentId.trim()
+          : null,
       file
     });
 

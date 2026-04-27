@@ -23,6 +23,8 @@ import {
   type AssistantWebChatCompactionResult,
   type AssistantWebChatCompactionState,
   type AssistantWebChatListItemState,
+  type AssistantWebChatRuntimeState,
+  type AssistantWebChatState,
   type getAssistantPersonaArchetypesResponse200,
   type AssistantWebChatRenameRequest,
   type AssistantDraftUpdateRequest,
@@ -2637,6 +2639,23 @@ export type StagedAttachmentResult = {
   attachment: UploadedAttachment;
 };
 
+export type WebChatTurnStatus =
+  | "unknown"
+  | "accepted"
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted";
+
+export type WebChatTurnStatusState = {
+  status: WebChatTurnStatus;
+  chat: AssistantWebChatState | null;
+  userMessage: ChatHistoryMessage | null;
+  assistantMessage: ChatHistoryMessage | null;
+  runtime: AssistantWebChatRuntimeState | null;
+  error: { code: string | null; message: string | null } | null;
+};
+
 export type UploadedKnowledgeSource = {
   id: string;
   namespace?: string;
@@ -2777,12 +2796,16 @@ function toXhrOptions(token: string, opts?: UploadResilienceOptions): XhrUploadO
 export async function stageWebChatAttachment(
   token: string,
   surfaceThreadKey: string,
+  clientTurnId: string,
+  clientAttachmentId: string,
   file: File,
   opts?: UploadResilienceOptions
 ): Promise<StagedAttachmentResult> {
   const base = getApiBaseUrl();
   const formData = new FormData();
   formData.append("surfaceThreadKey", surfaceThreadKey);
+  formData.append("clientTurnId", clientTurnId);
+  formData.append("clientAttachmentId", clientAttachmentId);
   formData.append("file", file);
   const res = await uploadWithProgress(
     `${base}/assistant/chat/web/stage-attachment`,
@@ -2797,6 +2820,27 @@ export async function stageWebChatAttachment(
     throw new Error("Failed to stage attachment.");
   }
   return JSON.parse(res.responseText) as StagedAttachmentResult;
+}
+
+export async function getAssistantWebChatTurnStatus(
+  token: string,
+  clientTurnId: string
+): Promise<WebChatTurnStatusState> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/chat/web/turns/${encodeURIComponent(clientTurnId)}`,
+    {
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    const envelope = await readApiErrorEnvelope(response);
+    if (envelope) {
+      throw new ApiStructuredError(envelope.message, envelope.code, envelope.details);
+    }
+    throw new Error("Failed to read web chat turn status.");
+  }
+  const payload = (await response.json()) as { turn: WebChatTurnStatusState };
+  return payload.turn;
 }
 
 export async function uploadChatAttachment(

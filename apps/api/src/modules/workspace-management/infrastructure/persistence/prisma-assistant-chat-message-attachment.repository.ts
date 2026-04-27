@@ -32,7 +32,9 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
         height: input.height,
         processingStatus: input.processingStatus,
         transcription: input.transcription,
-        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull
+        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        clientTurnId: input.clientTurnId ?? null,
+        clientAttachmentId: input.clientAttachmentId ?? null
       }
     });
     return this.mapToDomain(record);
@@ -41,6 +43,23 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
   async findById(id: string): Promise<AssistantChatMessageAttachment | null> {
     const record = await this.prisma.assistantChatMessageAttachment.findUnique({
       where: { id }
+    });
+    return record ? this.mapToDomain(record) : null;
+  }
+
+  async findStagedByClientAttachment(input: {
+    assistantId: string;
+    chatId: string;
+    clientAttachmentId: string;
+  }): Promise<AssistantChatMessageAttachment | null> {
+    const record = await this.prisma.assistantChatMessageAttachment.findUnique({
+      where: {
+        assistantId_chatId_clientAttachmentId: {
+          assistantId: input.assistantId,
+          chatId: input.chatId,
+          clientAttachmentId: input.clientAttachmentId
+        }
+      }
     });
     return record ? this.mapToDomain(record) : null;
   }
@@ -120,6 +139,8 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
       processingStatus: record.processingStatus as AttachmentProcessingStatus,
       transcription: record.transcription,
       metadata: record.metadata as Record<string, unknown> | null,
+      clientTurnId: record.clientTurnId,
+      clientAttachmentId: record.clientAttachmentId,
       createdAt: record.createdAt
     };
   }

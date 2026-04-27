@@ -83,7 +83,13 @@ interface ChatInputProps {
    * outgoing message failed, sending is blocked until the user retries or
    * cancels (the chat shell offers both actions on the bubble itself).
    */
-  pendingSendStatus?: "sending" | "send_failed" | null;
+  pendingSendStatus?:
+    | "sending"
+    | "reconciling"
+    | "send_failed"
+    | "send_failed_unconfirmed"
+    | "send_failed_confirmed"
+    | null;
 }
 
 export interface ChatInputHandle {
@@ -183,7 +189,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     [resize]
   );
 
-  const sendBlockedByFailedSlot = pendingSendStatus === "send_failed";
+  const sendBlockedByFailedSlot = pendingSendStatus !== null;
 
   const handleSend = useCallback(() => {
     if (sendBlockedByFailedSlot) return;

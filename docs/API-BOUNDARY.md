@@ -40,12 +40,14 @@ Primary public API surface:
 - sync route: `POST /api/v1/assistant/chat/web`
 - stream route: `POST /api/v1/assistant/chat/web/stream`
 - hard-stop route: `POST /api/v1/assistant/chat/web/stop` (body: `{ "clientTurnId": string }`, response: 204)
+- turn-status route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId` returns the durable logical-turn state (`unknown`, `accepted`, `running`, `completed`, `failed`, `interrupted`) plus committed user/assistant payloads where available; web/Capacitor clients use it before retrying ambiguous sends
 - current active mode: native-only
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping
 - `apps/runtime` owns request-time execution
 - SSE socket close on the stream route does **not** abort the runtime turn. Only an explicit POST to the hard-stop route flips the runtime's abort signal. A passive disconnect (tab background, screen lock, network drop) lets the runtime finish, persists the full assistant message, and is recoverable on next history fetch — see ADR-073 § "Slice 1.2 — server-side soft-detach" for rationale.
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent and returns 204 whether or not a matching in-flight turn exists; the client treats it as fire-and-forget
+- attachment staging under `POST /api/v1/assistant/chat/web/stage-attachment` accepts `clientTurnId` and `clientAttachmentId`; repeated staging for the same logical attachment returns the existing canonical staged attachment instead of creating a duplicate bubble
 
 ## Knowledge boundaries
 

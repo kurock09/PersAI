@@ -706,7 +706,10 @@
   },
   "send": {
     "sending": "Sending...",
+    "checking": "Checking send state...",
     "failedShort": "Not delivered",
+    "failedUnconfirmed": "Checking delivery",
+    "failedConfirmed": "Not delivered",
     "failedHelper": "Message hasn't been delivered. Retry or cancel to send a new one.",
     "retry": "Retry",
     "cancel": "Cancel"

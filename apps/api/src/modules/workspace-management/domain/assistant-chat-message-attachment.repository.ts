@@ -24,11 +24,18 @@ export type CreateAttachmentInput = {
   processingStatus: AttachmentProcessingStatus;
   transcription: string | null;
   metadata: Record<string, unknown> | null;
+  clientTurnId?: string | null;
+  clientAttachmentId?: string | null;
 };
 
 export interface AssistantChatMessageAttachmentRepository {
   create(input: CreateAttachmentInput): Promise<AssistantChatMessageAttachment>;
   findById(id: string): Promise<AssistantChatMessageAttachment | null>;
+  findStagedByClientAttachment(input: {
+    assistantId: string;
+    chatId: string;
+    clientAttachmentId: string;
+  }): Promise<AssistantChatMessageAttachment | null>;
   listByMessageId(messageId: string): Promise<AssistantChatMessageAttachment[]>;
   listByMessageIds(messageIds: string[]): Promise<AssistantChatMessageAttachment[]>;
   listByChatId(chatId: string): Promise<AssistantChatMessageAttachment[]>;

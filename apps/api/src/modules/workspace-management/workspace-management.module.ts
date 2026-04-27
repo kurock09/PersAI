@@ -129,6 +129,7 @@ import { SendNativeWebChatTurnService } from "./application/send-native-web-chat
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { WebChatTurnAttemptService } from "./application/web-chat-turn-attempt.service";
 import { WebChatTurnHardStopRegistry } from "./application/web-chat-turn-hard-stop-registry.service";
 import { WebRuntimeShadowComparisonService } from "./application/web-runtime-shadow-comparison.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
@@ -385,6 +386,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     PrepareAssistantInboundTurnService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
+    WebChatTurnAttemptService,
     WebChatTurnHardStopRegistry,
     UpdateAssistantDraftService,
     ResolveTelegramChannelRuntimeConfigService,

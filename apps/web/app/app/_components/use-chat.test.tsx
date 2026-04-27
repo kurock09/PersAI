@@ -9,6 +9,7 @@ const clerkMocks = vi.hoisted(() => ({
 
 const assistantApiMocks = vi.hoisted(() => ({
   compactChat: vi.fn(),
+  getAssistantWebChatTurnStatus: vi.fn(),
   getChatCompactionState: vi.fn(),
   getChatMessages: vi.fn(),
   stageWebChatAttachment: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("../assistant-api-client", async () => {
   return {
     ...actual,
     compactChat: assistantApiMocks.compactChat,
+    getAssistantWebChatTurnStatus: assistantApiMocks.getAssistantWebChatTurnStatus,
     getChatCompactionState: assistantApiMocks.getChatCompactionState,
     getChatMessages: assistantApiMocks.getChatMessages,
     stageWebChatAttachment: assistantApiMocks.stageWebChatAttachment,
@@ -82,12 +84,21 @@ describe("useChat", () => {
   beforeEach(() => {
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.compactChat.mockReset();
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockReset();
     assistantApiMocks.getChatCompactionState.mockReset();
     assistantApiMocks.getChatMessages.mockReset();
     assistantApiMocks.stageWebChatAttachment.mockReset();
     assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
     assistantApiMocks.stopAssistantWebChatTurn.mockReset();
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "unknown",
+      chat: null,
+      userMessage: null,
+      assistantMessage: null,
+      runtime: null,
+      error: null
+    });
     assistantApiMocks.stopAssistantWebChatTurn.mockResolvedValue(undefined);
     nextRafId = 1;
     rafCallbacks.clear();
@@ -758,16 +769,18 @@ describe("useChat", () => {
     expect(assistantApiMocks.stageWebChatAttachment).toHaveBeenCalledWith(
       "token-1",
       "thread-1",
+      expect.any(String),
+      expect.any(String),
       file,
       expect.objectContaining({
         signal: expect.any(AbortSignal),
         onProgress: expect.any(Function)
       })
     );
-    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[3]).not.toHaveProperty(
+    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[5]).not.toHaveProperty(
       "hardTimeoutMs"
     );
-    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[3]).not.toHaveProperty(
+    expect(assistantApiMocks.stageWebChatAttachment.mock.calls[0]?.[5]).not.toHaveProperty(
       "stallTimeoutMs"
     );
     await waitFor(() => {
@@ -804,12 +817,12 @@ describe("useChat", () => {
       });
 
       expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_confirmed");
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.messages[0]).toMatchObject({
         role: "user",
         content: "Hello while offline",
-        status: "send_failed"
+        status: "send_failed_confirmed"
       });
     });
 
@@ -821,7 +834,7 @@ describe("useChat", () => {
       await act(async () => {
         await result.current.send("first");
       });
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_confirmed");
 
       // Second send must be a no-op until the user retries or cancels.
       await act(async () => {
@@ -892,9 +905,9 @@ describe("useChat", () => {
         await sendPromise;
       });
 
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
       const userMsg = result.current.messages.find((m) => m.role === "user");
-      expect(userMsg?.status).toBe("send_failed");
+      expect(userMsg?.status).toBe("send_failed_unconfirmed");
       // Assistant placeholder must not linger after pre-headers failure.
       expect(result.current.messages.some((m) => m.role === "assistant")).toBe(false);
     });
@@ -930,7 +943,7 @@ describe("useChat", () => {
       await act(async () => {
         await result.current.send("retry me");
       });
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
 
       await act(async () => {
         await result.current.retryPendingSend();
@@ -942,6 +955,59 @@ describe("useChat", () => {
       expect(userMsg?.status).toBe("committed");
     });
 
+    it("retryPendingSend reconciles a completed server turn instead of sending a duplicate", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new TypeError("fetch failed")
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "completed",
+        chat: null,
+        userMessage: {
+          id: "server-user-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "retry me",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:00.000Z"
+        },
+        assistantMessage: {
+          id: "server-assistant-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "already saved",
+          attachments: [],
+          createdAt: "2026-04-14T10:00:01.000Z"
+        },
+        runtime: {
+          respondedAt: "2026-04-14T10:00:01.000Z",
+          degradedByQuotaFallback: false,
+          quotaFallbackReason: null,
+          quotaFallbackModel: null
+        },
+        error: null
+      });
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("retry me");
+      });
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
+
+      await act(async () => {
+        await result.current.retryPendingSend();
+      });
+
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-1",
+        "server-assistant-1"
+      ]);
+    });
+
     it("cancelPendingSend removes the bubble and returns the draft text", async () => {
       Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
 
@@ -950,7 +1016,7 @@ describe("useChat", () => {
       await act(async () => {
         await result.current.send("draft text");
       });
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_confirmed");
 
       let restored: string | null = null;
       act(() => {
@@ -1217,14 +1283,14 @@ describe("useChat", () => {
       });
 
       rerender({ threadKey: "thread-A" });
-      expect(result.current.pendingSendStatus).toBe("send_failed");
+      expect(result.current.pendingSendStatus).toBe("send_failed_unconfirmed");
       expect(result.current.entries).toEqual([
         expect.objectContaining({
           kind: "message",
           message: expect.objectContaining({
             role: "user",
             content: "read this",
-            status: "send_failed"
+            status: "send_failed_unconfirmed"
           })
         })
       ]);
@@ -1523,6 +1589,111 @@ describe("useChat", () => {
         "server-assistant-1"
       ]);
       expect(result.current.messages[1]?.attachments?.[0]?.id).toBe("att-1");
+    });
+
+    it("clears stale streaming when resume history already has the completed image turn", async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden"
+      });
+
+      let observedSignal: AbortSignal | undefined;
+      let sendPromise: Promise<void> | undefined;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          },
+          signal?: AbortSignal
+        ) => {
+          observedSignal = signal;
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-1" },
+            userMessage: { id: "server-user-1", chatId: "chat-1", attachments: [] }
+          });
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        messages: [
+          {
+            id: "server-user-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "нарисуй картинку",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          {
+            id: "server-assistant-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Готово.",
+            attachments: [
+              {
+                id: "att-1",
+                attachmentType: "image",
+                originalFilename: "image.png",
+                mimeType: "image/png",
+                sizeBytes: 123,
+                processingStatus: "ready",
+                createdAt: "2026-04-25T17:48:03.000Z"
+              }
+            ],
+            createdAt: "2026-04-25T17:48:03.000Z"
+          }
+        ]
+      });
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        sendPromise = result.current.send("нарисуй картинку");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible"
+      });
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getChatMessages).toHaveBeenCalledWith(
+          "token-1",
+          "chat-1",
+          undefined,
+          20
+        );
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+        expect(result.current.messages.map((message) => message.id)).toEqual([
+          "server-user-1",
+          "server-assistant-1"
+        ]);
+      });
+      expect(result.current.messages[1]?.attachments?.[0]?.id).toBe("att-1");
+      expect(observedSignal?.aborted).toBe(true);
+      expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+
+      await sendPromise?.catch(() => undefined);
     });
   });
 });

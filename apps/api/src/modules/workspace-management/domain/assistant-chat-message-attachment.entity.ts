@@ -19,5 +19,7 @@ export type AssistantChatMessageAttachment = {
   processingStatus: AttachmentProcessingStatus;
   transcription: string | null;
   metadata: Record<string, unknown> | null;
+  clientTurnId: string | null;
+  clientAttachmentId: string | null;
   createdAt: Date;
 };

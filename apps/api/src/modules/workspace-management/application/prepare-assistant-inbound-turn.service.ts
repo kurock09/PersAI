@@ -34,6 +34,7 @@ export interface PrepareAssistantInboundTurnInput {
   message: string;
   title?: string | null;
   deepModeEnabled?: boolean;
+  clientTurnId?: string;
 }
 
 export interface PreparedAssistantInboundTurn {
@@ -127,7 +128,8 @@ export class PrepareAssistantInboundTurnService {
         chatId: chat.id,
         assistantId: assistant.id,
         userMessageId: userMessage.id,
-        userMessageCreatedAt: userMessage.createdAt
+        userMessageCreatedAt: userMessage.createdAt,
+        clientTurnId: input.clientTurnId ?? null
       });
     }
 

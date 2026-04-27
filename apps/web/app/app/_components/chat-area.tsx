@@ -452,12 +452,12 @@ export function ChatArea({
                   }
                   forgotten={forgottenIds.has(entry.message.id)}
                   onRetryPendingSend={
-                    entry.message.role === "user" && entry.message.status === "send_failed"
+                    entry.message.role === "user" && entry.message.status.startsWith("send_failed")
                       ? handleRetryPendingSend
                       : undefined
                   }
                   onCancelPendingSend={
-                    entry.message.role === "user" && entry.message.status === "send_failed"
+                    entry.message.role === "user" && entry.message.status.startsWith("send_failed")
                       ? handleCancelPendingSend
                       : undefined
                   }
