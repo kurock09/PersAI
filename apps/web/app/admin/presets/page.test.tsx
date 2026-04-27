@@ -136,7 +136,9 @@ describe("AdminPresetsPage tool prompt defaults", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
 
     await screen.findByText("Factory system template");
-    expect(screen.queryByText("Custom system template")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Custom system template")).not.toBeInTheDocument();
+    });
   });
 
   it("resets a tool override back to code defaults and read-only mode", async () => {
