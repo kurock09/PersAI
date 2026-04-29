@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Failed/interrupted duplicate thinking placeholder fix) — failed image/tool turns now remove stale empty `Думаю...` bubbles when a real failed/partial assistant message is already shown (`apps/web`; focused checks green)
+
+### Why this session
+
+Founder showed a screenshot where an image/tool request had already produced a user-facing failed assistant message (`Попытка не прошла...`), but a separate empty `Думаю...` assistant placeholder remained above it. This was not the same as a no-text interrupted result; it was a duplicate-placeholder cleanup bug after a failed/partial turn.
+
+### What changed
+
+- Corrected the diagnosis: the important symptom was a lower assistant message with text plus an upper stale empty streaming assistant bubble.
+- Checked recent `persai-dev` API/runtime/provider logs. The relevant window still showed server/runtime turn completion and long tool-loop activity rather than an obvious server-side stream kill.
+- Updated `apps/web/app/app/_components/use-chat.ts` failed/interrupted handlers so when a terminal failed/partial assistant message is applied, any other empty optimistic local assistant placeholders in the same thread are removed.
+- Also changed textless interrupted assistant results to become non-streaming (`committed`) instead of staying `streaming`; this is a guardrail, not the main screenshot cause.
+- Added focused regressions for both cases: interrupted without text must not leave a streaming placeholder, and failed text like `Попытка не прошла...` must render as a single assistant message with no lingering `Думаю...`.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This fixes the visible duplicate empty local placeholder after failed/interrupted turn UI. If founder still sees continuation break before any failed/partial message appears, the remaining investigation target is off-thread live delta/reattach behavior during the running phase.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then repeat the screenshot flow with image generation failure/retry and confirm there is only one assistant response: either live `Думаю...` while running or the failed/partial text after terminal state, never both.
+
+## 2026-04-30 (Chat switch running-stream continuation fix) — reattach terminal callbacks now refresh the originating chat instead of accidentally querying by thread key (`apps/web`; focused checks green, API logs still show server-side completion)
+
+### Why this session
+
+Founder clarified that the still-broken symptom was not only the final committed answer after completion, but the older regression where a long in-flight stream stopped continuing correctly after switching chats. That pointed away from the background-completed placeholder cleanup and back toward the running-turn switch/reattach path.
+
+### What changed
+
+- Re-checked recent `persai-dev` API logs and again confirmed the server was still completing web turns (`web_turn_attempt_completed`, `web_stream_timing`) without evidence of a hard server abort during the repro window.
+- Found a second client bug in `apps/web/app/app/_components/use-chat.ts`: terminal callbacks inside `startTurnReattach()` called `refreshLatestHistory(targetThreadKey)` even though `refreshLatestHistory()` expects a `chatId`, not a `threadKey`.
+- Switched those `onCompleted` / `onInterrupted` / `onFailed` reattach callbacks to resolve the originating thread's known `chatId` with `resolveKnownChatIdForThread()` and refresh history against that chat while preserving `targetThreadKey`.
+- Added a focused regression in `use-chat.test.tsx` covering the path `thread-A running -> switch to thread-B -> passive disconnect -> stale first history read -> reattach completes`, asserting the terminal refresh fetches `chat-A` and restores the committed result when returning to `thread-A`.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This fix specifically targets the reattach terminal callbacks after a switched-away running turn. If founder still sees the *live* stream stop mid-generation before terminal completion, the next suspect is delta/thinking delivery during off-thread reattach rather than the final history refresh.
+- Live validation after deploy is still required because current evidence is hook-level plus API logs, not a captured browser HAR/video of the exact founder repro.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then repeat the precise founder flow on a deliberately long text/tool turn: start in Chat A, switch to Chat B while the stream is still running, return to Chat A before completion and after completion, and confirm the live continuation plus committed result both survive without reload.
+
 ## 2026-04-29 (Background-completed stale thinking cursor fix) — resume/history reconcile now clears orphan local placeholder turns instead of leaving `Думаю...` behind after browser return (`apps/web`; focused checks green)
 
 ### Why this session

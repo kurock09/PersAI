@@ -1086,15 +1086,24 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onCompleted: async () => {
               latestResult = "terminal";
-              await refreshLatestHistory(targetThreadKey);
+              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+              if (targetChatId) {
+                await refreshLatestHistory(targetChatId, { targetThreadKey });
+              }
             },
             onInterrupted: async () => {
               latestResult = "terminal";
-              await refreshLatestHistory(targetThreadKey);
+              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+              if (targetChatId) {
+                await refreshLatestHistory(targetChatId, { targetThreadKey });
+              }
             },
             onFailed: async () => {
               latestResult = "terminal";
-              await refreshLatestHistory(targetThreadKey);
+              const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
+              if (targetChatId) {
+                await refreshLatestHistory(targetChatId, { targetThreadKey });
+              }
             }
           },
           controller.signal
@@ -1113,7 +1122,8 @@ export function useChat(threadKey: string): UseChatReturn {
       applyTurnStatusState,
       getToken,
       markStreaming,
-      refreshLatestHistory
+      refreshLatestHistory,
+      resolveKnownChatIdForThread
     ]
   );
   const startSoftDetachReconcile = useCallback(
@@ -1949,25 +1959,35 @@ export function useChat(threadKey: string): UseChatReturn {
                   ? t.assistantMessage.content
                   : null;
               applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? (() => {
-                        const nextContent = authoritativeAssistantContent ?? m.content;
-                        return {
-                          ...m,
-                          ...(newAssistantId ? { id: newAssistantId } : {}),
-                          ...(authoritativeAssistantContent !== null
-                            ? { content: authoritativeAssistantContent }
-                            : {}),
-                          status: nextContent.trim().length > 0 ? "partial" : "streaming",
-                          thoughtFinishedAt:
-                            m.thought && !m.thoughtFinishedAt
-                              ? interruptedAt
-                              : (m.thoughtFinishedAt ?? null)
-                        };
-                      })()
-                    : m
-                )
+                prev.flatMap((m) => {
+                  if (
+                    m.id !== assistantMsgId &&
+                    m.role === "assistant" &&
+                    m.status === "streaming" &&
+                    m.content.trim().length === 0 &&
+                    isOptimisticLocalMessage(m)
+                  ) {
+                    return [];
+                  }
+                  if (m.id !== assistantMsgId) {
+                    return [m];
+                  }
+                  const nextContent = authoritativeAssistantContent ?? m.content;
+                  return [
+                    {
+                      ...m,
+                      ...(newAssistantId ? { id: newAssistantId } : {}),
+                      ...(authoritativeAssistantContent !== null
+                        ? { content: authoritativeAssistantContent }
+                        : {}),
+                      status: nextContent.trim().length > 0 ? "partial" : "committed",
+                      thoughtFinishedAt:
+                        m.thought && !m.thoughtFinishedAt
+                          ? interruptedAt
+                          : (m.thoughtFinishedAt ?? null)
+                    }
+                  ];
+                })
               );
             },
             onFailed: (payload) => {
@@ -1984,22 +2004,32 @@ export function useChat(threadKey: string): UseChatReturn {
                   ? t.assistantMessage.content
                   : null;
               applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        ...(newAssistantId ? { id: newAssistantId } : {}),
-                        ...(authoritativeAssistantContent !== null
-                          ? { content: authoritativeAssistantContent }
-                          : {}),
-                        status: "partial" as const,
-                        thoughtFinishedAt:
-                          m.thought && !m.thoughtFinishedAt
-                            ? failedAt
-                            : (m.thoughtFinishedAt ?? null)
-                      }
-                    : m
-                )
+                prev.flatMap((m) => {
+                  if (
+                    m.id !== assistantMsgId &&
+                    m.role === "assistant" &&
+                    m.status === "streaming" &&
+                    m.content.trim().length === 0 &&
+                    isOptimisticLocalMessage(m)
+                  ) {
+                    return [];
+                  }
+                  if (m.id !== assistantMsgId) {
+                    return [m];
+                  }
+                  return [
+                    {
+                      ...m,
+                      ...(newAssistantId ? { id: newAssistantId } : {}),
+                      ...(authoritativeAssistantContent !== null
+                        ? { content: authoritativeAssistantContent }
+                        : {}),
+                      status: "partial" as const,
+                      thoughtFinishedAt:
+                        m.thought && !m.thoughtFinishedAt ? failedAt : (m.thoughtFinishedAt ?? null)
+                    }
+                  ];
+                })
               );
             }
           },

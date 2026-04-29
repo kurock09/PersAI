@@ -214,7 +214,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [addToKnowledgeBase, onSend, pendingFiles, sendBlockedByFailedSlot]);
+    if (!isTouchDevice) {
+      el.focus();
+    }
+  }, [addToKnowledgeBase, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {

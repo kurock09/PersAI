@@ -310,6 +310,90 @@ describe("useChat", () => {
     expect(assistantEntry?.message.id).toBe("assistant-msg-partial-1");
   });
 
+  it("does not leave an empty thinking placeholder streaming after an interrupted turn without text", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onInterrupted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onInterrupted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-interrupted-1"
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("make an image");
+    });
+
+    const assistantEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+        entry.kind === "message" && entry.message.role === "assistant"
+    );
+
+    expect(assistantEntries).toHaveLength(1);
+    expect(assistantEntries[0]?.message.id).toBe("assistant-msg-interrupted-1");
+    expect(assistantEntries[0]?.message.status).toBe("committed");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("commits failed turn text without leaving a streaming thinking placeholder", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onFailed?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onFailed?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-failed-1",
+              content: "Попытка не прошла.\nМогу сделать ещё раз."
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("Нарисуй ещё себя");
+    });
+
+    const assistantEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+        entry.kind === "message" && entry.message.role === "assistant"
+    );
+
+    expect(assistantEntries).toHaveLength(1);
+    expect(assistantEntries[0]?.message.id).toBe("assistant-msg-failed-1");
+    expect(assistantEntries[0]?.message.status).toBe("partial");
+    expect(assistantEntries[0]?.message.content).toContain("Попытка не прошла");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
   it("keeps only the last live status for tool-driven turns", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
@@ -2560,6 +2644,158 @@ describe("useChat", () => {
         "server-user-A",
         "server-assistant-A"
       ]);
+    });
+
+    it("refreshes terminal reattach history against the originating chat after switching away", async () => {
+      let releaseStream: (() => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A", chatId: "chat-A", attachments: [] }
+          });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => {
+              resolve();
+            };
+          });
+          throw new TypeError("network disconnected while viewing another chat");
+        }
+      );
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onCompleted?: () => void | Promise<void>;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          await handlers.onCompleted?.();
+        }
+      );
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "other chat",
+              attachments: [],
+              createdAt: "2026-04-25T17:50:00.000Z"
+            },
+            {
+              id: "server-assistant-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Other answer.",
+              attachments: [],
+              createdAt: "2026-04-25T17:50:05.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "keep going",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "keep going",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            {
+              id: "server-assistant-A",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Recovered via reattach.",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:45.000Z"
+            }
+          ]
+        });
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("keep going");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.chatId).toBe("chat-A");
+      });
+
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      expect(result.current.chatId).toBe("chat-B");
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+
+      await waitFor(() => {
+        expect(assistantApiMocks.getChatMessages).toHaveBeenNthCalledWith(
+          3,
+          "token-1",
+          "chat-A",
+          undefined,
+          20
+        );
+      });
+
+      rerender({ threadKey: "thread-A" });
+      await waitFor(() => {
+        expect(result.current.messages.map((message) => message.id)).toEqual([
+          "server-user-A",
+          "server-assistant-A"
+        ]);
+      });
     });
 
     it("keeps post-headers passive stream disconnects quiet and reconciles history", async () => {

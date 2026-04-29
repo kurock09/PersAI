@@ -139,6 +139,27 @@ describe("ChatInput", () => {
     expect(screen.getByPlaceholderText("placeholder")).toHaveStyle({ resize: "none" });
   });
 
+  it("returns focus to the desktop composer after send", () => {
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("placeholder");
+    fireEvent.change(textarea, {
+      target: { value: "hello" }
+    });
+    fireEvent.click(screen.getByTitle("send"));
+
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, undefined);
+    expect(textarea).toHaveFocus();
+  });
+
   it("shows a live camera preview in the mobile camera tile", async () => {
     const stop = vi.fn();
     const stream = {
