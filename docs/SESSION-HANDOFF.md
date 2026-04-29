@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Tool-turn resume reconciliation) — mobile/desktop resume now keeps polling until committed image/tool history lands (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder reproduced a stale UI state on both desktop web and Capacitor mobile: start an image/tool turn, switch away while the tool is running, then return. Server-side logs showed the turn completed and the generated attachment was available, but the client sometimes showed no cursor/status update and no final assistant image until manual refresh/reopen.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now treats app/window resume during an active streaming turn as a soft-detach reconciliation candidate even when the local SSE/fetch request has not yet thrown a disconnect error.
+- If the first resume `getChatMessages` call lands before the tool's final assistant message is committed, the client starts the bounded soft-detach polling loop instead of stopping after one refresh.
+- Successful polling reconciliation now uses the shared detached-turn finalizer, aborting only the stale local controller and clearing the active snapshot without calling the server hard-stop endpoint.
+- `apps/web/app/app/_components/use-chat.test.tsx` pins the race: the first resume refresh and the immediate poll see only the user message, the later bounded poll sees the committed assistant image turn, and the UI clears streaming without `stopAssistantWebChatTurn`.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/use-chat.ts" "apps/web/app/app/_components/use-chat.test.tsx"`
+- `ReadLints` on `use-chat.ts` and `use-chat.test.tsx`
+
+### Risks / residuals
+
+- Needs deploy/live validation on desktop and Capacitor: start image generation, background the browser/app while the tool runs, return before and after completion, and confirm the final assistant image appears without F5/reopen.
+- This is still reconciliation, not true SSE reattach; missed live deltas during background are recovered from committed history.
+
+### Next recommended step
+
+Deploy this web fix and repeat the founder repro on desktop and mobile. The separate mobile offline fallback plan remains pending and unchanged.
+
+## 2026-04-29 (Runtime Admin OpenAI key priority) — provider-gateway now prefers admin-managed keys over static env keys (`apps/provider-gateway`; focused test/typecheck green)
+
+### Why this session
+
+Founder asked why an OpenAI key saved in Runtime Admin did not appear to reach GKE. Live `persai-dev` checks showed the save path was healthy but exposed a source-of-truth mismatch:
+
+- `PUT /api/v1/admin/runtime/provider-settings` returned `200`.
+- `platform_runtime_provider_settings` updated at `2026-04-29T09:30:52.484Z`.
+- `platform_runtime_provider_secrets.openai` updated at `2026-04-29T09:30:52.497Z`.
+- `provider-gateway` could resolve both `openai/api-key` and `anthropic/api-key` through `/api/v1/internal/runtime/provider-secrets/resolve`.
+- `persai-runtime-secrets` still supplied `PROVIDER_GATEWAY_OPENAI_API_KEY`, so `ProviderWarmupService` treated OpenAI as already env-configured and skipped the admin-managed secret.
+
+### What changed
+
+- `apps/provider-gateway/src/modules/providers/provider-warmup.service.ts` now attempts PersAI-managed secret resolution whenever the internal API is configured, even if a static provider env key exists.
+- The resolved Runtime Admin key is passed to `client.warm(managedApiKey)`, so it takes precedence over `PROVIDER_GATEWAY_OPENAI_API_KEY` / `PROVIDER_GATEWAY_ANTHROPIC_API_KEY`.
+- Static env keys remain fallback bootstrap credentials when the managed secret is missing or the internal resolver is unavailable.
+- `apps/provider-gateway/test/provider-warmup.service.test.ts` now pins the OpenAI regression: an env-configured OpenAI client still warms with `openai/api-key` from the managed secret store.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-warmup.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `ReadLints` on `provider-warmup.service.ts` and `provider-warmup.service.test.ts`
+
+### Risks / residuals
+
+- Needs deploy/live validation: after Dev Image Publish + Argo CD sync, save/rotate an OpenAI key in Runtime Admin and confirm `provider-gateway /ready` remains `ready` and OpenAI requests use the freshly managed key.
+- Kubernetes Secret `OPENAI_API_KEY` may still exist as bootstrap fallback; that is acceptable after this fix because managed DB secrets win when configured.
+
+### Next recommended step
+
+Run the normal verification/commit/push flow if requested, then deploy and re-check Runtime Admin OpenAI key rotation in GKE. The separate mobile offline fallback plan is still pending and unchanged.
+
 ## 2026-04-27 (Web attachment staging live regression) — staged uploads no longer pre-claim the web turn (`apps/api`; focused tests/typecheck green)
 
 ### Why this session

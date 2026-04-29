@@ -6,6 +6,10 @@ import { ProviderCatalogService } from "../src/modules/providers/provider-catalo
 import { ProviderWarmupService } from "../src/modules/providers/provider-warmup.service";
 import { ProviderGatewayReadinessService } from "../src/modules/platform-core/application/provider-gateway-readiness.service";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
+import type {
+  ProviderGatewayProvider,
+  ProviderWarmableClient
+} from "../src/modules/providers/provider-client.types";
 
 function createConfig(): ProviderGatewayConfig {
   return {
@@ -22,6 +26,29 @@ function createConfig(): ProviderGatewayConfig {
     PROVIDER_GATEWAY_OPENAI_MODELS: ["gpt-5.4"],
     PROVIDER_GATEWAY_ANTHROPIC_MODELS: ["claude-sonnet-4-5"]
   };
+}
+
+class CapturingProviderClient implements ProviderWarmableClient {
+  readonly catalogSource = "bootstrap_config" as const;
+  readonly warmedKeys: Array<string | undefined> = [];
+
+  constructor(
+    readonly provider: ProviderGatewayProvider,
+    private readonly configured: boolean,
+    private readonly models: string[]
+  ) {}
+
+  isConfigured(): boolean {
+    return this.configured;
+  }
+
+  getCatalogModels(): string[] {
+    return [...this.models];
+  }
+
+  async warm(apiKeyOverride?: string): Promise<void> {
+    this.warmedKeys.push(apiKeyOverride);
+  }
 }
 
 export async function runProviderWarmupServiceTest(): Promise<void> {
@@ -155,6 +182,51 @@ export async function runProviderWarmupServiceTest(): Promise<void> {
   assert.equal(refreshed.state, "ready");
   assert.equal(refreshed.catalogSource, "control_plane_apply");
   assert.deepEqual(refreshed.catalogModels, ["gpt-5.4-mini", "gpt-5.4"]);
+
+  const capturingOpenaiClient = new CapturingProviderClient("openai", true, ["gpt-5.4"]);
+  const capturingAnthropicClient = new CapturingProviderClient("anthropic", false, [
+    "claude-sonnet-4-5"
+  ]);
+  const managedOpenaiService = new ProviderWarmupService(
+    config,
+    {
+      isConfigured() {
+        return true;
+      },
+      async resolveSecretValue(secretId: string) {
+        if (secretId === "openai/api-key") {
+          return "openai-managed-test-key";
+        }
+        throw new Error(`PersAI-managed runtime secret "${secretId}" is not configured.`);
+      },
+      async getDefaultProviderSettings() {
+        return {
+          generation: 8,
+          mode: "global_settings",
+          primary: { provider: "openai", model: "gpt-5.4" },
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: []
+          }
+        };
+      }
+    } as Pick<
+      PersaiInternalApiClientService,
+      "isConfigured" | "resolveSecretValue" | "getDefaultProviderSettings"
+    > as PersaiInternalApiClientService,
+    capturingOpenaiClient as unknown as OpenAIProviderClient,
+    capturingAnthropicClient as unknown as AnthropicProviderClient
+  );
+  await managedOpenaiService.warmProviders({
+    schema: "persai.providerGatewayWarmupRequest.v1",
+    source: "control_plane_apply",
+    availableModelsByProvider: {
+      openai: ["gpt-5.4"],
+      anthropic: []
+    }
+  });
+  assert.deepEqual(capturingOpenaiClient.warmedKeys, ["openai-managed-test-key"]);
+  assert.deepEqual(capturingAnthropicClient.warmedKeys, []);
 
   let resolvedSecretId: string | null = null;
   const managedAnthropicService = new ProviderWarmupService(

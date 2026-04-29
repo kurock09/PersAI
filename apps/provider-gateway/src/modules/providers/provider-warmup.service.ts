@@ -118,7 +118,7 @@ export class ProviderWarmupService implements OnModuleInit {
       });
 
       try {
-        const managedApiKey = await this.resolveManagedApiKey(client.provider, client);
+        const managedApiKey = await this.resolveManagedApiKey(client.provider);
         if (!client.isConfigured() && managedApiKey === null) {
           this.providerState.set(client.provider, {
             provider: client.provider,
@@ -253,11 +253,8 @@ export class ProviderWarmupService implements OnModuleInit {
     };
   }
 
-  private async resolveManagedApiKey(
-    provider: ProviderGatewayProvider,
-    client: ProviderWarmableClient
-  ): Promise<string | null> {
-    if (client.isConfigured() || !this.persaiInternalApiClientService.isConfigured()) {
+  private async resolveManagedApiKey(provider: ProviderGatewayProvider): Promise<string | null> {
+    if (!this.persaiInternalApiClientService.isConfigured()) {
       return null;
     }
 

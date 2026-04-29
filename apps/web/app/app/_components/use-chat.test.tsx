@@ -1695,5 +1695,131 @@ describe("useChat", () => {
 
       await sendPromise?.catch(() => undefined);
     });
+
+    it("continues bounded resume polling when the first resume refresh lands before tool completion", async () => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden"
+      });
+
+      vi.useFakeTimers();
+      try {
+        let observedSignal: AbortSignal | undefined;
+        let sendPromise: Promise<void> | undefined;
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            },
+            signal?: AbortSignal
+          ) => {
+            observedSignal = signal;
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-1" },
+              userMessage: { id: "server-user-1", chatId: "chat-1", attachments: [] }
+            });
+            await new Promise<void>((_resolve, reject) => {
+              signal?.addEventListener("abort", () => {
+                reject(new DOMException("aborted", "AbortError"));
+              });
+            });
+          }
+        );
+        const incompleteHistory = {
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "нарисуй картинку",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            }
+          ]
+        };
+        assistantApiMocks.getChatMessages
+          .mockResolvedValueOnce(incompleteHistory)
+          .mockResolvedValueOnce(incompleteHistory)
+          .mockResolvedValue({
+            nextCursor: null,
+            messages: [
+              {
+                id: "server-user-1",
+                chatId: "chat-1",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "нарисуй картинку",
+                attachments: [],
+                createdAt: "2026-04-25T17:45:35.000Z"
+              },
+              {
+                id: "server-assistant-1",
+                chatId: "chat-1",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "Готово.",
+                attachments: [
+                  {
+                    id: "att-1",
+                    attachmentType: "image",
+                    originalFilename: "image.png",
+                    mimeType: "image/png",
+                    sizeBytes: 123,
+                    processingStatus: "ready",
+                    createdAt: "2026-04-25T17:48:03.000Z"
+                  }
+                ],
+                createdAt: "2026-04-25T17:48:03.000Z"
+              }
+            ]
+          });
+
+        const { result } = renderHook(() => useChat("thread-1"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        await act(async () => {
+          sendPromise = result.current.send("нарисуй картинку");
+          await Promise.resolve();
+        });
+        await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible"
+        });
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+
+        await vi.waitFor(() => expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(2));
+        expect(result.current.isStreaming).toBe(true);
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        await vi.waitFor(() => {
+          expect(result.current.isStreaming).toBe(false);
+          expect(result.current.messages.map((message) => message.id)).toEqual([
+            "server-user-1",
+            "server-assistant-1"
+          ]);
+        });
+        expect(result.current.messages[1]?.attachments?.[0]?.id).toBe("att-1");
+        expect(observedSignal?.aborted).toBe(true);
+        expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+
+        await sendPromise?.catch(() => undefined);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

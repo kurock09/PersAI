@@ -791,7 +791,11 @@ export function useChat(threadKey: string): UseChatReturn {
           clearIssueOnReconcile: true,
           targetThreadKey
         });
-        if (reconciled || attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS) {
+        if (reconciled) {
+          finalizeReconciledDetachedTurn(targetThreadKey);
+          return;
+        }
+        if (attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS) {
           clearSoftDetachReconcileTimer(targetThreadKey);
           markStreaming(targetThreadKey, false);
           activeTurnSnapshotsRef.current.delete(targetThreadKey);
@@ -803,7 +807,12 @@ export function useChat(threadKey: string): UseChatReturn {
       };
       void tick();
     },
-    [clearSoftDetachReconcileTimer, markStreaming, refreshLatestHistory]
+    [
+      clearSoftDetachReconcileTimer,
+      finalizeReconciledDetachedTurn,
+      markStreaming,
+      refreshLatestHistory
+    ]
   );
 
   const compactNow = useCallback(
@@ -880,6 +889,14 @@ export function useChat(threadKey: string): UseChatReturn {
         });
         if (reconciled) {
           finalizeReconciledDetachedTurn(targetThreadKey);
+          return;
+        }
+        if (
+          activeThreads.has(targetThreadKey) ||
+          activeTurnSnapshotsRef.current.has(targetThreadKey) ||
+          abortControllersByThreadRef.current.has(targetThreadKey)
+        ) {
+          startSoftDetachReconcile(targetThreadKey, targetChatId);
         }
       })();
     };
@@ -902,7 +919,13 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       softDetachReconcileTimersByThreadRef.current.clear();
     };
-  }, [chatId, finalizeReconciledDetachedTurn, refreshLatestHistory]);
+  }, [
+    activeThreads,
+    chatId,
+    finalizeReconciledDetachedTurn,
+    refreshLatestHistory,
+    startSoftDetachReconcile
+  ]);
 
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
