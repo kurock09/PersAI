@@ -135,7 +135,7 @@ import { WebRuntimeShadowComparisonService } from "./application/web-runtime-sha
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
-import { DeliverReminderNotificationService } from "./application/deliver-reminder-notification.service";
+import { AssistantNotificationDeliveryService } from "./application/assistant-notification-delivery.service";
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
@@ -300,7 +300,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminAssistantPlanOverrideService,
     ManageAdminWorkspaceSubscriptionService,
     HandleInternalCronFireService,
-    DeliverReminderNotificationService,
+    AssistantNotificationDeliveryService,
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,

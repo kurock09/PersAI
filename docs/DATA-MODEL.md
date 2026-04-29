@@ -82,6 +82,8 @@ Active task persistence is split by product meaning:
 
 `scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the ADR-077 background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
 
+Assistant notification delivery is source-neutral at the transport boundary. `scheduled_action:user_reminder`, `background_task`, future `idle_reengagement`, and future `system_event` sources hand off to `AssistantNotificationDeliveryService`, which resolves `Assistant.preferredNotificationChannel`, sends Telegram when configured, falls back to the web `system:notifications` thread, and persists delivered artifacts through `MediaDeliveryService`. No durable notification outbox table exists yet; the current first slice is an in-process delivery service over existing assistant/chat/task persistence.
+
 ## Persona / Voice DNA state
 
 Current active Voice DNA persistence includes:

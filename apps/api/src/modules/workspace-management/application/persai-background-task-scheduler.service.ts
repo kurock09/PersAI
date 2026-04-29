@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { DeliverReminderNotificationService } from "./deliver-reminder-notification.service";
+import { AssistantNotificationDeliveryService } from "./assistant-notification-delivery.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./ensure-assistant-materialized-spec-current.service";
 import {
   InternalRuntimeBackgroundTaskClientService,
@@ -68,7 +68,7 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
     private readonly assistantRepository: AssistantRepository,
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly internalRuntimeBackgroundTaskClientService: InternalRuntimeBackgroundTaskClientService,
-    private readonly deliverReminderNotificationService: DeliverReminderNotificationService
+    private readonly assistantNotificationDeliveryService: AssistantNotificationDeliveryService
   ) {}
 
   onModuleInit(): void {
@@ -297,17 +297,16 @@ export class PersaiBackgroundTaskSchedulerService implements OnModuleInit, OnMod
           ? "completed"
           : "no_push";
     if (result.decision === "push" && result.pushText) {
-      deliveryTarget = await this.deliverReminderNotificationService.execute({
+      const deliveryResult = await this.assistantNotificationDeliveryService.deliver({
         assistantId: task.assistantId,
-        jobId: task.externalRef ?? task.id,
+        source: "background_task",
+        sourceId: task.id,
         status: "ok",
-        summary: result.pushText,
+        text: result.pushText,
         artifacts: result.artifacts
       });
-      deliveryResultJson = {
-        deliveredTo: deliveryTarget,
-        deliveredAt: new Date().toISOString()
-      };
+      deliveryTarget = deliveryResult.target;
+      deliveryResultJson = deliveryResult as unknown as Prisma.InputJsonValue;
     }
 
     const nextRunAtMs =

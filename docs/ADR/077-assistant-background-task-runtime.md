@@ -1,9 +1,11 @@
 # ADR-077: Assistant background task runtime
 
 ## Status
+
 Accepted
 
 ## Date
+
 2026-04-26
 
 ## Context
@@ -132,14 +134,14 @@ If the evaluator returns `decision="push"`, the background task executor deliver
 - use `Assistant.preferredNotificationChannel`
 - reuse the existing channel binding truth, including Telegram/web fallback behavior
 - do not introduce a second channel selector for background tasks
-- do not duplicate reminder delivery target state unless the existing delivery service needs a small generalized adapter
+- deliver through `AssistantNotificationDeliveryService`, the shared transport boundary for assistant notifications
 - deliver generated artifacts through the same media-delivery adapters when the selected
   channel supports them
 
 The delivery path becomes:
 
 ```text
-background_task -> evaluator decision -> preferred-channel delivery
+source -> AssistantNotificationDeliveryService -> Assistant.preferredNotificationChannel -> Telegram / web fallback / future mobile push
 ```
 
 not:

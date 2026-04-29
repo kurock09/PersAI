@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { DeliverReminderNotificationService } from "../src/modules/workspace-management/application/deliver-reminder-notification.service";
+import { AssistantNotificationDeliveryService } from "../src/modules/workspace-management/application/assistant-notification-delivery.service";
 import { HandleInternalCronFireService } from "../src/modules/workspace-management/application/handle-internal-cron-fire.service";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 
@@ -13,7 +13,7 @@ function createHandleInternalCronFireService(params: {
   mediaDeliveryService?: unknown;
   assistantChatRepository: unknown;
 }): HandleInternalCronFireService {
-  const deliveryService = new DeliverReminderNotificationService(
+  const notificationDeliveryService = new AssistantNotificationDeliveryService(
     params.prisma as never,
     params.platformRuntimeProviderSecretStoreService as never,
     params.resolveAssistantInboundRuntimeContextService as never,
@@ -25,12 +25,13 @@ function createHandleInternalCronFireService(params: {
   return new HandleInternalCronFireService(
     params.prisma as never,
     params.bindingRepository as never,
-    deliveryService as never
+    notificationDeliveryService as never
   );
 }
 
 async function runWebDeliveryArtifactTest(): Promise<void> {
   const deliveredMessages: string[] = [];
+  const deliveryThreadKeys: string[] = [];
   const bindingRepository = {
     claimReminderDeliveryProcessing: async () => "claimed",
     getCompletedReminderDeliveryProcessing: async () => null,
@@ -67,9 +68,12 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
     createChat: async () => ({
       id: "chat-1"
     }),
-    findOrCreateChatBySurfaceThread: async () => ({
-      id: "chat-1"
-    }),
+    findOrCreateChatBySurfaceThread: async (input: { surfaceThreadKey: string; title: string }) => {
+      deliveryThreadKeys.push(`${input.surfaceThreadKey}:${input.title}`);
+      return {
+        id: "chat-1"
+      };
+    },
     createMessage: async (input: { content: string }) => {
       deliveredMessages.push(input.content);
       return { id: "message-1" };
@@ -114,6 +118,7 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
   });
 
   assert.equal(result.deliveredTo, "web");
+  assert.deepEqual(deliveryThreadKeys, ["system:notifications:Notifications"]);
   assert.deepEqual(deliveredMessages, ["Пора спать!"]);
 }
 
@@ -224,6 +229,95 @@ async function runTelegramTaskTargetTest(): Promise<void> {
     assert.deepEqual(sentPayloads, [
       { chat_id: "group-locked", text: "Пора идти гулять с Симбой!" }
     ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function runBackgroundNotificationUsesCommonDeliveryTest(): Promise<void> {
+  const sentPayloads: Array<{ chat_id: string; text: string }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { chat_id: string; text: string };
+    sentPayloads.push(body);
+    return {
+      ok: true,
+      json: async () => ({ ok: true, result: { message_id: 42 } })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const notificationDeliveryService = new AssistantNotificationDeliveryService(
+      {
+        assistant: {
+          findUnique: async () => ({
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "ws-1",
+            preferredNotificationChannel: "telegram" as const,
+            channelSurfaceBindings: [
+              {
+                providerKey: "telegram" as const,
+                metadata: {
+                  telegramDmChatId: "dm-1",
+                  reminderTaskTargets: {
+                    "background-task-1": {
+                      chatId: "reminder-group",
+                      chatType: "group",
+                      title: "Reminder group",
+                      username: null,
+                      source: "telegram_group",
+                      updatedAt: "2026-03-28T00:00:00.000Z"
+                    }
+                  }
+                }
+              }
+            ]
+          })
+        }
+      } as never,
+      {
+        resolveSecretValueByProviderKey: async () => "bot-token"
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            assistant: {
+              id: "assistant-1",
+              userId: "user-1",
+              workspaceId: "ws-1"
+            }
+          };
+        }
+      } as never,
+      {
+        async enforceInboundTurn() {
+          return;
+        }
+      } as never,
+      {
+        renderError() {
+          return { code: "ok", text: "rendered" };
+        }
+      } as never,
+      { deliver: async () => ({ attachments: [] }) } as never,
+      {
+        findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
+        createMessage: async () => ({ id: "message-1" })
+      } as never
+    );
+
+    const result = await notificationDeliveryService.deliver({
+      assistantId: "assistant-1",
+      source: "background_task",
+      sourceId: "background-task-1",
+      status: "ok",
+      text: "USD/RUB crossed the threshold."
+    });
+
+    assert.equal(result.target, "telegram");
+    assert.equal(result.messageId, "42");
+    assert.deepEqual(sentPayloads, [{ chat_id: "dm-1", text: "USD/RUB crossed the threshold." }]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -444,6 +538,7 @@ async function runReminderReplayDedupTest(): Promise<void> {
 async function run(): Promise<void> {
   await runWebDeliveryArtifactTest();
   await runTelegramTaskTargetTest();
+  await runBackgroundNotificationUsesCommonDeliveryTest();
   await runQuotaRenderedFallbackTest();
   await runReminderReplayDedupTest();
   console.log("handle-internal-cron-fire tests passed");

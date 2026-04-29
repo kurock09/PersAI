@@ -13,11 +13,11 @@ import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 
-const REMINDER_WEB_CHAT_THREAD_KEY = "system:reminders";
-const REMINDER_WEB_CHAT_TITLE = "Reminders";
+const NOTIFICATION_WEB_CHAT_THREAD_KEY = "system:notifications";
+const NOTIFICATION_WEB_CHAT_TITLE = "Notifications";
 const REMINDER_CONTEXT_MARKER = "\n\nRecent context:\n";
 
-type StoredTelegramReminderTarget = {
+type StoredTelegramNotificationTarget = {
   chatId: string;
   chatType: string;
   title: string | null;
@@ -26,7 +26,7 @@ type StoredTelegramReminderTarget = {
   updatedAt: string;
 };
 
-type ReminderNotificationAssistant = {
+type NotificationAssistant = {
   id: string;
   userId: string;
   workspaceId: string;
@@ -34,14 +34,33 @@ type ReminderNotificationAssistant = {
   channelSurfaceBindings: Array<{ providerKey: string; metadata: unknown }>;
 };
 
-export type ReminderDeliveryTarget = "telegram" | "web" | "fallback_web" | "none";
+export type AssistantNotificationSource =
+  | "user_reminder"
+  | "background_task"
+  | "idle_reengagement"
+  | "system_event";
 
-export type ReminderNotificationDeliveryInput = {
+export type AssistantNotificationDeliveryStatus = "ok" | "error" | "skipped";
+
+export type AssistantNotificationDeliveryTarget = "telegram" | "web" | "fallback_web" | "none";
+
+export type AssistantNotificationDeliveryInput = {
   assistantId: string;
-  jobId: string;
-  status: "ok" | "error" | "skipped";
-  summary?: string;
+  source: AssistantNotificationSource;
+  sourceId: string;
+  status: AssistantNotificationDeliveryStatus;
+  text?: string;
   artifacts?: RuntimeOutputArtifact[];
+  metadata?: Record<string, unknown>;
+};
+
+export type AssistantNotificationDeliveryResult = {
+  target: AssistantNotificationDeliveryTarget;
+  deliveredAt?: string;
+  chatId?: string;
+  messageId?: string;
+  attachmentIds?: string[];
+  error?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,7 +71,9 @@ function normalizeBindingMetadata(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
-function normalizeTelegramReminderTarget(value: unknown): StoredTelegramReminderTarget | null {
+function normalizeTelegramNotificationTarget(
+  value: unknown
+): StoredTelegramNotificationTarget | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -78,17 +99,17 @@ function normalizeTelegramReminderTarget(value: unknown): StoredTelegramReminder
   };
 }
 
-function resolveTaskTelegramTarget(metadata: Record<string, unknown>, jobId: string) {
+function resolveReminderTelegramTarget(metadata: Record<string, unknown>, sourceId: string) {
   const reminderTaskTargets = metadata.reminderTaskTargets;
   if (!isRecord(reminderTaskTargets)) {
     return null;
   }
-  return normalizeTelegramReminderTarget(reminderTaskTargets[jobId]);
+  return normalizeTelegramNotificationTarget(reminderTaskTargets[sourceId]);
 }
 
 function resolveDefaultTelegramDmTarget(
   metadata: Record<string, unknown>
-): StoredTelegramReminderTarget | null {
+): StoredTelegramNotificationTarget | null {
   const dmChatId =
     typeof metadata.telegramDmChatId === "string" ? metadata.telegramDmChatId.trim() : "";
   if (dmChatId) {
@@ -145,8 +166,18 @@ function stripReminderContextArtifact(value: string): string {
   return value.slice(0, markerIndex).trim();
 }
 
+function parseTelegramMessageId(value: unknown): string | undefined {
+  if (!isRecord(value) || value.ok !== true || !isRecord(value.result)) {
+    return undefined;
+  }
+  const messageId = value.result.message_id;
+  return typeof messageId === "number" || typeof messageId === "string"
+    ? String(messageId)
+    : undefined;
+}
+
 @Injectable()
-export class DeliverReminderNotificationService {
+export class AssistantNotificationDeliveryService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
@@ -158,14 +189,19 @@ export class DeliverReminderNotificationService {
     private readonly assistantChatRepository: AssistantChatRepository
   ) {}
 
-  async execute(input: ReminderNotificationDeliveryInput): Promise<ReminderDeliveryTarget> {
+  async deliver(
+    input: AssistantNotificationDeliveryInput
+  ): Promise<AssistantNotificationDeliveryResult> {
     const assistant = await this.loadAssistant(input.assistantId);
-    const rawSummary = input.summary ? stripReminderContextArtifact(input.summary) : undefined;
-    if (input.status !== "ok" || !rawSummary) {
-      return "none";
+    const rawText =
+      input.source === "user_reminder" && input.text
+        ? stripReminderContextArtifact(input.text)
+        : input.text?.trim();
+    if (input.status !== "ok" || !rawText) {
+      return { target: "none" };
     }
 
-    let summary = rawSummary;
+    let text = rawText;
     try {
       const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
         input.assistantId
@@ -178,7 +214,7 @@ export class DeliverReminderNotificationService {
       });
     } catch (error) {
       const failure = toAssistantInboundFailurePayload(error);
-      summary = this.renderAssistantInboundSurfaceMessageService.renderError(
+      text = this.renderAssistantInboundSurfaceMessageService.renderError(
         "reminder_callback",
         failure.code,
         failure.message
@@ -193,43 +229,55 @@ export class DeliverReminderNotificationService {
     if (preferred === "telegram") {
       const context = await this.resolveTelegramDeliveryContext({
         assistantId: assistant.id,
-        jobId: input.jobId,
+        source: input.source,
+        sourceId: input.sourceId,
         bindings: assistant.channelSurfaceBindings
       });
-      const delivered =
+      const telegramMessageId =
         context !== null &&
-        (await this.tryDeliverReminderToTelegram({
-          summary,
+        (await this.tryDeliverNotificationToTelegram({
+          text,
           context
         }));
-      if (delivered) {
+      if (telegramMessageId !== false && context !== null) {
+        let attachmentIds: string[] = [];
         if (input.artifacts && input.artifacts.length > 0) {
-          await this.persistAndDeliverMedia({
+          const mediaResult = await this.persistAndDeliverMedia({
             assistantId: assistant.id,
             userId: assistant.userId,
             workspaceId: assistant.workspaceId,
-            content: summary,
+            content: text,
             artifacts: input.artifacts,
             channel: "telegram",
             telegramContext: context
           });
+          attachmentIds = mediaResult.attachmentIds;
         }
-        return "telegram";
+        return {
+          target: "telegram",
+          deliveredAt: new Date().toISOString(),
+          chatId: context.target.chatId,
+          ...(telegramMessageId === undefined ? {} : { messageId: telegramMessageId }),
+          ...(attachmentIds.length === 0 ? {} : { attachmentIds })
+        };
       }
     }
 
-    const deliveredTo = hasExternalChannel ? "fallback_web" : "web";
-    await this.deliverReminderToWeb({
+    const webResult = await this.deliverNotificationToWeb({
       assistantId: assistant.id,
       userId: assistant.userId,
       workspaceId: assistant.workspaceId,
-      content: summary,
+      content: text,
       artifacts: input.artifacts ?? []
     });
-    return deliveredTo;
+    return {
+      target: hasExternalChannel ? "fallback_web" : "web",
+      deliveredAt: new Date().toISOString(),
+      ...webResult
+    };
   }
 
-  private async loadAssistant(assistantId: string): Promise<ReminderNotificationAssistant> {
+  private async loadAssistant(assistantId: string): Promise<NotificationAssistant> {
     const assistant = await this.prisma.assistant.findUnique({
       where: { id: assistantId },
       select: {
@@ -254,9 +302,10 @@ export class DeliverReminderNotificationService {
 
   private async resolveTelegramDeliveryContext(params: {
     assistantId: string;
-    jobId: string;
+    source: AssistantNotificationSource;
+    sourceId: string;
     bindings: Array<{ providerKey: string; metadata: unknown }>;
-  }): Promise<{ target: StoredTelegramReminderTarget; botToken: string } | null> {
+  }): Promise<{ target: StoredTelegramNotificationTarget; botToken: string } | null> {
     const telegramBinding = params.bindings.find((binding) => binding.providerKey === "telegram");
     if (!telegramBinding) {
       return null;
@@ -264,7 +313,9 @@ export class DeliverReminderNotificationService {
 
     const metadata = normalizeBindingMetadata(telegramBinding.metadata);
     const target =
-      resolveTaskTelegramTarget(metadata, params.jobId) ?? resolveDefaultTelegramDmTarget(metadata);
+      (params.source === "user_reminder"
+        ? resolveReminderTelegramTarget(metadata, params.sourceId)
+        : null) ?? resolveDefaultTelegramDmTarget(metadata);
     if (!target) {
       return null;
     }
@@ -279,10 +330,10 @@ export class DeliverReminderNotificationService {
     return { target, botToken };
   }
 
-  private async tryDeliverReminderToTelegram(params: {
-    summary: string;
-    context: { target: StoredTelegramReminderTarget; botToken: string };
-  }): Promise<boolean> {
+  private async tryDeliverNotificationToTelegram(params: {
+    text: string;
+    context: { target: StoredTelegramNotificationTarget; botToken: string };
+  }): Promise<string | undefined | false> {
     const response = await fetch(
       `https://api.telegram.org/bot${params.context.botToken}/sendMessage`,
       {
@@ -290,12 +341,18 @@ export class DeliverReminderNotificationService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: params.context.target.chatId,
-          text: params.summary
+          text: params.text
         })
       }
     ).catch(() => null);
 
-    return response?.ok === true;
+    if (response?.ok !== true) {
+      return false;
+    }
+    if (typeof response.json !== "function") {
+      return undefined;
+    }
+    return parseTelegramMessageId(await response.json().catch(() => null));
   }
 
   private async persistAndDeliverMedia(params: {
@@ -305,18 +362,15 @@ export class DeliverReminderNotificationService {
     content: string;
     artifacts: RuntimeOutputArtifact[];
     channel: "web" | "telegram";
-    telegramContext?: { target: StoredTelegramReminderTarget; botToken: string } | null;
-  }): Promise<void> {
-    if (params.artifacts.length === 0) {
-      return;
-    }
+    telegramContext?: { target: StoredTelegramNotificationTarget; botToken: string } | null;
+  }): Promise<{ chatId: string; messageId: string; attachmentIds: string[] }> {
     const chat = await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
       assistantId: params.assistantId,
       userId: params.userId,
       workspaceId: params.workspaceId,
       surface: "web",
-      surfaceThreadKey: REMINDER_WEB_CHAT_THREAD_KEY,
-      title: REMINDER_WEB_CHAT_TITLE
+      surfaceThreadKey: NOTIFICATION_WEB_CHAT_THREAD_KEY,
+      title: NOTIFICATION_WEB_CHAT_TITLE
     });
 
     const message = await this.assistantChatRepository.createMessage({
@@ -326,7 +380,7 @@ export class DeliverReminderNotificationService {
       content: params.content
     });
 
-    await this.mediaDeliveryService.deliver({
+    const media = await this.mediaDeliveryService.deliver({
       artifacts: runtimeOutputArtifactsToMediaArtifacts(params.artifacts),
       channel: params.channel,
       assistantId: params.assistantId,
@@ -343,22 +397,27 @@ export class DeliverReminderNotificationService {
           }
         : {})
     });
+    return {
+      chatId: chat.id,
+      messageId: message.id,
+      attachmentIds: media.attachments.map((attachment) => attachment.id)
+    };
   }
 
-  private async deliverReminderToWeb(params: {
+  private async deliverNotificationToWeb(params: {
     assistantId: string;
     userId: string;
     workspaceId: string;
     content: string;
     artifacts: RuntimeOutputArtifact[];
-  }): Promise<void> {
+  }): Promise<{ chatId: string; messageId: string; attachmentIds?: string[] }> {
     const chat = await this.assistantChatRepository.findOrCreateChatBySurfaceThread({
       assistantId: params.assistantId,
       userId: params.userId,
       workspaceId: params.workspaceId,
       surface: "web",
-      surfaceThreadKey: REMINDER_WEB_CHAT_THREAD_KEY,
-      title: REMINDER_WEB_CHAT_TITLE
+      surfaceThreadKey: NOTIFICATION_WEB_CHAT_THREAD_KEY,
+      title: NOTIFICATION_WEB_CHAT_TITLE
     });
 
     const message = await this.assistantChatRepository.createMessage({
@@ -368,15 +427,22 @@ export class DeliverReminderNotificationService {
       content: params.content
     });
 
-    if (params.artifacts.length > 0) {
-      await this.mediaDeliveryService.deliver({
-        artifacts: runtimeOutputArtifactsToMediaArtifacts(params.artifacts),
-        channel: "web",
-        assistantId: params.assistantId,
-        chatId: chat.id,
-        messageId: message.id,
-        workspaceId: params.workspaceId
-      });
+    if (params.artifacts.length === 0) {
+      return { chatId: chat.id, messageId: message.id };
     }
+
+    const media = await this.mediaDeliveryService.deliver({
+      artifacts: runtimeOutputArtifactsToMediaArtifacts(params.artifacts),
+      channel: "web",
+      assistantId: params.assistantId,
+      chatId: chat.id,
+      messageId: message.id,
+      workspaceId: params.workspaceId
+    });
+    return {
+      chatId: chat.id,
+      messageId: message.id,
+      attachmentIds: media.attachments.map((attachment) => attachment.id)
+    };
   }
 }

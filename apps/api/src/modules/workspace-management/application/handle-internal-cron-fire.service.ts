@@ -7,9 +7,9 @@ import {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import {
-  DeliverReminderNotificationService,
-  type ReminderDeliveryTarget
-} from "./deliver-reminder-notification.service";
+  AssistantNotificationDeliveryService,
+  type AssistantNotificationDeliveryTarget
+} from "./assistant-notification-delivery.service";
 
 export interface InternalCronFireRequest {
   assistantId: string;
@@ -62,7 +62,7 @@ export class HandleInternalCronFireService {
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly deliverReminderNotificationService: DeliverReminderNotificationService
+    private readonly assistantNotificationDeliveryService: AssistantNotificationDeliveryService
   ) {}
 
   parseInput(assistantId: string, payload: unknown): InternalCronFireRequest {
@@ -123,7 +123,7 @@ export class HandleInternalCronFireService {
 
   async execute(
     input: InternalCronFireRequest
-  ): Promise<{ ok: true; deliveredTo: ReminderDeliveryTarget }> {
+  ): Promise<{ ok: true; deliveredTo: AssistantNotificationDeliveryTarget }> {
     const replayKey = buildReminderReplayKey(input);
     const replayed = await this.claimOrReplayReminderDelivery(input.assistantId, replayKey);
     if (replayed !== null) {
@@ -132,12 +132,14 @@ export class HandleInternalCronFireService {
 
     try {
       await this.syncTaskRegistryFromCronRun(input);
-      const deliveredTo = await this.deliverReminderNotificationService.execute({
+      const deliveryResult = await this.assistantNotificationDeliveryService.deliver({
         assistantId: input.assistantId,
-        jobId: input.jobId,
+        source: "user_reminder",
+        sourceId: input.jobId,
         status: input.status,
-        ...(input.summary === undefined ? {} : { summary: input.summary })
+        ...(input.summary === undefined ? {} : { text: input.summary })
       });
+      const deliveredTo = deliveryResult.target;
       await this.bindingRepository.completeReminderDeliveryProcessing(
         input.assistantId,
         REMINDER_REPLAY_PROVIDER_KEY,
@@ -165,7 +167,7 @@ export class HandleInternalCronFireService {
     assistantId: string,
     replayKey: string
   ): Promise<{
-    deliveredTo: ReminderDeliveryTarget;
+    deliveredTo: AssistantNotificationDeliveryTarget;
   } | null> {
     const claim = await this.bindingRepository.claimReminderDeliveryProcessing(
       assistantId,

@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Shared assistant notification delivery) — background pushes and reminders now share one transport layer (`apps/api`; focused test/typecheck/gate green)
+
+### Why this session
+
+Founder asked to cleanly separate notification sources from delivery transport. `scheduled_action:user_reminder` must remain only the simple reminder source, `background_task` must not know Telegram/web/mobile delivery details, and future idle/system events need a source-neutral delivery boundary.
+
+### What changed
+
+- Added `AssistantNotificationDeliveryService` with shared source/result types for `user_reminder`, `background_task`, `idle_reengagement`, and `system_event`.
+- Moved the existing preferred-channel delivery logic into that shared service: `Assistant.preferredNotificationChannel`, Telegram `sendMessage`, web fallback to `system:notifications`, quota/error rendering, and `MediaDeliveryService` artifact persistence.
+- Updated the existing cron/reminder idempotency path to call `AssistantNotificationDeliveryService` directly and removed the reminder-specific wrapper from the active path.
+- Updated `PersaiBackgroundTaskSchedulerService` to call the shared delivery service directly for evaluator `push` decisions and persist the structured delivery result on `assistant_background_task_runs`.
+- Updated ADR/data/architecture/changelog docs to record `scheduled_action` and `background_task` as sources and the notification delivery service as the shared transport boundary. No durable outbox table was introduced in this slice.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API files
+
+### Risks / residuals
+
+- Delivery remains in-process, without persisted outbox/retry semantics beyond the existing reminder replay and background-task run history. A durable `AssistantNotificationOutbox` should be a follow-up only when retry/dead-letter requirements are explicit.
+- Mobile push is not implemented yet; `idle_reengagement` and `system_event` are source types only in this slice.
+
+### Next recommended step
+
+Add a durable assistant notification outbox only if product requirements need cross-process retry/dead-letter guarantees, then wire future idle reengagement/system events into the same source-neutral delivery input.
+
 ## 2026-04-29 (Offline fallback) — Capacitor cold-start assets and mid-session navigation guard (`persai-mobile`, `apps/web`; focused tests/typecheck green)
 
 ### Why this session
@@ -441,7 +473,7 @@ Founder rejected further patching of assistant-side `scheduled_action` and requi
 - Added runtime-contract/background-task types, runtime internal API client calls, `RuntimeBackgroundTaskToolService`, native projection, budget policy, and tool-catalog activation for `background_task`.
 - Added runtime internal evaluator endpoint `POST /api/v1/internal/runtime/background-tasks/evaluate`, which evaluates one task brief against a strict JSON schema and returns `push`, `no_push`, or `complete` plus usage.
 - Added API-side `PersaiBackgroundTaskSchedulerService`: claims due `assistant_background_tasks`, creates `assistant_background_task_runs`, calls the runtime evaluator, records decision/usage/errors, advances recurring schedules, completes one-shot tasks, retries transient failures, and fails exhausted tasks.
-- Connected `push` decisions to the existing `DeliverReminderNotificationService`, so delivery follows the assistant's current preferred notification channel and records delivery target/result on the run row.
+- Connected `push` decisions to the preferred-channel notification delivery path, so delivery follows the assistant's current preferred notification channel and records delivery target/result on the run row. The active code path now uses `AssistantNotificationDeliveryService` directly.
 - Cut `scheduled_action` back to `kind="user_reminder"` in runtime contract, projection, runtime service, internal API parse path, tool catalog guidance, bootstrap preset defaults, and `/admin/presets` code defaults. New `assistant_check` creation is no longer accepted.
 - Retired the old scheduled-assistant run service from module wiring and removed its source file; any old `audience="assistant"` scheduled rows claimed by the legacy scheduler are disabled with an ADR-077 breadcrumb instead of running a hidden chat turn.
 - `docs/DATA-MODEL.md` now documents the split: `assistant_task_registry_items` backs "Задачи для тебя"; `assistant_background_tasks` backs "Действия ассистента"; `assistant_background_task_runs` backs per-card recent run history.
