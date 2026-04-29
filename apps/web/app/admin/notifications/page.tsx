@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Bell, Check, KeyRound, Loader2, Pencil, X } from "lucide-react";
+import { Bell, Check, KeyRound, Loader2, Pencil, Save, X } from "lucide-react";
 import type {
   AdminNotificationChannelState,
   IdleReengagementNotificationPolicyState,
@@ -230,6 +230,16 @@ export default function AdminNotificationsPage() {
         </div>
       </div>
 
+      <div className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-text-muted">
+        <div className="mb-1">
+          <span className="rounded bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
+            Outbox enabled
+          </span>
+        </div>
+        User-facing assistant notifications now enqueue through the durable outbox before delivery.
+        User notification policy, system webhooks, and future push transports are managed here.
+      </div>
+
       {listError && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {listError}
@@ -249,14 +259,31 @@ export default function AdminNotificationsPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-surface-raised p-3 shadow-sm">
+      <div className="space-y-1">
+        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+          User notification policy
+        </h2>
+      </div>
+
+      <div className="rounded-lg border border-border bg-surface-raised p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-text">User notifications</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-text">Idle reengagement</h3>
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  idleDraft?.enabled
+                    ? "bg-success/15 text-success"
+                    : "bg-surface-hover text-text-muted"
+                )}
+              >
+                {idleDraft?.enabled ? "enabled" : "inactive"}
+              </span>
+            </div>
             <p className="max-w-2xl text-xs text-text-muted">
-              Configure assistant-originated user notifications. Idle reengagement is evaluated by
-              the LLM from a compact conversation packet, then delivered through the user&apos;s
-              preferred channel.
+              Evaluates long-idle conversations from a compact context packet and enqueues one warm
+              notification through the user&apos;s preferred channel.
             </p>
           </div>
           {idlePolicy && (
@@ -267,18 +294,26 @@ export default function AdminNotificationsPage() {
         </div>
 
         {idleDraft && (
-          <div className="mt-4 space-y-3 border-t border-border pt-3">
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
-              <input
-                type="checkbox"
-                checked={idleDraft.enabled}
-                onChange={(ev) =>
-                  setIdleDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
-                }
-                className="rounded border-border accent-accent"
-              />
-              Idle reengagement enabled
-            </label>
+          <div className="mt-4 space-y-4 border-t border-border pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-bg px-3 py-2">
+              <div>
+                <p className="text-xs font-medium text-text">Enable idle reengagement</p>
+                <p className="text-[10px] text-text-subtle">
+                  Off means the scheduler will not evaluate or enqueue idle nudges.
+                </p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-text">
+                <input
+                  type="checkbox"
+                  checked={idleDraft.enabled}
+                  onChange={(ev) =>
+                    setIdleDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
+                  }
+                  className="rounded border-border accent-accent"
+                />
+                Enabled
+              </label>
+            </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1">
@@ -348,166 +383,165 @@ export default function AdminNotificationsPage() {
               {savingIdlePolicy ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Check className="h-3.5 w-3.5" />
+                <Save className="h-3.5 w-3.5" />
               )}
-              Save user notification policy
+              Save policy
             </button>
           </div>
         )}
       </div>
 
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-text">System channels</h2>
+        <h2 className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+          System channels
+        </h2>
         <p className="text-xs text-text-muted">
           Existing admin webhook/system event delivery stays here.
         </p>
       </div>
 
-      {channels.length === 0 ? (
-        <p className="text-sm text-text-muted">No notification channels configured.</p>
-      ) : (
-        <div className="space-y-2.5">
-          {channels.map((ch) => {
-            const isWebhook = ch.channelType === AdminNotificationChannelType.webhook;
-            const showForm = isWebhook && editingWebhook && webhookDraft !== null;
+      <div className="space-y-2.5">
+        {channels.map((ch) => {
+          const isWebhook = ch.channelType === AdminNotificationChannelType.webhook;
+          const showForm = isWebhook && editingWebhook && webhookDraft !== null;
 
-            return (
-              <div
-                key={ch.channelType}
-                className="rounded-lg border border-border bg-surface-raised p-3 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold capitalize text-text">
-                        {ch.channelType}
-                      </span>
-                      <ChannelStatusBadge status={ch.status} />
-                    </div>
-                    {ch.endpointUrl ? (
-                      <p className="break-all font-mono text-[11px] text-text-muted">
-                        {ch.endpointUrl}
-                      </p>
-                    ) : (
-                      <p className="text-[11px] text-text-subtle">No endpoint URL</p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
-                      <span className="inline-flex items-center gap-1">
-                        <KeyRound className="h-3 w-3" />
-                        Signing secret:{" "}
-                        {ch.hasSigningSecret ? (
-                          <span className="text-success">configured</span>
-                        ) : (
-                          <span className="text-text-subtle">none</span>
-                        )}
-                      </span>
+          return (
+            <div
+              key={ch.channelType}
+              className="rounded-lg border border-border bg-surface-raised p-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold capitalize text-text">
+                      {ch.channelType}
+                    </span>
+                    <ChannelStatusBadge status={ch.status} />
+                  </div>
+                  {ch.endpointUrl ? (
+                    <p className="break-all font-mono text-[11px] text-text-muted">
+                      {ch.endpointUrl}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-text-subtle">
+                      Not configured yet. Add an endpoint URL to enable webhook delivery.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-text-muted">
+                    <span className="inline-flex items-center gap-1">
+                      <KeyRound className="h-3 w-3" />
+                      Signing secret:{" "}
+                      {ch.hasSigningSecret ? (
+                        <span className="text-success">configured</span>
+                      ) : (
+                        <span className="text-text-subtle">none</span>
+                      )}
+                    </span>
+                    {ch.updatedAt !== new Date(0).toISOString() && (
                       <span className="text-text-subtle">
                         Updated {new Date(ch.updatedAt).toLocaleString()}
                       </span>
-                    </div>
-                    {ch.lastDelivery ? (
-                      <p className="text-[10px] text-text-subtle">
-                        Last delivery: {ch.lastDelivery.deliveryStatus} at{" "}
-                        {new Date(ch.lastDelivery.attemptedAt).toLocaleString()}
-                        {ch.lastDelivery.errorMessage && (
-                          <span className="text-destructive">
-                            {" "}
-                            — {ch.lastDelivery.errorMessage}
-                          </span>
-                        )}
-                      </p>
-                    ) : (
-                      <p className="text-[10px] text-text-subtle">No deliveries yet</p>
                     )}
                   </div>
-
-                  {isWebhook && !showForm && (
-                    <button
-                      type="button"
-                      onClick={openWebhookEdit}
-                      className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-text-muted hover:border-accent/40 hover:text-accent"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      Edit
-                    </button>
+                  {ch.lastDelivery ? (
+                    <p className="text-[10px] text-text-subtle">
+                      Last delivery: {ch.lastDelivery.deliveryStatus} at{" "}
+                      {new Date(ch.lastDelivery.attemptedAt).toLocaleString()}
+                      {ch.lastDelivery.errorMessage && (
+                        <span className="text-destructive"> — {ch.lastDelivery.errorMessage}</span>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-text-subtle">No deliveries yet</p>
                   )}
                 </div>
 
-                {showForm && webhookDraft && (
-                  <div className="mt-3 space-y-3 border-t border-border pt-3">
-                    <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
-                      <input
-                        type="checkbox"
-                        checked={webhookDraft.enabled}
-                        onChange={(ev) =>
-                          setWebhookDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
-                        }
-                        className="rounded border-border accent-accent"
-                      />
-                      Enabled
-                    </label>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Endpoint URL
-                      </label>
-                      <input
-                        type="url"
-                        value={webhookDraft.endpointUrl}
-                        onChange={(ev) =>
-                          setWebhookDraft((d) => (d ? { ...d, endpointUrl: ev.target.value } : d))
-                        }
-                        placeholder="https://…"
-                        className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Signing secret
-                      </label>
-                      <input
-                        type="password"
-                        autoComplete="new-password"
-                        value={webhookDraft.signingSecret}
-                        onChange={(ev) =>
-                          setWebhookDraft((d) => (d ? { ...d, signingSecret: ev.target.value } : d))
-                        }
-                        placeholder={
-                          ch.hasSigningSecret ? "Leave blank to keep existing" : "Optional"
-                        }
-                        className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={savingWebhook}
-                        onClick={() => void saveWebhook()}
-                        className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:opacity-90 disabled:opacity-50"
-                      >
-                        {savingWebhook ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
-                        )}
-                        Save
-                      </button>
-                      <button
-                        type="button"
-                        disabled={savingWebhook}
-                        onClick={cancelWebhookEdit}
-                        className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
+                {isWebhook && !showForm && (
+                  <button
+                    type="button"
+                    onClick={openWebhookEdit}
+                    className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-text-muted hover:border-accent/40 hover:text-accent"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              {showForm && webhookDraft && (
+                <div className="mt-3 space-y-3 border-t border-border pt-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
+                    <input
+                      type="checkbox"
+                      checked={webhookDraft.enabled}
+                      onChange={(ev) =>
+                        setWebhookDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
+                      }
+                      className="rounded border-border accent-accent"
+                    />
+                    Enabled
+                  </label>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      Endpoint URL
+                    </label>
+                    <input
+                      type="url"
+                      value={webhookDraft.endpointUrl}
+                      onChange={(ev) =>
+                        setWebhookDraft((d) => (d ? { ...d, endpointUrl: ev.target.value } : d))
+                      }
+                      placeholder="https://…"
+                      className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      Signing secret
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={webhookDraft.signingSecret}
+                      onChange={(ev) =>
+                        setWebhookDraft((d) => (d ? { ...d, signingSecret: ev.target.value } : d))
+                      }
+                      placeholder={
+                        ch.hasSigningSecret ? "Leave blank to keep existing" : "Optional"
+                      }
+                      className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-xs text-text"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={savingWebhook}
+                      onClick={() => void saveWebhook()}
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:opacity-90 disabled:opacity-50"
+                    >
+                      {savingWebhook ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingWebhook}
+                      onClick={cancelWebhookEdit}
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-muted hover:bg-surface-hover hover:text-text disabled:opacity-50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

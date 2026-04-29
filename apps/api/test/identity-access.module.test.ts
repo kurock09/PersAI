@@ -161,6 +161,26 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "GET /api/v1/app/bootstrap must be guarded by ClerkAuthMiddleware"
   );
+  // Notification Settings idle policy routes are read by the admin page during
+  // initial load. If they are missing here, the controller rejects with
+  // `resolvedAppUser === undefined`, and the UI incorrectly shows
+  // "Session expired" even with a valid Clerk session.
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/notifications/policies/idle-reengagement",
+      method: RequestMethod.GET
+    }),
+    true,
+    "GET /api/v1/admin/notifications/policies/idle-reengagement must be guarded by ClerkAuthMiddleware"
+  );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/notifications/policies/idle-reengagement",
+      method: RequestMethod.PATCH
+    }),
+    true,
+    "PATCH /api/v1/admin/notifications/policies/idle-reengagement must be guarded by ClerkAuthMiddleware"
+  );
   // ADR-076 Slice 4 follow-up (2026-04-25 founder report): GET avatar bytes
   // hit `apps/api` via a parameterized path — `/assistant/avatar/:hash` —
   // but the allowlist initially registered the bare `/assistant/avatar`,

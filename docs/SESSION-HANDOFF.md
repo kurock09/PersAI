@@ -1,5 +1,114 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Chat switch cache validation) — cached threads now refresh latest server history (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder reported that simple switching between chats could still hide new messages until F5. This was independent of reload/tool restore: stale per-thread cache was being treated as authoritative.
+
+### What changed
+
+- `ChatPage` now calls `chat.loadHistory(existingChat.id)` for existing chats even if `useChat` already has the same `chatId`; cache no longer blocks validation.
+- `useChat.loadHistory()` now uses cached thread history only as an instant preview, then continues to fetch latest server history and merges it into the visible thread.
+- Added regressions covering:
+  - returning to a cached thread fetches/merges newer server messages;
+  - `ChatPage` validates existing chats even when hook `chatId` already matches.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Cached messages are still shown immediately for responsiveness, but the server remains authoritative after switch-back.
+
+### Next recommended step
+
+Deploy/sync and live-test: generate a result in Chat A, switch to Chat B, switch back to Chat A, and confirm the latest message appears without F5.
+
+## 2026-04-29 (Active history merge) — history load no longer wipes restored running tool UI (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder clarified the failed reload was not early: it happened about 10 seconds after image generation started. That means the turn was already expected to be `running`; the remaining bug was a later history-load overwrite.
+
+### What changed
+
+- Fixed `loadHistory()` in `useChat` so it merges committed history with any active turn snapshot instead of replacing visible messages.
+- Cached history and active snapshot now stay aligned when history loads after a restored active turn.
+- Added a regression where turn-status restores `running`/`Generating image`, then normal history loads for the same chat and the live placeholder/status remains visible.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This preserves active UI during history load. It still relies on the server turn-status endpoint and committed history for final reconciliation; missed SSE deltas are not replayed.
+
+### Next recommended step
+
+Run the full verification gate, deploy/sync `persai-dev`, then live-test reload both immediately after send and ~10s into image/tool generation.
+
+## 2026-04-29 (Active turn reload retry) — cursor/tool status restores even when reload races turn startup (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder found that full reload could still lose the cursor/tool status while a tool was running, and the UI sometimes recovered only after a later focus change.
+
+### What changed
+
+- Fixed the early-reload race in `useChat`: the first turn-status lookup can legitimately return `unknown` or `accepted` before the API marks the turn `running`.
+- Stored active-turn restore now performs a bounded retry loop immediately after reload (`1s`, max 30 attempts) until the server exposes either a running turn or a terminal result.
+- Added a regression where status returns `unknown -> accepted -> running`; the UI restores `isStreaming` and the live `Generating image` activity without waiting for focus.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This is still restore/reconcile, not SSE replay. Missed deltas are recovered from current turn status/history once available.
+
+### Next recommended step
+
+Run the full gate, deploy/sync `persai-dev`, and live-test full reload immediately after sending an image/tool turn before switching focus.
+
+## 2026-04-29 (Notification Settings auth/polish hotfix) — idle policy routes are guarded and page no longer looks empty (`apps/api`, `apps/web`; focused checks green)
+
+### Why this session
+
+Founder opened `/admin/notifications` after the durable outbox push and saw a false `Session expired` banner. The page also looked empty/unfinished when no webhook channel row existed yet.
+
+### What changed
+
+- Added `GET`/`PATCH /api/v1/admin/notifications/policies/idle-reengagement` to `ClerkAuthMiddleware.forRoutes(...)`.
+- Added regression assertions in `identity-access.module.test.ts` for both idle policy routes.
+- `ManageAdminNotificationChannelsService.listChannels()` now returns an inactive default webhook state when no row exists, so the UI can render a real configurable channel card instead of "No notification channels configured."
+- Polished `/admin/notifications` layout to match the admin Runtime surface more closely: outbox status intro, section labels, better idle policy card, and clearer webhook empty/configured state.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-notification-channels.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/web run lint`
+- targeted prettier checks and `ReadLints`
+
+### Risks / residuals
+
+- This is a hotfix/polish slice only; it does not change the durable outbox delivery semantics.
+
+### Next recommended step
+
+Deploy and reload `/admin/notifications`; the idle policy card and inactive webhook card should load without the false session-expired banner.
+
 ## 2026-04-29 (Active turn cache correction) — completed turn-status results survive chat switching (`apps/web`; focused test/typecheck green)
 
 ### Why this session

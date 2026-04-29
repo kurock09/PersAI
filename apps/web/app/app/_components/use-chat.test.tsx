@@ -728,6 +728,172 @@ describe("useChat", () => {
     });
   });
 
+  it("retries active turn restore after reload until the server exposes the running turn", async () => {
+    vi.useFakeTimers();
+    try {
+      window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
+      assistantApiMocks.getAssistantWebChatTurnStatus
+        .mockResolvedValueOnce({
+          status: "unknown",
+          chat: null,
+          userMessage: null,
+          assistantMessage: null,
+          currentActivity: null,
+          runtime: null,
+          error: null
+        })
+        .mockResolvedValueOnce({
+          status: "accepted",
+          chat: null,
+          userMessage: null,
+          assistantMessage: null,
+          currentActivity: null,
+          runtime: null,
+          error: null
+        })
+        .mockResolvedValueOnce({
+          status: "running",
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            deepModeEnabled: false,
+            archivedAt: null,
+            lastMessageAt: "2026-04-25T17:45:35.000Z",
+            createdAt: "2026-04-25T17:45:35.000Z",
+            updatedAt: "2026-04-25T17:45:35.000Z"
+          },
+          userMessage: {
+            id: "server-user-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "draw it",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          assistantMessage: null,
+          currentActivity: {
+            type: "tool_use",
+            toolName: "image_generate",
+            toolCallId: "tool-1",
+            phase: "start",
+            isError: false,
+            updatedAt: "2026-04-25T17:45:36.000Z"
+          },
+          runtime: null,
+          error: null
+        });
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+
+      await vi.waitFor(() => {
+        expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledTimes(3);
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.entries).toContainEqual(
+          expect.objectContaining({
+            kind: "activity",
+            event: expect.objectContaining({
+              type: "tool_use",
+              label: "Generating image"
+            })
+          })
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps restored active tool status when history loads after reload", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "running",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: "Chat",
+        deepModeEnabled: false,
+        archivedAt: null,
+        lastMessageAt: "2026-04-25T17:45:35.000Z",
+        createdAt: "2026-04-25T17:45:35.000Z",
+        updatedAt: "2026-04-25T17:45:35.000Z"
+      },
+      userMessage: {
+        id: "server-user-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "draw it",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: null,
+      currentActivity: {
+        type: "tool_use",
+        toolName: "image_generate",
+        toolCallId: "tool-1",
+        phase: "start",
+        isError: false,
+        updatedAt: "2026-04-25T17:45:36.000Z"
+      },
+      runtime: null,
+      error: null
+    });
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [
+        {
+          id: "older-user-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "older question",
+          attachments: [],
+          createdAt: "2026-04-25T17:40:35.000Z"
+        }
+      ]
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "older-user-1",
+      "server-user-1",
+      "local-assistant-turn-1"
+    ]);
+    expect(result.current.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "activity",
+        event: expect.objectContaining({
+          type: "tool_use",
+          label: "Generating image"
+        })
+      })
+    );
+  });
+
   it("keeps a completed turn-status result in the thread cache after switching away", async () => {
     window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
     assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
@@ -880,10 +1046,40 @@ describe("useChat", () => {
     expect(result.current.historyLoading).toBe(false);
     expect(result.current.hasOlderMessages).toBe(true);
 
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [
+        {
+          id: "chat-a-user-2",
+          chatId: "chat-a",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "New Question A",
+          attachments: [],
+          createdAt: "2026-04-25T17:47:35.000Z"
+        },
+        {
+          id: "chat-a-assistant-2",
+          chatId: "chat-a",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "New Answer A",
+          attachments: [],
+          createdAt: "2026-04-25T17:47:36.000Z"
+        }
+      ]
+    });
+
     await act(async () => {
       await result.current.loadHistory("chat-a");
     });
-    expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(2);
+    expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(3);
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "New Question A",
+      "New Answer A",
+      "Question A",
+      "Answer A"
+    ]);
   });
 
   it("uploads eligible documents into the knowledge base when requested", async () => {

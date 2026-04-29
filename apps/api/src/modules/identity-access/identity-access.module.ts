@@ -129,6 +129,14 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/overview/latency-trace", method: RequestMethod.POST },
       { path: "api/v1/admin/notifications/channels", method: RequestMethod.GET },
       { path: "api/v1/admin/notifications/channels/webhook", method: RequestMethod.PATCH },
+      {
+        path: "api/v1/admin/notifications/policies/idle-reengagement",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/admin/notifications/policies/idle-reengagement",
+        method: RequestMethod.PATCH
+      },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.GET },
       { path: "api/v1/admin/runtime/provider-settings", method: RequestMethod.PUT },
       { path: "api/v1/admin/platform-rollouts", method: RequestMethod.GET },

@@ -49,12 +49,6 @@ function ChatPageInner() {
       chat.markHistoryEmpty();
       return;
     }
-    // The chat we just created in this session already has its messages in
-    // memory; reloading history would race with the live stream and clobber it.
-    if (existingChat.chat.id === chat.chatId) {
-      chat.markHistoryEmpty();
-      return;
-    }
     void chat.loadHistory(existingChat.chat.id);
   }, [existingChat?.chat.id, chat.chatId]); // eslint-disable-line
 

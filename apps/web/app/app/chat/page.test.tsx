@@ -12,7 +12,7 @@ const chatHookMocks = vi.hoisted(() => ({
   loadHistory: vi.fn(),
   markHistoryEmpty: vi.fn(),
   isStreaming: false,
-  chatId: null
+  chatId: null as string | null
 }));
 
 const appDataMocks = vi.hoisted(() => ({
@@ -91,5 +91,30 @@ describe("ChatPage", () => {
       expect(appDataMocks.reloadChats).toHaveBeenCalled();
     });
     expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome");
+  });
+
+  it("validates an existing chat even when the hook already has the same chat id", async () => {
+    navigationMocks.searchParams = new URLSearchParams("thread=thread-1");
+    chatHookMocks.loadHistory.mockReset();
+    chatHookMocks.markHistoryEmpty.mockReset();
+    chatHookMocks.chatId = "chat-1";
+    chatHookMocks.isStreaming = false;
+    appDataMocks.chats = [
+      {
+        chat: {
+          id: "chat-1",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          deepModeEnabled: false
+        }
+      }
+    ];
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(chatHookMocks.loadHistory).toHaveBeenCalledWith("chat-1");
+    });
+    expect(chatHookMocks.markHistoryEmpty).not.toHaveBeenCalled();
   });
 });

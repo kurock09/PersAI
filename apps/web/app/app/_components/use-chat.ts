@@ -43,6 +43,8 @@ const HEADERS_TIMEOUT_MS = 10_000;
 const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
+const ACTIVE_TURN_RESTORE_INTERVAL_MS = 1_000;
+const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
 const ACTIVE_WEB_TURN_STORAGE_PREFIX = "persai.active-web-turn.v1.";
 
 export type ChatMessageRole = "user" | "assistant";
@@ -414,6 +416,16 @@ function isPassiveStreamDisconnect(error: unknown): boolean {
   return false;
 }
 
+function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
+  const messagesById = new Map<string, ChatMessage>();
+  for (const group of groups) {
+    for (const message of group) {
+      messagesById.set(message.id, message);
+    }
+  }
+  return Array.from(messagesById.values());
+}
+
 function activeTurnStorageKey(targetThreadKey: string): string {
   return `${ACTIVE_WEB_TURN_STORAGE_PREFIX}${targetThreadKey}`;
 }
@@ -502,7 +514,9 @@ export function useChat(threadKey: string): UseChatReturn {
     new Map()
   );
   const cachedThreadKeyByChatIdRef = useRef<Map<string, string>>(new Map());
-  const restoredActiveTurnKeysRef = useRef<Set<string>>(new Set());
+  const activeTurnRestoreTimersByKeyRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
   const softDetachReconcileTimersByThreadRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map()
   );
@@ -587,14 +601,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const cacheThreadHistorySnapshot = useCallback(
     (targetThreadKey: string, snapshot: ActiveTurnSnapshot) => {
       const existing = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
-      const messagesById = new Map<string, ChatMessage>();
-      for (const message of existing?.messages ?? []) {
-        messagesById.set(message.id, message);
-      }
-      for (const message of snapshot.messages) {
-        messagesById.set(message.id, message);
-      }
-      const messages = Array.from(messagesById.values());
+      const messages = mergeChatMessagesById(existing?.messages ?? [], snapshot.messages);
       cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
         ...snapshot,
         messages,
@@ -613,6 +620,14 @@ export function useChat(threadKey: string): UseChatReturn {
     if (timer !== undefined) {
       clearTimeout(timer);
       softDetachReconcileTimersByThreadRef.current.delete(targetThreadKey);
+    }
+  }, []);
+
+  const clearActiveTurnRestoreTimer = useCallback((restoreKey: string) => {
+    const timer = activeTurnRestoreTimersByKeyRef.current.get(restoreKey);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      activeTurnRestoreTimersByKeyRef.current.delete(restoreKey);
     }
   }, []);
 
@@ -983,6 +998,38 @@ export function useChat(threadKey: string): UseChatReturn {
     [applyTurnStatusState, getToken]
   );
 
+  const startStoredActiveTurnRestore = useCallback(
+    (targetThreadKey: string, clientTurnId: string) => {
+      const restoreKey = `${targetThreadKey}:${clientTurnId}`;
+      if (activeTurnRestoreTimersByKeyRef.current.has(restoreKey)) {
+        return;
+      }
+
+      let attempts = 0;
+      const tick = async () => {
+        attempts += 1;
+        const statusResult = await refreshTurnStatus(targetThreadKey, clientTurnId);
+        if (statusResult === "running" || statusResult === "terminal") {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        if (
+          attempts >= ACTIVE_TURN_RESTORE_MAX_ATTEMPTS ||
+          readStoredActiveTurnClientTurnId(targetThreadKey) !== clientTurnId
+        ) {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        const timer = setTimeout(tick, ACTIVE_TURN_RESTORE_INTERVAL_MS);
+        activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
+      };
+
+      const timer = setTimeout(tick, 0);
+      activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
+    },
+    [clearActiveTurnRestoreTimer, refreshTurnStatus]
+  );
+
   const startSoftDetachReconcile = useCallback(
     (targetThreadKey: string, targetChatId: string) => {
       clearSoftDetachReconcileTimer(targetThreadKey);
@@ -1147,6 +1194,10 @@ export function useChat(threadKey: string): UseChatReturn {
         clearTimeout(timer);
       }
       softDetachReconcileTimersByThreadRef.current.clear();
+      for (const timer of activeTurnRestoreTimersByKeyRef.current.values()) {
+        clearTimeout(timer);
+      }
+      activeTurnRestoreTimersByKeyRef.current.clear();
     };
   }, [
     activeThreads,
@@ -1162,13 +1213,8 @@ export function useChat(threadKey: string): UseChatReturn {
     if (clientTurnId === null || activeTurnSnapshotsRef.current.has(threadKey)) {
       return;
     }
-    const restoreKey = `${threadKey}:${clientTurnId}`;
-    if (restoredActiveTurnKeysRef.current.has(restoreKey)) {
-      return;
-    }
-    restoredActiveTurnKeysRef.current.add(restoreKey);
-    void refreshTurnStatus(threadKey, clientTurnId);
-  }, [refreshTurnStatus, threadKey]);
+    startStoredActiveTurnRestore(threadKey, clientTurnId);
+  }, [startStoredActiveTurnRestore, threadKey]);
 
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
@@ -2289,20 +2335,31 @@ export function useChat(threadKey: string): UseChatReturn {
         cachedThreadKey === undefined
           ? undefined
           : cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+      const targetThreadKey = currentThreadKeyRef.current;
+      const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (cachedHistory !== undefined) {
-        setMessages(cachedHistory.messages);
+        const nextMessages =
+          activeSnapshot === undefined
+            ? cachedHistory.messages
+            : mergeChatMessagesById(cachedHistory.messages, activeSnapshot.messages);
+        if (activeSnapshot !== undefined) {
+          activeTurnSnapshotsRef.current.set(targetThreadKey, {
+            ...activeSnapshot,
+            messages: nextMessages,
+            chatId: targetChatId
+          });
+        }
+        setMessages(nextMessages);
         olderCursorRef.current = cachedHistory.olderCursor;
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(cachedHistory.hasOlderMessages);
         setChatId(targetChatId);
         setHistoryLoading(false);
-        historyLoadedRef.current.add(targetChatId);
-        return;
       }
       const token = await getToken();
       if (!token) return;
 
-      setHistoryLoading(true);
+      setHistoryLoading(cachedHistory === undefined);
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
         const loaded: ChatMessage[] = page.messages
@@ -2311,6 +2368,16 @@ export function useChat(threadKey: string): UseChatReturn {
 
         if (loaded.length > 0) {
           setMessages((prev) => {
+            const currentActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+            if (currentActiveSnapshot !== undefined) {
+              const merged = mergeChatMessagesById(loaded, currentActiveSnapshot.messages);
+              activeTurnSnapshotsRef.current.set(targetThreadKey, {
+                ...currentActiveSnapshot,
+                messages: merged,
+                chatId: targetChatId
+              });
+              return merged;
+            }
             const existingIds = new Set(prev.map((m) => m.id));
             const newHistory = loaded.filter((m) => !existingIds.has(m.id));
             return [...newHistory, ...prev];
@@ -2321,9 +2388,12 @@ export function useChat(threadKey: string): UseChatReturn {
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
-        cachedThreadHistorySnapshotsRef.current.set(currentThreadKeyRef.current, {
+        cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
           clientTurnId: "",
-          messages: loaded,
+          messages: mergeChatMessagesById(
+            loaded,
+            activeTurnSnapshotsRef.current.get(targetThreadKey)?.messages ?? []
+          ),
           liveActivitiesByMessageId: {},
           shadowRoutingLabelsByMessageId: {},
           chatId: targetChatId,
@@ -2331,7 +2401,7 @@ export function useChat(threadKey: string): UseChatReturn {
           olderCursor: page.nextCursor,
           hasOlderMessages: page.nextCursor !== null
         });
-        cachedThreadKeyByChatIdRef.current.set(targetChatId, currentThreadKeyRef.current);
+        cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
         void refreshCompactionState(targetChatId);
         historyLoadedRef.current.add(targetChatId);
       } catch {

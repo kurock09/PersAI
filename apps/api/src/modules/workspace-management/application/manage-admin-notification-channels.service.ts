@@ -28,6 +28,15 @@ const DEFAULT_IDLE_REENGAGEMENT_LLM_INSTRUCTION = [
   "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
 ].join("\n");
 
+const DEFAULT_WEBHOOK_CHANNEL_STATE: AdminNotificationChannelState = {
+  channelType: "webhook",
+  status: "inactive",
+  endpointUrl: null,
+  hasSigningSecret: false,
+  updatedAt: new Date(0).toISOString(),
+  lastDelivery: null
+};
+
 function toTrimmedOrNull(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -74,7 +83,7 @@ export class ManageAdminNotificationChannelsService {
       }
     });
 
-    return channels.map((channel) => ({
+    const mapped: AdminNotificationChannelState[] = channels.map((channel) => ({
       channelType: "webhook",
       status: channel.status,
       endpointUrl: channel.endpointUrl,
@@ -89,6 +98,7 @@ export class ManageAdminNotificationChannelsService {
               errorMessage: channel.deliveries[0].errorMessage
             }
     }));
+    return mapped.length === 0 ? [DEFAULT_WEBHOOK_CHANNEL_STATE] : mapped;
   }
 
   async getIdleReengagementPolicy(
