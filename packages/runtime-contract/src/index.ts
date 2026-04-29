@@ -908,6 +908,10 @@ export const PERSAI_RUNTIME_IMAGE_GENERATE_SIZES = [
 
 export type PersaiRuntimeImageGenerateSize = (typeof PERSAI_RUNTIME_IMAGE_GENERATE_SIZES)[number];
 
+export const PERSAI_RUNTIME_IMAGE_BACKGROUNDS = ["auto", "transparent", "opaque"] as const;
+
+export type PersaiRuntimeImageBackground = (typeof PERSAI_RUNTIME_IMAGE_BACKGROUNDS)[number];
+
 export const MIN_RUNTIME_IMAGE_GENERATE_COUNT = 1 as const;
 export const MAX_RUNTIME_IMAGE_GENERATE_COUNT = 4 as const;
 
@@ -917,6 +921,7 @@ export interface RuntimeImageGenerateRequest {
   count: number;
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
+  background: PersaiRuntimeImageBackground;
 }
 
 export interface RuntimeImageGenerateToolResult {
@@ -945,6 +950,7 @@ export interface RuntimeImageEditRequest {
   prompt: string;
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
+  background: PersaiRuntimeImageBackground;
   sourceImageIndex: number | null;
   referenceImageIndex: number | null;
 }
@@ -1682,6 +1688,7 @@ export interface ProviderGatewayImageGenerateRequest {
   model: string | null;
   count: number;
   size: PersaiRuntimeImageGenerateSize | null;
+  background: PersaiRuntimeImageBackground;
   credential: {
     toolCode: "image_generate";
     secretId: string;
@@ -1710,6 +1717,7 @@ export interface ProviderGatewayImageEditRequest {
   prompt: string;
   model: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
+  background: PersaiRuntimeImageBackground;
   sourceImage: {
     bytesBase64: string;
     mimeType: string;

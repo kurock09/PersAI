@@ -89,7 +89,7 @@ export class RuntimeVideoGenerateToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
-    currentAttachments: RuntimeAttachmentRef[];
+    availableAttachments: RuntimeAttachmentRef[];
     sessionId: string;
     requestId: string;
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
@@ -192,7 +192,7 @@ export class RuntimeVideoGenerateToolService {
     const model = this.resolveVideoGenerateModelKey(credential);
 
     const selection = await this.resolveReferenceImageSelection(
-      params.currentAttachments,
+      params.availableAttachments,
       request,
       params.requestId
     );
@@ -417,7 +417,7 @@ export class RuntimeVideoGenerateToolService {
           ok: false,
           reason: "reference_image_missing",
           warning:
-            "The prompt implies a reference image, but no current-turn image attachment is available."
+            "The prompt implies a reference image, but no recent chat image attachment is available."
         };
       }
       if (inferred === "selection_required") {
@@ -449,7 +449,8 @@ export class RuntimeVideoGenerateToolService {
       return {
         ok: false,
         reason: "reference_image_missing",
-        warning: "Attach an image in the current message before using referenceImageIndex."
+        warning:
+          "Attach an image or keep the reference image in recent chat context before using referenceImageIndex."
       };
     }
 
@@ -458,7 +459,7 @@ export class RuntimeVideoGenerateToolService {
       return {
         ok: false,
         reason: "reference_image_index_invalid",
-        warning: "referenceImageIndex must point to one of the current message image attachments."
+        warning: "referenceImageIndex must point to one of the available chat image attachments."
       };
     }
 
@@ -512,7 +513,7 @@ export class RuntimeVideoGenerateToolService {
         ok: false,
         reason: "unsupported_reference_image_type",
         warning:
-          "video_generate currently supports PNG, JPEG, and WebP current-turn reference images."
+          "video_generate currently supports PNG, JPEG, and WebP reference images from the current or recent chat context."
       };
     }
 

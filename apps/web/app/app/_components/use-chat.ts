@@ -1,5 +1,4 @@
 "use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
@@ -9,6 +8,7 @@ import {
   getAssistantWebChatTurnStatus,
   getChatMessages,
   getChatCompactionState,
+  reattachAssistantWebChatTurnStream,
   stageWebChatAttachment,
   stopAssistantWebChatTurn,
   streamAssistantWebChatTurn,
@@ -24,66 +24,43 @@ import {
   type ChatHistoryMessage,
   type ChatCompactionResult,
   type ChatCompactionState,
+  type WebChatActiveTurnState,
   type WebChatTurnStatusState,
   type WebChatUxIssue
 } from "../assistant-api-client";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
 import { useStreamingThreadsRegistry } from "./streaming-threads";
-
-/**
- * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server
- * does not return 2xx headers within this window, the request is aborted
- * and the user bubble flips to "send_failed". 10s is well above normal
- * server response time but short enough to feel responsive on flaky
- * mobile networks. (ADR-075 § "Single-slot pending send".)
- */
-const HEADERS_TIMEOUT_MS = 10_000;
-/** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */
-const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
+/** * Pre-headers timeout (ms) for `streamAssistantWebChatTurn`. If the server * does not return 2xx headers within this window, the request is aborted * and the user bubble flips to "send_failed". 10s is well above normal * server response time but short enough to feel responsive on flaky * mobile networks. (ADR-075 T� "Single-slot pending send".) */ const HEADERS_TIMEOUT_MS = 10_000;
+/** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
 const ACTIVE_TURN_RESTORE_INTERVAL_MS = 1_000;
 const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
+const PENDING_RECONCILE_INTERVAL_MS = 1_000;
+const PENDING_RECONCILE_MAX_ATTEMPTS = 30;
 const ACTIVE_WEB_TURN_STORAGE_PREFIX = "persai.active-web-turn.v1.";
-
 export type ChatMessageRole = "user" | "assistant";
-/**
- * Lifecycle of a message bubble.
- *
- * "sending" / "send_failed" are the new pending-slot states from
- * ADR-075 § "Single-slot pending send". Only user bubbles can be in those
- * states; assistant bubbles still go committed → streaming → partial.
- *
- * - "sending"     : optimistic user message, request is in-flight (staging
- *                   attachments and/or waiting for the stream to return 2xx
- *                   headers). Composer is disabled, no second send allowed.
- * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc).
- *                   Bubble shows a small red exclamation with Retry / Cancel
- *                   inline; composer stays disabled until user resolves it.
- */
-export type ChatMessageStatus =
-  | "committed"
-  | "streaming"
-  | "partial"
-  | "sending"
-  | "reconciling"
-  | "send_failed"
-  | "send_failed_unconfirmed"
-  | "send_failed_confirmed";
+/** * Lifecycle of a message bubble. * * "sending" / "send_failed" are the new pending-slot states from * ADR-075 T� "Single-slot pending send". Only user bubbles can be in those * states; assistant bubbles still go committed ��� streaming ��� partial. * * - "sending"     : optimistic user message, request is in-flight (staging *                   attachments and/or waiting for the stream to return 2xx *                   headers). Composer is disabled, no second send allowed. * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc). *                   Bubble shows a small red exclamation with Retry / Cancel *                   inline; composer stays disabled until user resolves it. */ export type ChatMessageStatus =
 
+    | "committed"
+    | "streaming"
+    | "partial"
+    | "sending"
+    | "reconciling"
+    | "send_failed"
+    | "send_failed_unconfirmed"
+    | "send_failed_confirmed";
 export type PendingSendStatus =
   | "sending"
   | "reconciling"
   | "send_failed"
   | "send_failed_unconfirmed"
   | "send_failed_confirmed";
-
 export type ChatAttachment = ChatHistoryAttachment & {
   localPreviewUrl?: string | undefined;
   uploadProgressPercent?: number | undefined;
 };
-
 export interface ChatMessage {
   id: string;
   role: ChatMessageRole;
@@ -94,23 +71,19 @@ export interface ChatMessage {
   thoughtStartedAt?: string | null;
   thoughtFinishedAt?: string | null;
 }
-
 export interface RecentAutoCompactionNotice {
   detectedAt: string;
   tokensBefore: number | null;
   tokensAfter: number | null;
 }
-
 export type ChatEntry =
   | { kind: "message"; message: ChatMessage }
   | { kind: "activity"; event: ActivityEvent };
-
 function createClientTurnId(): string {
   return (
     globalThis.crypto?.randomUUID?.() ?? `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
 }
-
 export interface UseChatReturn {
   entries: ChatEntry[];
   messages: ChatMessage[];
@@ -130,30 +103,14 @@ export interface UseChatReturn {
   clearIssue: () => void;
   reportIssue: (error: unknown) => void;
   loadHistory: (chatId: string) => Promise<void>;
-  /**
-   * Mark the active thread as "no history will be loaded" so the empty-state
-   * UI can render. Used by `chat/page.tsx` when the active threadKey does not
-   * correspond to any existing chat row (i.e. it's a brand-new conversation).
-   * See the `historyLoading` optimistic-true reset in the threadKey-change
-   * branch below for the rationale.
-   */
-  markHistoryEmpty: () => void;
+  /**   * Mark the active thread as "no history will be loaded" so the empty-state   * UI can render. Used by `chat/page.tsx` when the active threadKey does not   * correspond to any existing chat row (i.e. it's a brand-new conversation).   * See the `historyLoading` optimistic-true reset in the threadKey-change   * branch below for the rationale.   */ markHistoryEmpty: () => void;
   loadOlderMessages: () => Promise<void>;
-  /**
-   * Current pending-send slot state, or null when no message is awaiting
-   * delivery confirmation. See ADR-075 § "Single-slot pending send".
-   */
-  pendingSendStatus: PendingSendStatus | null;
-  /** Retry the failed pending send. No-op if there is no failed bubble. */
-  retryPendingSend: () => Promise<void>;
-  /**
-   * Cancel the failed pending send. Removes the failed bubble and returns
-   * the original draft text so the composer can restore it. Returns null
-   * if there was nothing to cancel.
-   */
-  cancelPendingSend: () => string | null;
+  /**   * Current pending-send slot state, or null when no message is awaiting   * delivery confirmation. See ADR-075 T� "Single-slot pending send".   */ pendingSendStatus: PendingSendStatus | null;
+  /** Retry the failed pending send. No-op if there is no failed bubble. */ retryPendingSend: () => Promise<void>;
+  /**   * Cancel the failed pending send. Removes the failed bubble and returns   * the original draft text so the composer can restore it. Returns null   * if there was nothing to cancel.   */ cancelPendingSend: () =>
+    | string
+    | null;
 }
-
 type RuntimeTransportMeta = {
   respondedAt?: string;
   degradedByQuotaFallback?: boolean;
@@ -165,20 +122,14 @@ type RuntimeTransportMeta = {
     source: "precheck" | "llm" | "fallback";
   } | null;
 };
-
 export interface ChatSendOptions {
   addToKnowledgeBase?: boolean | undefined;
   deepModeEnabled?: boolean | undefined;
   clientTurnId?: string | undefined;
   clientAttachmentIds?: string[] | undefined;
 }
-
 type LiveActivitySource = "tool" | "compaction" | "runtime";
-
-type LiveActivityEvent = ActivityEvent & {
-  source: LiveActivitySource;
-};
-
+type LiveActivityEvent = ActivityEvent & { source: LiveActivitySource };
 type ActiveTurnSnapshot = {
   clientTurnId: string;
   messages: ChatMessage[];
@@ -187,12 +138,10 @@ type ActiveTurnSnapshot = {
   chatId: string | null;
   compactionRunning: boolean;
 };
-
 type CachedThreadHistorySnapshot = ActiveTurnSnapshot & {
   olderCursor: string | null;
   hasOlderMessages: boolean;
 };
-
 type PendingSendSlot = {
   text: string;
   files: File[];
@@ -203,25 +152,13 @@ type PendingSendSlot = {
   clientAttachmentIds: string[];
   status: PendingSendStatus;
 };
-
-const TOOL_ACTIVITY_COPY: Record<
-  string,
-  {
-    start: string;
-    end: string;
-    failure: string;
-  }
-> = {
+const TOOL_ACTIVITY_COPY: Record<string, { start: string; end: string; failure: string }> = {
   web_search: {
     start: "Searching the web",
     end: "Web results ready",
     failure: "Web search failed"
   },
-  web_fetch: {
-    start: "Reading the page",
-    end: "Page ready",
-    failure: "Page read failed"
-  },
+  web_fetch: { start: "Reading the page", end: "Page ready", failure: "Page read failed" },
   browser: {
     start: "Working in browser",
     end: "Browser step done",
@@ -232,28 +169,19 @@ const TOOL_ACTIVITY_COPY: Record<
     end: "Image ready",
     failure: "Image generation failed"
   },
-  image_edit: {
-    start: "Editing image",
-    end: "Edited image ready",
-    failure: "Image edit failed"
-  },
+  image_edit: { start: "Editing image", end: "Edited image ready", failure: "Image edit failed" },
   video_generate: {
     start: "Generating video",
     end: "Video ready",
     failure: "Video generation failed"
   },
-  tts: {
-    start: "Recording voice",
-    end: "Voice ready",
-    failure: "Voice generation failed"
-  },
+  tts: { start: "Recording voice", end: "Voice ready", failure: "Voice generation failed" },
   scheduled_action: {
     start: "Scheduling task",
     end: "Task scheduled",
     failure: "Task scheduling failed"
   }
 };
-
 function buildToolLiveActivity(params: {
   assistantMessageId: string;
   toolName: string;
@@ -273,7 +201,6 @@ function buildToolLiveActivity(params: {
         : params.isError
           ? copy.failure
           : copy.end;
-
   return {
     id: `activity-live-tool-${Date.now()}-${params.phase}-${params.toolName}`,
     type: "tool_use",
@@ -283,7 +210,6 @@ function buildToolLiveActivity(params: {
     source: "tool"
   };
 }
-
 function buildCompactionLiveActivity(params: {
   assistantMessageId: string;
   phase: "start" | "end";
@@ -300,7 +226,6 @@ function buildCompactionLiveActivity(params: {
     source: "compaction"
   };
 }
-
 function buildRuntimeLiveActivity(params: {
   assistantMessageId: string;
   respondedAt: string;
@@ -312,23 +237,18 @@ function buildRuntimeLiveActivity(params: {
     label: "Response generated",
     detail:
       params.detail ??
-      new Date(params.respondedAt).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-      }),
+      new Date(params.respondedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     timestamp: params.respondedAt,
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
     source: "runtime"
   };
 }
-
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
 ): string {
   return `${turnRouting.executionMode} (${turnRouting.source})`;
 }
-
 function appendQuotaFallbackActivity(params: {
   setActivities: React.Dispatch<React.SetStateAction<ActivityEvent[]>>;
   runtime: RuntimeTransportMeta | null | undefined;
@@ -353,7 +273,6 @@ function appendQuotaFallbackActivity(params: {
     }
   ]);
 }
-
 function buildKnowledgeUploadActivity(params: {
   afterMessageId?: string | undefined;
   readyCount: number;
@@ -368,9 +287,7 @@ function buildKnowledgeUploadActivity(params: {
         : params.t("knowledgeUploadPartial");
   const detail =
     params.failedCount === 0
-      ? params.t("knowledgeUploadReadyDetail", {
-          count: params.readyCount
-        })
+      ? params.t("knowledgeUploadReadyDetail", { count: params.readyCount })
       : params.readyCount === 0
         ? params.t("knowledgeUploadFailedDetail")
         : params.t("knowledgeUploadPartialDetail", {
@@ -385,7 +302,6 @@ function buildKnowledgeUploadActivity(params: {
     ...(params.afterMessageId ? { afterMessageId: params.afterMessageId } : {})
   };
 }
-
 function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null {
   if (message.content === WELCOME_TURN_SENTINEL) {
     return null;
@@ -399,11 +315,52 @@ function toCommittedChatMessage(message: ChatHistoryMessage): ChatMessage | null
       message.attachments.length > 0 ? (message.attachments as ChatAttachment[]) : undefined
   };
 }
-
+function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null | undefined): {
+  messages: ChatMessage[];
+  liveActivitiesByMessageId: Record<string, LiveActivityEvent>;
+} {
+  if (!activeTurn) {
+    return { messages: [], liveActivitiesByMessageId: {} };
+  }
+  const userMessage = activeTurn.userMessage
+    ? toCommittedChatMessage(activeTurn.userMessage)
+    : null;
+  const assistantMessage = activeTurn.assistantMessage
+    ? toCommittedChatMessage(activeTurn.assistantMessage)
+    : null;
+  if (!userMessage) {
+    return { messages: [], liveActivitiesByMessageId: {} };
+  }
+  const assistantOverlay: ChatMessage =
+    assistantMessage ??
+    ({
+      id: `active-assistant-${activeTurn.clientTurnId}`,
+      role: "assistant",
+      content: "",
+      status: "streaming"
+    } satisfies ChatMessage);
+  const liveActivitiesByMessageId =
+    activeTurn.currentActivity && activeTurn.currentActivity.phase === "start"
+      ? {
+          [assistantOverlay.id]: buildToolLiveActivity({
+            assistantMessageId: assistantOverlay.id,
+            toolName: activeTurn.currentActivity.toolName,
+            phase: activeTurn.currentActivity.phase,
+            isError: activeTurn.currentActivity.isError
+          })
+        }
+      : {};
+  return {
+    messages: [
+      { ...userMessage, status: "committed" },
+      { ...assistantOverlay, status: "streaming" }
+    ],
+    liveActivitiesByMessageId
+  };
+}
 function isOptimisticLocalMessage(message: ChatMessage): boolean {
   return message.id.startsWith("local-user-") || message.id.startsWith("local-assistant-");
 }
-
 function isPassiveStreamDisconnect(error: unknown): boolean {
   if (error instanceof Error) {
     return (
@@ -415,7 +372,6 @@ function isPassiveStreamDisconnect(error: unknown): boolean {
   }
   return false;
 }
-
 function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
   const messagesById = new Map<string, ChatMessage>();
   for (const group of groups) {
@@ -425,11 +381,46 @@ function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
   }
   return Array.from(messagesById.values());
 }
-
+function mergeCommittedHistoryWithActiveTurn(input: {
+  loaded: ChatMessage[];
+  activeSnapshot: ActiveTurnSnapshot | undefined;
+  baseMessages?: ChatMessage[] | undefined;
+}): { messages: ChatMessage[]; replacedActiveTurn: boolean } {
+  const { loaded, activeSnapshot, baseMessages } = input;
+  if (activeSnapshot === undefined) {
+    return {
+      messages: baseMessages === undefined ? loaded : mergeChatMessagesById(loaded, baseMessages),
+      replacedActiveTurn: false
+    };
+  }
+  const activeMessageIds = new Set(activeSnapshot.messages.map((message) => message.id));
+  const activeUserMessageIds = new Set(
+    activeSnapshot.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.id)
+  );
+  const activeUserIndex = loaded.findIndex((message) => activeUserMessageIds.has(message.id));
+  const loadedHasAssistantAfterActiveUser =
+    activeUserIndex >= 0 &&
+    loaded.slice(activeUserIndex + 1).some((message) => message.role === "assistant");
+  const shouldReplaceActiveTurn = loadedHasAssistantAfterActiveUser;
+  if (!shouldReplaceActiveTurn) {
+    return {
+      messages: mergeChatMessagesById(loaded, activeSnapshot.messages),
+      replacedActiveTurn: false
+    };
+  }
+  const baseWithoutActive = (baseMessages ?? activeSnapshot.messages).filter(
+    (message) => !activeMessageIds.has(message.id) && !isOptimisticLocalMessage(message)
+  );
+  return { messages: mergeChatMessagesById(baseWithoutActive, loaded), replacedActiveTurn: true };
+}
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 function activeTurnStorageKey(targetThreadKey: string): string {
   return `${ACTIVE_WEB_TURN_STORAGE_PREFIX}${targetThreadKey}`;
 }
-
 function readStoredActiveTurnClientTurnId(targetThreadKey: string): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -439,7 +430,6 @@ function readStoredActiveTurnClientTurnId(targetThreadKey: string): string | nul
     return null;
   }
 }
-
 function writeStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId: string): void {
   if (typeof window === "undefined") return;
   try {
@@ -448,7 +438,6 @@ function writeStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId
     /* non-critical */
   }
 }
-
 function clearStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId?: string): void {
   if (typeof window === "undefined") return;
   try {
@@ -461,7 +450,6 @@ function clearStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId
     /* non-critical */
   }
 }
-
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -474,15 +462,10 @@ export function useChat(threadKey: string): UseChatReturn {
     Record<string, string>
   >({});
   const [chatId, setChatId] = useState<string | null>(null);
-  // Slice 1.1 — per-thread streaming flag.
-  //
-  // `isStreaming` used to be a single `useState(false)` local to this hook.
-  // That meant Chat A's in-flight stream blocked the composer in Chat B as
-  // soon as the user switched threads. We now lift "which threads are
-  // streaming?" into a shared registry keyed by `surfaceThreadKey`, so each
-  // thread has its own independent boolean and AbortController.
-  // See `streaming-threads.tsx`.
-  const { activeThreads, markStreaming } = useStreamingThreadsRegistry();
+  /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
+    activeThreads,
+    markStreaming
+  } = useStreamingThreadsRegistry();
   const isStreaming = activeThreads.has(threadKey);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -493,21 +476,8 @@ export function useChat(threadKey: string): UseChatReturn {
     useState<RecentAutoCompactionNotice | null>(null);
   const [compactionRunning, setCompactionRunning] = useState(false);
   const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
-  // Slice 1.1 — abort controllers are per-thread now (was a single `useRef`).
-  // The single ref clobbered itself when Chat A's stream cleaned up while
-  // Chat B was already mid-flight, which made `stop()` either no-op or abort
-  // the wrong stream. Keying by `threadKey` keeps each turn's controller
-  // independent until *its* stream completes or the user explicitly stops it
-  // from that thread's view.
-  //
-  // Slice 1.2 — each entry now also carries the `clientTurnId` of the
-  // turn it owns. `stop()` needs the id to call the new
-  // `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see
-  // the `stop` callback below for why this distinction matters
-  // (soft-detach vs hard-stop).
-  const abortControllersByThreadRef = useRef<
-    Map<string, { controller: AbortController; clientTurnId: string }>
-  >(new Map());
+  /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
+    useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
   const hardStoppedClientTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
   const cachedThreadHistorySnapshotsRef = useRef<Map<string, CachedThreadHistorySnapshot>>(
@@ -526,9 +496,8 @@ export function useChat(threadKey: string): UseChatReturn {
   const prevThreadKeyRef = useRef(threadKey);
   const currentThreadKeyRef = useRef(threadKey);
   const lastResumeRefreshAtRef = useRef(0);
-  // Single-slot pending send (ADR-075). Holds enough info to either retry the
-  // exact same payload or cancel and restore the draft text.
-  const pendingSendRef = useRef<PendingSendSlot | null>(null);
+  /* Single-slot pending send (ADR-075). Holds enough info to either retry the */ /* exact same payload or cancel and restore the draft text. */ const pendingSendRef =
+    useRef<PendingSendSlot | null>(null);
   const pendingSendsByThreadRef = useRef<Map<string, PendingSendSlot>>(new Map());
   const pendingSendStatusRef = useRef<PendingSendStatus | null>(null);
   const setPendingSendStatus = useCallback((next: PendingSendStatus | null) => {
@@ -536,7 +505,6 @@ export function useChat(threadKey: string): UseChatReturn {
     setPendingSendStatusState(next);
   }, []);
   currentThreadKeyRef.current = threadKey;
-
   const setThreadPendingSend = useCallback(
     (targetThreadKey: string, next: PendingSendSlot | null) => {
       if (next === null) {
@@ -551,7 +519,6 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [setPendingSendStatus]
   );
-
   const applyThreadMessages = useCallback(
     (targetThreadKey: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
       const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -567,7 +534,6 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     []
   );
-
   const applyThreadLiveActivities = useCallback(
     (
       targetThreadKey: string,
@@ -586,7 +552,6 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     []
   );
-
   const setThreadChatId = useCallback((targetThreadKey: string, nextChatId: string) => {
     const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
     if (snapshot !== undefined) {
@@ -597,7 +562,6 @@ export function useChat(threadKey: string): UseChatReturn {
       activeChatIdRef.current = nextChatId;
     }
   }, []);
-
   const cacheThreadHistorySnapshot = useCallback(
     (targetThreadKey: string, snapshot: ActiveTurnSnapshot) => {
       const existing = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
@@ -614,7 +578,6 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     []
   );
-
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -622,7 +585,6 @@ export function useChat(threadKey: string): UseChatReturn {
       softDetachReconcileTimersByThreadRef.current.delete(targetThreadKey);
     }
   }, []);
-
   const clearActiveTurnRestoreTimer = useCallback((restoreKey: string) => {
     const timer = activeTurnRestoreTimersByKeyRef.current.get(restoreKey);
     if (timer !== undefined) {
@@ -630,7 +592,6 @@ export function useChat(threadKey: string): UseChatReturn {
       activeTurnRestoreTimersByKeyRef.current.delete(restoreKey);
     }
   }, []);
-
   const finalizeReconciledDetachedTurn = useCallback(
     (targetThreadKey: string) => {
       clearSoftDetachReconcileTimer(targetThreadKey);
@@ -641,14 +602,12 @@ export function useChat(threadKey: string): UseChatReturn {
         clearStoredActiveTurnClientTurnId(targetThreadKey, snapshot.clientTurnId);
       }
       activeTurnSnapshotsRef.current.delete(targetThreadKey);
-
       const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
       controllerEntry?.controller.abort();
       abortControllersByThreadRef.current.delete(targetThreadKey);
     },
     [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
   );
-
   if (prevThreadKeyRef.current !== threadKey) {
     prevThreadKeyRef.current = threadKey;
     const pendingForThread = pendingSendsByThreadRef.current.get(threadKey) ?? null;
@@ -668,19 +627,9 @@ export function useChat(threadKey: string): UseChatReturn {
     setRecentAutoCompaction(null);
     setCompactionRunning(restoredSnapshot?.compactionRunning ?? false);
     setHasOlderMessages(cachedHistorySnapshot?.hasOlderMessages ?? false);
-    /*
-     * Optimistically flip historyLoading to true the moment the user
-     * navigates to a different thread. Without this, there is one render
-     * frame between the synchronous reset above and the post-render effect
-     * in `chat/page.tsx` that triggers `loadHistory()` — and during that
-     * frame `messages.length === 0 && historyLoading === false`, which
-     * renders the EmptyState. On a slow fetch the EmptyState then flickers
-     * for the entire 0.5–1s the history takes to arrive (founder report
-     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back
-     * to false when the active thread is brand-new and has no history to
-     * load.
-     */
-    setHistoryLoading(restoredSnapshot === undefined);
+    /*     * Optimistically flip historyLoading to true the moment the user     * navigates to a different thread. Without this, there is one render     * frame between the synchronous reset above and the post-render effect     * in `chat/page.tsx` that triggers `loadHistory()` ��� and during that     * frame `messages.length === 0 && historyLoading === false`, which     * renders the EmptyState. On a slow fetch the EmptyState then flickers     * for the entire 0.5���1s the history takes to arrive (founder report     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back     * to false when the active thread is brand-new and has no history to     * load.     */ setHistoryLoading(
+      restoredSnapshot === undefined
+    );
     historyLoadedRef.current = new Set();
     olderCursorRef.current = cachedHistorySnapshot?.olderCursor ?? null;
     activeChatIdRef.current = restoredSnapshot?.chatId ?? null;
@@ -688,24 +637,9 @@ export function useChat(threadKey: string): UseChatReturn {
     pendingSendStatusRef.current = pendingForThread?.status ?? null;
     setPendingSendStatusState(pendingForThread?.status ?? null);
   }
-
   const stop = useCallback(() => {
-    // Per-thread stop: abort only the stream attached to the thread the
-    // user is currently looking at. Streams in other threads keep going so
-    // switching away from a generating image doesn't kill it.
-    //
-    // Slice 1.2 — `stop()` is the *user-visible* hard-stop affordance
-    // (the Stop button on the composer). The API can no longer infer
-    // hard-stop from a dead SSE socket, because that signal also fires
-    // for soft-detach cases like locking the screen mid-image-generate.
-    // So before tearing down the local controller we send an explicit
-    // `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`,
-    // which is the only path that flips the server-side abort signal.
-    // The POST is best-effort and intentionally not awaited: a failure
-    // here just means the runtime keeps generating in the background
-    // (the same fate as a soft-detach), which is strictly safer than
-    // the pre-Slice-1.2 "always kill on any disconnect" default.
-    const entry = abortControllersByThreadRef.current.get(threadKey);
+    /* Per-thread stop: abort only the stream attached to the thread the */ /* user is currently looking at. Streams in other threads keep going so */ /* switching away from a generating image doesn't kill it. */ /*  */ /* Slice 1.2 ��� `stop()` is the *user-visible* hard-stop affordance */ /* (the Stop button on the composer). The API can no longer infer */ /* hard-stop from a dead SSE socket, because that signal also fires */ /* for soft-detach cases like locking the screen mid-image-generate. */ /* So before tearing down the local controller we send an explicit */ /* `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`, */ /* which is the only path that flips the server-side abort signal. */ /* The POST is best-effort and intentionally not awaited: a failure */ /* here just means the runtime keeps generating in the background */ /* (the same fate as a soft-detach), which is strictly safer than */ /* the pre-Slice-1.2 "always kill on any disconnect" default. */ const entry =
+      abortControllersByThreadRef.current.get(threadKey);
     const snapshotClientTurnId = activeTurnSnapshotsRef.current.get(threadKey)?.clientTurnId;
     const clientTurnId = entry?.clientTurnId ?? snapshotClientTurnId;
     if (clientTurnId === undefined) {
@@ -720,18 +654,16 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         await stopAssistantWebChatTurn(token, clientTurnId);
       } catch {
-        // Swallow; local abort below is the user-visible guarantee.
+        /* Swallow; local abort below is the user-visible guarantee. */
       }
     })();
     entry?.controller.abort();
     abortControllersByThreadRef.current.delete(threadKey);
   }, [threadKey, getToken]);
-
   const clearIssue = useCallback(() => setIssue(null), []);
   const reportIssue = useCallback((error: unknown) => {
     setIssue(toWebChatUxIssue(error));
   }, []);
-
   const refreshCompactionState = useCallback(
     async (
       targetChatId: string,
@@ -760,7 +692,6 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [getToken]
   );
-
   const refreshLatestHistory = useCallback(
     async (
       targetChatId: string,
@@ -770,7 +701,6 @@ export function useChat(threadKey: string): UseChatReturn {
       if (!token) return false;
       const targetThreadKey = options?.targetThreadKey ?? currentThreadKeyRef.current;
       let reconciledOptimisticTurn = false;
-
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
         const loaded = page.messages
@@ -780,37 +710,34 @@ export function useChat(threadKey: string): UseChatReturn {
           return false;
         }
         const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const activeSnapshotMessageIds = new Set(
+          activeSnapshot?.messages.map((message) => message.id) ?? []
+        );
+        let loadedHasActiveUserMessage = false;
         if (activeSnapshot !== undefined) {
           const activeUserMessageIds = new Set(
             activeSnapshot.messages
               .filter((message) => message.role === "user")
               .map((message) => message.id)
           );
-          const loadedHasActiveUserMessage = loaded.some((message) =>
+          loadedHasActiveUserMessage = loaded.some((message) =>
             activeUserMessageIds.has(message.id)
           );
           const loadedHasAssistantMessage = loaded.some((message) => message.role === "assistant");
-          const activeSnapshotHasOptimisticMessage =
-            activeSnapshot.messages.some(isOptimisticLocalMessage);
-          if (
-            loadedHasAssistantMessage &&
-            (loadedHasActiveUserMessage || activeSnapshotHasOptimisticMessage)
-          ) {
+          if (loadedHasActiveUserMessage && loadedHasAssistantMessage) {
             reconciledOptimisticTurn = true;
           }
         }
-
         applyThreadMessages(targetThreadKey, (prev) => {
           const loadedById = new Map(loaded.map((message) => [message.id, message]));
           const prevIds = new Set(prev.map((message) => message.id));
           const hasNewServerMessages = loaded.some((message) => !prevIds.has(message.id));
-          const hasOptimisticTurn = prev.some(isOptimisticLocalMessage);
           const hasNewServerAssistantMessage = loaded.some(
             (message) => message.role === "assistant" && !prevIds.has(message.id)
           );
-          const shouldReplaceOptimisticTurn =
-            hasNewServerMessages && hasOptimisticTurn && hasNewServerAssistantMessage;
-          if (shouldReplaceOptimisticTurn) {
+          const shouldReplaceActiveTurn =
+            hasNewServerMessages && hasNewServerAssistantMessage && loadedHasActiveUserMessage;
+          if (shouldReplaceActiveTurn) {
             reconciledOptimisticTurn = true;
           }
           const next = prev.flatMap((message) => {
@@ -818,7 +745,10 @@ export function useChat(threadKey: string): UseChatReturn {
             if (replacement !== undefined) {
               return [replacement];
             }
-            if (shouldReplaceOptimisticTurn && isOptimisticLocalMessage(message)) {
+            if (
+              shouldReplaceActiveTurn &&
+              (activeSnapshotMessageIds.has(message.id) || isOptimisticLocalMessage(message))
+            ) {
               for (const attachment of message.attachments ?? []) {
                 if (attachment.localPreviewUrl !== undefined) {
                   URL.revokeObjectURL(attachment.localPreviewUrl);
@@ -830,12 +760,11 @@ export function useChat(threadKey: string): UseChatReturn {
           });
           const nextIds = new Set(next.map((message) => message.id));
           const missing =
-            hasOptimisticTurn && !shouldReplaceOptimisticTurn
+            activeSnapshot !== undefined && !shouldReplaceActiveTurn
               ? []
               : loaded.filter((message) => !nextIds.has(message.id));
           return [...next, ...missing];
         });
-
         olderCursorRef.current = page.nextCursor;
         if (currentThreadKeyRef.current === targetThreadKey) {
           activeChatIdRef.current = targetChatId;
@@ -853,13 +782,11 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         return reconciledOptimisticTurn;
       } catch {
-        /* non-critical resume refresh */
-        return false;
+        /* non-critical resume refresh */ return false;
       }
     },
     [applyThreadMessages, getToken, refreshCompactionState, setThreadPendingSend]
   );
-
   const applyTurnStatusState = useCallback(
     (
       targetThreadKey: string,
@@ -870,9 +797,8 @@ export function useChat(threadKey: string): UseChatReturn {
       const assistantMessage = status.assistantMessage
         ? toCommittedChatMessage(status.assistantMessage)
         : null;
-
       if (status.status === "accepted" || status.status === "running") {
-        if (userMessage === null) {
+        if (userMessage === null && targetThreadKey !== WELCOME_THREAD_KEY) {
           return "unknown";
         }
         const existingSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -905,7 +831,8 @@ export function useChat(threadKey: string): UseChatReturn {
                   isError: currentActivity.isError
                 })
               };
-        const nextMessages = [userMessage, liveAssistantMessage];
+        const nextMessages =
+          userMessage === null ? [liveAssistantMessage] : [userMessage, liveAssistantMessage];
         activeTurnSnapshotsRef.current.set(targetThreadKey, {
           clientTurnId,
           messages: nextMessages,
@@ -927,7 +854,6 @@ export function useChat(threadKey: string): UseChatReturn {
         writeStoredActiveTurnClientTurnId(targetThreadKey, clientTurnId);
         return "running";
       }
-
       if (
         status.status === "completed" ||
         status.status === "failed" ||
@@ -951,9 +877,13 @@ export function useChat(threadKey: string): UseChatReturn {
             cachedSnapshot?.messages ??
             (currentThreadKeyRef.current === targetThreadKey ? messages : []);
           const committedIds = new Set(committed.map((message) => message.id));
+          const activeMessageIds = new Set(existingSnapshot?.messages.map((message) => message.id));
           const committedMessages = [
             ...baseMessages.filter(
-              (message) => !isOptimisticLocalMessage(message) && !committedIds.has(message.id)
+              (message) =>
+                !isOptimisticLocalMessage(message) &&
+                !activeMessageIds.has(message.id) &&
+                !committedIds.has(message.id)
             ),
             ...committed
           ];
@@ -967,20 +897,24 @@ export function useChat(threadKey: string): UseChatReturn {
           });
           applyThreadMessages(targetThreadKey, (prev) => {
             const committedIds = new Set(committed.map((message) => message.id));
+            const activeMessageIds = new Set(
+              existingSnapshot?.messages.map((message) => message.id)
+            );
             const withoutActiveTurn = prev.filter(
-              (message) => !isOptimisticLocalMessage(message) && !committedIds.has(message.id)
+              (message) =>
+                !isOptimisticLocalMessage(message) &&
+                !activeMessageIds.has(message.id) &&
+                !committedIds.has(message.id)
             );
             return [...withoutActiveTurn, ...committed];
           });
         }
         return "terminal";
       }
-
       return "unknown";
     },
     [applyThreadMessages, cacheThreadHistorySnapshot, markStreaming, messages]
   );
-
   const refreshTurnStatus = useCallback(
     async (
       targetThreadKey: string,
@@ -997,39 +931,101 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [applyTurnStatusState, getToken]
   );
-
-  const startStoredActiveTurnRestore = useCallback(
-    (targetThreadKey: string, clientTurnId: string) => {
-      const restoreKey = `${targetThreadKey}:${clientTurnId}`;
-      if (activeTurnRestoreTimersByKeyRef.current.has(restoreKey)) {
-        return;
+  const startTurnReattach = useCallback(
+    async (
+      targetThreadKey: string,
+      clientTurnId: string
+    ): Promise<"running" | "terminal" | "unknown"> => {
+      const token = await getToken();
+      if (!token) return "unknown";
+      const controller = new AbortController();
+      let latestResult: "running" | "terminal" | "unknown" = "unknown";
+      try {
+        await reattachAssistantWebChatTurnStream(
+          token,
+          clientTurnId,
+          {
+            onHeadersOk: () => {
+              markStreaming(targetThreadKey, true);
+            },
+            onTurnStatus: ({ turn }) => {
+              latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+            },
+            onReattached: ({ turn }) => {
+              latestResult = applyTurnStatusState(targetThreadKey, clientTurnId, turn);
+            },
+            onDelta: ({ delta }) => {
+              applyThreadMessages(targetThreadKey, (prev) =>
+                prev.map((message) =>
+                  message.role === "assistant" && message.status === "streaming"
+                    ? { ...message, content: `${message.content}${delta}` }
+                    : message
+                )
+              );
+            },
+            onThinking: ({ accumulated }) => {
+              const now = new Date().toISOString();
+              applyThreadMessages(targetThreadKey, (prev) =>
+                prev.map((message) =>
+                  message.role === "assistant" && message.status === "streaming"
+                    ? {
+                        ...message,
+                        thought: accumulated,
+                        thoughtStartedAt: message.thoughtStartedAt ?? now
+                      }
+                    : message
+                )
+              );
+            },
+            onTool: ({ phase, toolName, isError }) => {
+              const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+              const assistantMessageId =
+                snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
+              if (assistantMessageId === null) {
+                return;
+              }
+              applyThreadLiveActivities(targetThreadKey, (prev) => ({
+                ...prev,
+                [assistantMessageId]: buildToolLiveActivity({
+                  assistantMessageId,
+                  toolName,
+                  phase,
+                  isError
+                })
+              }));
+            },
+            onCompleted: async () => {
+              latestResult = "terminal";
+              await refreshLatestHistory(targetThreadKey);
+            },
+            onInterrupted: async () => {
+              latestResult = "terminal";
+              await refreshLatestHistory(targetThreadKey);
+            },
+            onFailed: async () => {
+              latestResult = "terminal";
+              await refreshLatestHistory(targetThreadKey);
+            }
+          },
+          controller.signal
+        );
+        return latestResult;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return latestResult;
+        }
+        return latestResult;
       }
-
-      let attempts = 0;
-      const tick = async () => {
-        attempts += 1;
-        const statusResult = await refreshTurnStatus(targetThreadKey, clientTurnId);
-        if (statusResult === "running" || statusResult === "terminal") {
-          clearActiveTurnRestoreTimer(restoreKey);
-          return;
-        }
-        if (
-          attempts >= ACTIVE_TURN_RESTORE_MAX_ATTEMPTS ||
-          readStoredActiveTurnClientTurnId(targetThreadKey) !== clientTurnId
-        ) {
-          clearActiveTurnRestoreTimer(restoreKey);
-          return;
-        }
-        const timer = setTimeout(tick, ACTIVE_TURN_RESTORE_INTERVAL_MS);
-        activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
-      };
-
-      const timer = setTimeout(tick, 0);
-      activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
     },
-    [clearActiveTurnRestoreTimer, refreshTurnStatus]
+    [
+      applyThreadLiveActivities,
+      applyThreadMessages,
+      applyTurnStatusState,
+      getToken,
+      markStreaming,
+      refreshLatestHistory
+    ]
   );
-
   const startSoftDetachReconcile = useCallback(
     (targetThreadKey: string, targetChatId: string) => {
       clearSoftDetachReconcileTimer(targetThreadKey);
@@ -1046,7 +1042,7 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         if (snapshot !== undefined) {
-          const statusResult = await refreshTurnStatus(targetThreadKey, snapshot.clientTurnId);
+          const statusResult = await startTurnReattach(targetThreadKey, snapshot.clientTurnId);
           if (statusResult === "running") {
             const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_INTERVAL_MS);
             softDetachReconcileTimersByThreadRef.current.set(targetThreadKey, timer);
@@ -1074,10 +1070,54 @@ export function useChat(threadKey: string): UseChatReturn {
       finalizeReconciledDetachedTurn,
       markStreaming,
       refreshLatestHistory,
-      refreshTurnStatus
+      startTurnReattach
     ]
   );
-
+  const startStoredActiveTurnRestore = useCallback(
+    (targetThreadKey: string, clientTurnId: string) => {
+      const restoreKey = `${targetThreadKey}:${clientTurnId}`;
+      if (activeTurnRestoreTimersByKeyRef.current.has(restoreKey)) {
+        return;
+      }
+      let attempts = 0;
+      let hasSeenRunning = false;
+      const tick = async () => {
+        const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const shouldContinue =
+          hasSeenRunning || activeSnapshot !== undefined
+            ? activeSnapshot?.clientTurnId === clientTurnId
+            : readStoredActiveTurnClientTurnId(targetThreadKey) === clientTurnId;
+        if (!shouldContinue) {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        attempts += 1;
+        const statusResult = await startTurnReattach(targetThreadKey, clientTurnId);
+        if (statusResult === "terminal") {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        if (statusResult === "running") {
+          hasSeenRunning = true;
+        }
+        const maxAttempts = hasSeenRunning
+          ? SOFT_DETACH_RECONCILE_MAX_ATTEMPTS
+          : ACTIVE_TURN_RESTORE_MAX_ATTEMPTS;
+        if (attempts >= maxAttempts) {
+          clearActiveTurnRestoreTimer(restoreKey);
+          return;
+        }
+        const interval = hasSeenRunning
+          ? SOFT_DETACH_RECONCILE_INTERVAL_MS
+          : ACTIVE_TURN_RESTORE_INTERVAL_MS;
+        const timer = setTimeout(tick, interval);
+        activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
+      };
+      const timer = setTimeout(tick, 0);
+      activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
+    },
+    [clearActiveTurnRestoreTimer, startTurnReattach]
+  );
   const compactNow = useCallback(
     async (instructions?: string): Promise<ChatCompactionResult | null> => {
       const targetChatId = activeChatIdRef.current ?? chatId;
@@ -1125,12 +1165,10 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     [chatId, compactionRunning, getToken, isStreaming, messages, t]
   );
-
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
-
     const refreshOnResume = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
         return;
@@ -1176,13 +1214,11 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       })();
     };
-
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         refreshOnResume();
       }
     };
-
     window.addEventListener("focus", refreshOnResume);
     window.addEventListener("pageshow", refreshOnResume);
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -1190,14 +1226,6 @@ export function useChat(threadKey: string): UseChatReturn {
       window.removeEventListener("focus", refreshOnResume);
       window.removeEventListener("pageshow", refreshOnResume);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      for (const timer of softDetachReconcileTimersByThreadRef.current.values()) {
-        clearTimeout(timer);
-      }
-      softDetachReconcileTimersByThreadRef.current.clear();
-      for (const timer of activeTurnRestoreTimersByKeyRef.current.values()) {
-        clearTimeout(timer);
-      }
-      activeTurnRestoreTimersByKeyRef.current.clear();
     };
   }, [
     activeThreads,
@@ -1207,7 +1235,18 @@ export function useChat(threadKey: string): UseChatReturn {
     refreshTurnStatus,
     startSoftDetachReconcile
   ]);
-
+  useEffect(() => {
+    return () => {
+      for (const timer of softDetachReconcileTimersByThreadRef.current.values()) {
+        clearTimeout(timer);
+      }
+      softDetachReconcileTimersByThreadRef.current.clear();
+      for (const timer of activeTurnRestoreTimersByKeyRef.current.values()) {
+        clearTimeout(timer);
+      }
+      activeTurnRestoreTimersByKeyRef.current.clear();
+    };
+  }, []);
   useEffect(() => {
     const clientTurnId = readStoredActiveTurnClientTurnId(threadKey);
     if (clientTurnId === null || activeTurnSnapshotsRef.current.has(threadKey)) {
@@ -1215,27 +1254,22 @@ export function useChat(threadKey: string): UseChatReturn {
     }
     startStoredActiveTurnRestore(threadKey, clientTurnId);
   }, [startStoredActiveTurnRestore, threadKey]);
-
   const send = useCallback(
     async (text: string, files?: File[], options?: ChatSendOptions) => {
       const trimmed = text.trim();
       if (trimmed.length === 0 || isStreaming) return;
-      // While a previous send is in send_failed state the composer must stay
-      // single-slot — the user has to Retry or Cancel it before another send
-      // can start. (ADR-075 § "Single-slot pending send".)
-      if (pendingSendStatusRef.current !== null) return;
-      // Capture the thread key at send time so every subsequent
-      // markStreaming / abort-map mutation in this turn targets the *originating*
-      // thread, even if the user navigates away mid-stream.
-      const sendThreadKey = threadKey;
+      /* While a previous send is in send_failed state the composer must stay */ /* single-slot ��� the user has to Retry or Cancel it before another send */ /* can start. (ADR-075 T� "Single-slot pending send".) */ if (
+        pendingSendStatusRef.current !== null
+      )
+        return;
+      /* Capture the thread key at send time so every subsequent */ /* markStreaming / abort-map mutation in this turn targets the *originating* */ /* thread, even if the user navigates away mid-stream. */ const sendThreadKey =
+        threadKey;
       const compactionBeforeTurn = compaction;
-
       const token = await getToken();
       if (token === null) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
         return;
       }
-
       const pendingFiles = files ?? [];
       const clientTurnId = options?.clientTurnId ?? createClientTurnId();
       const clientAttachmentIds =
@@ -1262,61 +1296,53 @@ export function useChat(threadKey: string): UseChatReturn {
             ? URL.createObjectURL(f)
             : undefined
       }));
-
       const userMsgId = `local-user-${Date.now()}`;
       const assistantMsgId = `local-assistant-${Date.now()}`;
       const controller = new AbortController();
       abortControllersByThreadRef.current.set(sendThreadKey, { controller, clientTurnId });
-      // Helper used at every cleanup point to drop *this* turn's controller
-      // without disturbing a newer controller that may have replaced it
-      // (e.g. user retried fast, or another turn started in the same thread).
-      const releaseAbortController = () => {
-        const entry = abortControllersByThreadRef.current.get(sendThreadKey);
-        if (entry !== undefined && entry.controller === controller) {
-          abortControllersByThreadRef.current.delete(sendThreadKey);
-        }
-      };
+      /* Helper used at every cleanup point to drop *this* turn's controller */ /* without disturbing a newer controller that may have replaced it */ /* (e.g. user retried fast, or another turn started in the same thread). */ const releaseAbortController =
+        () => {
+          const entry = abortControllersByThreadRef.current.get(sendThreadKey);
+          if (entry !== undefined && entry.controller === controller) {
+            abortControllersByThreadRef.current.delete(sendThreadKey);
+          }
+        };
       const knowledgeEligibleFiles =
         options?.addToKnowledgeBase === true
           ? pendingFiles.filter((file) => isKnowledgeEligibleFile(file))
           : [];
       let knowledgeActivityAnchorId = userMsgId;
-
-      // Helper used by every pre-headers failure path (offline / staging
-      // stall / 10s headers timeout / network error) to flip the optimistic
-      // user bubble into "send_failed", drop the assistant placeholder if it
-      // was rendered, and arm the single-slot retry/cancel UX.
-      const sendFailedCleanup = (assistantWasMounted: boolean): void => {
-        applyThreadMessages(sendThreadKey, (prev) =>
-          prev.flatMap((m) => {
-            if (assistantWasMounted && m.id === assistantMsgId) return [];
-            if (m.id === userMsgId) return [{ ...m, status: "send_failed_unconfirmed" as const }];
-            return [m];
-          })
-        );
-        setThreadPendingSend(sendThreadKey, {
-          text: trimmed,
-          files: pendingFiles,
-          options: options ?? undefined,
-          userMsgId,
-          assistantMsgId: null,
-          clientTurnId,
-          clientAttachmentIds,
-          status: "send_failed_unconfirmed"
-        });
-      };
-
+      /* Helper used by every pre-headers failure path (offline / staging */ /* stall / 10s headers timeout / network error) to flip the optimistic */ /* user bubble into "send_failed", drop the assistant placeholder if it */ /* was rendered, and arm the single-slot retry/cancel UX. */ const sendFailedCleanup =
+        (assistantWasMounted: boolean): void => {
+          clearStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.flatMap((m) => {
+              if (assistantWasMounted && m.id === assistantMsgId) return [];
+              if (m.id === userMsgId) return [{ ...m, status: "send_failed_unconfirmed" as const }];
+              return [m];
+            })
+          );
+          setThreadPendingSend(sendThreadKey, {
+            text: trimmed,
+            files: pendingFiles,
+            options: options ?? undefined,
+            userMsgId,
+            assistantMsgId: null,
+            clientTurnId,
+            clientAttachmentIds,
+            status: "send_failed_unconfirmed"
+          });
+        };
       const userMsgBase: Omit<ChatMessage, "status"> = {
         id: userMsgId,
         role: "user",
         content: trimmed,
         attachments: localAttachments.length > 0 ? localAttachments : undefined
       };
-
-      // Cold offline pre-flight. We deliberately do NOT call markStreaming
-      // here — there's no in-flight stream — so the chat-input renders the
-      // pending-send helper line, not the "stop" button.
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      /* Cold offline pre-flight. We deliberately do NOT call markStreaming */ /* here ��� there's no in-flight stream ��� so the chat-input renders the */ /* pending-send helper line, not the "stop" button. */ if (
+        typeof navigator !== "undefined" &&
+        navigator.onLine === false
+      ) {
         const failedUserMsg: ChatMessage = { ...userMsgBase, status: "send_failed_confirmed" };
         setMessages((prev) => [...prev, failedUserMsg]);
         setThreadPendingSend(sendThreadKey, {
@@ -1332,12 +1358,10 @@ export function useChat(threadKey: string): UseChatReturn {
         releaseAbortController();
         return;
       }
-
       markStreaming(sendThreadKey, true);
       writeStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
       setIssue(null);
       setRecentAutoCompaction(null);
-
       const userMsg: ChatMessage = { ...userMsgBase, status: "sending" };
       const assistantMsg: ChatMessage = {
         id: assistantMsgId,
@@ -1367,36 +1391,33 @@ export function useChat(threadKey: string): UseChatReturn {
         clientAttachmentIds,
         status: "sending"
       });
-
       if (pendingFiles.length > 0) {
         try {
           for (let i = 0; i < pendingFiles.length; i++) {
             const file = pendingFiles[i]!;
-            // Do not use an absolute hard timeout here: on weak mobile signal a
-            // large PDF can keep making progress for minutes, and killing that
-            // upload would be worse than letting the pending bubble continue.
-            const staged = await stageWebChatAttachment(
-              token,
-              threadKey,
-              clientTurnId,
-              clientAttachmentIds[i] ?? createClientTurnId(),
-              file,
-              {
-                signal: controller.signal,
-                onProgress: (progress) => {
-                  applyThreadMessages(sendThreadKey, (prev) =>
-                    prev.map((m) => {
-                      if (m.id !== userMsgId) return m;
-                      const next = [...(m.attachments ?? [])];
-                      const current = next[i];
-                      if (current === undefined) return m;
-                      next[i] = { ...current, uploadProgressPercent: progress.percent };
-                      return { ...m, attachments: next };
-                    })
-                  );
+            /* Do not use an absolute hard timeout here: on weak mobile signal a */ /* large PDF can keep making progress for minutes, and killing that */ /* upload would be worse than letting the pending bubble continue. */ const staged =
+              await stageWebChatAttachment(
+                token,
+                threadKey,
+                clientTurnId,
+                clientAttachmentIds[i] ?? createClientTurnId(),
+                file,
+                {
+                  signal: controller.signal,
+                  onProgress: (progress) => {
+                    applyThreadMessages(sendThreadKey, (prev) =>
+                      prev.map((m) => {
+                        if (m.id !== userMsgId) return m;
+                        const next = [...(m.attachments ?? [])];
+                        const current = next[i];
+                        if (current === undefined) return m;
+                        next[i] = { ...current, uploadProgressPercent: progress.percent };
+                        return { ...m, attachments: next };
+                      })
+                    );
+                  }
                 }
-              }
-            );
+              );
             const u = staged.attachment;
             applyThreadMessages(sendThreadKey, (prev) =>
               prev.map((m) => {
@@ -1422,13 +1443,7 @@ export function useChat(threadKey: string): UseChatReturn {
             );
           }
         } catch (error) {
-          // Staging never reached server-confirmed state. Treat all of
-          // stall/timeout/abort/network/HTTP as a pre-headers failure and
-          // route through the pending-slot UI instead of an issue banner.
-          // (Real server-side validation errors that DID return a structured
-          // envelope still come back here; for those we keep the issue banner
-          // so users get the proper guidance copy in addition to the bubble.)
-          if (
+          /* Staging never reached server-confirmed state. Treat all of */ /* stall/timeout/abort/network/HTTP as a pre-headers failure and */ /* route through the pending-slot UI instead of an issue banner. */ /* (Real server-side validation errors that DID return a structured */ /* envelope still come back here; for those we keep the issue banner */ /* so users get the proper guidance copy in addition to the bubble.) */ if (
             !(error instanceof XhrStallError) &&
             !(error instanceof XhrTimeoutError) &&
             !(error instanceof XhrAbortError) &&
@@ -1442,7 +1457,6 @@ export function useChat(threadKey: string): UseChatReturn {
           return;
         }
       }
-
       if (knowledgeEligibleFiles.length > 0) {
         void (async () => {
           const results = await Promise.allSettled(
@@ -1482,10 +1496,8 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         })();
       }
-
       const pendingDelta = { text: "", raf: 0 };
       const pendingThought = { text: "", startedAt: null as string | null, raf: 0 };
-
       const flushDelta = () => {
         const chunk = pendingDelta.text;
         pendingDelta.text = "";
@@ -1495,7 +1507,6 @@ export function useChat(threadKey: string): UseChatReturn {
           prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
         );
       };
-
       const flushThought = () => {
         const thought = pendingThought.text;
         const startedAt = pendingThought.startedAt;
@@ -1504,16 +1515,11 @@ export function useChat(threadKey: string): UseChatReturn {
         applyThreadMessages(sendThreadKey, (prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
-              ? {
-                  ...m,
-                  thought,
-                  thoughtStartedAt: m.thoughtStartedAt ?? startedAt
-                }
+              ? { ...m, thought, thoughtStartedAt: m.thoughtStartedAt ?? startedAt }
               : m
           )
         );
       };
-
       const cancelBufferedAssistantFlush = () => {
         if (pendingDelta.raf) {
           cancelAnimationFrame(pendingDelta.raf);
@@ -1524,7 +1530,6 @@ export function useChat(threadKey: string): UseChatReturn {
           pendingThought.raf = 0;
         }
       };
-
       const flushBufferedAssistantState = (forceBoundaryCommit = false) => {
         const hasPendingText = pendingDelta.text.length > 0;
         const hasPendingThought = pendingThought.text.length > 0;
@@ -1542,13 +1547,7 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         commit();
       };
-
-      // Pre-headers watchdog: if the server never returns 2xx headers within
-      // HEADERS_TIMEOUT_MS, abort the request so the bubble flips to
-      // "send_failed" instead of hanging indefinitely. Tool turns can stay
-      // silent for tens of seconds AFTER headers, which is fine — we only
-      // measure up to the headers, not to the first SSE event.
-      let headersOk = false;
+      /* Pre-headers watchdog: if the server never returns 2xx headers within */ /* HEADERS_TIMEOUT_MS, abort the request so the bubble flips to */ /* "send_failed" instead of hanging indefinitely. Tool turns can stay */ /* silent for tens of seconds AFTER headers, which is fine ��� we only */ /* measure up to the headers, not to the first SSE event. */ let headersOk = false;
       let softDetached = false;
       let completedSuccessfully = false;
       const headersTimer = setTimeout(() => {
@@ -1560,7 +1559,6 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         }
       }, HEADERS_TIMEOUT_MS);
-
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -1576,16 +1574,27 @@ export function useChat(threadKey: string): UseChatReturn {
             onHeadersOk: () => {
               headersOk = true;
               clearTimeout(headersTimer);
-              // Server accepted the request — clear the pending-slot UI.
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
+              /* Server accepted the request ��� clear the pending-slot UI. */ applyThreadMessages(
+                sendThreadKey,
+                (prev) =>
+                  prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
               );
               setThreadPendingSend(sendThreadKey, null);
             },
-            onStarted: ({ chat }) => {
+            onStarted: ({ chat, userMessage }) => {
               const c = chat as { id?: string } | null;
               if (typeof c?.id === "string") {
                 setThreadChatId(sendThreadKey, c.id);
+              }
+              const u = userMessage as { id?: string } | null;
+              if (typeof u?.id === "string") {
+                applyThreadMessages(sendThreadKey, (prev) =>
+                  prev.map((message) =>
+                    message.id === userMsgId
+                      ? { ...message, id: u.id!, status: "committed" }
+                      : message
+                  )
+                );
               }
             },
             onThinking: ({ accumulated }) => {
@@ -1678,11 +1687,7 @@ export function useChat(threadKey: string): UseChatReturn {
             onCompleted: ({ transport }) => {
               flushBufferedAssistantState(true);
               const t = transport as {
-                userMessage?: {
-                  id?: string;
-                  chatId?: string;
-                  attachments?: ChatAttachment[];
-                };
+                userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
                 assistantMessage?: {
                   id?: string;
                   content?: string;
@@ -1786,10 +1791,7 @@ export function useChat(threadKey: string): UseChatReturn {
                   if (current && newAssistantId !== assistantMsgId) {
                     next = { ...prev };
                     delete next[assistantMsgId];
-                    next[newAssistantId] = {
-                      ...current,
-                      afterMessageId: newAssistantId
-                    };
+                    next[newAssistantId] = { ...current, afterMessageId: newAssistantId };
                   }
                 }
                 return next;
@@ -1830,18 +1832,16 @@ export function useChat(threadKey: string): UseChatReturn {
                 });
               }
               completedSuccessfully = true;
-              setThreadPendingSend(sendThreadKey, null);
-
-              // Files are already staged before the stream — no post-stream upload needed
+              setThreadPendingSend(
+                sendThreadKey,
+                null
+              ); /* Files are already staged before the stream ��� no post-stream upload needed */
             },
             onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
               const interruptedAt = new Date().toISOString();
               const t = transport as {
-                assistantMessage?: {
-                  id?: string;
-                  content?: string;
-                };
+                assistantMessage?: { id?: string; content?: string };
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -1876,10 +1876,7 @@ export function useChat(threadKey: string): UseChatReturn {
               setIssue(toWebChatUxIssue(payload));
               const failedAt = new Date().toISOString();
               const t = payload.transport as {
-                assistantMessage?: {
-                  id?: string;
-                  content?: string;
-                };
+                assistantMessage?: { id?: string; content?: string };
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -1913,12 +1910,9 @@ export function useChat(threadKey: string): UseChatReturn {
         clearTimeout(headersTimer);
         flushBufferedAssistantState();
         if (!headersOk) {
-          // Pre-headers failure: the request was aborted or never reached the
-          // server. The whole turn is "didn't fly" — flip the user bubble to
-          // send_failed and drop the unused assistant placeholder. Skip the
-          // existing issue banner: the bubble + composer helper carry the UX.
-          sendFailedCleanup(true);
-          clearStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
+          /* Pre-headers failure: the request was aborted or never reached the */ /* server. The whole turn is "didn't fly" ��� flip the user bubble to */ /* send_failed and drop the unused assistant placeholder. Skip the */ /* existing issue banner: the bubble + composer helper carry the UX. */ sendFailedCleanup(
+            true
+          );
         } else if (
           isPassiveStreamDisconnect(error) &&
           !hardStoppedClientTurnIdsRef.current.has(clientTurnId)
@@ -1986,7 +1980,6 @@ export function useChat(threadKey: string): UseChatReturn {
       threadKey
     ]
   );
-
   const sendWelcome = useCallback(
     async (locale: string) => {
       if (isStreaming) return;
@@ -1995,7 +1988,6 @@ export function useChat(threadKey: string): UseChatReturn {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
         return;
       }
-
       const sendThreadKey = threadKey;
       const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
       const clientTurnId = createClientTurnId();
@@ -2008,8 +2000,8 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       };
       markStreaming(sendThreadKey, true);
+      writeStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
       setIssue(null);
-
       const assistantMsg: ChatMessage = {
         id: assistantMsgId,
         role: "assistant",
@@ -2019,8 +2011,15 @@ export function useChat(threadKey: string): UseChatReturn {
         thoughtStartedAt: null,
         thoughtFinishedAt: null
       };
+      activeTurnSnapshotsRef.current.set(sendThreadKey, {
+        clientTurnId,
+        messages: [assistantMsg],
+        liveActivitiesByMessageId: {},
+        shadowRoutingLabelsByMessageId: {},
+        chatId: null,
+        compactionRunning: false
+      });
       setMessages([assistantMsg]);
-
       const pendingDelta = { text: "", raf: 0 };
       const flushDelta = () => {
         const chunk = pendingDelta.text;
@@ -2031,14 +2030,12 @@ export function useChat(threadKey: string): UseChatReturn {
           prev.map((m) => (m.id === assistantMsgId ? { ...m, content: m.content + chunk } : m))
         );
       };
-
       const cancelBufferedAssistantFlush = () => {
         if (pendingDelta.raf) {
           cancelAnimationFrame(pendingDelta.raf);
           pendingDelta.raf = 0;
         }
       };
-
       const flushBufferedAssistantState = (forceBoundaryCommit = false) => {
         const hasPendingText = pendingDelta.text.length > 0;
         cancelBufferedAssistantFlush();
@@ -2051,7 +2048,6 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         flushDelta();
       };
-
       try {
         await streamAssistantWebChatTurn(
           token,
@@ -2059,7 +2055,7 @@ export function useChat(threadKey: string): UseChatReturn {
             surfaceThreadKey: WELCOME_THREAD_KEY,
             message: "",
             clientTurnId,
-            title: locale === "ru" ? "Добро пожаловать" : "Welcome",
+            title: locale === "ru" ? "�Ԧ-�-T��- ���-���-���-�-�-T�T�" : "Welcome",
             welcomeTurn: true,
             welcomeLocale: locale
           },
@@ -2069,6 +2065,7 @@ export function useChat(threadKey: string): UseChatReturn {
               if (typeof c?.id === "string") {
                 setChatId(c.id);
                 activeChatIdRef.current = c.id;
+                setThreadChatId(sendThreadKey, c.id);
               }
             },
             onDelta: ({ delta }) => {
@@ -2144,14 +2141,30 @@ export function useChat(threadKey: string): UseChatReturn {
                 runtime: t?.runtime,
                 assistantMessageId: resolvedAssistantMessageId
               });
+              const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+              if (snapshot !== undefined) {
+                cacheThreadHistorySnapshot(sendThreadKey, {
+                  ...snapshot,
+                  messages: snapshot.messages.map((message) =>
+                    message.id === assistantMsgId
+                      ? {
+                          ...message,
+                          id: resolvedAssistantMessageId,
+                          ...(authoritativeAssistantContent !== null
+                            ? { content: authoritativeAssistantContent }
+                            : {}),
+                          status: "committed" as const,
+                          attachments: assistantAttachments
+                        }
+                      : message
+                  )
+                });
+              }
             },
             onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
               const t = transport as {
-                assistantMessage?: {
-                  id?: string;
-                  content?: string;
-                };
+                assistantMessage?: { id?: string; content?: string };
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -2181,10 +2194,7 @@ export function useChat(threadKey: string): UseChatReturn {
               flushBufferedAssistantState();
               setIssue(toWebChatUxIssue(payload));
               const t = payload.transport as {
-                assistantMessage?: {
-                  id?: string;
-                  content?: string;
-                };
+                assistantMessage?: { id?: string; content?: string };
               } | null;
               const newAssistantId =
                 typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
@@ -2223,20 +2233,25 @@ export function useChat(threadKey: string): UseChatReturn {
           )
         );
       } finally {
+        clearStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
+        activeTurnSnapshotsRef.current.delete(sendThreadKey);
         markStreaming(sendThreadKey, false);
         releaseAbortController();
       }
     },
-    [compaction, getToken, isStreaming, markStreaming, t, threadKey]
+    [
+      cacheThreadHistorySnapshot,
+      getToken,
+      isStreaming,
+      markStreaming,
+      setThreadChatId,
+      t,
+      threadKey
+    ]
   );
-
-  // sendRef makes retryPendingSend independent of `send`'s identity so we
-  // do not have to add `send` to the retry callback's dep list (which would
-  // create a circular useCallback). The ref is updated on every render with
-  // the latest `send`, so retry always dispatches the freshest closure.
-  const sendRef = useRef(send);
+  /* sendRef makes retryPendingSend independent of `send`'s identity so we */ /* do not have to add `send` to the retry callback's dep list (which would */ /* create a circular useCallback). The ref is updated on every render with */ /* the latest `send`, so retry always dispatches the freshest closure. */ const sendRef =
+    useRef(send);
   sendRef.current = send;
-
   const retryPendingSend = useCallback(async () => {
     const pending = pendingSendRef.current;
     if (pending === null) return;
@@ -2250,27 +2265,38 @@ export function useChat(threadKey: string): UseChatReturn {
       prev.map((m) => (m.id === pending.userMsgId ? { ...m, status: "reconciling" } : m))
     );
     try {
-      const status = await getAssistantWebChatTurnStatus(token, pending.clientTurnId);
-      if (
-        status.status === "completed" &&
-        status.userMessage !== null &&
-        status.assistantMessage !== null
-      ) {
-        const committed = [status.userMessage, status.assistantMessage]
-          .map(toCommittedChatMessage)
-          .filter((m): m is ChatMessage => m !== null);
-        setMessages((prev) => {
-          const idsToRemove = new Set<string>([pending.userMsgId]);
-          if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
-          return [...prev.filter((m) => !idsToRemove.has(m.id)), ...committed];
-        });
-        activeTurnSnapshotsRef.current.delete(threadKey);
-        setThreadPendingSend(threadKey, null);
-        return;
-      }
-      if (status.status === "accepted" || status.status === "running") {
-        setThreadPendingSend(threadKey, { ...pending, status: "reconciling" });
-        return;
+      for (let attempt = 1; attempt <= PENDING_RECONCILE_MAX_ATTEMPTS; attempt++) {
+        const status = await getAssistantWebChatTurnStatus(token, pending.clientTurnId);
+        if (
+          status.status === "completed" &&
+          status.userMessage !== null &&
+          status.assistantMessage !== null
+        ) {
+          const committed = [status.userMessage, status.assistantMessage]
+            .map(toCommittedChatMessage)
+            .filter((m): m is ChatMessage => m !== null);
+          setMessages((prev) => {
+            const idsToRemove = new Set<string>([pending.userMsgId]);
+            if (pending.assistantMsgId !== null) idsToRemove.add(pending.assistantMsgId);
+            return [...prev.filter((m) => !idsToRemove.has(m.id)), ...committed];
+          });
+          activeTurnSnapshotsRef.current.delete(threadKey);
+          setThreadPendingSend(threadKey, null);
+          return;
+        }
+        if (status.status === "accepted" || status.status === "running") {
+          const applied = applyTurnStatusState(threadKey, pending.clientTurnId, status);
+          if (applied === "running") {
+            setThreadPendingSend(threadKey, null);
+            return;
+          }
+          if (attempt < PENDING_RECONCILE_MAX_ATTEMPTS) {
+            await wait(PENDING_RECONCILE_INTERVAL_MS);
+            continue;
+          }
+          break;
+        }
+        break;
       }
     } catch {
       setThreadPendingSend(threadKey, { ...pending, status: "send_failed_unconfirmed" });
@@ -2300,8 +2326,7 @@ export function useChat(threadKey: string): UseChatReturn {
       clientTurnId: pending.clientTurnId,
       clientAttachmentIds: pending.clientAttachmentIds
     });
-  }, [getToken, setThreadPendingSend, t, threadKey]);
-
+  }, [applyTurnStatusState, getToken, setThreadPendingSend, t, threadKey]);
   const cancelPendingSend = useCallback((): string | null => {
     const pending = pendingSendRef.current;
     if (pending === null) return null;
@@ -2322,14 +2347,11 @@ export function useChat(threadKey: string): UseChatReturn {
     setThreadPendingSend(threadKey, null);
     return restoredText;
   }, [setThreadPendingSend, threadKey]);
-
   const markHistoryEmpty = useCallback(() => {
     setHistoryLoading(false);
   }, []);
-
   const loadHistory = useCallback(
     async (targetChatId: string) => {
-      if (historyLoadedRef.current.has(targetChatId)) return;
       const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
       const cachedHistory =
         cachedThreadKey === undefined
@@ -2338,18 +2360,26 @@ export function useChat(threadKey: string): UseChatReturn {
       const targetThreadKey = currentThreadKeyRef.current;
       const activeSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (cachedHistory !== undefined) {
-        const nextMessages =
-          activeSnapshot === undefined
-            ? cachedHistory.messages
-            : mergeChatMessagesById(cachedHistory.messages, activeSnapshot.messages);
-        if (activeSnapshot !== undefined) {
+        const merged = mergeCommittedHistoryWithActiveTurn({
+          loaded: cachedHistory.messages,
+          activeSnapshot
+        });
+        if (merged.replacedActiveTurn && activeSnapshot !== undefined) {
+          clearStoredActiveTurnClientTurnId(targetThreadKey, activeSnapshot.clientTurnId);
+          activeTurnSnapshotsRef.current.delete(targetThreadKey);
+          abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+          abortControllersByThreadRef.current.delete(targetThreadKey);
+          markStreaming(targetThreadKey, false);
+          setLiveActivitiesByMessageId({});
+          setThreadPendingSend(targetThreadKey, null);
+        } else if (activeSnapshot !== undefined) {
           activeTurnSnapshotsRef.current.set(targetThreadKey, {
             ...activeSnapshot,
-            messages: nextMessages,
+            messages: merged.messages,
             chatId: targetChatId
           });
         }
-        setMessages(nextMessages);
+        setMessages(merged.messages);
         olderCursorRef.current = cachedHistory.olderCursor;
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(cachedHistory.hasOlderMessages);
@@ -2358,43 +2388,89 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       const token = await getToken();
       if (!token) return;
-
       setHistoryLoading(cachedHistory === undefined);
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
         const loaded: ChatMessage[] = page.messages
           .map(toCommittedChatMessage)
           .filter((message): message is ChatMessage => message !== null);
-
+        const hasAuthoritativeActiveTurn = Object.prototype.hasOwnProperty.call(page, "activeTurn");
+        const activeOverlay = hasAuthoritativeActiveTurn
+          ? toActiveTurnOverlayMessages(page.activeTurn)
+          : { messages: [], liveActivitiesByMessageId: {} };
+        let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
         if (loaded.length > 0) {
-          setMessages((prev) => {
-            const currentActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
-            if (currentActiveSnapshot !== undefined) {
-              const merged = mergeChatMessagesById(loaded, currentActiveSnapshot.messages);
+          const currentActiveSnapshot =
+            hasAuthoritativeActiveTurn && page.activeTurn
+              ? undefined
+              : activeTurnSnapshotsRef.current.get(targetThreadKey);
+          if (currentActiveSnapshot !== undefined) {
+            const merged = mergeCommittedHistoryWithActiveTurn({
+              loaded,
+              activeSnapshot: currentActiveSnapshot,
+              baseMessages: currentThreadKeyRef.current === targetThreadKey ? messages : undefined
+            });
+            messagesForCache = merged.messages;
+            if (merged.replacedActiveTurn) {
+              clearStoredActiveTurnClientTurnId(
+                targetThreadKey,
+                currentActiveSnapshot.clientTurnId
+              );
+              activeTurnSnapshotsRef.current.delete(targetThreadKey);
+              abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+              abortControllersByThreadRef.current.delete(targetThreadKey);
+              markStreaming(targetThreadKey, false);
+              setLiveActivitiesByMessageId({});
+              setThreadPendingSend(targetThreadKey, null);
+            } else {
               activeTurnSnapshotsRef.current.set(targetThreadKey, {
                 ...currentActiveSnapshot,
-                messages: merged,
+                messages: merged.messages,
                 chatId: targetChatId
               });
-              return merged;
             }
-            const existingIds = new Set(prev.map((m) => m.id));
-            const newHistory = loaded.filter((m) => !existingIds.has(m.id));
-            return [...newHistory, ...prev];
-          });
+            setMessages(merged.messages);
+          } else if (currentThreadKeyRef.current === targetThreadKey) {
+            if (hasAuthoritativeActiveTurn) {
+              setMessages(messagesForCache);
+            } else {
+              setMessages((prev) => {
+                const existingIds = new Set(prev.map((m) => m.id));
+                const newHistory = loaded.filter((m) => !existingIds.has(m.id));
+                const nextMessages = [...newHistory, ...prev];
+                messagesForCache = nextMessages;
+                return nextMessages;
+              });
+            }
+          }
+        } else if (currentThreadKeyRef.current === targetThreadKey) {
+          setMessages(messagesForCache);
         }
-
+        if (page.activeTurn) {
+          activeTurnSnapshotsRef.current.set(targetThreadKey, {
+            clientTurnId: page.activeTurn.clientTurnId,
+            messages: messagesForCache,
+            liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
+            shadowRoutingLabelsByMessageId: {},
+            chatId: targetChatId,
+            compactionRunning: false
+          });
+          writeStoredActiveTurnClientTurnId(targetThreadKey, page.activeTurn.clientTurnId);
+          setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
+          markStreaming(targetThreadKey, true);
+        } else if (hasAuthoritativeActiveTurn) {
+          activeTurnSnapshotsRef.current.delete(targetThreadKey);
+          setLiveActivitiesByMessageId({});
+          markStreaming(targetThreadKey, false);
+        }
         olderCursorRef.current = page.nextCursor;
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
-          clientTurnId: "",
-          messages: mergeChatMessagesById(
-            loaded,
-            activeTurnSnapshotsRef.current.get(targetThreadKey)?.messages ?? []
-          ),
-          liveActivitiesByMessageId: {},
+          clientTurnId: page.activeTurn?.clientTurnId ?? "",
+          messages: messagesForCache,
+          liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
           shadowRoutingLabelsByMessageId: {},
           chatId: targetChatId,
           compactionRunning: false,
@@ -2409,24 +2485,20 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       setHistoryLoading(false);
     },
-    [getToken, refreshCompactionState]
+    [getToken, markStreaming, messages, refreshCompactionState, setThreadPendingSend]
   );
-
   const loadOlderMessages = useCallback(async () => {
     const cursor = olderCursorRef.current;
     const targetChatId = activeChatIdRef.current;
     if (!cursor || !targetChatId || olderMessagesLoading) return;
-
     const token = await getToken();
     if (!token) return;
-
     setOlderMessagesLoading(true);
     try {
       const page = await getChatMessages(token, targetChatId, cursor, 20);
       const loaded: ChatMessage[] = page.messages
         .map(toCommittedChatMessage)
         .filter((message): message is ChatMessage => message !== null);
-
       if (loaded.length > 0) {
         setMessages((prev) => {
           const existingIds = new Set(prev.map((m) => m.id));
@@ -2434,7 +2506,6 @@ export function useChat(threadKey: string): UseChatReturn {
           return [...newHistory, ...prev];
         });
       }
-
       olderCursorRef.current = page.nextCursor;
       setHasOlderMessages(page.nextCursor !== null);
     } catch {
@@ -2442,7 +2513,6 @@ export function useChat(threadKey: string): UseChatReturn {
     }
     setOlderMessagesLoading(false);
   }, [getToken, olderMessagesLoading]);
-
   const latestAssistantMessageId =
     [...messages].reverse().find((message) => message.role === "assistant")?.id ?? null;
   const entries: ChatEntry[] = [];
@@ -2475,7 +2545,6 @@ export function useChat(threadKey: string): UseChatReturn {
   for (const ev of orphanActivities) {
     entries.push({ kind: "activity", event: ev });
   }
-
   return {
     entries,
     messages,

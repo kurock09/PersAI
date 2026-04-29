@@ -54,6 +54,33 @@ export interface AssistantWebChatTurnState {
   };
 }
 
+export interface AssistantWebChatTurnCurrentActivityState {
+  type: "tool_use";
+  toolName: string;
+  toolCallId: string;
+  phase: "start" | "end";
+  isError: boolean;
+  updatedAt: string;
+}
+
+export type AssistantWebChatActiveTurnStatus = "accepted" | "running";
+
+export interface AssistantWebChatCompactActiveTurnState {
+  clientTurnId: string;
+  status: AssistantWebChatActiveTurnStatus;
+  updatedAt: string;
+  currentActivity: AssistantWebChatTurnCurrentActivityState | null;
+  pendingUserMessageId: string | null;
+  assistantMessageId: string | null;
+}
+
+export interface AssistantWebChatActiveTurnState extends AssistantWebChatCompactActiveTurnState {
+  chat: AssistantWebChatState | null;
+  userMessage: AssistantWebChatMessageState | null;
+  assistantMessage: AssistantWebChatMessageState | null;
+  canReattach: boolean;
+}
+
 export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
@@ -80,4 +107,5 @@ export interface AssistantWebChatListItemState {
   chat: AssistantWebChatState;
   messageCount: number;
   lastMessagePreview: string | null;
+  activeTurn: AssistantWebChatCompactActiveTurnState | null;
 }

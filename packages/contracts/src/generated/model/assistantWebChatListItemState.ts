@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantWebChatState } from "./assistantWebChatState";
+import type { AssistantWebChatCompactActiveTurnState } from "./assistantWebChatCompactActiveTurnState";
 
 export interface AssistantWebChatListItemState {
   chat: AssistantWebChatState;
@@ -12,4 +13,6 @@ export interface AssistantWebChatListItemState {
   messageCount: number;
   /** @nullable */
   lastMessagePreview: string | null;
+  /** @nullable */
+  activeTurn: AssistantWebChatCompactActiveTurnState;
 }

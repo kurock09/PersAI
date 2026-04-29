@@ -20,12 +20,14 @@ import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import type {
+  AssistantWebChatActiveTurnState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
   AssistantWebChatListItemState,
   AssistantWebChatMessageAttachmentState,
   AssistantWebChatMessageState
 } from "./web-chat.types";
+import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -84,7 +86,8 @@ export class ManageWebChatListService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
-    private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService
+    private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService,
+    private readonly webChatTurnAttemptService: WebChatTurnAttemptService
   ) {}
 
   parseUpdateInput(payload: unknown): UpdateWebChatRequest {
@@ -155,7 +158,12 @@ export class ManageWebChatListService {
         return {
           chat: toChatState(chat),
           messageCount: metadata.messageCount,
-          lastMessagePreview: metadata.lastMessagePreview
+          lastMessagePreview: metadata.lastMessagePreview,
+          activeTurn: await this.getCompactActiveTurn({
+            assistantId: assistant.id,
+            userId,
+            chatId: chat.id
+          })
         };
       })
     );
@@ -184,10 +192,16 @@ export class ManageWebChatListService {
     }
 
     const metadata = await this.assistantChatRepository.getChatListMetadata(chatId);
+    const activeTurn = await this.getCompactActiveTurn({
+      assistantId: assistant.id,
+      userId,
+      chatId
+    });
     return {
       chat: toChatState(updated),
       messageCount: metadata.messageCount,
-      lastMessagePreview: metadata.lastMessagePreview
+      lastMessagePreview: metadata.lastMessagePreview,
+      activeTurn
     };
   }
 
@@ -221,7 +235,8 @@ export class ManageWebChatListService {
     return {
       chat: toChatState(archived),
       messageCount: metadata.messageCount,
-      lastMessagePreview: metadata.lastMessagePreview
+      lastMessagePreview: metadata.lastMessagePreview,
+      activeTurn: null
     };
   }
 
@@ -229,7 +244,11 @@ export class ManageWebChatListService {
     userId: string,
     chatId: string,
     pagination: { cursor: string | null; limit: number }
-  ): Promise<{ messages: AssistantWebChatMessageState[]; nextCursor: string | null }> {
+  ): Promise<{
+    messages: AssistantWebChatMessageState[];
+    nextCursor: string | null;
+    activeTurn: AssistantWebChatActiveTurnState | null;
+  }> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
@@ -281,7 +300,32 @@ export class ManageWebChatListService {
     const page = mapped.slice(startIndex, endIndex);
     const nextCursor = startIndex > 0 && page.length > 0 ? page[0]!.id : null;
 
-    return { messages: page, nextCursor };
+    const activeTurn = await this.webChatTurnAttemptService.getActiveTurnForChat({
+      assistantId: assistant.id,
+      userId,
+      chatId
+    });
+
+    return { messages: page, nextCursor, activeTurn };
+  }
+
+  private async getCompactActiveTurn(input: {
+    assistantId: string;
+    userId: string;
+    chatId: string;
+  }): Promise<AssistantWebChatListItemState["activeTurn"]> {
+    const activeTurn = await this.webChatTurnAttemptService.getActiveTurnForChat(input);
+    if (activeTurn === null) {
+      return null;
+    }
+    return {
+      clientTurnId: activeTurn.clientTurnId,
+      status: activeTurn.status,
+      updatedAt: activeTurn.updatedAt,
+      currentActivity: activeTurn.currentActivity,
+      pendingUserMessageId: activeTurn.pendingUserMessageId,
+      assistantMessageId: activeTurn.assistantMessageId
+    };
   }
 
   async getChatCompactionState(

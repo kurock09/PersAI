@@ -3,6 +3,7 @@ import {
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
+  PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   type PersaiRuntimeImageEditProviderId,
   PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
@@ -70,6 +71,9 @@ export class ProviderImageGenerationService {
     if (input.size !== null && !PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(input.size)) {
       throw new BadRequestException("size must be a supported image-generation size or null");
     }
+    if (!PERSAI_RUNTIME_IMAGE_BACKGROUNDS.includes(input.background)) {
+      throw new BadRequestException("background must be a supported image background");
+    }
     if (input.credential.toolCode !== "image_generate") {
       throw new BadRequestException('credential.toolCode must be "image_generate"');
     }
@@ -93,6 +97,7 @@ export class ProviderImageGenerationService {
       model: this.normalizeOptionalModel(input.model, "model"),
       count: input.count,
       size: input.size,
+      background: input.background,
       credential: {
         toolCode: "image_generate",
         secretId: input.credential.secretId.trim(),
@@ -124,6 +129,9 @@ export class ProviderImageGenerationService {
     if (input.size !== null && !PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(input.size)) {
       throw new BadRequestException("size must be a supported image-generation size or null");
     }
+    if (!PERSAI_RUNTIME_IMAGE_BACKGROUNDS.includes(input.background)) {
+      throw new BadRequestException("background must be a supported image background");
+    }
     if (input.credential.toolCode !== "image_edit") {
       throw new BadRequestException('credential.toolCode must be "image_edit"');
     }
@@ -151,6 +159,7 @@ export class ProviderImageGenerationService {
       prompt: input.prompt.trim(),
       model: this.normalizeOptionalModel(input.model, "model"),
       size: input.size,
+      background: input.background,
       sourceImage,
       referenceImage,
       credential: {

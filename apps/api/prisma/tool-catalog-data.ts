@@ -50,7 +50,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      "Use this for image creation only; do not use it for editing existing images or for video generation.",
+      'Use this for image creation only; do not use it for editing existing images or for video generation. If the user asks for transparent background, background removal, cutout, sticker, icon, logo, or a PNG with alpha, set background="transparent".',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -65,7 +65,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     modelDescription:
       "Edit images only when the user explicitly asks to modify an image, for example replace, remove, add, recolor, restyle, insert, or draw something.",
     modelUsageGuidance:
-      'Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the current user message attachments only: with one image, edit that image; with multiple images, edit only the source image and return one edited version of that source image. Use optional referenceImageIndex only as a visual guide for style, appearance, makeup, color, lighting, or background cues from another current-turn image. If the user says things like "make it like the second photo", "как на втором фото", or similar, treat image #1 as the source and image #2 as the reference unless the user clearly says otherwise. Ask a clarifying question instead of guessing when the roles are still unclear.',
+      'Never use this tool for describing an image, OCR, solving a task from an image, or answering "what do you see". Use the available chat images: prefer the current user message attachment when present, otherwise use the recent chat image already in context. With one available image, edit that image; with multiple images, edit only the source image and return one edited version of that source image. Use optional referenceImageIndex only as a visual guide for style, appearance, makeup, color, lighting, or background cues from another available chat image. If the user says things like "make it like the second photo", "как на втором фото", or similar, treat image #1 as the source and image #2 as the reference unless the user clearly says otherwise. If the user asks to remove the background or return a transparent cutout/sticker/icon/logo/PNG with alpha, set background="transparent". Ask a clarifying question instead of guessing when the roles are still unclear.',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -76,10 +76,10 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "video_generate",
     displayName: "Video Generate",
     description:
-      "Generate a short video clip from a text prompt, optionally guided by one current-turn reference image.",
+      "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      "Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current-turn image attachment as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
+      "Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current or recent chat image as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",

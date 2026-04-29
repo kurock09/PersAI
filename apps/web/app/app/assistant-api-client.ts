@@ -218,7 +218,9 @@ type WebChatStreamEvent =
   | { event: "stream_reset"; data: { reason: string; attempt: number } }
   | { event: "completed"; data: { transport: unknown } }
   | { event: "interrupted"; data: { transport: unknown } }
-  | { event: "failed"; data: { code?: string; message: string; transport: unknown } };
+  | { event: "failed"; data: { code?: string; message: string; transport: unknown } }
+  | { event: "turn_status"; data: { turn: WebChatTurnStatusState } }
+  | { event: "reattached"; data: { turn: WebChatTurnStatusState; live: boolean } };
 
 export const WELCOME_THREAD_KEY = "welcome";
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
@@ -261,6 +263,8 @@ export interface AssistantWebChatStreamHandlers {
   }) => void;
   onRuntimeDone?: (payload: { respondedAt: string }) => void;
   onStreamReset?: (payload: { reason: string; attempt: number }) => void;
+  onTurnStatus?: (payload: { turn: WebChatTurnStatusState }) => void;
+  onReattached?: (payload: { turn: WebChatTurnStatusState; live: boolean }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
   onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
@@ -826,6 +830,21 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "turn_status") {
+    if (typeof body.turn !== "object" || body.turn === null) {
+      return null;
+    }
+    return { event: "turn_status", data: { turn: body.turn as WebChatTurnStatusState } };
+  }
+  if (eventName === "reattached") {
+    if (typeof body.turn !== "object" || body.turn === null || typeof body.live !== "boolean") {
+      return null;
+    }
+    return {
+      event: "reattached",
+      data: { turn: body.turn as WebChatTurnStatusState, live: body.live }
+    };
+  }
   if (eventName === "completed") {
     return { event: "completed", data: { transport: body.transport } };
   }
@@ -964,6 +983,10 @@ export async function streamAssistantWebChatTurn(
       handlers.onRuntimeDone?.(streamEvent.data);
     } else if (streamEvent.event === "stream_reset") {
       handlers.onStreamReset?.(streamEvent.data);
+    } else if (streamEvent.event === "turn_status") {
+      handlers.onTurnStatus?.(streamEvent.data);
+    } else if (streamEvent.event === "reattached") {
+      handlers.onReattached?.(streamEvent.data);
     } else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);
@@ -1021,6 +1044,87 @@ export async function streamAssistantWebChatTurn(
 
       const streamEvent =
         payloadObject === null ? null : toStreamEvent(parsed.eventName, payloadObject);
+      if (streamEvent !== null) {
+        handleStreamEvent(streamEvent);
+      }
+    }
+  }
+
+  if (!sawTerminalEvent) {
+    throw new Error("Stream closed before terminal event.");
+  }
+}
+
+export async function reattachAssistantWebChatTurnStream(
+  token: string,
+  clientTurnId: string,
+  handlers: AssistantWebChatStreamHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  const requestInit: RequestInit = {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "text/event-stream"
+    }
+  };
+  if (signal !== undefined) {
+    requestInit.signal = signal;
+  }
+
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/chat/web/turns/${encodeURIComponent(clientTurnId)}/stream`,
+    requestInit
+  );
+  if (!response.ok) {
+    throw new Error("Failed to reattach web chat turn stream.");
+  }
+  handlers.onHeadersOk?.();
+  if (response.body === null) {
+    throw new Error("Streaming response has no body.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sawTerminalEvent = false;
+  const handleStreamEvent = (streamEvent: WebChatStreamEvent): void => {
+    if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
+    else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
+    else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
+    else if (streamEvent.event === "compaction") handlers.onCompaction?.(streamEvent.data);
+    else if (streamEvent.event === "runtime_done") handlers.onRuntimeDone?.(streamEvent.data);
+    else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);
+    else if (streamEvent.event === "turn_status") handlers.onTurnStatus?.(streamEvent.data);
+    else if (streamEvent.event === "reattached") handlers.onReattached?.(streamEvent.data);
+    else if (streamEvent.event === "completed") {
+      sawTerminalEvent = true;
+      handlers.onCompleted?.(streamEvent.data);
+    } else if (streamEvent.event === "interrupted") {
+      sawTerminalEvent = true;
+      handlers.onInterrupted?.(streamEvent.data);
+    } else if (streamEvent.event === "failed") {
+      sawTerminalEvent = true;
+      handlers.onFailed?.(streamEvent.data);
+    }
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { blocks, rest } = resolveSseBlocks(buffer);
+    buffer = rest;
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block);
+      if (parsed === null) continue;
+      let payloadObject: unknown = null;
+      try {
+        payloadObject = JSON.parse(parsed.data);
+      } catch {
+        continue;
+      }
+      const streamEvent = toStreamEvent(parsed.eventName, payloadObject);
       if (streamEvent !== null) {
         handleStreamEvent(streamEvent);
       }
@@ -1799,7 +1903,11 @@ export async function getChatMessages(
   chatId: string,
   cursor?: string,
   limit?: number
-): Promise<{ messages: ChatHistoryMessage[]; nextCursor: string | null }> {
+): Promise<{
+  messages: ChatHistoryMessage[];
+  nextCursor: string | null;
+  activeTurn?: WebChatActiveTurnState | null;
+}> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
   if (cursor) params.set("cursor", cursor);
@@ -1808,7 +1916,11 @@ export async function getChatMessages(
   const url = `${base}/assistant/chats/web/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: getAuthHeaders(token) });
   if (!res.ok) throw new Error("Failed to load chat messages.");
-  return (await res.json()) as { messages: ChatHistoryMessage[]; nextCursor: string | null };
+  return (await res.json()) as {
+    messages: ChatHistoryMessage[];
+    nextCursor: string | null;
+    activeTurn?: WebChatActiveTurnState | null;
+  };
 }
 
 export async function getChatCompactionState(
@@ -2696,6 +2808,19 @@ export type WebChatTurnStatusState = {
   currentActivity: WebChatTurnCurrentActivityState | null;
   runtime: AssistantWebChatRuntimeState | null;
   error: { code: string | null; message: string | null } | null;
+};
+
+export type WebChatActiveTurnState = {
+  clientTurnId: string;
+  status: "accepted" | "running";
+  updatedAt: string;
+  currentActivity: WebChatTurnCurrentActivityState | null;
+  pendingUserMessageId: string | null;
+  assistantMessageId: string | null;
+  chat: AssistantWebChatState | null;
+  userMessage: ChatHistoryMessage | null;
+  assistantMessage: ChatHistoryMessage | null;
+  canReattach: boolean;
 };
 
 export type WebChatTurnCurrentActivityState = {

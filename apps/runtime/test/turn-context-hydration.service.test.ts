@@ -561,6 +561,39 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     [...prisma.assistantFiles.values()].every((file) => typeof file.sha256 === "string"),
     "attachment-backed assistant files should store a sha256 for durable workspace diffing"
   );
+  const availableImageToolAttachments = await service.listAvailableImageToolAttachments({
+    conversation: request.conversation,
+    currentAttachments: [
+      {
+        attachmentId: "attachment-4",
+        kind: "image",
+        objectKey: "assistant-media/chat-1/diagram.png",
+        mimeType: "image/png",
+        filename: "diagram.png",
+        sizeBytes: 128,
+        fileRef: "file-ref-attachment-4"
+      }
+    ]
+  });
+  assert.deepEqual(availableImageToolAttachments, [
+    {
+      attachmentId: "attachment-4",
+      kind: "image",
+      objectKey: "assistant-media/chat-1/diagram.png",
+      mimeType: "image/png",
+      filename: "diagram.png",
+      sizeBytes: 128,
+      fileRef: "file-ref-attachment-4"
+    },
+    {
+      attachmentId: "attachment-2",
+      kind: "image",
+      objectKey: "assistant-media/chat-1/reply.png",
+      mimeType: "image/png",
+      filename: "reply.png",
+      sizeBytes: 64
+    }
+  ]);
 
   prisma.chat = null;
   downloadedObjectKeys.length = 0;

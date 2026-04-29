@@ -27,6 +27,7 @@ import type {
   ProviderGatewayWebFetchRequest,
   ProviderGatewayWebFetchResult,
   RuntimeCompactionRequest,
+  RuntimeAttachmentRef,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
@@ -1047,6 +1048,11 @@ class FakeTurnContextHydrationService {
   // here. Default is `null` which
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
+  availableImageToolAttachmentsOverride: RuntimeAttachmentRef[] | null = null;
+  availableImageToolAttachmentInputs: Array<{
+    conversation: RuntimeTurnRequest["conversation"];
+    currentAttachments: RuntimeAttachmentRef[];
+  }> = [];
 
   async buildMessages(
     ..._args: unknown[]
@@ -1058,6 +1064,19 @@ class FakeTurnContextHydrationService {
   async computePresenceBlock(..._args: unknown[]): Promise<string | null> {
     void _args.length;
     return this.presenceBlock;
+  }
+
+  async listAvailableImageToolAttachments(input: {
+    conversation: RuntimeTurnRequest["conversation"];
+    currentAttachments: RuntimeAttachmentRef[];
+  }): Promise<RuntimeAttachmentRef[]> {
+    this.availableImageToolAttachmentInputs.push({
+      conversation: input.conversation,
+      currentAttachments: [...input.currentAttachments]
+    });
+    return input.currentAttachments.length > 0
+      ? input.currentAttachments.filter((attachment) => attachment.kind === "image")
+      : [...(this.availableImageToolAttachmentsOverride ?? [])];
   }
 }
 
@@ -4562,6 +4581,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     model: null,
     count: 1,
     size: "1024x1024",
+    background: "auto",
     credential: {
       toolCode: "image_generate",
       secretId: "tool/image_generate/api-key",
@@ -4641,6 +4661,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     "assistant-media/uploads/video-reference.png",
     videoReferenceBuffer
   );
+  request.message.attachments = [];
+  turnContextHydrationService.availableImageToolAttachmentsOverride = [
+    {
+      attachmentId: "attachment-video-history-1",
+      kind: "image",
+      objectKey: "assistant-media/uploads/video-reference.png",
+      mimeType: "image/png",
+      filename: "video-reference.png",
+      sizeBytes: videoReferenceBuffer.length
+    }
+  ];
   const providerCallsBeforeVideoGenerate = providerGatewayClient.calls.length;
   providerGatewayClient.resultQueue = [
     {
@@ -4729,6 +4760,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       timeoutMs: 300000
     }
   });
+  assert.deepEqual(
+    turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
+    []
+  );
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "video_generate",
@@ -4785,9 +4820,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   }
   const referenceImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x02]);
-  request.message.attachments = [
+  request.message.attachments = [];
+  turnContextHydrationService.availableImageToolAttachmentsOverride = [
     {
-      attachmentId: "attachment-image-1",
+      attachmentId: "attachment-image-history-1",
       kind: "image",
       objectKey: "assistant-media/uploads/reference-image.png",
       mimeType: "image/png",
@@ -4863,6 +4899,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     prompt: "Replace the couch with a red chair",
     model: null,
     size: "1024x1024",
+    background: "auto",
     sourceImage: {
       bytesBase64: referenceImageBuffer.toString("base64"),
       mimeType: "image/png",
@@ -4875,6 +4912,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       providerId: "openai"
     }
   });
+  assert.deepEqual(
+    turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
+    []
+  );
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "image_edit",
@@ -5001,6 +5042,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     prompt: "Place the car from image #2 into the yard in image #1",
     model: null,
     size: null,
+    background: "auto",
     sourceImage: {
       bytesBase64: yardImageBuffer.toString("base64"),
       mimeType: "image/png",
@@ -5100,6 +5142,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     prompt: "Restyle image #1 like the second photo",
     model: null,
     size: null,
+    background: "auto",
     sourceImage: {
       bytesBase64: yardImageBuffer.toString("base64"),
       mimeType: "image/png",

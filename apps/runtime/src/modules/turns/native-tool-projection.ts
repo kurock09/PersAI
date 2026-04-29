@@ -9,6 +9,7 @@ import {
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_FILES_TOOL_ACTIONS,
   PERSAI_RUNTIME_MEMORY_WRITE_KINDS,
+  PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
   PERSAI_RUNTIME_VIDEO_GENERATE_SECONDS,
@@ -615,6 +616,12 @@ function createImageGenerateToolDefinition(
           enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
           description:
             'Optional output size hint. Use "auto" to let the provider choose the best size.'
+        },
+        background: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_IMAGE_BACKGROUNDS],
+          description:
+            'Optional background behavior. Use "transparent" when the user asks for transparent background, cutout, sticker, icon, logo asset, or PNG with alpha. Use "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
         }
       }
     }
@@ -639,19 +646,19 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
       properties: {
         prompt: {
           type: "string",
-          description: "Text instruction describing how the attached image should be edited."
+          description: "Text instruction describing how the referenced chat image should be edited."
         },
         sourceImageIndex: {
           type: "integer",
           minimum: 1,
           description:
-            "Optional 1-based index of the current-turn image attachment to edit. Required when multiple images are attached and the source image is clear."
+            "Optional 1-based index of the available chat image to edit. Required when multiple images are available and the source image is clear."
         },
         referenceImageIndex: {
           type: "integer",
           minimum: 1,
           description:
-            "Optional 1-based index of a second current-turn image attachment to use only as a visual style/appearance/background reference. The tool must still return one edited version of the source image, not a separate edit of the reference image."
+            "Optional 1-based index of a second available chat image to use only as a visual style, appearance, or background reference. The tool must still return one edited version of the source image, not a separate edit of the reference image."
         },
         filename: {
           type: "string",
@@ -662,6 +669,12 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
           description:
             'Optional output size hint. Use "auto" to let the provider choose the best size.'
+        },
+        background: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_IMAGE_BACKGROUNDS],
+          description:
+            'Optional background behavior for the edited output. Use "transparent" when the user asks to remove background, make a cutout/sticker/icon/logo asset, or return a PNG with alpha. Use "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
         }
       }
     }
@@ -694,7 +707,7 @@ function createVideoGenerateToolDefinition(
           type: "integer",
           minimum: 1,
           description:
-            "Optional 1-based index of the current-turn image attachment to use as a visual reference or first frame. Set this whenever an attached image should guide the video."
+            "Optional 1-based index of an available chat image to use as a visual reference or first frame. Set this whenever a current or recent chat image should guide the video."
         },
         filename: {
           type: "string",

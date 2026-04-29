@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  AssistantWebChatActiveTurnState,
   AssistantWebChatMessageAttachmentState,
   AssistantWebChatMessageState,
   AssistantWebChatState,
+  AssistantWebChatTurnCurrentActivityState,
   AssistantWebChatTurnState
 } from "./web-chat.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -28,14 +30,7 @@ export interface WebChatTurnStatusState {
   error: { code: string | null; message: string | null } | null;
 }
 
-export interface WebChatTurnCurrentActivityState {
-  type: "tool_use";
-  toolName: string;
-  toolCallId: string;
-  phase: "start" | "end";
-  isError: boolean;
-  updatedAt: string;
-}
+export type WebChatTurnCurrentActivityState = AssistantWebChatTurnCurrentActivityState;
 
 export type WebTurnClaimResult = "claimed" | "duplicate_handled" | "duplicate_inflight";
 
@@ -372,6 +367,41 @@ export class WebChatTurnAttemptService {
       `web_turn_status_lookup assistantId=${resolved.assistantId} clientTurnId=${clientTurnId} status=${attempt.status}`
     );
     return this.buildStatus(attempt.id);
+  }
+
+  async getActiveTurnForChat(input: {
+    assistantId: string;
+    userId: string;
+    chatId: string;
+  }): Promise<AssistantWebChatActiveTurnState | null> {
+    const attempt = await this.prisma.assistantWebChatTurnAttempt.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        chatId: input.chatId,
+        status: { in: ["accepted", "running"] }
+      },
+      orderBy: { updatedAt: "desc" }
+    });
+    if (attempt === null) {
+      return null;
+    }
+    const status = await this.buildStatus(attempt.id);
+    if (status.status !== "accepted" && status.status !== "running") {
+      return null;
+    }
+    return {
+      clientTurnId: attempt.clientTurnId,
+      status: status.status,
+      updatedAt: attempt.updatedAt.toISOString(),
+      currentActivity: status.currentActivity,
+      pendingUserMessageId: attempt.userMessageId,
+      assistantMessageId: attempt.assistantMessageId,
+      chat: status.chat,
+      userMessage: status.userMessage,
+      assistantMessage: status.assistantMessage,
+      canReattach: status.status === "running"
+    };
   }
 
   private async markTerminalFailure(input: {

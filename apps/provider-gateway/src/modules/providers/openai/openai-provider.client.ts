@@ -45,6 +45,7 @@ type OpenAIImageGenerateResponse = {
     b64_json?: string;
     revised_prompt?: string;
   }>;
+  background?: "transparent" | "opaque";
   output_format?: "png" | "webp" | "jpeg";
   usage?: {
     input_tokens?: number | null;
@@ -293,6 +294,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         prompt: input.prompt,
         n: input.count,
         output_format: "png",
+        background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
       const response = (await client.images.generate(payload, {
@@ -373,6 +375,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         prompt: providerPrompt,
         image: referenceImage === null ? sourceImage : [sourceImage, referenceImage],
         output_format: "png",
+        background: input.background,
         ...(input.size === null ? {} : { size: input.size })
       };
       const response = (await client.images.edit(payload, {

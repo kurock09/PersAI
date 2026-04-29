@@ -39,6 +39,8 @@ const MIN_HYDRATED_MEMORY_ITEMS = 3;
 const MAX_HYDRATED_MEMORY_ITEMS = 10;
 const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
+const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
+const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
 // ADR-074 F1: Postgres uuid columns reject any non-UUID literal in `WHERE`
 // clauses with `Inconsistent column data: Error creating UUID, …`. We use this
 // guard before passing `RuntimeTurnRequest.idempotencyKey` (free-form string)
@@ -214,6 +216,78 @@ export class TurnContextHydrationService {
       [currentUserMessage],
       contextHydration
     );
+  }
+
+  async listAvailableImageToolAttachments(input: {
+    conversation: RuntimeConversationAddress;
+    currentAttachments: RuntimeAttachmentRef[];
+  }): Promise<RuntimeAttachmentRef[]> {
+    const currentImages = this.dedupeRuntimeAttachments(
+      input.currentAttachments.filter((attachment) => attachment.kind === "image")
+    );
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
+    if (canonicalSurface === null) {
+      return currentImages;
+    }
+
+    const chat = await this.prisma.assistantChat.findFirst({
+      where: {
+        assistantId: input.conversation.assistantId,
+        surface: canonicalSurface,
+        surfaceThreadKey: input.conversation.externalThreadKey
+      },
+      select: { id: true }
+    });
+    if (chat === null) {
+      return currentImages;
+    }
+
+    const recentMessages = await this.prisma.assistantChatMessage.findMany({
+      where: {
+        chatId: chat.id,
+        assistantId: input.conversation.assistantId,
+        attachments: {
+          some: {
+            processingStatus: "ready",
+            attachmentType: "image"
+          }
+        }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: MAX_RECENT_IMAGE_TOOL_MESSAGES,
+      select: {
+        attachments: {
+          where: {
+            processingStatus: "ready",
+            attachmentType: "image"
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            originalFilename: true,
+            mimeType: true,
+            storagePath: true,
+            sizeBytes: true
+          }
+        }
+      }
+    });
+    const recentImages = recentMessages
+      .flatMap((message) =>
+        message.attachments
+          .filter((attachment) => attachment.mimeType.startsWith("image/"))
+          .map((attachment) =>
+            this.toImageToolAttachmentRef({
+              attachmentId: attachment.id,
+              filename: attachment.originalFilename,
+              mimeType: attachment.mimeType,
+              objectKey: attachment.storagePath,
+              sizeBytes: Number(attachment.sizeBytes)
+            })
+          )
+      )
+      .slice(0, MAX_RECENT_IMAGE_TOOL_ATTACHMENTS);
+    return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
   }
 
   private composeWithCarryOverDurableMemoryAndConversation(
@@ -1484,5 +1558,36 @@ export class TurnContextHydrationService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private toImageToolAttachmentRef(input: {
+    attachmentId: string;
+    objectKey: string;
+    mimeType: string;
+    filename: string | null;
+    sizeBytes: number;
+  }): RuntimeAttachmentRef {
+    return {
+      attachmentId: input.attachmentId,
+      kind: "image",
+      objectKey: input.objectKey,
+      mimeType: input.mimeType,
+      filename: input.filename,
+      sizeBytes: input.sizeBytes
+    };
+  }
+
+  private dedupeRuntimeAttachments(attachments: RuntimeAttachmentRef[]): RuntimeAttachmentRef[] {
+    const deduped: RuntimeAttachmentRef[] = [];
+    const seen = new Set<string>();
+    for (const attachment of attachments) {
+      const dedupeKey = `${attachment.attachmentId}:${attachment.objectKey}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+      deduped.push(attachment);
+    }
+    return deduped;
   }
 }

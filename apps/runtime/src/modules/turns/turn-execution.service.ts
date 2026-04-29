@@ -27,6 +27,7 @@ import {
   type PersaiRuntimeWebFetchExtractMode,
   type RuntimeKnowledgeFetchToolResult,
   type RuntimeKnowledgeSearchToolResult,
+  type RuntimeAttachmentRef,
   type RuntimeMemoryWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
@@ -1653,10 +1654,14 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case IMAGE_EDIT_TOOL_CODE: {
+        const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
+          acceptedTurn,
+          execution
+        );
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
-          currentAttachments: execution.currentMessageAttachments,
+          availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId
         });
@@ -1684,10 +1689,14 @@ export class TurnExecutionService {
         );
       }
       case VIDEO_GENERATE_TOOL_CODE: {
+        const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
+          acceptedTurn,
+          execution
+        );
         const result = await this.runtimeVideoGenerateToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
-          currentAttachments: execution.currentMessageAttachments,
+          availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId
         });
@@ -1754,6 +1763,16 @@ export class TurnExecutionService {
         allowedSources: execution.projectedTools.knowledgeSearchSources
       })
       .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
+  }
+
+  private resolveAvailableImageToolAttachments(
+    acceptedTurn: AcceptedRuntimeTurn,
+    execution: PreparedTurnExecution
+  ): Promise<RuntimeAttachmentRef[]> {
+    return this.turnContextHydrationService.listAvailableImageToolAttachments({
+      conversation: acceptedTurn.session.conversation,
+      currentAttachments: execution.currentMessageAttachments
+    });
   }
 
   private executeKnowledgeFetchTool(

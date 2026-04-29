@@ -56,6 +56,8 @@ import type {
   GetAssistantWebChatCompactionResponse,
   GetAssistantWebChatListItemResponse,
   GetAssistantWebChatListResponse,
+  GetAssistantWebChatMessagesParams,
+  GetAssistantWebChatMessagesResponse,
   GetAssistantWebChatTransportResponse,
   GetAssistantWebChatTurnStatusResponse,
   GetMeResponse,
@@ -1853,6 +1855,139 @@ export const getAssistantWebChats = async (
     ...options,
     method: "GET"
   });
+};
+
+/**
+ * @summary Reattach to a running web chat turn SSE stream
+ */
+export type getAssistantWebChatTurnStreamResponse200 = {
+  data: string;
+  status: 200;
+};
+
+export type getAssistantWebChatTurnStreamResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAssistantWebChatTurnStreamResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantWebChatTurnStreamResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantWebChatTurnStreamResponseSuccess =
+  getAssistantWebChatTurnStreamResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantWebChatTurnStreamResponseError = (
+  | getAssistantWebChatTurnStreamResponse400
+  | getAssistantWebChatTurnStreamResponse401
+  | getAssistantWebChatTurnStreamResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantWebChatTurnStreamResponse =
+  | getAssistantWebChatTurnStreamResponseSuccess
+  | getAssistantWebChatTurnStreamResponseError;
+
+export const getGetAssistantWebChatTurnStreamUrl = (clientTurnId: string) => {
+  return `/assistant/chat/web/turns/${clientTurnId}/stream`;
+};
+
+export const getAssistantWebChatTurnStream = async (
+  clientTurnId: string,
+  options?: RequestInit
+): Promise<getAssistantWebChatTurnStreamResponse> => {
+  return customFetch<getAssistantWebChatTurnStreamResponse>(
+    getGetAssistantWebChatTurnStreamUrl(clientTurnId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary List web chat messages with authoritative active turn projection
+ */
+export type getAssistantWebChatMessagesResponse200 = {
+  data: GetAssistantWebChatMessagesResponse;
+  status: 200;
+};
+
+export type getAssistantWebChatMessagesResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type getAssistantWebChatMessagesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantWebChatMessagesResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantWebChatMessagesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantWebChatMessagesResponseSuccess = getAssistantWebChatMessagesResponse200 & {
+  headers: Headers;
+};
+export type getAssistantWebChatMessagesResponseError = (
+  | getAssistantWebChatMessagesResponse400
+  | getAssistantWebChatMessagesResponse401
+  | getAssistantWebChatMessagesResponse404
+  | getAssistantWebChatMessagesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantWebChatMessagesResponse =
+  | getAssistantWebChatMessagesResponseSuccess
+  | getAssistantWebChatMessagesResponseError;
+
+export const getGetAssistantWebChatMessagesUrl = (
+  chatId: string,
+  params?: GetAssistantWebChatMessagesParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/assistant/chats/web/${chatId}/messages?${stringifiedParams}`
+    : `/assistant/chats/web/${chatId}/messages`;
+};
+
+export const getAssistantWebChatMessages = async (
+  chatId: string,
+  params?: GetAssistantWebChatMessagesParams,
+  options?: RequestInit
+): Promise<getAssistantWebChatMessagesResponse> => {
+  return customFetch<getAssistantWebChatMessagesResponse>(
+    getGetAssistantWebChatMessagesUrl(chatId, params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
 };
 
 /**

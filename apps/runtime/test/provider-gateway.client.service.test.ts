@@ -106,6 +106,7 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
     model: "gpt-image-1.5",
     count: 1,
     size: "1024x1024",
+    background: "transparent",
     credential: {
       toolCode: "image_generate",
       secretId: "secret-1",
@@ -119,6 +120,7 @@ function createImageEditRequest(): ProviderGatewayImageEditRequest {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
     size: "1024x1024",
+    background: "opaque",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",
       mimeType: "image/png",

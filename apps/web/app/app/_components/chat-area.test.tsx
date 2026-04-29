@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
@@ -76,6 +76,7 @@ afterEach(() => {
 function createChat(
   messageContent: string | string[],
   options?: {
+    chatId?: string;
     isStreaming?: boolean;
     hasOlderMessages?: boolean;
     olderMessagesLoading?: boolean;
@@ -95,7 +96,7 @@ function createChat(
   return {
     entries: messages.map((message) => ({ kind: "message", message })),
     messages,
-    chatId: "chat-1",
+    chatId: options?.chatId ?? "chat-1",
     isStreaming,
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,
@@ -121,19 +122,19 @@ function createChat(
 
 describe("ChatArea", () => {
   it("keeps auto-scrolling while the last assistant message streams new content", () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(Element.prototype, "scrollIntoView", {
+    const { container, rerender } = render(<ChatArea chat={createChat("Hello")} />);
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const scrollTo = vi.fn();
+    Object.defineProperty(scrollContainer, "scrollTo", {
       configurable: true,
-      writable: true,
-      value: scrollIntoView
+      value: scrollTo
     });
-    const { rerender } = render(<ChatArea chat={createChat("Hello")} />);
 
-    scrollIntoView.mockClear();
+    scrollTo.mockClear();
 
     rerender(<ChatArea chat={createChat("Hello world")} />);
 
-    expect(scrollIntoView).toHaveBeenCalled();
+    expect(scrollTo).toHaveBeenCalled();
   });
 
   it("preserves scroll position when older messages are prepended", () => {
@@ -222,16 +223,15 @@ describe("ChatArea", () => {
   });
 
   it("shows a quiet scroll-to-bottom button when reading older messages", () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(Element.prototype, "scrollIntoView", {
-      configurable: true,
-      writable: true,
-      value: scrollIntoView
-    });
     const { container } = render(
       <ChatArea chat={createChat(["Older", "Latest"], { isStreaming: false })} />
     );
     const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const scrollTo = vi.fn();
+    Object.defineProperty(scrollContainer, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
       get: () => 1200
@@ -247,6 +247,36 @@ describe("ChatArea", () => {
     expect(scrollButton).toHaveClass("right-3", "md:left-1/2", "md:-translate-x-1/2");
     fireEvent.click(scrollButton);
 
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });
+  });
+
+  it("jumps to the bottom again when switching to another loaded chat", async () => {
+    const { container, rerender } = render(
+      <ChatArea chat={createChat(["Old", "Current"], { chatId: "chat-1", isStreaming: false })} />
+    );
+    const scrollContainer = container.querySelector(".overflow-y-auto") as HTMLDivElement;
+    const scrollTo = vi.fn();
+    Object.defineProperty(scrollContainer, "scrollHeight", {
+      configurable: true,
+      get: () => 1400
+    });
+    Object.defineProperty(scrollContainer, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+
+    scrollTo.mockClear();
+    rerender(
+      <ChatArea
+        chat={createChat(["Other old", "Other current"], {
+          chatId: "chat-2",
+          isStreaming: false
+        })}
+      />
+    );
+
+    await waitFor(() => {
+      expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "auto" });
+    });
   });
 });

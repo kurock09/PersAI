@@ -343,7 +343,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       seconds: 4,
       size: "1280x720"
     }),
-    currentAttachments: [],
+    availableAttachments: [],
     sessionId: "session-1",
     requestId: "request-0"
   });
@@ -358,7 +358,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       seconds: 4,
       size: "1280x720"
     }),
-    currentAttachments: [],
+    availableAttachments: [],
     sessionId: "session-1",
     requestId: "request-1"
   });
@@ -413,7 +413,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       referenceImageIndex: 1,
       seconds: 8
     }),
-    currentAttachments: [createReferenceAttachment()],
+    availableAttachments: [createReferenceAttachment()],
     sessionId: "session-1",
     requestId: "request-2"
   });
@@ -454,7 +454,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       prompt: "Animate this",
       seconds: 6
     }),
-    currentAttachments: [],
+    availableAttachments: [],
     sessionId: "session-1",
     requestId: "request-3"
   });

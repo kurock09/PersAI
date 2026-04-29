@@ -112,10 +112,22 @@ export function ChatArea({
   const preserveScrollOnOlderLoadRef = useRef(false);
   const skipAutoScrollOnHistoryPrependRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
+  const scrollStateChatIdRef = useRef(chat.chatId);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior | "instant") => {
     shouldStickToBottomRef.current = true;
-    bottomRef.current?.scrollIntoView({ behavior });
+    const container = scrollRef.current;
+    if (container) {
+      const top = container.scrollHeight;
+      const scrollBehavior = behavior === "instant" ? "auto" : behavior;
+      if (typeof container.scrollTo === "function") {
+        container.scrollTo({ top, behavior: scrollBehavior });
+      } else {
+        container.scrollTop = top;
+      }
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior });
+    }
   }, []);
 
   const updateShouldStickToBottom = useCallback(() => {
@@ -172,7 +184,7 @@ export function ChatArea({
       isInitialLoad.current = false;
       scrollToBottom("instant");
     }
-  }, [chat.historyLoading, chat.messages.length, scrollToBottom]);
+  }, [chat.chatId, chat.historyLoading, chat.messages.length, scrollToBottom]);
 
   // Preserve scroll position when older messages are prepended.
   const prevScrollHeight = useRef(0);
@@ -300,7 +312,14 @@ export function ChatArea({
     setDeepMode(deepModeEnabled);
   }, [chat.chatId, deepModeEnabled]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (scrollStateChatIdRef.current === chat.chatId) return;
+    scrollStateChatIdRef.current = chat.chatId;
+    isInitialLoad.current = true;
+    prevMessageCount.current = 0;
+    preserveScrollOnOlderLoadRef.current = false;
+    skipAutoScrollOnHistoryPrependRef.current = false;
+    shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
   }, [chat.chatId]);
 

@@ -1220,6 +1220,99 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chat/web/turns/{clientTurnId}/stream:
+    get:
+      operationId: getAssistantWebChatTurnStream
+      summary: Reattach to a running web chat turn SSE stream
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: clientTurnId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server-sent event stream for an existing web chat turn
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}/messages:
+    get:
+      operationId: getAssistantWebChatMessages
+      summary: List web chat messages with authoritative active turn projection
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Web chat message history and active turn projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatMessagesResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/chats/web/{chatId}:
     patch:
       operationId: patchAssistantWebChat
@@ -5377,6 +5470,84 @@ components:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
+    AssistantWebChatTurnCurrentActivityState:
+      type: object
+      required:
+        - type
+        - toolName
+        - toolCallId
+        - phase
+        - isError
+        - updatedAt
+      properties:
+        type:
+          type: string
+          enum:
+            - tool_use
+        toolName:
+          type: string
+        toolCallId:
+          type: string
+        phase:
+          type: string
+          enum:
+            - start
+            - end
+        isError:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+    AssistantWebChatCompactActiveTurnState:
+      type: object
+      required:
+        - clientTurnId
+        - status
+        - updatedAt
+        - currentActivity
+        - pendingUserMessageId
+        - assistantMessageId
+      properties:
+        clientTurnId:
+          type: string
+        status:
+          type: string
+          enum:
+            - accepted
+            - running
+        updatedAt:
+          type: string
+          format: date-time
+        currentActivity:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatTurnCurrentActivityState"
+        pendingUserMessageId:
+          type: string
+          nullable: true
+        assistantMessageId:
+          type: string
+          nullable: true
+    AssistantWebChatActiveTurnState:
+      allOf:
+        - $ref: "#/components/schemas/AssistantWebChatCompactActiveTurnState"
+        - type: object
+          required:
+            - chat
+            - userMessage
+            - assistantMessage
+            - canReattach
+          properties:
+            chat:
+              nullable: true
+              $ref: "#/components/schemas/AssistantWebChatState"
+            userMessage:
+              nullable: true
+              $ref: "#/components/schemas/AssistantWebChatMessageState"
+            assistantMessage:
+              nullable: true
+              $ref: "#/components/schemas/AssistantWebChatMessageState"
+            canReattach:
+              type: boolean
     AssistantWebChatTurnStatusState:
       type: object
       required:
@@ -5529,6 +5700,7 @@ components:
         - chat
         - messageCount
         - lastMessagePreview
+        - activeTurn
       properties:
         chat:
           $ref: "#/components/schemas/AssistantWebChatState"
@@ -5538,6 +5710,9 @@ components:
         lastMessagePreview:
           type: string
           nullable: true
+        activeTurn:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatCompactActiveTurnState"
     AssistantWebChatRenameRequest:
       type: object
       minProperties: 1
@@ -5766,6 +5941,26 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatListItemState"
+    GetAssistantWebChatMessagesResponse:
+      type: object
+      required:
+        - messages
+        - nextCursor
+        - activeTurn
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatMessageState"
+        nextCursor:
+          type: string
+          nullable: true
+        activeTurn:
+          nullable: true
+          $ref: "#/components/schemas/AssistantWebChatActiveTurnState"
     GetAssistantWebChatListItemResponse:
       type: object
       required:

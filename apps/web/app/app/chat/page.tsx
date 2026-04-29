@@ -10,6 +10,32 @@ import { useChat } from "../_components/use-chat";
 import { useAppDataContext } from "../_components/app-shell";
 import { WELCOME_THREAD_KEY } from "../assistant-api-client";
 
+const DRAFT_THREAD_STORAGE_KEY = "persai.draft-chat-thread.v1";
+
+function readDraftThreadKey(): string {
+  if (typeof window === "undefined") return `web-${Date.now()}`;
+  try {
+    const existing = window.sessionStorage.getItem(DRAFT_THREAD_STORAGE_KEY);
+    if (existing) return existing;
+    const next = `web-${Date.now()}`;
+    window.sessionStorage.setItem(DRAFT_THREAD_STORAGE_KEY, next);
+    return next;
+  } catch {
+    return `web-${Date.now()}`;
+  }
+}
+
+function clearDraftThreadKey(threadKey: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (window.sessionStorage.getItem(DRAFT_THREAD_STORAGE_KEY) === threadKey) {
+      window.sessionStorage.removeItem(DRAFT_THREAD_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function ChatPage() {
   return (
     <Suspense>
@@ -25,7 +51,7 @@ function ChatPageInner() {
   const threadFromUrl = searchParams.get("thread");
   const welcomeFromUrl = searchParams.get("welcome") === "1";
 
-  const threadKey = useMemo(() => threadFromUrl ?? `web-${Date.now()}`, [threadFromUrl]);
+  const threadKey = useMemo(() => threadFromUrl ?? readDraftThreadKey(), [threadFromUrl]);
 
   const appData = useAppDataContext();
   const canSeeShadowRoutingBadge =
@@ -60,6 +86,7 @@ function ChatPageInner() {
     if (chat.chatId && chat.chatId !== prevChatIdRef.current && !threadFromUrl) {
       prevChatIdRef.current = chat.chatId;
       appData.reloadChats();
+      clearDraftThreadKey(threadKey);
       router.replace(`/app/chat?thread=${threadKey}` as Route);
     }
   }, [chat.chatId, threadFromUrl, threadKey, router]); // eslint-disable-line

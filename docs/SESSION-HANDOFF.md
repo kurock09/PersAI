@@ -1,5 +1,133 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Final chat continuity) — server-owned active turn projection + SSE reattach (`apps/api`, `apps/web`, contracts; focused checks green)
+
+### Why this session
+
+Founder asked to implement FINAL CHAT: remove client-side continuity heuristics as the primary truth, make active web-chat turns authoritative from the API, add live SSE reattach for resume/switch, and keep the ordinary first-send latency path unchanged.
+
+### What changed
+
+- Added compact/full `activeTurn` contract shapes: web chat list/bootstrap rows now expose compact active turn state, and message history responses include committed messages plus full active turn projection.
+- `ManageWebChatListService` now projects active turns from `assistant_web_chat_turn_attempts` through `WebChatTurnAttemptService`, including current tool activity and reattach capability.
+- Added `GET /api/v1/assistant/chat/web/turns/:clientTurnId/stream` for reattaching to running turns. The existing `POST /assistant/chat/web/stream` fast path remains unchanged.
+- `useChat` now composes committed history with server-projected active turns when loading history, and uses reattach on restore/soft-detach paths while keeping legacy status/history fallback for older responses and tests.
+- Updated API boundary and test-plan docs for the new active-turn projection and reattach contract.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-area.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `ReadLints` on touched API/web files
+
+### Risks / residuals
+
+- Reattach fanout is process-local, matching the existing hard-stop registry posture; multi-replica sticky routing/pubsub remains a future scale hardening concern.
+- Live validation on desktop and mobile WebView is still needed after deploy for reload during a running tool, app background/foreground, chat switching, and long chat history.
+
+### Next recommended step
+
+Release the local Windows file lock on `apps/web/app/app/_components/use-chat.ts`, run `corepack pnpm exec prettier --write apps/web/app/app/_components/use-chat.ts && corepack pnpm run format:check`, then live-test FINAL CHAT on `persai-dev` with generic tools, not only image generation.
+
+## 2026-04-29 (Image tool transparent background support) — image generate/edit now pass OpenAI `background` (`apps/runtime`, `apps/provider-gateway`; focused checks green)
+
+### Why this session
+
+Founder asked whether `image_generate` / `image_edit` support OpenAI transparent PNG output. Audit showed PersAI already sent `output_format: "png"` and preserved PNG alpha bytes, but there was no first-class `background: "transparent"` parameter in the runtime contract, tool schema, or provider payload.
+
+### What changed
+
+- Added `PERSAI_RUNTIME_IMAGE_BACKGROUNDS = ["auto", "transparent", "opaque"]` plus `background` on runtime image generate/edit requests and provider-gateway image generate/edit requests.
+- Runtime image tools parse optional `background`, default it to `auto`, validate it, and forward it to provider-gateway.
+- Model-visible `image_generate` and `image_edit` schemas now expose `background` and explicitly tell the model to use `transparent` for cutouts, stickers, icons, logos, background removal, and PNG-with-alpha requests.
+- OpenAI provider payloads now include `background` for both `images.generate` and `images.edit` while keeping `output_format: "png"`.
+- Tool catalog guidance was updated so seeded/default descriptors reinforce the same behavior.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-image-generation.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/provider-gateway.client.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- OpenAI docs state `background="transparent"` is supported for GPT image models and requires an alpha-capable output format; `gpt-image-2` currently does not support transparent backgrounds. PersAI forwards the requested value; provider/model compatibility errors will still come from OpenAI.
+- Existing dirty web/chat/quota changes in the working tree were not touched.
+
+### Next recommended step
+
+Live-test one `image_generate` request and one `image_edit` background-removal request with `background="transparent"` and inspect the returned PNG alpha channel.
+
+## 2026-04-29 (Chat continuity hotfix) — removed phantom live/history merge and restored bottom anchoring (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder live-tested the previous deployed build and showed a severe chat continuity failure: a phantom streaming cursor remained beside committed history, messages could appear mixed/duplicated after switching/reload, and some chats opened around the middle instead of reliably landing at the latest message.
+
+### What changed
+
+- Active-turn reconciliation now removes messages by the full active snapshot message-id set, not only by `local-*` optimistic ids. This prevents a restored/server-id streaming assistant placeholder from surviving beside the final committed assistant message.
+- Terminal turn-status reconciliation also removes active snapshot messages before appending committed user/assistant messages, avoiding duplicated "Сейчас ..." / final answer assistant pairs.
+- Stored active-turn restore timers are no longer cleared every time the resume listener effect re-renders; timer cleanup is now unmount-only, so reload restore can continue polling after the UI first returns to `running`.
+- Restore polling now uses `sessionStorage` as the startup guard only until a running snapshot exists, then uses the active snapshot `clientTurnId` as the source of truth.
+- Chat scroll anchoring now resets its initial-load state on `chatId` change, includes `chatId` in the initial bottom-jump effect dependencies, and scrolls the actual overflow container to `scrollHeight` instead of relying only on `scrollIntoView`.
+- `loadHistory()` now uses the same committed-history/active-turn replacement rule instead of naively merging `loaded + activeSnapshot.messages`; it also avoids the stale `historyLoadedRef` early return so chat switching continues to validate server history.
+- Active-turn replacement now requires an assistant message after the active user message in returned history, so an older assistant before the current user cannot prematurely clear the live cursor/tool status.
+- Added focused regressions for chat switch bottom anchoring, scroll button behavior, and `loadHistory()` replacing a restored live assistant with the committed final turn.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-area.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This fixes client-side reconciliation and scroll anchoring. It still needs live validation after deploy on desktop and Android against the exact repro: reload during generation, switch chats, return, and confirm no phantom cursor/duplicate assistant block and the chat lands at the bottom.
+
+### Next recommended step
+
+Run the full gate before commit/push, deploy to `persai-dev`, then live-test the founder repro with image generation and long chat switching.
+
+## 2026-04-29 (Chat continuity hardening) — active turns survive reload, retry, long history, and draft remounts (`apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder asked to finish the desktop/mobile chat continuity block “properly”: tool status/cursor could still disappear after reload/focus changes, retry could stay stuck in reconciliation, long chats could confuse history reconciliation, and bare `/app/chat` remounts could generate a new draft thread key before server chat creation.
+
+### What changed
+
+- Cleared stored active `clientTurnId` whenever a send fails before server acceptance, including attachment staging and pre-header failures, so reload cannot restore phantom turns.
+- `retryPendingSend()` now polls the existing turn status when the server says `accepted`/`running`, restoring the active UI or reconciling terminal state instead of staying indefinitely in `reconciling`.
+- Soft-detach/history reconciliation now requires the history tail to contain the current turn's server user message before treating it as completed; otherwise it falls back to `clientTurnId` turn-status. This avoids unrelated last-20 messages wiping the active turn in long chats.
+- Normal sends remap the optimistic user bubble to the authoritative server user message id on `onStarted`, so later history validation can identify the exact active turn.
+- Welcome turns now write/clear the same stored active turn id as normal sends and can restore an assistant-only running placeholder after reload.
+- Bare `/app/chat` now persists a draft `threadKey` in `sessionStorage` across remounts until the first server chat is created and mirrored into the URL.
+- Added focused regressions for staging failure storage cleanup, retry polling, long-history targeted reconciliation, welcome restore compatibility through the shared status path, chat switch cache validation, and draft thread stability.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched chat continuity files
+
+### Risks / residuals
+
+- Restore remains state reconciliation, not SSE replay. If the user fully reloads during a tool run, the UI restores the current activity/status and then reconciles from terminal status/history when available.
+
+### Next recommended step
+
+Live-test desktop and Android: reload during a tool run, switch apps during generation, retry a flaky upload/send, and switch away/back in a long chat without F5.
+
 ## 2026-04-29 (Chat switch cache validation) — cached threads now refresh latest server history (`apps/web`; focused tests/typecheck green)
 
 ### Why this session

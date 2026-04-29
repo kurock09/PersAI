@@ -7,8 +7,10 @@ import type {
 import {
   MAX_RUNTIME_IMAGE_GENERATE_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
+  PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
+  type PersaiRuntimeImageBackground,
   type PersaiRuntimeImageGenerateProviderId,
   type PersaiRuntimeImageGenerateSize,
   type ProviderGatewayToolCall,
@@ -176,6 +178,7 @@ export class RuntimeImageGenerateToolService {
         model: this.resolveToolModelKey(credential),
         count: request.count,
         size: request.size,
+        background: request.background,
         credential: {
           toolCode: "image_generate",
           secretId: credential.secretRef.id,
@@ -268,7 +271,12 @@ export class RuntimeImageGenerateToolService {
     args: Record<string, unknown>
   ): RuntimeImageGenerateRequest | Error {
     const unknownKeys = Object.keys(args).filter(
-      (key) => key !== "prompt" && key !== "count" && key !== "filename" && key !== "size"
+      (key) =>
+        key !== "prompt" &&
+        key !== "count" &&
+        key !== "filename" &&
+        key !== "size" &&
+        key !== "background"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -312,12 +320,26 @@ export class RuntimeImageGenerateToolService {
       );
     }
 
+    const backgroundInput = args.background;
+    if (
+      backgroundInput !== undefined &&
+      backgroundInput !== null &&
+      (typeof backgroundInput !== "string" || !this.isImageBackground(backgroundInput))
+    ) {
+      return new Error(
+        `background must be one of ${PERSAI_RUNTIME_IMAGE_BACKGROUNDS.join(", ")} when provided`
+      );
+    }
+    const background: PersaiRuntimeImageBackground =
+      typeof backgroundInput === "string" ? backgroundInput : "auto";
+
     return {
       toolCode: "image_generate",
       prompt,
       count,
       filename,
-      size
+      size,
+      background
     };
   }
 
@@ -414,6 +436,10 @@ export class RuntimeImageGenerateToolService {
 
   private isImageGenerateSize(value: string): value is PersaiRuntimeImageGenerateSize {
     return PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(value as PersaiRuntimeImageGenerateSize);
+  }
+
+  private isImageBackground(value: string): value is PersaiRuntimeImageBackground {
+    return PERSAI_RUNTIME_IMAGE_BACKGROUNDS.includes(value as PersaiRuntimeImageBackground);
   }
 
   private resolveFilename(

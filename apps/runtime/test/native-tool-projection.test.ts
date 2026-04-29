@@ -106,6 +106,28 @@ async function run(): Promise<void> {
           },
           configured: true,
           providerId: "tavily"
+        },
+        image_generate: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: true,
+          providerId: "openai",
+          modelKey: "gpt-image-1.5"
+        },
+        image_edit: {
+          refKey: "persai:persai-runtime:tool/image_generate/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/image_generate/api-key"
+          },
+          configured: true,
+          providerId: "openai",
+          modelKey: "gpt-image-1.5"
         }
       },
       toolPolicies: [
@@ -122,6 +144,34 @@ async function run(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: 30
+        },
+        {
+          toolCode: "image_generate",
+          displayName: "Image Generate",
+          description: "Generate brand-new images from a text prompt.",
+          usageGuidance: 'Set background="transparent" when the user wants transparent PNG output.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10,
+          perTurnCap: 2
+        },
+        {
+          toolCode: "image_edit",
+          displayName: "Image Edit",
+          description: "Edit a current-turn image.",
+          usageGuidance:
+            'Set background="transparent" when the user asks to remove the background.',
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 10
         },
         {
           toolCode: "files",
@@ -226,6 +276,8 @@ async function run(): Promise<void> {
   const files = projected.tools.find((tool) => tool.name === "files");
   const exec = projected.tools.find((tool) => tool.name === "exec");
   const shell = projected.tools.find((tool) => tool.name === "shell");
+  const imageGenerate = projected.tools.find((tool) => tool.name === "image_generate");
+  const imageEdit = projected.tools.find((tool) => tool.name === "image_edit");
   const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
 
@@ -265,6 +317,20 @@ async function run(): Promise<void> {
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(shell?.description ?? "", /same turn stay mounted/i);
+  const imageGenerateBackground = (
+    imageGenerate?.inputSchema as {
+      properties?: { background?: { enum?: unknown[]; description?: string } };
+    }
+  )?.properties?.background;
+  assert.deepEqual(imageGenerateBackground?.enum, ["auto", "transparent", "opaque"]);
+  assert.match(imageGenerateBackground?.description ?? "", /PNG with alpha/);
+  const imageEditBackground = (
+    imageEdit?.inputSchema as {
+      properties?: { background?: { enum?: unknown[]; description?: string } };
+    }
+  )?.properties?.background;
+  assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
+  assert.match(imageEditBackground?.description ?? "", /remove background/);
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {
       properties?: {
@@ -272,8 +338,8 @@ async function run(): Promise<void> {
       };
     }
   )?.properties?.kind?.description;
-  assert.match(scheduledActionKindDescription ?? "", /фоновую задачу/);
-  assert.match(scheduledActionKindDescription ?? "", /assistant_check/);
+  assert.match(scheduledActionKindDescription ?? "", /user_reminder/);
+  assert.match(scheduledActionKindDescription ?? "", /background_task/);
 }
 
 void run();

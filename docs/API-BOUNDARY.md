@@ -39,8 +39,10 @@ Primary public API surface:
 
 - sync route: `POST /api/v1/assistant/chat/web`
 - stream route: `POST /api/v1/assistant/chat/web/stream`
+- stream reattach route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId/stream`
 - hard-stop route: `POST /api/v1/assistant/chat/web/stop` (body: `{ "clientTurnId": string }`, response: 204)
 - turn-status route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId` returns the durable logical-turn state (`unknown`, `accepted`, `running`, `completed`, `failed`, `interrupted`) plus committed user/assistant payloads where available; web/Capacitor clients use it before retrying ambiguous sends
+- web chat list/bootstrap rows expose compact `activeTurn` state, and `GET /api/v1/assistant/chats/web/:chatId/messages` returns committed history plus full `activeTurn`; clients render this server projection as continuity truth before falling back to local recovery hints
 - current active mode: native-only
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping
 - `apps/runtime` owns request-time execution

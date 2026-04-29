@@ -34,6 +34,7 @@ import { SendWebChatTurnService } from "../../application/send-web-chat-turn.ser
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
 import { WebChatTurnHardStopRegistry } from "../../application/web-chat-turn-hard-stop-registry.service";
+import { WebChatTurnStreamRegistry } from "../../application/web-chat-turn-stream-registry.service";
 import {
   WebChatTurnAttemptService,
   type WebChatTurnStatusState
@@ -64,6 +65,7 @@ import { DisableAssistantTaskRegistryItemService } from "../../application/disab
 import { EnableAssistantTaskRegistryItemService } from "../../application/enable-assistant-task-registry-item.service";
 import { CancelAssistantTaskRegistryItemService } from "../../application/cancel-assistant-task-registry-item.service";
 import type {
+  AssistantWebChatActiveTurnState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
   AssistantWebChatListItemState,
@@ -97,6 +99,7 @@ export class AssistantController {
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
     private readonly webChatTurnHardStopRegistry: WebChatTurnHardStopRegistry,
+    private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly previewAssistantSetupService: PreviewAssistantSetupService,
     private readonly resolvePlanVisibilityService: ResolvePlanVisibilityService,
@@ -883,6 +886,7 @@ export class AssistantController {
     requestId: string | null;
     messages: AssistantWebChatMessageState[];
     nextCursor: string | null;
+    activeTurn: AssistantWebChatActiveTurnState | null;
   }> {
     const userId = this.resolveRequestUserId(req);
     const limit = Math.min(Math.max(parseInt(limitParam ?? "50", 10) || 50, 1), 100);
@@ -894,7 +898,8 @@ export class AssistantController {
     return {
       requestId: req.requestId ?? null,
       messages: result.messages,
-      nextCursor: result.nextCursor
+      nextCursor: result.nextCursor,
+      activeTurn: result.activeTurn
     };
   }
 
@@ -1005,6 +1010,114 @@ export class AssistantController {
     };
   }
 
+  @Get("assistant/chat/web/turns/:clientTurnId/stream")
+  async reattachWebChatTurnStream(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("clientTurnId") clientTurnId: string
+  ): Promise<void> {
+    const userId = this.resolveRequestUserId(req);
+    const normalizedClientTurnId = clientTurnId.trim();
+    if (normalizedClientTurnId.length === 0) {
+      throw new BadRequestException("clientTurnId must be a non-empty string.");
+    }
+
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    let clientClosed = false;
+    const sendSse = (event: string, payload: unknown): void => {
+      if (clientClosed) {
+        return;
+      }
+      res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+      const flushable = res as unknown as { flush?: () => void };
+      if (typeof flushable.flush === "function") {
+        flushable.flush();
+      }
+    };
+    const close = (): void => {
+      if (!clientClosed) {
+        clientClosed = true;
+        res.end();
+      }
+    };
+    const sendTerminalStatus = (status: WebChatTurnStatusState): void => {
+      if (status.status === "failed") {
+        sendSse("failed", {
+          code: status.error?.code ?? "turn_failed",
+          message: status.error?.message ?? "Web chat turn failed.",
+          transport: null
+        });
+        return;
+      }
+      if (status.status === "interrupted") {
+        sendSse("interrupted", { transport: null });
+        return;
+      }
+      sendSse("completed", { transport: null });
+    };
+
+    const initialStatus = await this.webChatTurnAttemptService.getStatusForUser(
+      userId,
+      normalizedClientTurnId
+    );
+    sendSse("turn_status", { turn: initialStatus });
+    if (initialStatus.status !== "accepted" && initialStatus.status !== "running") {
+      sendTerminalStatus(initialStatus);
+      close();
+      return;
+    }
+
+    const detach = this.webChatTurnStreamRegistry.attach({
+      clientTurnId: normalizedClientTurnId,
+      userId,
+      onEvent: sendSse
+    });
+    sendSse("reattached", { turn: initialStatus, live: detach !== null });
+
+    let lastStatusPayload = JSON.stringify(initialStatus);
+    const statusPoll = setInterval(async () => {
+      try {
+        const status = await this.webChatTurnAttemptService.getStatusForUser(
+          userId,
+          normalizedClientTurnId
+        );
+        const nextPayload = JSON.stringify(status);
+        if (nextPayload !== lastStatusPayload) {
+          lastStatusPayload = nextPayload;
+          sendSse("turn_status", { turn: status });
+        }
+        if (status.status !== "accepted" && status.status !== "running") {
+          sendTerminalStatus(status);
+          close();
+        }
+      } catch {
+        sendSse("failed", {
+          code: "turn_status_unavailable",
+          message: "Could not refresh web chat turn status.",
+          transport: null
+        });
+        close();
+      }
+    }, 1_000);
+    const heartbeat = setInterval(() => {
+      if (!clientClosed) {
+        res.write(": keepalive\n\n");
+      }
+    }, WEB_CHAT_STREAM_HEARTBEAT_INTERVAL_MS);
+    const cleanup = (): void => {
+      clientClosed = true;
+      clearInterval(statusPoll);
+      clearInterval(heartbeat);
+      detach?.();
+    };
+    req.on("aborted", cleanup);
+    res.on("close", cleanup);
+  }
+
   @Delete("assistant/chats/web/:chatId")
   async hardDeleteWebChat(
     @Req() req: RequestWithPlatformContext,
@@ -1078,10 +1191,22 @@ export class AssistantController {
         userId: preparation.prepared.userId,
         controller: clientAbortController
       });
+      this.webChatTurnStreamRegistry.register({
+        clientTurnId: clientTurnIdForRegistry,
+        userId: preparation.prepared.userId
+      });
     }
 
     const sseWriterInstrumentation = createStreamWriterInstrumentation();
     const sendSse = (event: string, payload: unknown): void => {
+      if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
+        this.webChatTurnStreamRegistry.publish({
+          clientTurnId: clientTurnIdForRegistry,
+          userId: preparation.prepared.userId,
+          event,
+          payload
+        });
+      }
       if (clientClosed) {
         return;
       }
@@ -1174,6 +1299,12 @@ export class AssistantController {
           clientTurnId: clientTurnIdForRegistry,
           controller: clientAbortController
         });
+        if (preparation.mode === "prepared") {
+          this.webChatTurnStreamRegistry.release({
+            clientTurnId: clientTurnIdForRegistry,
+            userId: preparation.prepared.userId
+          });
+        }
       }
     }
   }

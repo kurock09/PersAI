@@ -15,6 +15,7 @@ function createRequest(): ProviderGatewayImageGenerateRequest {
     model: "gpt-image-1.5",
     count: 2,
     size: "1024x1536",
+    background: "transparent",
     credential: {
       toolCode: "image_generate",
       secretId: "tool/image_generate/api-key",
@@ -30,6 +31,7 @@ function createEditRequest(options?: {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
     size: "1024x1024",
+    background: "opaque",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",
       mimeType: "image/png",
@@ -146,6 +148,15 @@ export async function runProviderImageGenerationServiceTest(): Promise<void> {
         count: 0
       }),
     /count must be an integer between/
+  );
+
+  await assert.rejects(
+    () =>
+      service.generateImage({
+        ...createRequest(),
+        background: "alpha" as never
+      }),
+    /background must be a supported image background/
   );
 
   await assert.rejects(

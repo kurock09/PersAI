@@ -106,6 +106,7 @@ function createImageGenerateRequest(): ProviderGatewayImageGenerateRequest {
     model: "gpt-image-1.5",
     count: 2,
     size: "1024x1024",
+    background: "transparent",
     credential: {
       toolCode: "image_generate",
       secretId: "tool/image_generate/api-key",
@@ -121,6 +122,7 @@ function createImageEditRequest(options?: {
     prompt: "Replace the couch with a red chair",
     model: "gpt-image-2",
     size: "1024x1024",
+    background: "opaque",
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",
       mimeType: "image/png",
@@ -822,6 +824,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     prompt: "Generate a serene lake at dusk",
     n: 2,
     output_format: "png",
+    background: "transparent",
     size: "1024x1024"
   });
   assert.equal(capturedToolApiKey, "tool-openai-key");
@@ -852,6 +855,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     (capturedImageEditPayload as { output_format?: string } | null)?.output_format,
     "png"
   );
+  assert.equal((capturedImageEditPayload as { background?: string } | null)?.background, "opaque");
   assert.equal((capturedImageEditPayload as { size?: string } | null)?.size, "1024x1024");
   assert.match(
     (capturedImageEditPayload as { prompt?: string } | null)?.prompt ?? "",

@@ -1,5 +1,5 @@
 import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChatPage from "./page";
 
 const navigationMocks = vi.hoisted(() => ({
@@ -12,7 +12,8 @@ const chatHookMocks = vi.hoisted(() => ({
   loadHistory: vi.fn(),
   markHistoryEmpty: vi.fn(),
   isStreaming: false,
-  chatId: null as string | null
+  chatId: null as string | null,
+  threadKeys: [] as string[]
 }));
 
 const appDataMocks = vi.hoisted(() => ({
@@ -45,7 +46,10 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("../_components/use-chat", () => ({
-  useChat: () => chatHookMocks
+  useChat: (threadKey: string) => {
+    chatHookMocks.threadKeys.push(threadKey);
+    return chatHookMocks;
+  }
 }));
 
 vi.mock("../_components/app-shell", () => ({
@@ -57,6 +61,13 @@ vi.mock("../_components/chat-area", () => ({
 }));
 
 describe("ChatPage", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    chatHookMocks.chatId = null;
+    chatHookMocks.isStreaming = false;
+    chatHookMocks.threadKeys = [];
+  });
+
   it("does not auto-create a welcome chat just because the chat list is empty", async () => {
     navigationMocks.searchParams = new URLSearchParams();
     chatHookMocks.sendWelcome.mockReset();
@@ -116,5 +127,42 @@ describe("ChatPage", () => {
       expect(chatHookMocks.loadHistory).toHaveBeenCalledWith("chat-1");
     });
     expect(chatHookMocks.markHistoryEmpty).not.toHaveBeenCalled();
+  });
+
+  it("keeps the same draft thread key across bare chat remounts", async () => {
+    navigationMocks.searchParams = new URLSearchParams();
+    chatHookMocks.markHistoryEmpty.mockReset();
+    appDataMocks.chats = [];
+
+    const first = render(<ChatPage />);
+    await waitFor(() => {
+      expect(chatHookMocks.markHistoryEmpty).toHaveBeenCalled();
+    });
+    const firstThreadKey = chatHookMocks.threadKeys.at(-1);
+    expect(firstThreadKey).toMatch(/^web-/);
+
+    first.unmount();
+    chatHookMocks.markHistoryEmpty.mockReset();
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(chatHookMocks.markHistoryEmpty).toHaveBeenCalled();
+    });
+    expect(chatHookMocks.threadKeys.at(-1)).toBe(firstThreadKey);
+  });
+
+  it("clears the draft thread key after the server chat is created and mirrored into the URL", async () => {
+    navigationMocks.searchParams = new URLSearchParams();
+    navigationMocks.replace.mockReset();
+    appDataMocks.reloadChats.mockReset();
+    appDataMocks.chats = [];
+    chatHookMocks.chatId = "chat-1";
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(navigationMocks.replace).toHaveBeenCalled();
+    });
+    expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1")).toBeNull();
   });
 });

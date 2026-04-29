@@ -5,8 +5,10 @@ import type {
   AssistantRuntimeBundleToolCredentialRef
 } from "@persai/runtime-bundle";
 import {
+  PERSAI_RUNTIME_IMAGE_BACKGROUNDS,
   PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS,
   PERSAI_RUNTIME_IMAGE_GENERATE_SIZES,
+  type PersaiRuntimeImageBackground,
   type PersaiRuntimeImageEditProviderId,
   type PersaiRuntimeImageGenerateSize,
   type ProviderGatewayToolCall,
@@ -88,7 +90,7 @@ export class RuntimeImageEditToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
-    currentAttachments: RuntimeAttachmentRef[];
+    availableAttachments: RuntimeAttachmentRef[];
     sessionId: string;
     requestId: string;
   }): Promise<RuntimeImageEditToolExecutionResult> {
@@ -222,7 +224,7 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const selection = await this.resolveImageSelection(params.currentAttachments, request);
+    const selection = await this.resolveImageSelection(params.availableAttachments, request);
     if (!selection.ok) {
       return {
         payload: {
@@ -284,6 +286,7 @@ export class RuntimeImageEditToolService {
         prompt: request.prompt,
         model: this.resolveToolModelKey(credential),
         size: request.size,
+        background: request.background,
         sourceImage: selection.sourceImage,
         referenceImage: selection.referenceImage,
         credential: {
@@ -405,6 +408,7 @@ export class RuntimeImageEditToolService {
         key !== "prompt" &&
         key !== "filename" &&
         key !== "size" &&
+        key !== "background" &&
         key !== "sourceImageIndex" &&
         key !== "referenceImageIndex"
     );
@@ -436,6 +440,19 @@ export class RuntimeImageEditToolService {
       );
     }
 
+    const backgroundInput = args.background;
+    if (
+      backgroundInput !== undefined &&
+      backgroundInput !== null &&
+      (typeof backgroundInput !== "string" || !this.isImageBackground(backgroundInput))
+    ) {
+      return new Error(
+        `background must be one of ${PERSAI_RUNTIME_IMAGE_BACKGROUNDS.join(", ")} when provided`
+      );
+    }
+    const background: PersaiRuntimeImageBackground =
+      typeof backgroundInput === "string" ? backgroundInput : "auto";
+
     const sourceImageIndex = this.readOptionalPositiveImageIndex(args.sourceImageIndex);
     if ("sourceImageIndex" in args && args.sourceImageIndex !== null && sourceImageIndex === null) {
       return new Error("sourceImageIndex must be a positive integer when provided");
@@ -455,6 +472,7 @@ export class RuntimeImageEditToolService {
       prompt,
       filename,
       size,
+      background,
       sourceImageIndex,
       referenceImageIndex
     };
@@ -469,7 +487,8 @@ export class RuntimeImageEditToolService {
       return {
         ok: false,
         reason: "source_image_missing",
-        warning: "Attach an image in the current message before using image_edit."
+        warning:
+          "Attach an image or keep the source image in recent chat context before using image_edit."
       };
     }
 
@@ -503,7 +522,7 @@ export class RuntimeImageEditToolService {
       return {
         ok: false,
         reason: "source_image_index_invalid",
-        warning: "sourceImageIndex must point to one of the current message image attachments."
+        warning: "sourceImageIndex must point to one of the available chat image attachments."
       };
     }
 
@@ -514,7 +533,7 @@ export class RuntimeImageEditToolService {
       return {
         ok: false,
         reason: "reference_image_index_invalid",
-        warning: "referenceImageIndex must point to one of the current message image attachments."
+        warning: "referenceImageIndex must point to one of the available chat image attachments."
       };
     }
 
@@ -742,6 +761,10 @@ export class RuntimeImageEditToolService {
 
   private isImageGenerateSize(value: string): value is PersaiRuntimeImageGenerateSize {
     return PERSAI_RUNTIME_IMAGE_GENERATE_SIZES.includes(value as PersaiRuntimeImageGenerateSize);
+  }
+
+  private isImageBackground(value: string): value is PersaiRuntimeImageBackground {
+    return PERSAI_RUNTIME_IMAGE_BACKGROUNDS.includes(value as PersaiRuntimeImageBackground);
   }
 
   private resolveFilename(
