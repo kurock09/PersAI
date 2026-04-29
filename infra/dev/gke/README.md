@@ -2,7 +2,7 @@
 
 This directory documents the current PersAI-native dev baseline for `persai-dev`.
 
-ADR-072 is closed for the native migration baseline through Step 18. The active follow-through program for lifecycle polish, cost/quality architecture, and deferred Step 19/15a/20 work now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 is closed as the historical native migration ADR. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Active scope
 

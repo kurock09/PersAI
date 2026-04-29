@@ -381,6 +381,26 @@ function mergeChatMessagesById(...groups: ChatMessage[][]): ChatMessage[] {
   }
   return Array.from(messagesById.values());
 }
+function committedHistoryHasActiveTurnResult(
+  loaded: ChatMessage[],
+  activeTurn: WebChatActiveTurnState
+): boolean {
+  if (
+    activeTurn.assistantMessageId &&
+    loaded.some((message) => message.id === activeTurn.assistantMessageId)
+  ) {
+    return true;
+  }
+  const activeUserId = activeTurn.userMessage?.id ?? activeTurn.pendingUserMessageId;
+  if (!activeUserId) {
+    return false;
+  }
+  const activeUserIndex = loaded.findIndex((message) => message.id === activeUserId);
+  return (
+    activeUserIndex >= 0 &&
+    loaded.slice(activeUserIndex + 1).some((message) => message.role === "assistant")
+  );
+}
 function mergeCommittedHistoryWithActiveTurn(input: {
   loaded: ChatMessage[];
   activeSnapshot: ActiveTurnSnapshot | undefined;
@@ -479,6 +499,7 @@ export function useChat(threadKey: string): UseChatReturn {
   /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
   const hardStoppedClientTurnIdsRef = useRef<Set<string>>(new Set());
+  const softDetachedClientTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
   const cachedThreadHistorySnapshotsRef = useRef<Map<string, CachedThreadHistorySnapshot>>(
     new Map()
@@ -603,6 +624,9 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       activeTurnSnapshotsRef.current.delete(targetThreadKey);
       const controllerEntry = abortControllersByThreadRef.current.get(targetThreadKey);
+      if (snapshot !== undefined) {
+        softDetachedClientTurnIdsRef.current.delete(snapshot.clientTurnId);
+      }
       controllerEntry?.controller.abort();
       abortControllersByThreadRef.current.delete(targetThreadKey);
     },
@@ -1042,6 +1066,14 @@ export function useChat(threadKey: string): UseChatReturn {
         }
         const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         if (snapshot !== undefined) {
+          const shouldReattach =
+            softDetachedClientTurnIdsRef.current.has(snapshot.clientTurnId) ||
+            !activeThreads.has(targetThreadKey);
+          if (!shouldReattach) {
+            const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_INTERVAL_MS);
+            softDetachReconcileTimersByThreadRef.current.set(targetThreadKey, timer);
+            return;
+          }
           const statusResult = await startTurnReattach(targetThreadKey, snapshot.clientTurnId);
           if (statusResult === "running") {
             const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_INTERVAL_MS);
@@ -1070,7 +1102,8 @@ export function useChat(threadKey: string): UseChatReturn {
       finalizeReconciledDetachedTurn,
       markStreaming,
       refreshLatestHistory,
-      startTurnReattach
+      startTurnReattach,
+      activeThreads
     ]
   );
   const startStoredActiveTurnRestore = useCallback(
@@ -1921,6 +1954,7 @@ export function useChat(threadKey: string): UseChatReturn {
           const hasActiveSnapshot = activeTurnSnapshotsRef.current.has(sendThreadKey);
           if (targetChatId && hasActiveSnapshot) {
             softDetached = true;
+            softDetachedClientTurnIdsRef.current.add(clientTurnId);
             startSoftDetachReconcile(sendThreadKey, targetChatId);
           }
         } else {
@@ -1945,6 +1979,7 @@ export function useChat(threadKey: string): UseChatReturn {
         clearTimeout(headersTimer);
         hardStoppedClientTurnIdsRef.current.delete(clientTurnId);
         if (!softDetached) {
+          softDetachedClientTurnIdsRef.current.delete(clientTurnId);
           clearSoftDetachReconcileTimer(sendThreadKey);
           markStreaming(sendThreadKey, false);
           const hasFailedPending =
@@ -2395,15 +2430,30 @@ export function useChat(threadKey: string): UseChatReturn {
           .map(toCommittedChatMessage)
           .filter((message): message is ChatMessage => message !== null);
         const hasAuthoritativeActiveTurn = Object.prototype.hasOwnProperty.call(page, "activeTurn");
-        const activeOverlay = hasAuthoritativeActiveTurn
-          ? toActiveTurnOverlayMessages(page.activeTurn)
+        const rawActiveTurn = hasAuthoritativeActiveTurn ? (page.activeTurn ?? null) : null;
+        const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        const serverActiveTurnAlreadyCommitted =
+          rawActiveTurn !== null && committedHistoryHasActiveTurnResult(loaded, rawActiveTurn);
+        const projectedActiveTurn =
+          rawActiveTurn !== null &&
+          !serverActiveTurnAlreadyCommitted &&
+          localActiveSnapshot === undefined
+            ? rawActiveTurn
+            : null;
+        const activeOverlay = projectedActiveTurn
+          ? toActiveTurnOverlayMessages(projectedActiveTurn)
           : { messages: [], liveActivitiesByMessageId: {} };
         let messagesForCache = mergeChatMessagesById(loaded, activeOverlay.messages);
+        if (
+          loaded.length === 0 &&
+          localActiveSnapshot !== undefined &&
+          projectedActiveTurn === null
+        ) {
+          messagesForCache = localActiveSnapshot.messages;
+        }
         if (loaded.length > 0) {
           const currentActiveSnapshot =
-            hasAuthoritativeActiveTurn && page.activeTurn
-              ? undefined
-              : activeTurnSnapshotsRef.current.get(targetThreadKey);
+            projectedActiveTurn !== null ? undefined : localActiveSnapshot;
           if (currentActiveSnapshot !== undefined) {
             const merged = mergeCommittedHistoryWithActiveTurn({
               loaded,
@@ -2446,19 +2496,27 @@ export function useChat(threadKey: string): UseChatReturn {
         } else if (currentThreadKeyRef.current === targetThreadKey) {
           setMessages(messagesForCache);
         }
-        if (page.activeTurn) {
+        if (projectedActiveTurn) {
           activeTurnSnapshotsRef.current.set(targetThreadKey, {
-            clientTurnId: page.activeTurn.clientTurnId,
+            clientTurnId: projectedActiveTurn.clientTurnId,
             messages: messagesForCache,
             liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
             shadowRoutingLabelsByMessageId: {},
             chatId: targetChatId,
             compactionRunning: false
           });
-          writeStoredActiveTurnClientTurnId(targetThreadKey, page.activeTurn.clientTurnId);
+          writeStoredActiveTurnClientTurnId(targetThreadKey, projectedActiveTurn.clientTurnId);
           setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
           markStreaming(targetThreadKey, true);
-        } else if (hasAuthoritativeActiveTurn) {
+        } else if (
+          hasAuthoritativeActiveTurn &&
+          !activeThreads.has(targetThreadKey) &&
+          !abortControllersByThreadRef.current.has(targetThreadKey)
+        ) {
+          if (rawActiveTurn !== null) {
+            softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
+            clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
+          }
           activeTurnSnapshotsRef.current.delete(targetThreadKey);
           setLiveActivitiesByMessageId({});
           markStreaming(targetThreadKey, false);
@@ -2468,9 +2526,13 @@ export function useChat(threadKey: string): UseChatReturn {
         setHasOlderMessages(page.nextCursor !== null);
         setChatId(targetChatId);
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
-          clientTurnId: page.activeTurn?.clientTurnId ?? "",
+          clientTurnId:
+            projectedActiveTurn?.clientTurnId ?? localActiveSnapshot?.clientTurnId ?? "",
           messages: messagesForCache,
-          liveActivitiesByMessageId: activeOverlay.liveActivitiesByMessageId,
+          liveActivitiesByMessageId:
+            projectedActiveTurn !== null
+              ? activeOverlay.liveActivitiesByMessageId
+              : (localActiveSnapshot?.liveActivitiesByMessageId ?? {}),
           shadowRoutingLabelsByMessageId: {},
           chatId: targetChatId,
           compactionRunning: false,
@@ -2485,7 +2547,7 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       setHistoryLoading(false);
     },
-    [getToken, markStreaming, messages, refreshCompactionState, setThreadPendingSend]
+    [activeThreads, getToken, markStreaming, messages, refreshCompactionState, setThreadPendingSend]
   );
   const loadOlderMessages = useCallback(async () => {
     const cursor = olderCursorRef.current;

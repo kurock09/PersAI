@@ -12,7 +12,7 @@ PersAI is a modular monolith control plane plus three internal execution service
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
-ADR-072 is the historical migration ADR through the Step 18 native-path closeout. The active follow-through program after that baseline now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 remains the historical migration ADR through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Core boundaries
 
@@ -60,7 +60,7 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 
 1. Browser calls `apps/api`
 2. `apps/api` persists canonical state and forwards request-time execution to `apps/runtime`
-3. `apps/runtime` calls back into `apps/api` over the dedicated internal listener for turn-time data hydration (e.g. ADR-074 M1 durable memory hydration through `POST /api/v1/internal/runtime/memory/hydrate-for-turn`)
+3. `apps/runtime` calls back into `apps/api` over the dedicated internal listener for turn-time data hydration (for example durable memory hydration through `POST /api/v1/internal/runtime/memory/hydrate-for-turn`)
 4. `apps/runtime` calls `apps/provider-gateway`
 5. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
 6. result returns through `apps/api`

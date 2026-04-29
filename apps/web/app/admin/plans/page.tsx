@@ -119,8 +119,11 @@ export type PlanDraft = {
   retrievalModelKey: string;
   embeddingModelKey: string;
   imageGenerateModelKey: string;
+  imageGenerateFallbackModelKey: string;
   imageEditModelKey: string;
+  imageEditFallbackModelKey: string;
   videoGenerateModelKey: string;
+  videoGenerateFallbackModelKey: string;
   runtimeTierDefault: "free_shared_restricted" | "paid_shared_restricted" | "paid_isolated";
   toolActivations: ToolActivationDraft[];
   /**
@@ -556,8 +559,11 @@ function emptyDraft(): PlanDraft {
     retrievalModelKey: "",
     embeddingModelKey: "",
     imageGenerateModelKey: "",
+    imageGenerateFallbackModelKey: "",
     imageEditModelKey: "",
+    imageEditFallbackModelKey: "",
     videoGenerateModelKey: "",
+    videoGenerateFallbackModelKey: "",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [],
     toolLoopLimitNormal: "",
@@ -649,8 +655,11 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     retrievalModelKey: plan.retrievalModelKey ?? "",
     embeddingModelKey: plan.embeddingModelKey ?? "",
     imageGenerateModelKey: plan.imageGenerateModelKey ?? "",
+    imageGenerateFallbackModelKey: plan.imageGenerateFallbackModelKey ?? "",
     imageEditModelKey: plan.imageEditModelKey ?? "",
+    imageEditFallbackModelKey: plan.imageEditFallbackModelKey ?? "",
     videoGenerateModelKey: plan.videoGenerateModelKey ?? "",
+    videoGenerateFallbackModelKey: plan.videoGenerateFallbackModelKey ?? "",
     runtimeTierDefault: plan.runtimeTierDefault ?? "free_shared_restricted",
     toolActivations: (plan.toolActivations ?? [])
       .filter((ta) => ta.visibleInPlanEditor)
@@ -907,8 +916,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     retrievalModelKey: toNullable(draft.retrievalModelKey),
     embeddingModelKey: toNullable(draft.embeddingModelKey),
     imageGenerateModelKey: toNullable(draft.imageGenerateModelKey),
+    imageGenerateFallbackModelKey: toNullable(draft.imageGenerateFallbackModelKey),
     imageEditModelKey: toNullable(draft.imageEditModelKey),
+    imageEditFallbackModelKey: toNullable(draft.imageEditFallbackModelKey),
     videoGenerateModelKey: toNullable(draft.videoGenerateModelKey),
+    videoGenerateFallbackModelKey: toNullable(draft.videoGenerateFallbackModelKey),
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
@@ -1182,10 +1194,16 @@ export function ToolActivationsEdit({
   onUpdate,
   imageGenerateModelKey,
   onImageGenerateModelKeyChange,
+  imageGenerateFallbackModelKey,
+  onImageGenerateFallbackModelKeyChange,
   imageEditModelKey,
   onImageEditModelKeyChange,
+  imageEditFallbackModelKey,
+  onImageEditFallbackModelKeyChange,
   videoGenerateModelKey,
   onVideoGenerateModelKeyChange,
+  videoGenerateFallbackModelKey,
+  onVideoGenerateFallbackModelKeyChange,
   availableImageModelKeys,
   availableVideoModelKeys
 }: {
@@ -1193,10 +1211,16 @@ export function ToolActivationsEdit({
   onUpdate: (updated: ToolActivationDraft[]) => void;
   imageGenerateModelKey: string;
   onImageGenerateModelKeyChange: (value: string) => void;
+  imageGenerateFallbackModelKey: string;
+  onImageGenerateFallbackModelKeyChange: (value: string) => void;
   imageEditModelKey: string;
   onImageEditModelKeyChange: (value: string) => void;
+  imageEditFallbackModelKey: string;
+  onImageEditFallbackModelKeyChange: (value: string) => void;
   videoGenerateModelKey: string;
   onVideoGenerateModelKeyChange: (value: string) => void;
+  videoGenerateFallbackModelKey: string;
+  onVideoGenerateFallbackModelKeyChange: (value: string) => void;
   availableImageModelKeys: { provider: string; model: string }[];
   availableVideoModelKeys: { provider: string; model: string }[];
 }) {
@@ -1280,43 +1304,85 @@ export function ToolActivationsEdit({
               {/* RIGHT: stacked fields, each on its own row with `?` tooltip */}
               <div className="grid gap-1.5">
                 {ta.toolCode === "image_generate" ? (
-                  <FieldRow
-                    label="Model"
-                    tip="Provider model used for image generation. Empty = provider default."
-                  >
-                    <ModelOptionSelect
-                      value={imageGenerateModelKey}
-                      onChange={onImageGenerateModelKeyChange}
-                      options={availableImageModelKeys}
-                      placeholder="default (provider)"
-                      className={modelSelectClasses}
-                    />
-                  </FieldRow>
+                  <>
+                    <FieldRow
+                      label="Primary model"
+                      tip="Default provider model used for image generation. Empty = provider default."
+                    >
+                      <ModelOptionSelect
+                        value={imageGenerateModelKey}
+                        onChange={onImageGenerateModelKeyChange}
+                        options={availableImageModelKeys}
+                        placeholder="default (provider)"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                    <FieldRow
+                      label="Fallback model"
+                      tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
+                    >
+                      <ModelOptionSelect
+                        value={imageGenerateFallbackModelKey}
+                        onChange={onImageGenerateFallbackModelKeyChange}
+                        options={availableImageModelKeys}
+                        placeholder="none"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                  </>
                 ) : null}
                 {ta.toolCode === "image_edit" ? (
-                  <FieldRow
-                    label="Model"
-                    tip="Provider model used for image edits. Empty = provider default."
-                  >
-                    <ModelOptionSelect
-                      value={imageEditModelKey}
-                      onChange={onImageEditModelKeyChange}
-                      options={availableImageModelKeys}
-                      placeholder="default (provider)"
-                      className={modelSelectClasses}
-                    />
-                  </FieldRow>
+                  <>
+                    <FieldRow
+                      label="Primary model"
+                      tip="Default provider model used for image edits. Empty = provider default."
+                    >
+                      <ModelOptionSelect
+                        value={imageEditModelKey}
+                        onChange={onImageEditModelKeyChange}
+                        options={availableImageModelKeys}
+                        placeholder="default (provider)"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                    <FieldRow
+                      label="Fallback model"
+                      tip="Optional fallback for capability-specific cases like transparent background. Empty = skip instead of hard provider failure."
+                    >
+                      <ModelOptionSelect
+                        value={imageEditFallbackModelKey}
+                        onChange={onImageEditFallbackModelKeyChange}
+                        options={availableImageModelKeys}
+                        placeholder="none"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                  </>
                 ) : null}
                 {ta.toolCode === "video_generate" ? (
-                  <FieldRow label="Model" tip={TOOL_FIELD_HELP.videoModel}>
-                    <ModelOptionSelect
-                      value={videoGenerateModelKey}
-                      onChange={onVideoGenerateModelKeyChange}
-                      options={availableVideoModelKeys}
-                      placeholder="default (provider)"
-                      className={modelSelectClasses}
-                    />
-                  </FieldRow>
+                  <>
+                    <FieldRow label="Primary model" tip={TOOL_FIELD_HELP.videoModel}>
+                      <ModelOptionSelect
+                        value={videoGenerateModelKey}
+                        onChange={onVideoGenerateModelKeyChange}
+                        options={availableVideoModelKeys}
+                        placeholder="default (provider)"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                    <FieldRow
+                      label="Fallback model"
+                      tip="Optional backup model for future capability gating or provider restrictions."
+                    >
+                      <ModelOptionSelect
+                        value={videoGenerateFallbackModelKey}
+                        onChange={onVideoGenerateFallbackModelKeyChange}
+                        options={availableVideoModelKeys}
+                        placeholder="none"
+                        className={modelSelectClasses}
+                      />
+                    </FieldRow>
+                  </>
                 ) : null}
                 <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
                   <input
@@ -2298,11 +2364,23 @@ function PlanForm({
           onImageGenerateModelKeyChange={(imageGenerateModelKey) =>
             onPatch({ imageGenerateModelKey })
           }
+          imageGenerateFallbackModelKey={draft.imageGenerateFallbackModelKey}
+          onImageGenerateFallbackModelKeyChange={(imageGenerateFallbackModelKey) =>
+            onPatch({ imageGenerateFallbackModelKey })
+          }
           imageEditModelKey={draft.imageEditModelKey}
           onImageEditModelKeyChange={(imageEditModelKey) => onPatch({ imageEditModelKey })}
+          imageEditFallbackModelKey={draft.imageEditFallbackModelKey}
+          onImageEditFallbackModelKeyChange={(imageEditFallbackModelKey) =>
+            onPatch({ imageEditFallbackModelKey })
+          }
           videoGenerateModelKey={draft.videoGenerateModelKey}
           onVideoGenerateModelKeyChange={(videoGenerateModelKey) =>
             onPatch({ videoGenerateModelKey })
+          }
+          videoGenerateFallbackModelKey={draft.videoGenerateFallbackModelKey}
+          onVideoGenerateFallbackModelKeyChange={(videoGenerateFallbackModelKey) =>
+            onPatch({ videoGenerateFallbackModelKey })
           }
           availableImageModelKeys={availableImageModelKeys}
           availableVideoModelKeys={availableVideoModelKeys}
@@ -2550,9 +2628,18 @@ function PlanCardReadOnly({
               </Sec>
               <Sec label="Media models">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
-                  <div>Image generate: {plan.imageGenerateModelKey ?? "provider default"}</div>
-                  <div>Image edit: {plan.imageEditModelKey ?? "provider default"}</div>
-                  <div>Video generate: {plan.videoGenerateModelKey ?? "provider default"}</div>
+                  <div>
+                    Image generate: {plan.imageGenerateModelKey ?? "provider default"} / fallback{" "}
+                    {plan.imageGenerateFallbackModelKey ?? "none"}
+                  </div>
+                  <div>
+                    Image edit: {plan.imageEditModelKey ?? "provider default"} / fallback{" "}
+                    {plan.imageEditFallbackModelKey ?? "none"}
+                  </div>
+                  <div>
+                    Video generate: {plan.videoGenerateModelKey ?? "provider default"} / fallback{" "}
+                    {plan.videoGenerateFallbackModelKey ?? "none"}
+                  </div>
                 </div>
               </Sec>
               <Sec label="Context policy">

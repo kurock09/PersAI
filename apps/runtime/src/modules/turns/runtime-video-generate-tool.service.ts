@@ -22,6 +22,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { selectMediaModelForRequest } from "./media-model-routing";
 
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
 const DEFAULT_VIDEO_GENERATE_TIMEOUT_MS = 300_000;
@@ -189,7 +190,32 @@ export class RuntimeVideoGenerateToolService {
         isError: false
       };
     }
-    const model = this.resolveVideoGenerateModelKey(credential);
+    const modelSelection = selectMediaModelForRequest({
+      toolCode: VIDEO_GENERATE_TOOL_CODE,
+      credential
+    });
+    if ("reason" in modelSelection) {
+      return {
+        payload: {
+          toolCode: VIDEO_GENERATE_TOOL_CODE,
+          executionMode: "worker",
+          provider: providerId,
+          model: this.resolveVideoGenerateModelKey(credential),
+          prompt: request.prompt,
+          requestedSeconds: request.seconds,
+          size: request.size,
+          referenceImageIndex: request.referenceImageIndex,
+          referenceFilename: null,
+          artifact: null,
+          usage: null,
+          action: "skipped",
+          reason: modelSelection.reason,
+          warning: modelSelection.warning
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
 
     const selection = await this.resolveReferenceImageSelection(
       params.availableAttachments,
@@ -254,13 +280,13 @@ export class RuntimeVideoGenerateToolService {
       const providerResult = await this.providerGatewayClientService.generateVideo(
         {
           prompt: request.prompt,
-          model,
+          model: modelSelection.model,
           size: request.size,
           seconds: request.seconds,
           referenceImage: selection.referenceImage,
           credential: {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
-            secretId: credential.secretRef.id,
+            secretId: modelSelection.credential.secretRef.id,
             providerId
           }
         },
@@ -298,7 +324,7 @@ export class RuntimeVideoGenerateToolService {
           usage: providerResult.usage,
           action: "generated",
           reason: null,
-          warning: providerResult.warning
+          warning: this.mergeWarnings(modelSelection.warning, providerResult.warning)
         },
         artifacts: [artifact],
         isError: false
@@ -636,6 +662,11 @@ export class RuntimeVideoGenerateToolService {
     return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
       ? credential.modelKey.trim()
       : null;
+  }
+
+  private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
+    const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
+    return filtered.length > 0 ? filtered.join(" ") : null;
   }
 
   private normalizeReferenceImageMimeType(mimeType: string): string | null {

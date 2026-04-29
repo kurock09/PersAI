@@ -110,8 +110,11 @@ export type AdminPlanInput = {
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
   imageGenerateModelKey: string | null;
+  imageGenerateFallbackModelKey: string | null;
   imageEditModelKey: string | null;
+  imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
+  videoGenerateFallbackModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
   /**
@@ -154,8 +157,11 @@ export type AdminPlanState = {
   retrievalModelKey: string | null;
   embeddingModelKey: string | null;
   imageGenerateModelKey: string | null;
+  imageGenerateFallbackModelKey: string | null;
   imageEditModelKey: string | null;
+  imageEditFallbackModelKey: string | null;
   videoGenerateModelKey: string | null;
+  videoGenerateFallbackModelKey: string | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations: AdminPlanToolActivation[];
   /** ADR-074 Slice L1 — see `AdminPlanInput.toolBudgets`. */

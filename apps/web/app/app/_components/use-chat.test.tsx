@@ -831,6 +831,146 @@ describe("useChat", () => {
     expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBe("turn-1");
   });
 
+  it("does not replace a live local stream with an empty server activeTurn overlay", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onHeadersOk?: () => void;
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "server-user-active" }
+        });
+        handlers.onDelta?.({ delta: "Already streaming" });
+        await Promise.resolve();
+        await new Promise(() => undefined);
+      }
+    );
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [],
+      activeTurn: {
+        clientTurnId: "turn-live",
+        status: "running",
+        updatedAt: "2026-04-25T17:45:36.000Z",
+        currentActivity: null,
+        pendingUserMessageId: "server-user-active",
+        assistantMessageId: null,
+        chat: null,
+        userMessage: {
+          id: "server-user-active",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "draw",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        assistantMessage: null,
+        canReattach: true
+      }
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      void result.current.send("draw");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (const callback of Array.from(rafCallbacks.values())) {
+        callback(0);
+      }
+    });
+    await waitFor(() =>
+      expect(
+        result.current.messages.some((message) => message.content === "Already streaming")
+      ).toBe(true)
+    );
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(assistantApiMocks.reattachAssistantWebChatTurnStream).not.toHaveBeenCalled();
+    expect(result.current.messages.some((message) => message.content === "Already streaming")).toBe(
+      true
+    );
+    expect(result.current.messages.map((message) => message.id)).not.toContain(
+      "active-assistant-turn-live"
+    );
+  });
+
+  it("ignores stale running activeTurn when committed history already has the final assistant", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-stale");
+    assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+      nextCursor: null,
+      messages: [
+        {
+          id: "server-user-active",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "draw",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        {
+          id: "server-final-assistant",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Done",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:40.000Z"
+        }
+      ],
+      activeTurn: {
+        clientTurnId: "turn-stale",
+        status: "running",
+        updatedAt: "2026-04-25T17:45:36.000Z",
+        currentActivity: null,
+        pendingUserMessageId: "server-user-active",
+        assistantMessageId: null,
+        chat: null,
+        userMessage: {
+          id: "server-user-active",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "draw",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        assistantMessage: null,
+        canReattach: true
+      }
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "server-user-active",
+      "server-final-assistant"
+    ]);
+    expect(window.sessionStorage.getItem("persai.active-web-turn.v1.thread-1")).toBeNull();
+  });
+
   it("retries active turn restore after reload until the server exposes the running turn", async () => {
     vi.useFakeTimers();
     try {

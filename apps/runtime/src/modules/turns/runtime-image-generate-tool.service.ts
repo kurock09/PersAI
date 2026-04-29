@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
   AssistantRuntimeBundleToolCredentialRef
@@ -22,6 +22,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { selectMediaModelForRequest } from "./media-model-routing";
 
 export interface RuntimeImageGenerateToolExecutionResult {
   payload: RuntimeImageGenerateToolResult;
@@ -31,6 +32,8 @@ export interface RuntimeImageGenerateToolExecutionResult {
 
 @Injectable()
 export class RuntimeImageGenerateToolService {
+  private readonly logger = new Logger(RuntimeImageGenerateToolService.name);
+
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
@@ -136,6 +139,36 @@ export class RuntimeImageGenerateToolService {
       };
     }
 
+    const modelSelection = selectMediaModelForRequest({
+      toolCode: "image_generate",
+      credential,
+      background: request.background
+    });
+    if ("reason" in modelSelection) {
+      this.logger.warn(
+        `[image-generate] requestId=${params.requestId} skipped: ${modelSelection.warning}`
+      );
+      return {
+        payload: {
+          toolCode: "image_generate",
+          executionMode: "worker",
+          provider: providerId,
+          model: this.resolveToolModelKey(credential),
+          prompt: request.prompt,
+          revisedPrompt: null,
+          requestedCount: request.count,
+          size: request.size,
+          artifacts: [],
+          usage: null,
+          action: "skipped",
+          reason: modelSelection.reason,
+          warning: modelSelection.warning
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
+
     try {
       // ADR-074 L1.1 — always call the consumer endpoint, even when the
       // plan has no daily cap, so observability counts every billed
@@ -175,13 +208,13 @@ export class RuntimeImageGenerateToolService {
 
       const providerResult = await this.providerGatewayClientService.generateImage({
         prompt: request.prompt,
-        model: this.resolveToolModelKey(credential),
+        model: modelSelection.model,
         count: request.count,
         size: request.size,
         background: request.background,
         credential: {
           toolCode: "image_generate",
-          secretId: credential.secretRef.id,
+          secretId: modelSelection.credential.secretRef.id,
           providerId
         }
       });
@@ -223,7 +256,7 @@ export class RuntimeImageGenerateToolService {
         providerResult.images.find((image) => image.revisedPrompt !== null)?.revisedPrompt ?? null;
       const warning =
         providerResult.images.length === request.count
-          ? providerResult.warning
+          ? this.mergeWarnings(modelSelection.warning, providerResult.warning)
           : `Requested ${String(request.count)} image(s), received ${String(providerResult.images.length)}.`;
       return {
         payload: {
@@ -421,6 +454,11 @@ export class RuntimeImageGenerateToolService {
     return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
       ? credential.modelKey.trim()
       : null;
+  }
+
+  private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
+    const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
+    return filtered.length > 0 ? filtered.join(" ") : null;
   }
 
   private resolveImageGenerateProviderId(

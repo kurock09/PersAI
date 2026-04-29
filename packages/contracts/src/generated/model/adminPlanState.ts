@@ -44,9 +44,15 @@ export interface AdminPlanState {
   /** @nullable */
   imageGenerateModelKey?: string | null;
   /** @nullable */
+  imageGenerateFallbackModelKey?: string | null;
+  /** @nullable */
   imageEditModelKey?: string | null;
   /** @nullable */
+  imageEditFallbackModelKey?: string | null;
+  /** @nullable */
   videoGenerateModelKey?: string | null;
+  /** @nullable */
+  videoGenerateFallbackModelKey?: string | null;
   /** @nullable */
   runtimeTierDefault?: AdminPlanStateRuntimeTierDefault;
   createdAt: string;

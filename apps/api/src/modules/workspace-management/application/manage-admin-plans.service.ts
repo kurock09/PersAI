@@ -345,8 +345,11 @@ export class ManageAdminPlansService {
     ]);
     await this.assertCapabilityModelKeysAvailable([
       { modelKey: input.imageGenerateModelKey, capability: "image" },
+      { modelKey: input.imageGenerateFallbackModelKey, capability: "image" },
       { modelKey: input.imageEditModelKey, capability: "image" },
-      { modelKey: input.videoGenerateModelKey, capability: "video" }
+      { modelKey: input.imageEditFallbackModelKey, capability: "image" },
+      { modelKey: input.videoGenerateModelKey, capability: "video" },
+      { modelKey: input.videoGenerateFallbackModelKey, capability: "video" }
     ]);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
@@ -400,8 +403,11 @@ export class ManageAdminPlansService {
     ]);
     await this.assertCapabilityModelKeysAvailable([
       { modelKey: mergedInput.imageGenerateModelKey, capability: "image" },
+      { modelKey: mergedInput.imageGenerateFallbackModelKey, capability: "image" },
       { modelKey: mergedInput.imageEditModelKey, capability: "image" },
-      { modelKey: mergedInput.videoGenerateModelKey, capability: "video" }
+      { modelKey: mergedInput.imageEditFallbackModelKey, capability: "image" },
+      { modelKey: mergedInput.videoGenerateModelKey, capability: "video" },
+      { modelKey: mergedInput.videoGenerateFallbackModelKey, capability: "video" }
     ]);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
@@ -565,10 +571,22 @@ export class ManageAdminPlansService {
         parsed.imageGenerateModelKey,
         "imageGenerateModelKey"
       ),
+      imageGenerateFallbackModelKey: parseOptionalPlanModelKey(
+        parsed.imageGenerateFallbackModelKey,
+        "imageGenerateFallbackModelKey"
+      ),
       imageEditModelKey: parseOptionalPlanModelKey(parsed.imageEditModelKey, "imageEditModelKey"),
+      imageEditFallbackModelKey: parseOptionalPlanModelKey(
+        parsed.imageEditFallbackModelKey,
+        "imageEditFallbackModelKey"
+      ),
       videoGenerateModelKey: parseOptionalPlanModelKey(
         parsed.videoGenerateModelKey,
         "videoGenerateModelKey"
+      ),
+      videoGenerateFallbackModelKey: parseOptionalPlanModelKey(
+        parsed.videoGenerateFallbackModelKey,
+        "videoGenerateFallbackModelKey"
       ),
       runtimeTierDefault: parseRuntimeTier(parsed.runtimeTierDefault),
       toolBudgets
@@ -676,9 +694,18 @@ export class ManageAdminPlansService {
         ...(input.imageGenerateModelKey !== null
           ? { imageGenerateModelKey: input.imageGenerateModelKey }
           : {}),
+        ...(input.imageGenerateFallbackModelKey !== null
+          ? { imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey }
+          : {}),
         ...(input.imageEditModelKey !== null ? { imageEditModelKey: input.imageEditModelKey } : {}),
+        ...(input.imageEditFallbackModelKey !== null
+          ? { imageEditFallbackModelKey: input.imageEditFallbackModelKey }
+          : {}),
         ...(input.videoGenerateModelKey !== null
           ? { videoGenerateModelKey: input.videoGenerateModelKey }
+          : {}),
+        ...(input.videoGenerateFallbackModelKey !== null
+          ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
           : {}),
         ...(input.runtimeTierDefault !== null
           ? { runtimeTierDefault: input.runtimeTierDefault }
@@ -858,8 +885,17 @@ export class ManageAdminPlansService {
       retrievalModelKey: toNormalizedNonEmptyModelKey(billingHints.retrievalModelKey),
       embeddingModelKey: toNormalizedNonEmptyModelKey(billingHints.embeddingModelKey),
       imageGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.imageGenerateModelKey),
+      imageGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
+        billingHints.imageGenerateFallbackModelKey
+      ),
       imageEditModelKey: toNormalizedNonEmptyModelKey(billingHints.imageEditModelKey),
+      imageEditFallbackModelKey: toNormalizedNonEmptyModelKey(
+        billingHints.imageEditFallbackModelKey
+      ),
       videoGenerateModelKey: toNormalizedNonEmptyModelKey(billingHints.videoGenerateModelKey),
+      videoGenerateFallbackModelKey: toNormalizedNonEmptyModelKey(
+        billingHints.videoGenerateFallbackModelKey
+      ),
       runtimeTierDefault: parseRuntimeTier(billingHints.runtimeTierDefault),
       toolActivations: plan.toolActivations.map((ta) => ({
         toolCode: ta.toolCode,

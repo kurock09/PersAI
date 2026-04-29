@@ -12,7 +12,7 @@ Completed baseline:
 - admin/control-plane/runtime bundle materialization on the native path
 - removal of OpenClaw from the active repo deploy/runtime/control-plane path
 
-ADR-072 is closed for the active migration baseline through Step 18. The active follow-through program now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 is closed as the historical migration ADR. The active continuation program now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Current active program
 
@@ -22,9 +22,9 @@ Primary execution order:
 2. user UI polish on the active native path (`completed`)
 3. memory, knowledge, cache, and model-routing cost architecture (`Slice A`, `Slice B`, and `Slice C` completed on the active path, including the configurable early `turn_routing` layer and smart/deep-mode routing truth)
 4. Step 19 core deploy and operator hardening (`completed`; deploy/restart/pod-replacement recovery is observed on the live dev rollout path, bounded self-healing recovery is landed, and `/admin` `System Overview` now carries honest pod-truth for the active path)
-5. deferred Step 15a native web voice output
-6. Step 20 sandbox and attach-by-ref follow-through (`ready for live test`; local repo truth now has canonical `AssistantFile`, durable multi-pod workspace coordination, clean internal `files` execution including unified `files.send`, explicit `files.delete`, cleaner grouped default `files.list` output, an atomic `files.write_and_send` happy path for create-and-deliver requests, and operator truth aligned with that model, while the final live surface proof is still pending)
-7. final bounded load-readiness proof and rollout-speed follow-through (`planned`; keep one saved pressure proof and any residual convergence cleanup as the very last program step)
+5. mobile shell reliability and rollout (`ADR-078`)
+6. runtime/tool efficiency follow-through (`R2 -> R3`)
+7. background-task verification/test cleanup plus long-tail deferred research (`ADR-078`)
 
 ## Near-term focus
 
@@ -33,7 +33,7 @@ Primary execution order:
 3. If the final pressure-validation step is reopened, require a saved bounded load report and explicit safe-ceiling wording instead of anecdotal "felt fast" evidence
 4. Keep the economics wave honest about the current landed baseline: plan-scoped model slots, a configurable early `turn_routing` layer (deterministic precheck plus optional cheap classifier), smart/deep mode that stays on `premium` / `reasoning` once user-enabled, prompt-cache-first context routing, hybrid knowledge retrieval, plan-managed retrieval budgets, and durable retrieval observability are now real active-path behavior
 5. Treat further knowledge work as follow-through on top of the landed Slice C baseline rather than as unfinished `pattern_only` correction work
-6. Keep the remaining runtime follow-through (`Step 15a`, live Step 20 proof, `max_ru`) behind the active lifecycle/economics baseline, with the final scale-proof tail still last
+6. Keep any remaining follow-through consolidated under ADR-078 instead of reopening closed historical ADR tails
 
 ## Roadmap rule
 

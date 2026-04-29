@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Media model fallback routing) — plan-configured primary/fallback model chains for image/video tools (`apps/api`, `apps/runtime`, `apps/web`, `packages/contracts`; full gate green)
+
+### Why this session
+
+Founder asked to finish the clean fix for media-tool model capability mismatches, so transparent-background image requests would stop failing on `gpt-image-2` and the fallback logic could be configured directly from Admin Plans for image/video tools.
+
+### What changed
+
+- Added new plan contract fields for `imageGenerateFallbackModelKey`, `imageEditFallbackModelKey`, and `videoGenerateFallbackModelKey` alongside the existing media primary model keys; regenerated the checked-in contracts client/types.
+- Admin Plans now show `Primary model` and `Fallback model` selectors for `image_generate`, `image_edit`, and `video_generate`, and the plan DTO/write path persists all six media model fields.
+- Materialization now writes media fallback selections into runtime bundle `toolCredentialRefs.*.fallbacks`, reusing the existing credential-chain shape instead of inventing a second routing system.
+- Added runtime media model routing helper that resolves the first compatible model before provider dispatch. The first active capability gate is transparent-background safety for image tools: if `background="transparent"` targets `gpt-image-2`, runtime either switches to the configured fallback or returns a soft `transparent_background_unsupported_for_model` skip instead of letting the provider error cascade into a broken turn.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-assistant-published-version.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx`
+- `corepack pnpm --filter @persai/runtime exec tsx test/media-model-routing.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run test`
+- `ReadLints` on touched API/runtime/web/contracts files
+
+### Risks / residuals
+
+- The active capability rule is intentionally narrow and denylist-based (`gpt-image-2` transparent background). If another provider/model has a different hard limitation later, extend the same helper instead of scattering checks across tool services.
+- Media fallback selection is plan-level only in this slice. The earlier idea of a separate global Runtime page fallback is still open if founder wants a workspace-wide default on top of per-plan overrides.
+
+### Next recommended step
+
+Live-test one `image_generate` and one `image_edit` request with `background="transparent"` on a plan whose primary image model is `gpt-image-2` and fallback is a compatible GPT image model; verify the turn succeeds, the warning is calm, and the returned artifact keeps alpha when expected.
+
+## 2026-04-29 (ADR program consolidation) — ADR-072..077 archived, ADR-078 becomes the only active continuation backlog
+
+- Founder closed ADR-072 through ADR-077 as historical programs.
+- `Step 15a` is cancelled and is not an active deferred step anymore.
+- Any still-open follow-through now lives only in `docs/ADR/078-consolidated-follow-through-program.md`.
+- Older dated entries below remain historical session records and may still reference the archived ADR numbers.
+
 ## 2026-04-29 (Final chat continuity) — server-owned active turn projection + SSE reattach (`apps/api`, `apps/web`, contracts; focused checks green)
 
 ### Why this session

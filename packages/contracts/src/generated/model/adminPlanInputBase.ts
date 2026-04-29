@@ -43,9 +43,15 @@ export interface AdminPlanInputBase {
   /** @nullable */
   imageGenerateModelKey?: string | null;
   /** @nullable */
+  imageGenerateFallbackModelKey?: string | null;
+  /** @nullable */
   imageEditModelKey?: string | null;
   /** @nullable */
+  imageEditFallbackModelKey?: string | null;
+  /** @nullable */
   videoGenerateModelKey?: string | null;
+  /** @nullable */
+  videoGenerateFallbackModelKey?: string | null;
   /** @nullable */
   runtimeTierDefault?: AdminPlanInputBaseRuntimeTierDefault;
   toolActivations?: AdminPlanToolActivationInput[];

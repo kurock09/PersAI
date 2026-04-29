@@ -2,7 +2,7 @@
 
 This document defines the current verification baseline for the active PersAI-native path.
 
-ADR-072 is closed for the native migration baseline through Step 18. Any follow-through work on create/recreate polish, memory/knowledge economics, Step 19 scale hardening, Step 15a, or Step 20 should also be checked against `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track.
 
 ## Required repo checks
 
@@ -41,7 +41,7 @@ Interpretation rules:
 2. verify forbidden openings are deduped and survive both archetype defaults and prompt-template interpolation
 3. if setup/admin UI changes, verify the user-facing flow persists the real `archetypeKey` and the admin surface can still repair older `soul` templates to the V1 placeholder shape
 4. if publish/materialize logic changes, verify live archetype rows are preferred and `snapshot_voice_dna` remains the deletion fallback instead of becoming a silent primary source
-5. final V1 closure still requires the ADR-074 live smoke pair on `persai-dev` (`emotional-long` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone
+5. final V1-style closure still requires the live smoke pair on `persai-dev` (`emotional-long` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone
 
 ## Step 20 files/sandbox/media focused checks
 
@@ -138,7 +138,7 @@ Interpretation rules:
 3. verify `HydrateMemoryForTurnService` returns the always-on core block plus a relevance-retrieved contextual tail in one call, deduplicates contextual hits against core ids, and bumps `last_used_at` on every hydrated entry — not only on contextual or only on core.
 4. verify the runtime composes two distinct prompt blocks: `durable_memory_core` (always present when any core entries exist, byte-stable across turns) and `durable_memory_contextual` (per-turn relevance, omitted entirely when empty). Folding both back into one block silently breaks the cache invariant.
 5. verify the prompt-cache invariant explicitly: rotating the contextual block content per turn must NOT change the stable token sequence emitted for `durable_memory_core` + `shared_compaction_summary`. This is the M1-vs-P1 contract.
-6. final M1 closure still requires the ADR-074 live smoke pair on `persai-dev` (`multi-session-continuity` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone.
+6. final M1-style closure still requires the live smoke pair on `persai-dev` (`multi-session-continuity` and `chitchat-short`); do not mark the slice fully closed from local unit checks alone.
 
 ## Knowledge/admin focused checks
 

@@ -1,6 +1,6 @@
 # ADR-073: Post-ADR-072 residue and polish program
 
-**Status:** Accepted  
+**Status:** Accepted and closed  
 **Date:** 2026-04-17  
 **Relates to:** ADR-061, ADR-070, ADR-072
 
@@ -14,7 +14,9 @@ That migration closeout leaves three different kinds of work that no longer fit 
 2. product-surface polish on the create/recreate and user UI path
 3. a new cost-versus-quality program for memory, knowledge, caching, model routing, reasoning, and tool execution
 
-ADR-072 remains the historical migration ADR and the source of truth for how the native runtime replacement landed. ADR-073 becomes the active program ADR for everything that remains after the native baseline is already live.
+ADR-072 remains the historical migration ADR and the source of truth for how the native runtime replacement landed. ADR-073 originally became the active program ADR for everything that remained after the native baseline went live.
+
+**2026-04-29 closure note:** ADR-073 is now archival. Its landed lifecycle/UI/economics/scale work is treated as closed history, `Step 15a` is cancelled rather than deferred, and any still-open successor backlog now lives only in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 In the cost-and-quality sections below, **Skipper** means the user-facing assistant experience running on this PersAI-native control-plane/runtime stack.
 
@@ -39,18 +41,10 @@ The following residuals are governed here, with current status called out explic
   - published, materialized, and warmed runtime states now stay meaningfully separated on the active runtime path
   - runtime/provider recovery now has a bounded self-healing path instead of failing closed into a routine manual mass reapply expectation
   - admin `System Overview` is now the honest operator surface for current discovered pod count, status/readiness, and fleet pressure truth on the active path
-- **final bounded load-readiness and rollout-speed follow-through** (`planned`, last step)
-  - the native `api -> runtime -> provider-gateway` path still needs one bounded saved production-pressure proof rather than anecdotal “it feels fine” evidence
-  - any remaining rollout-speed or image-pull convergence cleanup should stay here because it no longer blocks ordinary deploy/restart recovery truth
-- **Step 15a - native web TTS streaming/output**
-  - channel voice output remains deferred and separate from the explicit `tts` tool
-- **Step 20 - isolated sandbox service**
-  - local code now already includes `apps/sandbox/*`, the sandbox file/process tool family, canonical `AssistantFile` authority, durable multi-pod workspace coordination, clean internal `files` execution including unified `files.send`, explicit `files.delete`, cleaner grouped file-list output, the atomic `files.write_and_send` create-and-deliver path, delivery-honesty correction when no artifact actually reached the turn result, guardrail enforcement, and admin/operator truth
-  - the remaining honest closure for this item is live dev proof on a real surface plus any later assistant-level Files API/UI and attach-by-ref successor cleanup
-- **post-Step-20 attach-by-ref follow-through**
-  - any successor to `persai_workspace_attach` must be attach-by-ref over a real file authority boundary
-- **`max_ru` follow-through**
-  - the contract exists, but the delivery/runtime adapter program is still incomplete
+- These items are no longer governed here as active backlog.
+- Verified closeout work from this section is treated as completed historical program work.
+- `Step 15a` is cancelled.
+- Any still-open successor follow-through is tracked only in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ### 3. Create/recreate path audit
 
@@ -94,10 +88,10 @@ Boundary changes from this wave:
 - `docs/API-BOUNDARY.md` adds the hard-stop route and pins the soft-detach contract on the stream route.
 - The runtime tool-result wire format for LLM-visible JSON is now defined as "redacted artifact shape" rather than "raw runtime payload"; the storage-side shape is unchanged.
 
-Known residuals tracked under this section:
+Historical residual note:
 
-- Multi-replica `WebChatTurnHardStopRegistry` routing. Today the registry is process-local: a Stop POST that lands on the wrong replica returns 204 (idempotent) but does not dispatch the abort, and the client's local SSE-socket teardown becomes the only effective stop signal — strictly no worse than pre-Slice-1.2 behavior. A sticky-session or pubsub fanout solution is deferred until multi-replica web-chat traffic is real.
-- Live SSE re-attach after soft-detach. Slice 1.3 closes the practical UX gap by refreshing committed history on browser resume, but it still does not reattach to an in-flight SSE stream and replay live deltas while the turn is still running. A future slice may add an explicit SSE re-attach endpoint if live-progress continuity after reconnection becomes important.
+- Multi-replica hard-stop/reattach fanout remains the only meaningful successor concern from this section.
+- The original "future SSE re-attach" residual is now historical wording: active API/web truth already includes explicit SSE reattach on the native web-chat path.
 
 2026-04-27 reliability follow-through:
 
@@ -166,9 +160,9 @@ The active order after ADR-072 Step 18 is:
 2. user UI polish
 3. memory, knowledge, cache, and model-routing economics
 4. Step 19 core deploy/operator hardening
-5. deferred channel voice output (`Step 15a`)
-6. deferred sandbox/file-authority program (`Step 20`)
-7. final bounded load-readiness and rollout-speed follow-through
+5. cancelled channel voice output (`Step 15a`)
+6. closed sandbox/file-authority program (`Step 20`)
+7. any still-open successor follow-through moves to ADR-078
 
 The system must not jump to sandbox or other late-stage capabilities before the user lifecycle, cost architecture, and core deploy/operator scale semantics are honest on the active path.
 
@@ -503,8 +497,7 @@ These are valuable but not first-wave blockers:
 - broader admin diagnostics for runtime/routing behavior
 - more sophisticated rerank and retrieval-quality telemetry
 - deeper tool-runner isolation and specialization
-- `Step 15a` native web voice output
-- `Step 20` sandbox live-proof and attach-by-ref follow-through
+- any successor backlog now consolidated in ADR-078
 - `max_ru` delivery/runtime adapter completion
 
 ## Non-goals
@@ -528,9 +521,9 @@ ADR-073 does not:
 | Knowledge correction and retrieval-model path | completed   | Active retrieval now publishes `hybrid`, private/global knowledge use bounded lexical plus vector retrieval with plan-managed helper/budget policy, and durable admin-visible observability plus global-write governance are landed on the active path                                                                                                                                                                                                                                |
 | Hidden system/tool model and turn economics   | completed   | Hidden utility-model routing plus per-call `input` / `cached input` / `output` accounting are now first-class on the active path                                                                                                                                                                                                                                                                                                                                                      |
 | Step 19 core deploy/operator hardening        | completed   | Deploy/restart/pod-replacement recovery is now observed on the live dev rollout path without routine fleet-wide manual `reapply all`, bounded runtime self-healing is landed on the active path, and `/admin` `System Overview` now provides the current honest pod-status/readiness operator surface                                                                                                                                                                                 |
-| Step 15a native web TTS output                | deferred    | Not part of the first active polish/economics wave                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Step 20 isolated sandbox                      | in_progress | Local sandbox/fileRef/files-send baseline, explicit `files.delete`, cleaner grouped file-list output, the atomic `files.write_and_send` happy path, delivery-honesty fail-closed correction, enforcement, operator truth, and dev deploy wiring are now landing; the remaining honest closure is one live `sandbox -> fileRef or write_and_send -> user receives file` proof plus later attach-by-ref follow-through                                                                  |
-| Final bounded load-readiness follow-through   | planned     | One saved bounded production-pressure proof plus any remaining rollout-speed/image-pull cleanup stays as the last program step because it no longer blocks ordinary deploy recovery or current operator truth                                                                                                                                                                                                                                                                         |
+| Step 15a native web TTS output                | completed   | Cancelled on 2026-04-29; no longer active backlog                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Step 20 isolated sandbox                      | completed   | Closed as historical program work; any successor follow-through now lives only in ADR-078                                                                                                                                                                                                                                                                                                                                                                                              |
+| Final bounded load-readiness follow-through   | completed   | Closed under the archived ADR-073 program; any future successor scaling work should open only through ADR-078                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Consequences
 
@@ -547,9 +540,9 @@ ADR-073 does not:
 - several areas now become explicitly acknowledged gaps rather than implicit assumptions
 - the team must avoid pretending that pattern-only retrieval, current routing, or current setup UX already equal the desired final state
 
-## Universal continuation prompt
+## Historical continuation prompt
 
-Use the prompt below to resume this ADR program in a new session.
+This prompt is retained only as archive material for past ADR-073 sessions. It is not the active continuation prompt anymore.
 
 ```text
 Continue work on `docs/ADR/073-post-adr072-residue-and-polish-program.md` as the active post-ADR-072 program ADR for `C:\Users\alex\Documents\PersAI`.

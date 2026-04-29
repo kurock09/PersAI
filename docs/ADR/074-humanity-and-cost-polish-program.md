@@ -1,6 +1,6 @@
 # ADR-074: Humanity and cost polish program (post-ADR-073, founder-driven)
 
-**Status:** Accepted
+**Status:** Accepted and closed
 **Date:** 2026-04-20
 **Relates to:** ADR-061, ADR-070, ADR-072, ADR-073
 **Origin:** structured founder interview (13 questions) on token cost optimization, assistant quality, and human-likeness, conducted on 2026-04-20.
@@ -17,6 +17,8 @@ ADR-074 is **scoped to two anchored product goals**:
 The remaining slices are not architectural; they are bounded and tunable on top of ADR-073's landed baseline. ADR-074 captures the founder's explicit choices, the four sticky principles those choices implied, and a phased execution stack that any single agent can pick up from one slice without re-reading the whole interview.
 
 ADR-074 is the agent-resumable execution document. ADR-073 remains the program ADR. ADR-072 remains the historical migration ADR.
+
+**2026-04-29 closure note:** ADR-074 is now archival. Landed slices remain historical truth; the still-open tool-efficiency and deferred-research follow-through moved to `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Founder principles (sticky across all slices)
 
@@ -445,7 +447,7 @@ M2 acceptance is measured against the founder's existing `persai-dev` `Custom` p
 
 ### Slice M3 — Cross-session continuity (last-session synopsis, 7-day TTL)
 
-**Status — code-landed in code (2026-04-22 late evening), awaiting `persai-dev` smoke acceptance + founder live UI gate:**
+**Status — closed / live-accepted on `persai-dev` (historical closeout; see later M3.1 / M3.2 / M3.3 entries and handoff/changelog truth).**
 
 The M3 behavioural surface is now in code on top of the M2 closeout that landed earlier the same day. Every M3 hard constraint from the handoff prompt is satisfied: the carry-over is fully cross-channel within the configured TTL (a Web synopsis surfaces in a fresh Telegram thread and vice versa — no surface-channel filter, this is the headline UTP), it fires only on turn 1 of a brand-new thread (`thread.turnCount === 0` detected structurally as "no prior hydratable messages"), the TTL is plan-policy-tunable as `crossSessionCarryOverTtlDays` on `RuntimeContextHydrationConfig` (default `7`, validated `1..90`, mirrored into all three preset defaults `lean`/`balanced`/`rich`, editable per-plan in `/admin/plans` alongside `compactionTriggerThreshold`/`autoCompactionWeb`, never user-facing), the top-N is a hard-coded code constant `MAX_CARRY_OVER_SYNOPSES = 3` (NOT plan-policy-tunable), the carry-over block is its own stable-block family with a content-hash-driven cache key so the new family does not bust the existing cached prefix from P1/M1/M2, open-loop selection runs the partial-index lookup (`kind = 'open_loop' AND memory_class = 'contextual' AND resolved_at IS NULL`, capped at 10 most-recent), and **two close paths land together (Level-2 strategy)** — implicit close-by-overwrite via `WriteAssistantMemoryService` (sets `resolved_at = now()` on a matched existing `open_loop` row whenever the dedup query finds one, regardless of the new write's `kind`), plus opt-in explicit close via the new `closeOpenLoop: boolean` (default `false`) input on the `memory_write` tool which, when `true`, calls a new internal endpoint `POST /api/v1/internal/runtime/memory/close-most-similar-open-loop` that lexically token-overlap matches active open loops for `(assistantId, userId)` (no-match is non-fatal). The carry-over block contains the founder's "магия в автобусе" usage rules **inline** (rendered as the last section of the same stable block, so when the block is absent on turn 2+ the rules are absent too — no per-turn token tax for an artifact that only applies to the cold-open turn). No user-facing UI anywhere; the only new admin surface is the numeric TTL input in `/admin/plans`.
 
@@ -1282,7 +1284,7 @@ Phase 4 (tool loop tuning):
 
 Phase 1 should be completed before Phase 2 (cache discipline before adding more context). Phase 2 and Phase 3 are independent and can run as two parallel streams. Phase 4 is independent of Phase 2/3 and can run in its own stream.
 
-## Out of scope (deferred to later ADRs)
+## Out of scope (now carried only in ADR-078 when still relevant)
 
 - **Q11-C — LLM-judge quality scoring** in smoke harness. Do not implement until S0 is stable for at least 2 weeks of active use.
 - **Q12-C — Per-user multi-level cache key.** Only consider after P1 numbers are validated and a real ceiling is observed.
@@ -1291,7 +1293,7 @@ Phase 1 should be completed before Phase 2 (cache discipline before adding more 
 - **Q8-C — Sticky routing per session.** Founder explicitly chose to keep current routing; revisit only if S0 numbers reveal a clear waste pattern.
 - **Tasks Center / Memory Center UX overhaul.** Outside this program; lifecycle UX work tracked in ADR-073 follow-throughs.
 
-## Universal agent handoff prompt
+## Historical agent handoff prompt
 
 > You are picking up implementation work on PersAI's ADR-074 humanity-and-cost polish program. ADR-074 lives at `docs/ADR/074-humanity-and-cost-polish-program.md`. The program currently ships 12 active slices (S0, P1, V1, M1, M2, M3, T1, T2, L1, L1.1, R2, R3) plus M3 spin-offs (M3.1 / M3.2 / M3.3) organized in 4 phases. Slice R1 was cancelled — superseded by L1.1; do not implement it. Each slice in the ADR is self-contained: goal, touch points, implementation outline, acceptance criteria, out of scope, and a per-slice handoff prompt.
 >

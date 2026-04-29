@@ -6307,10 +6307,19 @@ components:
         imageGenerateModelKey:
           type: string
           nullable: true
+        imageGenerateFallbackModelKey:
+          type: string
+          nullable: true
         imageEditModelKey:
           type: string
           nullable: true
+        imageEditFallbackModelKey:
+          type: string
+          nullable: true
         videoGenerateModelKey:
+          type: string
+          nullable: true
+        videoGenerateFallbackModelKey:
           type: string
           nullable: true
         runtimeTierDefault:
@@ -6477,10 +6486,19 @@ components:
         imageGenerateModelKey:
           type: string
           nullable: true
+        imageGenerateFallbackModelKey:
+          type: string
+          nullable: true
         imageEditModelKey:
           type: string
           nullable: true
+        imageEditFallbackModelKey:
+          type: string
+          nullable: true
         videoGenerateModelKey:
+          type: string
+          nullable: true
+        videoGenerateFallbackModelKey:
           type: string
           nullable: true
         runtimeTierDefault:

@@ -74,7 +74,12 @@ function createPlanState(): AdminPlanState {
     reasoningModelKey: "gpt-5.4-mini",
     retrievalModelKey: "gpt-5.4-nano",
     embeddingModelKey: "text-embedding-3-small",
+    imageGenerateModelKey: "gpt-image-2",
+    imageGenerateFallbackModelKey: "gpt-image-1.5",
+    imageEditModelKey: "gpt-image-2",
+    imageEditFallbackModelKey: "gpt-image-1.5",
     videoGenerateModelKey: "sora-2-pro",
+    videoGenerateFallbackModelKey: "sora-2",
     runtimeTierDefault: "paid_shared_restricted",
     contextPolicy: {
       preset: "balanced",
@@ -113,16 +118,26 @@ function createPlanState(): AdminPlanState {
 }
 
 describe("admin plans page helpers", () => {
-  it("maps videoGenerateModelKey between plan state and payload", () => {
+  it("maps media fallback model keys between plan state and payload", () => {
     const draft = planToDraft(createPlanState());
+    expect(draft.imageGenerateModelKey).toBe("gpt-image-2");
+    expect(draft.imageGenerateFallbackModelKey).toBe("gpt-image-1.5");
+    expect(draft.imageEditModelKey).toBe("gpt-image-2");
+    expect(draft.imageEditFallbackModelKey).toBe("gpt-image-1.5");
     expect(draft.videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draft.videoGenerateFallbackModelKey).toBe("sora-2");
     expect(draft.knowledgeStorageMb).toBe("128");
     expect(draft.sharedCompactionSummaryBudgetTokens).toBe("");
     expect(draft.premiumModelKey).toBe("gpt-5.4");
     expect(draft.reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draft.retrievalModelKey).toBe("gpt-5.4-nano");
 
+    expect(draftToPayload(draft).imageGenerateModelKey).toBe("gpt-image-2");
+    expect(draftToPayload(draft).imageGenerateFallbackModelKey).toBe("gpt-image-1.5");
+    expect(draftToPayload(draft).imageEditModelKey).toBe("gpt-image-2");
+    expect(draftToPayload(draft).imageEditFallbackModelKey).toBe("gpt-image-1.5");
     expect(draftToPayload(draft).videoGenerateModelKey).toBe("sora-2-pro");
+    expect(draftToPayload(draft).videoGenerateFallbackModelKey).toBe("sora-2");
     expect(draftToPayload(draft).quotaLimits?.knowledgeStorageBytesLimit).toBe(128 * 1024 * 1024);
     expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
@@ -139,8 +154,10 @@ describe("admin plans page helpers", () => {
     expect(
       draftToPayload({
         ...draft,
-        videoGenerateModelKey: ""
-      }).videoGenerateModelKey
+        imageGenerateFallbackModelKey: "",
+        videoGenerateModelKey: "",
+        videoGenerateFallbackModelKey: ""
+      }).videoGenerateFallbackModelKey
     ).toBeNull();
   });
 
@@ -159,10 +176,12 @@ describe("admin plans page helpers", () => {
     expect(() => draftToPayload(invalid)).toThrow(/Default results is required/);
   });
 
-  it("renders media model selects for image and video rows", () => {
+  it("renders primary and fallback media model selects for image and video rows", () => {
     const onImageGenerateModelKeyChange = vi.fn();
+    const onImageGenerateFallbackModelKeyChange = vi.fn();
     const onImageEditModelKeyChange = vi.fn();
     const onVideoGenerateModelKeyChange = vi.fn();
+    const onVideoGenerateFallbackModelKeyChange = vi.fn();
 
     render(
       <ToolActivationsEdit
@@ -184,16 +203,35 @@ describe("admin plans page helpers", () => {
             active: true,
             dailyCallLimit: 5,
             perTurnCap: null
+          },
+          {
+            toolCode: "image_edit",
+            displayName: "Image Edit",
+            toolClass: "cost_driving",
+            policyClass: "plan_managed",
+            active: true,
+            dailyCallLimit: 5,
+            perTurnCap: null
           }
         ]}
         onUpdate={() => {}}
-        imageGenerateModelKey="gpt-image-1.5"
+        imageGenerateModelKey="gpt-image-2"
         onImageGenerateModelKeyChange={onImageGenerateModelKeyChange}
-        imageEditModelKey=""
+        imageGenerateFallbackModelKey="gpt-image-1.5"
+        onImageGenerateFallbackModelKeyChange={onImageGenerateFallbackModelKeyChange}
+        imageEditModelKey="gpt-image-1"
         onImageEditModelKeyChange={onImageEditModelKeyChange}
+        imageEditFallbackModelKey=""
+        onImageEditFallbackModelKeyChange={vi.fn()}
         videoGenerateModelKey="sora-2-pro"
         onVideoGenerateModelKeyChange={onVideoGenerateModelKeyChange}
-        availableImageModelKeys={[{ provider: "openai", model: "gpt-image-1.5" }]}
+        videoGenerateFallbackModelKey="sora-2"
+        onVideoGenerateFallbackModelKeyChange={onVideoGenerateFallbackModelKeyChange}
+        availableImageModelKeys={[
+          { provider: "openai", model: "gpt-image-1" },
+          { provider: "openai", model: "gpt-image-1.5" },
+          { provider: "openai", model: "gpt-image-2" }
+        ]}
         availableVideoModelKeys={[
           { provider: "openai", model: "sora-2" },
           { provider: "openai", model: "sora-2-pro" }
@@ -201,12 +239,22 @@ describe("admin plans page helpers", () => {
       />
     );
 
-    expect(screen.getAllByText("Model")).toHaveLength(2);
-    const imageSelect = screen.getByDisplayValue("gpt-image-1.5");
+    expect(screen.getAllByText("Primary model")).toHaveLength(3);
+    expect(screen.getAllByText("Fallback model")).toHaveLength(3);
+    const imageSelect = screen.getByDisplayValue("gpt-image-2");
     fireEvent.change(imageSelect, { target: { value: "" } });
     expect(onImageGenerateModelKeyChange).toHaveBeenCalledWith("");
+    const imageFallbackSelect = screen.getByDisplayValue("gpt-image-1.5");
+    fireEvent.change(imageFallbackSelect, { target: { value: "" } });
+    expect(onImageGenerateFallbackModelKeyChange).toHaveBeenCalledWith("");
+    const imageEditPrimarySelect = screen.getByDisplayValue("gpt-image-1");
+    fireEvent.change(imageEditPrimarySelect, { target: { value: "gpt-image-1.5" } });
+    expect(onImageEditModelKeyChange).toHaveBeenCalledWith("gpt-image-1.5");
     const select = screen.getByDisplayValue("sora-2-pro");
     fireEvent.change(select, { target: { value: "sora-2" } });
     expect(onVideoGenerateModelKeyChange).toHaveBeenCalledWith("sora-2");
+    const fallbackSelects = screen.getAllByDisplayValue("sora-2");
+    fireEvent.change(fallbackSelects.at(-1)!, { target: { value: "" } });
+    expect(onVideoGenerateFallbackModelKeyChange).toHaveBeenCalledWith("");
   });
 });

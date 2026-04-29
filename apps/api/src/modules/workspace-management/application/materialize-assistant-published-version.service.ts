@@ -301,12 +301,24 @@ export class MaterializeAssistantPublishedVersionService {
     const rawPlanImageGenerateModelKey = await this.resolvePlanImageGenerateModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
+    const rawPlanImageGenerateFallbackModelKey =
+      await this.resolvePlanImageGenerateFallbackModelKey(
+        effectiveCapabilities.derivedFrom.planCode
+      );
     const planImageGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile,
       planModelKey: rawPlanImageGenerateModelKey,
       capability: "image"
     });
+    const planImageGenerateFallbackModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanImageGenerateFallbackModelKey,
+      capability: "image"
+    });
     const rawPlanImageEditModelKey = await this.resolvePlanImageEditModelKey(
+      effectiveCapabilities.derivedFrom.planCode
+    );
+    const rawPlanImageEditFallbackModelKey = await this.resolvePlanImageEditFallbackModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
     const planImageEditModelKey = resolveAllowedPlanCapabilityModelKey({
@@ -314,12 +326,26 @@ export class MaterializeAssistantPublishedVersionService {
       planModelKey: rawPlanImageEditModelKey,
       capability: "image"
     });
+    const planImageEditFallbackModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanImageEditFallbackModelKey,
+      capability: "image"
+    });
     const rawPlanVideoGenerateModelKey = await this.resolvePlanVideoGenerateModelKey(
       effectiveCapabilities.derivedFrom.planCode
     );
+    const rawPlanVideoGenerateFallbackModelKey =
+      await this.resolvePlanVideoGenerateFallbackModelKey(
+        effectiveCapabilities.derivedFrom.planCode
+      );
     const planVideoGenerateModelKey = resolveAllowedPlanCapabilityModelKey({
       runtimeProviderProfile,
       planModelKey: rawPlanVideoGenerateModelKey,
+      capability: "video"
+    });
+    const planVideoGenerateFallbackModelKey = resolveAllowedPlanCapabilityModelKey({
+      runtimeProviderProfile,
+      planModelKey: rawPlanVideoGenerateFallbackModelKey,
       capability: "video"
     });
     if (rawPlanPrimaryModelKey !== null && planPrimaryModelKey === null) {
@@ -347,14 +373,35 @@ export class MaterializeAssistantPublishedVersionService {
         `Skipping stale plan image-generate model "${rawPlanImageGenerateModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
       );
     }
+    if (
+      rawPlanImageGenerateFallbackModelKey !== null &&
+      planImageGenerateFallbackModelKey === null
+    ) {
+      this.logger.warn(
+        `Skipping stale plan image-generate fallback model "${rawPlanImageGenerateFallbackModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
+      );
+    }
     if (rawPlanImageEditModelKey !== null && planImageEditModelKey === null) {
       this.logger.warn(
         `Skipping stale plan image-edit model "${rawPlanImageEditModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
       );
     }
+    if (rawPlanImageEditFallbackModelKey !== null && planImageEditFallbackModelKey === null) {
+      this.logger.warn(
+        `Skipping stale plan image-edit fallback model "${rawPlanImageEditFallbackModelKey}" for assistant ${assistant.id}; it is no longer present in the active runtime image catalog.`
+      );
+    }
     if (rawPlanVideoGenerateModelKey !== null && planVideoGenerateModelKey === null) {
       this.logger.warn(
         `Skipping stale plan video model "${rawPlanVideoGenerateModelKey}" for assistant ${assistant.id}; it is not supported by the active runtime video catalog.`
+      );
+    }
+    if (
+      rawPlanVideoGenerateFallbackModelKey !== null &&
+      planVideoGenerateFallbackModelKey === null
+    ) {
+      this.logger.warn(
+        `Skipping stale plan video fallback model "${rawPlanVideoGenerateFallbackModelKey}" for assistant ${assistant.id}; it is not supported by the active runtime video catalog.`
       );
     }
     if (
@@ -436,8 +483,11 @@ export class MaterializeAssistantPublishedVersionService {
     const toolCredentialRefs = await this.resolveToolCredentialRefs({
       voiceProfile,
       imageGenerateModelKey: planImageGenerateModelKey,
+      imageGenerateFallbackModelKey: planImageGenerateFallbackModelKey,
       imageEditModelKey: planImageEditModelKey,
-      videoGenerateModelKey: planVideoGenerateModelKey
+      imageEditFallbackModelKey: planImageEditFallbackModelKey,
+      videoGenerateModelKey: planVideoGenerateModelKey,
+      videoGenerateFallbackModelKey: planVideoGenerateFallbackModelKey
     });
     const planToolQuotaPolicy = await this.resolveToolQuotaPolicy(effectivePlanCode);
     const promptTemplateRows = await this.loadPromptTemplateRows();
@@ -676,8 +726,11 @@ export class MaterializeAssistantPublishedVersionService {
   private async resolveToolCredentialRefs(input: {
     voiceProfile: AssistantRuntimeBundle["persona"]["voiceProfile"];
     imageGenerateModelKey: string | null;
+    imageGenerateFallbackModelKey: string | null;
     imageEditModelKey: string | null;
+    imageEditFallbackModelKey: string | null;
     videoGenerateModelKey: string | null;
+    videoGenerateFallbackModelKey: string | null;
   }): Promise<AssistantRuntimeBundle["governance"]["toolCredentialRefs"]> {
     const keyMetadata = await this.platformRuntimeProviderSecretStoreService.loadKeyMetadataByKeys(
       ALL_TOOL_CREDENTIAL_KEYS as unknown as string[]
@@ -709,15 +762,24 @@ export class MaterializeAssistantPublishedVersionService {
     if (imageCredentialRef) {
       refs.image_generate = {
         ...imageCredentialRef,
-        ...(input.imageGenerateModelKey !== null ? { modelKey: input.imageGenerateModelKey } : {})
+        ...(input.imageGenerateModelKey !== null ? { modelKey: input.imageGenerateModelKey } : {}),
+        ...this.buildMediaModelFallbackPatch(
+          imageCredentialRef,
+          input.imageGenerateFallbackModelKey
+        )
       };
       refs.image_edit = {
         ...this.cloneToolCredentialRef(imageCredentialRef),
-        ...(input.imageEditModelKey !== null ? { modelKey: input.imageEditModelKey } : {})
+        ...(input.imageEditModelKey !== null ? { modelKey: input.imageEditModelKey } : {}),
+        ...this.buildMediaModelFallbackPatch(imageCredentialRef, input.imageEditFallbackModelKey)
       };
       refs.video_generate = {
         ...this.cloneToolCredentialRef(imageCredentialRef),
-        ...(input.videoGenerateModelKey !== null ? { modelKey: input.videoGenerateModelKey } : {})
+        ...(input.videoGenerateModelKey !== null ? { modelKey: input.videoGenerateModelKey } : {}),
+        ...this.buildMediaModelFallbackPatch(
+          imageCredentialRef,
+          input.videoGenerateFallbackModelKey
+        )
       };
     }
     refs.tts = this.buildTtsToolCredentialRef(
@@ -742,6 +804,26 @@ export class MaterializeAssistantPublishedVersionService {
             }))
           }
         : {})
+    };
+  }
+
+  private buildMediaModelFallbackPatch(
+    ref: AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string],
+    fallbackModelKey: string | null
+  ):
+    | Pick<AssistantRuntimeBundle["governance"]["toolCredentialRefs"][string], "fallbacks">
+    | Record<never, never> {
+    if (fallbackModelKey === null) {
+      return {};
+    }
+    const fallback = this.cloneToolCredentialRef(ref);
+    return {
+      fallbacks: [
+        {
+          ...fallback,
+          modelKey: fallbackModelKey
+        }
+      ]
     };
   }
 
@@ -815,8 +897,11 @@ export class MaterializeAssistantPublishedVersionService {
       | "reasoningModelKey"
       | "retrievalModelKey"
       | "imageGenerateModelKey"
+      | "imageGenerateFallbackModelKey"
       | "imageEditModelKey"
+      | "imageEditFallbackModelKey"
       | "videoGenerateModelKey"
+      | "videoGenerateFallbackModelKey"
   ): Promise<string | null> {
     if (planCode === null) {
       return null;
@@ -846,8 +931,26 @@ export class MaterializeAssistantPublishedVersionService {
     return this.resolvePlanBillingHintString(planCode, "imageEditModelKey");
   }
 
+  private async resolvePlanImageGenerateFallbackModelKey(
+    planCode: string | null
+  ): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "imageGenerateFallbackModelKey");
+  }
+
+  private async resolvePlanImageEditFallbackModelKey(
+    planCode: string | null
+  ): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "imageEditFallbackModelKey");
+  }
+
   private async resolvePlanVideoGenerateModelKey(planCode: string | null): Promise<string | null> {
     return this.resolvePlanBillingHintString(planCode, "videoGenerateModelKey");
+  }
+
+  private async resolvePlanVideoGenerateFallbackModelKey(
+    planCode: string | null
+  ): Promise<string | null> {
+    return this.resolvePlanBillingHintString(planCode, "videoGenerateFallbackModelKey");
   }
 
   private async resolvePlanRuntimeTierDefault(

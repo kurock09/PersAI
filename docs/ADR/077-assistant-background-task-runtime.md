@@ -2,11 +2,15 @@
 
 ## Status
 
-Accepted
+Accepted and closed
 
 ## Date
 
 2026-04-26
+
+## Closure note
+
+As of 2026-04-29, ADR-077 is archival. The reminder/background-task split, run-history model, evaluator path, and preferred-channel delivery architecture are treated as closed historical truth. Any remaining final verification or cleanup follow-through now lives only in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Context
 

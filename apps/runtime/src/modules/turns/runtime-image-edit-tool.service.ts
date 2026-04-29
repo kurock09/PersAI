@@ -21,6 +21,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import { selectMediaModelForRequest } from "./media-model-routing";
 
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const SECOND_IMAGE_REFERENCE_PROMPT_MARKERS = [
@@ -224,6 +225,39 @@ export class RuntimeImageEditToolService {
       };
     }
 
+    const modelSelection = selectMediaModelForRequest({
+      toolCode: "image_edit",
+      credential,
+      background: request.background
+    });
+    if ("reason" in modelSelection) {
+      this.logger.warn(
+        `[image-edit] requestId=${params.requestId} skipped: ${modelSelection.warning}`
+      );
+      return {
+        payload: {
+          toolCode: "image_edit",
+          executionMode: "worker",
+          provider: providerId,
+          model: this.resolveToolModelKey(credential),
+          prompt: request.prompt,
+          revisedPrompt: null,
+          sourceImageIndex: request.sourceImageIndex,
+          referenceImageIndex: request.referenceImageIndex,
+          sourceFilename: null,
+          referenceFilename: null,
+          size: request.size,
+          artifacts: [],
+          usage: null,
+          action: "skipped",
+          reason: modelSelection.reason,
+          warning: modelSelection.warning
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
+
     const selection = await this.resolveImageSelection(params.availableAttachments, request);
     if (!selection.ok) {
       return {
@@ -284,14 +318,14 @@ export class RuntimeImageEditToolService {
 
       const providerResult = await this.providerGatewayClientService.editImage({
         prompt: request.prompt,
-        model: this.resolveToolModelKey(credential),
+        model: modelSelection.model,
         size: request.size,
         background: request.background,
         sourceImage: selection.sourceImage,
         referenceImage: selection.referenceImage,
         credential: {
           toolCode: "image_edit",
-          secretId: credential.secretRef.id,
+          secretId: modelSelection.credential.secretRef.id,
           providerId
         }
       });
@@ -364,7 +398,7 @@ export class RuntimeImageEditToolService {
           usage: providerResult.usage,
           action: "generated",
           reason: null,
-          warning: providerResult.warning
+          warning: this.mergeWarnings(modelSelection.warning, providerResult.warning)
         },
         artifacts,
         isError: false
@@ -741,6 +775,11 @@ export class RuntimeImageEditToolService {
     return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
       ? credential.modelKey.trim()
       : null;
+  }
+
+  private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {
+    const filtered = warnings.filter((warning): warning is string => typeof warning === "string");
+    return filtered.length > 0 ? filtered.join(" ") : null;
   }
 
   private resolveImageEditProviderId(

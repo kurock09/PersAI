@@ -4,7 +4,7 @@ This document describes the current active PersAI request boundaries.
 
 For exact request and response schemas, use `packages/contracts/openapi.yaml` and the generated client/types in `packages/contracts/src/generated`.
 
-ADR-072 is closed for the active migration baseline through Step 18. Current follow-through after that native-path baseline is tracked in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 is closed as the historical native migration ADR. Current continuation work is tracked in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Public product APIs
 
@@ -16,11 +16,11 @@ Primary public API surface:
 - admin routes under `/api/v1/admin/*`
 - Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
-- admin runtime-provider settings expose both the legacy chat-model alias `availableModelsByProvider` and the capability-aware `availableModelCatalogByProvider` (`chat`, `image`, `video` per provider). Plan admin payloads may select `primaryModelKey`, `imageGenerateModelKey`, `imageEditModelKey`, and `videoGenerateModelKey`; media model keys are validated against the runtime-provider catalog during plan writes and materialized into runtime tool credential refs.
-- single-batch web bootstrap: `GET /api/v1/app/bootstrap` (ADR-076 Slice 3) — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
+- admin runtime-provider settings expose both the legacy chat-model alias `availableModelsByProvider` and the capability-aware `availableModelCatalogByProvider` (`chat`, `image`, `video` per provider). Plan admin payloads may select `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`; media model keys are validated against the runtime-provider catalog during plan writes and materialized into runtime tool credential refs with optional fallback chains.
+- single-batch web bootstrap: `GET /api/v1/app/bootstrap` — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
 - Telegram webhook under `/telegram-webhook/*`
 
-### Avatar pipeline (ADR-076 Slice 4)
+### Avatar pipeline
 
 - upload (public): `POST /api/v1/assistant/avatar` — bearer, multipart; returns `{ avatarUrl: "/api/avatar/<hash>.<ext>" }` where `<hash>` is a 16-char SHA-256 prefix of the bytes
 - read (internal): `GET /api/v1/assistant/avatar/:hash` — bearer-only, called server-side by the `apps/web` BFF route handler; validates `:hash` against the assistant's current `draftAvatarUrl` and returns 404 on mismatch (no stale-content leak)
@@ -46,7 +46,7 @@ Primary public API surface:
 - current active mode: native-only
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping
 - `apps/runtime` owns request-time execution
-- SSE socket close on the stream route does **not** abort the runtime turn. Only an explicit POST to the hard-stop route flips the runtime's abort signal. A passive disconnect (tab background, screen lock, network drop) lets the runtime finish, persists the full assistant message, and is recoverable on next history fetch — see ADR-073 § "Slice 1.2 — server-side soft-detach" for rationale.
+- SSE socket close on the stream route does **not** abort the runtime turn. Only an explicit POST to the hard-stop route flips the runtime's abort signal. A passive disconnect (tab background, screen lock, network drop) lets the runtime finish, persists the full assistant message, and is recoverable on next history fetch.
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent and returns 204 whether or not a matching in-flight turn exists; the client treats it as fire-and-forget
 - attachment staging under `POST /api/v1/assistant/chat/web/stage-attachment` accepts `clientTurnId` and `clientAttachmentId`; repeated staging for the same logical attachment returns the existing canonical staged attachment instead of creating a duplicate bubble
@@ -91,8 +91,8 @@ These are internal runtime-service boundaries, not a public legacy gateway surfa
 
 Current active internal `runtime → api` endpoints (served by `apps/api` on the dedicated `API_INTERNAL_PORT=3002` listener, gated by `PERSAI_INTERNAL_API_TOKEN`):
 
-- `POST /api/v1/internal/runtime/memory/hydrate-for-turn` — returns the always-on `core` durable memory plus a relevance-retrieved `contextual` tail for the current turn (ADR-074 M1) and bumps `last_used_at` on every hydrated entry.
-- `GET /api/v1/internal/smoke/turn-receipts` — read-only smoke harness receipt query (ADR-074 S0).
+- `POST /api/v1/internal/runtime/memory/hydrate-for-turn` — returns the always-on `core` durable memory plus a relevance-retrieved `contextual` tail for the current turn and bumps `last_used_at` on every hydrated entry.
+- `GET /api/v1/internal/smoke/turn-receipts` — read-only smoke harness receipt query.
 
 Other internal `runtime ↔ api` boundaries (bundle resolution, attachment hydration, etc.) are separate runtime-bundle endpoints and are not part of this back-channel.
 

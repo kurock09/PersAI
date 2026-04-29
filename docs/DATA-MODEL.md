@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the Step 18 native-path closeout. The active post-closeout program now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 remains the historical migration record through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Control-plane ownership
 
@@ -60,7 +60,7 @@ Current active knowledge/retrieval persistence includes:
 
 The active retrieval-policy contract is plan-managed rather than hard-coded. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior.
 
-## Durable assistant memory (ADR-074 M1)
+## Durable assistant memory
 
 Active durable memory persistence lives in `assistant_memory_registry_items` and is split into two real classes at write-time. Each row carries:
 
@@ -72,7 +72,7 @@ Per-turn hydration runs through `POST /api/v1/internal/runtime/memory/hydrate-fo
 
 Memory Center surfaces both `memoryClass` and `kind` as read-only badges through `AssistantMemoryRegistryItemState` (`packages/contracts/openapi.yaml`); promote/demote between classes is intentionally not exposed to users (founder principle 1: classification is a coded outcome, not a setting).
 
-## Assistant tasks and background actions (ADR-077)
+## Assistant tasks and background actions
 
 Active task persistence is split by product meaning:
 
@@ -80,7 +80,7 @@ Active task persistence is split by product meaning:
 - `assistant_background_tasks` is the new current-state table for assistant-side quiet background actions shown under "Действия ассистента".
 - `assistant_background_task_runs` stores per-fire history for those assistant actions: checked/no-push, pushed, completed, skipped, or failed, with evaluator decision JSON, push text, delivery result, and usage/error breadcrumbs.
 
-`scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the ADR-077 background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
+`scheduled_action` is no longer target-state truth for assistant-side background checks. It remains the reminder tool. Background actions are evaluated by the background-task executor and deliver through the existing assistant notification preference instead of creating a second reminder.
 
 Assistant notification delivery is source-neutral and durable. `scheduled_action:user_reminder`, `background_task`, `idle_reengagement`, and future `system_event` sources enqueue rows in `assistant_notification_outbox`; `AssistantNotificationOutboxSchedulerService` claims/retries/dead-letters those rows and is the only active caller of `AssistantNotificationDeliveryService`, which resolves `Assistant.preferredNotificationChannel`, sends Telegram when configured, falls back to the web `system:notifications` thread, and persists delivered artifacts through `MediaDeliveryService`. Workspace-level user notification policy lives in `workspace_notification_policies`; the first active policy is admin-controlled `idle_reengagement` with enablement, idle threshold, cooldown, and LLM instruction.
 
@@ -100,9 +100,9 @@ Current active runtime-provider settings persistence includes:
 
 - `platform_runtime_provider_settings.available_models_by_provider` as the legacy chat-model alias used by existing text-routing/provider warmup paths.
 - `platform_runtime_provider_settings.available_model_catalog_by_provider` as the capability-aware provider catalog. Each provider owns `chat`, `image`, and `video` model key lists.
-- admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageEditModelKey`, and `videoGenerateModelKey`.
+- admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`.
 
-Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved key into each runtime bundle tool credential ref. Runtime tool execution treats that `modelKey` as request-time truth for `image_generate`, `image_edit`, and `video_generate`.
+Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
 
 ## Secret ownership
 

@@ -84,7 +84,12 @@ async function run(): Promise<void> {
     },
     contextPolicy,
     primaryModelKey: null,
+    imageGenerateModelKey: "gpt-image-2",
+    imageGenerateFallbackModelKey: "gpt-image-1.5",
+    imageEditModelKey: "gpt-image-2",
+    imageEditFallbackModelKey: "gpt-image-1.5",
     videoGenerateModelKey: "sora-2-pro",
+    videoGenerateFallbackModelKey: "sora-2",
     runtimeTierDefault: "free_shared_restricted",
     toolActivations: [
       {
@@ -96,7 +101,10 @@ async function run(): Promise<void> {
   });
 
   assert.equal(parsed.toolActivations?.[0]?.toolCode, "memory_get");
+  assert.equal(parsed.imageGenerateFallbackModelKey, "gpt-image-1.5");
+  assert.equal(parsed.imageEditFallbackModelKey, "gpt-image-1.5");
   assert.equal(parsed.videoGenerateModelKey, "sora-2-pro");
+  assert.equal(parsed.videoGenerateFallbackModelKey, "sora-2");
   assert.equal(parsed.contextPolicy.preset, "balanced");
 
   const writeInput = (
@@ -105,8 +113,20 @@ async function run(): Promise<void> {
     }
   ).toWriteInput(parsed);
   assert.equal(
+    (writeInput.billingProviderHints as Record<string, unknown>).imageGenerateFallbackModelKey,
+    "gpt-image-1.5"
+  );
+  assert.equal(
+    (writeInput.billingProviderHints as Record<string, unknown>).imageEditFallbackModelKey,
+    "gpt-image-1.5"
+  );
+  assert.equal(
     (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateModelKey,
     "sora-2-pro"
+  );
+  assert.equal(
+    (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateFallbackModelKey,
+    "sora-2"
   );
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).quotaAccounting, {
     tokenBudgetLimit: 1000,
@@ -120,7 +140,10 @@ async function run(): Promise<void> {
   const state = (
     service as unknown as {
       toAdminPlanState(plan: AssistantPlanCatalog): {
+        imageGenerateFallbackModelKey: string | null;
+        imageEditFallbackModelKey: string | null;
         videoGenerateModelKey: string | null;
+        videoGenerateFallbackModelKey: string | null;
         contextPolicy: { preset: string };
         quotaLimits: { knowledgeStorageBytesLimit: number | null };
       };
@@ -140,7 +163,10 @@ async function run(): Promise<void> {
     createdAt: new Date("2026-04-14T12:00:00.000Z"),
     updatedAt: new Date("2026-04-14T12:00:00.000Z")
   });
+  assert.equal(state.imageGenerateFallbackModelKey, "gpt-image-1.5");
+  assert.equal(state.imageEditFallbackModelKey, "gpt-image-1.5");
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
+  assert.equal(state.videoGenerateFallbackModelKey, "sora-2");
   assert.equal(state.contextPolicy.preset, "balanced");
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
   const normalizedState = (
@@ -229,7 +255,10 @@ async function run(): Promise<void> {
       sharedCompactionSummaryBudgetTokens: 1200
     },
     primaryModelKey: null,
+    imageGenerateFallbackModelKey: null,
+    imageEditFallbackModelKey: null,
     videoGenerateModelKey: null,
+    videoGenerateFallbackModelKey: null,
     runtimeTierDefault: "free_shared_restricted"
   });
   assert.equal(parsedWithSummaryBudget.contextPolicy.sharedCompactionSummaryBudgetTokens, 1200);

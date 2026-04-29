@@ -12,7 +12,7 @@ This repository contains the active PersAI platform baseline.
 
 OpenClaw is not part of the active PersAI deploy, runtime, or control-plane path in this repo. Historical references are intentionally retained only in ADRs, changelog snapshots, session handoff logs, and old migrations.
 
-The active post-migration follow-through program is tracked in `docs/ADR/073-post-adr072-residue-and-polish-program.md`. ADR-072 remains the historical migration ADR through the Step 18 native-path closeout.
+The active continuation backlog is tracked in `docs/ADR/078-consolidated-follow-through-program.md`. ADR-072 remains the historical migration ADR, and ADR-073 through ADR-077 are archived historical follow-through ADRs.
 
 ## Repository structure
 
@@ -97,7 +97,7 @@ The workflow publishes active PersAI images and updates `infra/helm/values-dev.y
 
 - `docs/ARCHITECTURE.md`
 - `docs/API-BOUNDARY.md`
-- `docs/ADR/073-post-adr072-residue-and-polish-program.md`
+- `docs/ADR/078-consolidated-follow-through-program.md`
 - `docs/TEST-PLAN.md`
 - `docs/LIVE-TEST-HYBRID.md`
 - `infra/dev/gke/RUNBOOK.md`

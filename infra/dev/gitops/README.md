@@ -2,7 +2,7 @@
 
 This directory contains the active GitOps wiring for the `persai-dev` environment.
 
-ADR-072 remains the historical native-migration ADR through the Step 18 closeout. The active follow-through program after that baseline now lives in `docs/ADR/073-post-adr072-residue-and-polish-program.md`.
+ADR-072 remains the historical native-migration ADR through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Deploy path
 

@@ -13,7 +13,7 @@ This repository contains the active PersAI platform baseline.
 5. `docs/API-BOUNDARY.md`
 6. `docs/DATA-MODEL.md`
 7. `docs/TEST-PLAN.md`
-8. relevant `docs/ADR/*`, especially `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` for migration history and `docs/ADR/073-post-adr072-residue-and-polish-program.md` for the active post-Step-18 program
+8. relevant `docs/ADR/*`, especially `docs/ADR/072-persai-native-multichannel-runtime-replacement.md` for migration history and `docs/ADR/078-consolidated-follow-through-program.md` for the active continuation program
 
 ## Repo rules
 

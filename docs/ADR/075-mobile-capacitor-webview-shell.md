@@ -1,9 +1,11 @@
 # ADR-075: Mobile delivery via Capacitor WebView shell over `persai.dev`
 
-**Status:** Accepted (spike verified end-to-end on Android; live-verified by founder; production rollout pending)  
+**Status:** Accepted and closed (spike verified end-to-end on Android; live-verified by founder; any remaining rollout follow-through moved to ADR-078)  
 **Date:** 2026-04-23  
 **Updated:** 2026-04-25 — rewrote Back-button section to match the shipped JS-driven `@capacitor/app` design (manual `MainActivity.onBackPressed` override and `pushState`-marker overlay-close were both abandoned post-spike on the same day); documented the Android `DownloadManager` attachment path that also landed post-spike. Added "Offline behaviour" section covering the cold-start `offline.html` (Capacitor `errorPath`) and the mid-session `<OfflineGate />` overlay; added "Single-slot pending send" section covering optimistic user bubbles, the 10s pre-headers timeout, the 15s/5min stall+hard upload watchdog, and the inline retry/cancel UX.  
-**Relates to:** ADR-072 (PersAI-native baseline), ADR-073/074 (UX polish program)
+**Relates to:** ADR-072 (PersAI-native baseline), ADR-073/074 (historical UX polish programs), ADR-078
+
+**2026-04-29 closure note:** ADR-075 is now archival. The shell decision and shipped baseline behavior are closed historical truth. Any still-open rollout, offline-hardening, iOS/store, push, or optional camera follow-through now lives only in `docs/ADR/078-consolidated-follow-through-program.md`.
 
 ## Context
 
@@ -151,7 +153,7 @@ The interface is registered on the WebView in `MainActivity#onCreate` (right aft
 
 Security: the WebView is locked to `https://persai.dev` via `server.url` plus the `allowNavigation` whitelist. Third-party origins cannot reach `window.PersaiNative`.
 
-This bridge is the runtime half of ADR-076 Slice 2 (Capacitor cold-start visual continuity). The remaining half — replacing the missing `@drawable/splash` placeholder with a real PersAI launch drawable on `--chrome` and a `values-night/styles.xml` light variant — stays under ADR-076 Slice 2 and is a separate session.
+This bridge is the runtime half of ADR-076 Slice 2 (Capacitor cold-start visual continuity). The previously separate splash/background half is now historical landed work under ADR-076; any remaining mobile-shell follow-through is tracked only in ADR-078.
 
 ## Production rollout plan
 
