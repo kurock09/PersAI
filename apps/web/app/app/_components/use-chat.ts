@@ -361,6 +361,13 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
 function isOptimisticLocalMessage(message: ChatMessage): boolean {
   return message.id.startsWith("local-user-") || message.id.startsWith("local-assistant-");
 }
+function isTransientActiveAssistantMessage(message: ChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    message.status === "streaming" &&
+    (message.id.startsWith("local-assistant-") || message.id.startsWith("active-assistant-"))
+  );
+}
 function isPassiveStreamDisconnect(error: unknown): boolean {
   if (error instanceof Error) {
     return (
@@ -450,7 +457,10 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     };
   }
   const baseWithoutActive = (baseMessages ?? activeSnapshot.messages).filter(
-    (message) => !activeMessageIds.has(message.id) && !isOptimisticLocalMessage(message)
+    (message) =>
+      !activeMessageIds.has(message.id) &&
+      !isOptimisticLocalMessage(message) &&
+      !isTransientActiveAssistantMessage(message)
   );
   return { messages: mergeChatMessagesById(baseWithoutActive, loaded), replacedActiveTurn: true };
 }
@@ -837,7 +847,9 @@ export function useChat(threadKey: string): UseChatReturn {
             }
             if (
               shouldReplaceActiveTurn &&
-              (activeSnapshotMessageIds.has(message.id) || isOptimisticLocalMessage(message))
+              (activeSnapshotMessageIds.has(message.id) ||
+                isOptimisticLocalMessage(message) ||
+                isTransientActiveAssistantMessage(message))
             ) {
               for (const attachment of message.attachments ?? []) {
                 if (attachment.localPreviewUrl !== undefined) {
@@ -899,16 +911,34 @@ export function useChat(threadKey: string): UseChatReturn {
                 (message) => message.role === "assistant" && message.status === "streaming"
               )
             : undefined);
-        const liveAssistantMessage: ChatMessage = assistantMessage ??
-          existingAssistant ?? {
-            id: `local-assistant-${clientTurnId}`,
-            role: "assistant",
-            content: "",
-            status: "streaming",
-            thought: "",
-            thoughtStartedAt: null,
-            thoughtFinishedAt: null
-          };
+        const statusAssistantMessage = assistantMessage ?? null;
+        const fallbackAssistantMessage = existingAssistant ?? {
+          id: `local-assistant-${clientTurnId}`,
+          role: "assistant" as const,
+          content: "",
+          status: "streaming" as const,
+          thought: "",
+          thoughtStartedAt: null,
+          thoughtFinishedAt: null
+        };
+        const liveAssistantMessage: ChatMessage = {
+          ...fallbackAssistantMessage,
+          ...(statusAssistantMessage === null
+            ? {}
+            : {
+                id: statusAssistantMessage.id,
+                attachments: statusAssistantMessage.attachments,
+                thought: statusAssistantMessage.thought,
+                thoughtStartedAt: statusAssistantMessage.thoughtStartedAt,
+                thoughtFinishedAt: statusAssistantMessage.thoughtFinishedAt
+              }),
+          content:
+            statusAssistantMessage !== null &&
+            statusAssistantMessage.content.length > fallbackAssistantMessage.content.length
+              ? statusAssistantMessage.content
+              : fallbackAssistantMessage.content,
+          status: "streaming"
+        };
         const currentActivity = status.currentActivity;
         const nextLiveActivities =
           currentActivity === null
@@ -972,6 +1002,7 @@ export function useChat(threadKey: string): UseChatReturn {
             ...baseMessages.filter(
               (message) =>
                 !isOptimisticLocalMessage(message) &&
+                !isTransientActiveAssistantMessage(message) &&
                 !activeMessageIds.has(message.id) &&
                 !committedIds.has(message.id)
             ),
@@ -993,6 +1024,7 @@ export function useChat(threadKey: string): UseChatReturn {
             const withoutActiveTurn = prev.filter(
               (message) =>
                 !isOptimisticLocalMessage(message) &&
+                !isTransientActiveAssistantMessage(message) &&
                 !activeMessageIds.has(message.id) &&
                 !committedIds.has(message.id)
             );
@@ -2531,6 +2563,11 @@ export function useChat(threadKey: string): UseChatReturn {
         const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         const serverActiveTurnAlreadyCommitted =
           rawActiveTurn !== null && committedHistoryHasActiveTurnResult(loaded, rawActiveTurn);
+        const historyHasCommittedAssistant = loaded.some((message) => message.role === "assistant");
+        const shouldClearAuthoritativeActiveTurn =
+          hasAuthoritativeActiveTurn &&
+          historyHasCommittedAssistant &&
+          (rawActiveTurn === null || serverActiveTurnAlreadyCommitted);
         const projectedActiveTurn =
           rawActiveTurn !== null &&
           !serverActiveTurnAlreadyCommitted &&
@@ -2592,6 +2629,26 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         } else if (currentThreadKeyRef.current === targetThreadKey) {
           setMessages(messagesForCache);
+        }
+        if (shouldClearAuthoritativeActiveTurn) {
+          messagesForCache = messagesForCache.filter(
+            (message) => !isTransientActiveAssistantMessage(message)
+          );
+          const activeClientTurnId =
+            localActiveSnapshot?.clientTurnId ?? rawActiveTurn?.clientTurnId;
+          if (activeClientTurnId !== undefined) {
+            softDetachedClientTurnIdsRef.current.delete(activeClientTurnId);
+            clearStoredActiveTurnClientTurnId(targetThreadKey, activeClientTurnId);
+          }
+          activeTurnSnapshotsRef.current.delete(targetThreadKey);
+          abortControllersByThreadRef.current.get(targetThreadKey)?.controller.abort();
+          abortControllersByThreadRef.current.delete(targetThreadKey);
+          setLiveActivitiesByMessageId({});
+          markStreaming(targetThreadKey, false);
+          setThreadPendingSend(targetThreadKey, null);
+          if (currentThreadKeyRef.current === targetThreadKey) {
+            setMessages(messagesForCache);
+          }
         }
         if (projectedActiveTurn) {
           activeTurnSnapshotsRef.current.set(targetThreadKey, {

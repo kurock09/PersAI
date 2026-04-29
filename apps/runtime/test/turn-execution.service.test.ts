@@ -725,7 +725,9 @@ class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
   imageEditCalls: ProviderGatewayImageEditRequest[] = [];
+  imageEditOptions: Array<{ timeoutMs?: number } | undefined> = [];
   imageGenerateCalls: ProviderGatewayImageGenerateRequest[] = [];
+  imageGenerateOptions: Array<{ timeoutMs?: number } | undefined> = [];
   videoGenerateCalls: Array<{
     input: ProviderGatewayVideoGenerateRequest;
     options?: { timeoutMs?: number };
@@ -965,17 +967,23 @@ class FakeProviderGatewayClientService {
   }
 
   async generateImage(
-    input: ProviderGatewayImageGenerateRequest
+    input: ProviderGatewayImageGenerateRequest,
+    options?: { timeoutMs?: number }
   ): Promise<ProviderGatewayImageGenerateResult> {
     this.imageGenerateCalls.push(input);
+    this.imageGenerateOptions.push(options);
     if (this.imageGenerateError !== null) {
       throw this.imageGenerateError;
     }
     return this.imageGenerateResult;
   }
 
-  async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
+  async editImage(
+    input: ProviderGatewayImageEditRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayImageEditResult> {
     this.imageEditCalls.push(input);
+    this.imageEditOptions.push(options);
     if (this.imageEditError !== null) {
       throw this.imageEditError;
     }
@@ -4588,6 +4596,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       providerId: "openai"
     }
   });
+  assert.deepEqual(providerGatewayClient.imageGenerateOptions.at(-1), {
+    timeoutMs: 180000
+  });
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "image_generate",
@@ -4911,6 +4922,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       secretId: "tool/image_generate/api-key",
       providerId: "openai"
     }
+  });
+  assert.deepEqual(providerGatewayClient.imageEditOptions.at(-1), {
+    timeoutMs: 180000
   });
   assert.deepEqual(
     turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,

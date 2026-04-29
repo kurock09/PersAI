@@ -75,6 +75,7 @@ import {
   type VoiceOption
 } from "./assistant-voice-options";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
+import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -2220,6 +2221,19 @@ export function AssistantSettings({
           <p className="text-xs text-text-subtle">{t("noVersions")}</p>
         )}
       </Section>
+
+      <div className="px-5 pt-7 pb-6">
+        <AndroidAppDownloadBanner
+          className="opacity-90"
+          copy={{
+            eyebrow: t("androidAppEyebrow"),
+            title: t("androidAppTitle"),
+            body: t("androidAppBody"),
+            cta: t("androidAppCta"),
+            versionLabel: t("androidAppVersion")
+          }}
+        />
+      </div>
     </div>
   );
 }

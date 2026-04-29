@@ -23,6 +23,8 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { selectMediaModelForRequest } from "./media-model-routing";
 
+const IMAGE_EDIT_TOOL_CODE = "image_edit" as const;
+const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 180_000;
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const SECOND_IMAGE_REFERENCE_PROMPT_MARKERS = [
   "second image",
@@ -99,7 +101,7 @@ export class RuntimeImageEditToolService {
     if (request instanceof Error) {
       return {
         payload: {
-          toolCode: "image_edit",
+          toolCode: IMAGE_EDIT_TOOL_CODE,
           executionMode: "worker",
           provider: null,
           model: null,
@@ -124,7 +126,7 @@ export class RuntimeImageEditToolService {
     if (this.isLikelyAnalysisOnlyPrompt(request.prompt)) {
       return {
         payload: {
-          toolCode: "image_edit",
+          toolCode: IMAGE_EDIT_TOOL_CODE,
           executionMode: "worker",
           provider: null,
           model: null,
@@ -147,11 +149,11 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, "image_edit");
+    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, IMAGE_EDIT_TOOL_CODE);
     if (policy === null) {
       return {
         payload: {
-          toolCode: "image_edit",
+          toolCode: IMAGE_EDIT_TOOL_CODE,
           executionMode: "worker",
           provider: null,
           model: null,
@@ -173,11 +175,11 @@ export class RuntimeImageEditToolService {
       };
     }
 
-    const credential = this.resolveConfiguredCredentialRef(params.bundle, "image_edit");
+    const credential = this.resolveConfiguredCredentialRef(params.bundle, IMAGE_EDIT_TOOL_CODE);
     if (credential === null) {
       return {
         payload: {
-          toolCode: "image_edit",
+          toolCode: IMAGE_EDIT_TOOL_CODE,
           executionMode: "worker",
           provider: null,
           model: null,
@@ -203,7 +205,7 @@ export class RuntimeImageEditToolService {
     if (providerId === null) {
       return {
         payload: {
-          toolCode: "image_edit",
+          toolCode: IMAGE_EDIT_TOOL_CODE,
           executionMode: "worker",
           provider: null,
           model: null,
@@ -226,7 +228,7 @@ export class RuntimeImageEditToolService {
     }
 
     const modelSelection = selectMediaModelForRequest({
-      toolCode: "image_edit",
+      toolCode: IMAGE_EDIT_TOOL_CODE,
       credential,
       background: request.background
     });
@@ -288,13 +290,13 @@ export class RuntimeImageEditToolService {
       // ADR-074 L1.1 — always count for observability.
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
         assistantId: params.bundle.metadata.assistantId,
-        toolCode: "image_edit",
+        toolCode: IMAGE_EDIT_TOOL_CODE,
         dailyCallLimit: policy.dailyCallLimit
       });
       if (!quotaOutcome.allowed) {
         return {
           payload: {
-            toolCode: "image_edit",
+            toolCode: IMAGE_EDIT_TOOL_CODE,
             executionMode: "worker",
             provider: providerId,
             model: null,
@@ -316,19 +318,25 @@ export class RuntimeImageEditToolService {
         };
       }
 
-      const providerResult = await this.providerGatewayClientService.editImage({
-        prompt: request.prompt,
-        model: modelSelection.model,
-        size: request.size,
-        background: request.background,
-        sourceImage: selection.sourceImage,
-        referenceImage: selection.referenceImage,
-        credential: {
-          toolCode: "image_edit",
-          secretId: modelSelection.credential.secretRef.id,
-          providerId
+      const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
+      const providerResult = await this.providerGatewayClientService.editImage(
+        {
+          prompt: request.prompt,
+          model: modelSelection.model,
+          size: request.size,
+          background: request.background,
+          sourceImage: selection.sourceImage,
+          referenceImage: selection.referenceImage,
+          credential: {
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            secretId: modelSelection.credential.secretRef.id,
+            providerId
+          }
+        },
+        {
+          timeoutMs
         }
-      });
+      );
       this.logger.log(
         `[image-edit] requestId=${params.requestId} provider=${providerId} sourceIndex=${String(
           selection.sourceImageIndex
@@ -775,6 +783,15 @@ export class RuntimeImageEditToolService {
     return typeof credential.modelKey === "string" && credential.modelKey.trim().length > 0
       ? credential.modelKey.trim()
       : null;
+  }
+
+  private resolveWorkerTimeoutMs(bundle: AssistantRuntimeBundle): number {
+    const configured =
+      bundle.runtime.workerTools.tools.find((tool) => tool.toolCode === IMAGE_EDIT_TOOL_CODE)
+        ?.timeoutMs ?? null;
+    return Number.isInteger(configured) && Number(configured) > 0
+      ? Number(configured)
+      : DEFAULT_IMAGE_EDIT_TIMEOUT_MS;
   }
 
   private mergeWarnings(...warnings: Array<string | null | undefined>): string | null {

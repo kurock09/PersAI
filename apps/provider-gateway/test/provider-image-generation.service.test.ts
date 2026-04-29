@@ -16,6 +16,7 @@ function createRequest(): ProviderGatewayImageGenerateRequest {
     count: 2,
     size: "1024x1536",
     background: "transparent",
+    timeoutMs: null,
     credential: {
       toolCode: "image_generate",
       secretId: "tool/image_generate/api-key",
@@ -32,6 +33,7 @@ function createEditRequest(options?: {
     model: "gpt-image-2",
     size: "1024x1024",
     background: "opaque",
+    timeoutMs: null,
     sourceImage: {
       bytesBase64: "cmVmLWltYWdl",
       mimeType: "image/png",

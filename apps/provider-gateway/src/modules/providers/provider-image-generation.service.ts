@@ -98,6 +98,7 @@ export class ProviderImageGenerationService {
       count: input.count,
       size: input.size,
       background: input.background,
+      timeoutMs: this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
       credential: {
         toolCode: "image_generate",
         secretId: input.credential.secretId.trim(),
@@ -160,6 +161,7 @@ export class ProviderImageGenerationService {
       model: this.normalizeOptionalModel(input.model, "model"),
       size: input.size,
       background: input.background,
+      timeoutMs: this.normalizeOptionalPositiveInteger(input.timeoutMs, "timeoutMs"),
       sourceImage,
       referenceImage,
       credential: {
@@ -213,5 +215,15 @@ export class ProviderImageGenerationService {
       throw new BadRequestException(`${path} must be a non-empty string or null`);
     }
     return value.trim();
+  }
+
+  private normalizeOptionalPositiveInteger(value: unknown, path: string): number | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (!Number.isInteger(value) || Number(value) <= 0) {
+      throw new BadRequestException(`${path} must be a positive integer or null`);
+    }
+    return Number(value);
   }
 }

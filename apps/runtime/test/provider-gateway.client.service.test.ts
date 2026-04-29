@@ -584,8 +584,12 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
       mimeType: "audio/mpeg",
       filename: "voice.mp3"
     });
-    const imageGenerate = await service.generateImage(createImageGenerateRequest());
-    const imageEdit = await service.editImage(createImageEditRequest());
+    const imageGenerate = await service.generateImage(createImageGenerateRequest(), {
+      timeoutMs: 180000
+    });
+    const imageEdit = await service.editImage(createImageEditRequest(), {
+      timeoutMs: 180000
+    });
     const videoGenerate = await service.generateVideo(createVideoGenerateRequest(), {
       timeoutMs: 180000
     });
@@ -636,8 +640,10 @@ export async function runProviderGatewayClientServiceTest(): Promise<void> {
     assert.ok(requests[3]?.init?.body instanceof FormData);
     assert.equal(requests[4]?.url, "http://provider-gateway.local/api/v1/providers/generate-image");
     assert.equal(requests[4]?.init?.method, "POST");
+    assert.equal(JSON.parse(String(requests[4]?.init?.body ?? "{}")).timeoutMs, 180000);
     assert.equal(requests[5]?.url, "http://provider-gateway.local/api/v1/providers/edit-image");
     assert.equal(requests[5]?.init?.method, "POST");
+    assert.equal(JSON.parse(String(requests[5]?.init?.body ?? "{}")).timeoutMs, 180000);
     assert.equal(requests[6]?.url, "http://provider-gateway.local/api/v1/providers/generate-video");
     assert.equal(requests[6]?.init?.method, "POST");
     assert.equal(

@@ -150,7 +150,8 @@ export class ProviderGatewayClientService {
   }
 
   async generateImage(
-    input: ProviderGatewayImageGenerateRequest
+    input: ProviderGatewayImageGenerateRequest,
+    options?: { timeoutMs?: number }
   ): Promise<ProviderGatewayImageGenerateResult> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
@@ -163,9 +164,12 @@ export class ProviderGatewayClientService {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(input)
+        body: JSON.stringify({
+          ...input,
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+        })
       },
-      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+      options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
     );
     if (!response.ok) {
       throw this.toGatewayException(response);
@@ -179,7 +183,10 @@ export class ProviderGatewayClientService {
     return response.body;
   }
 
-  async editImage(input: ProviderGatewayImageEditRequest): Promise<ProviderGatewayImageEditResult> {
+  async editImage(
+    input: ProviderGatewayImageEditRequest,
+    options?: { timeoutMs?: number }
+  ): Promise<ProviderGatewayImageEditResult> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
     }
@@ -191,9 +198,12 @@ export class ProviderGatewayClientService {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(input)
+        body: JSON.stringify({
+          ...input,
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
+        })
       },
-      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+      options?.timeoutMs ?? this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
     );
     if (!response.ok) {
       throw this.toGatewayException(response);

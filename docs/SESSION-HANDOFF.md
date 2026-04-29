@@ -1,5 +1,161 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Landing label quieting + Android share chooser preview hint) — hero capability labels no longer look like buttons and Android share intents expose ClipData (`apps/web`, `persai-mobile`; focused checks green)
+
+### Why this session
+
+Founder checked mobile Litebox share and the landing page. Native Android share opens the system chooser, but the chooser preview looked cropped/broken. On the public landing hero, the three capability labels still read as button-like banners; founder asked to remove that affordance and replace the subtitle with `Диалоги, задачи и контекст всегда рядом.`
+
+### What changed
+
+- Replaced the landing hero capability “cards” with quiet inline labels using small accent dots and desktop separators, so they no longer look tappable.
+- Updated RU subtitle to `Диалоги, задачи и контекст всегда рядом.` and EN to `Chats, tasks, and context always nearby.`
+- Updated the landing page test fixture/assertion for the new subtitle.
+- Updated Android native media sharing in `persai-mobile`: the `ACTION_SEND` intent now includes `EXTRA_TITLE` and `ClipData.newUri(...)` for the FileProvider URI. Android chooser thumbnails are system-rendered and may still crop by design, but this gives the chooser/targets the correct content URI preview hint and read grant path.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web test -- app/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm run format:check`
+- `JAVA_HOME='C:\Program Files\Android\Android Studio\jbr' ./gradlew.bat :app:compileDebugJavaWithJavac` in `persai-mobile/android`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- Android system chooser preview crop cannot be fully controlled by the app; if a specific target app still crops the thumbnail, that is target/chooser UI behavior. The shared file itself remains the full image.
+- Native share change requires rebuilding the APK; landing subtitle/style requires web deploy.
+
+### Next recommended step
+
+Deploy/sync web and rebuild/install Android APK, then retest Litebox share: chooser should receive a proper image content URI, and target apps should receive the full file. On the landing page, confirm the capability labels read as quiet descriptors, not buttons.
+
+## 2026-04-30 (Background-finished thinking placeholder cleanup) — completed background turns now clear local active state when authoritative history says no turn is active (`apps/web`; GKE checked, focused checks green)
+
+### Why this session
+
+Founder showed the remaining repro after returning to a chat where the turn had already completed in the background: the final assistant message and image/text were visible, but an extra `Думаю...` streaming placeholder stayed above it. Founder asked to check logs and fix rather than keep patching the wrong stream path.
+
+### What changed
+
+- Checked recent `persai-dev` API/runtime logs. The relevant long turn completed server-side (`web_turn_attempt_completed`, `web_stream_timing`, one observed turn around 95s total runtime); this was not a backend turn that failed to finish.
+- Also saw a background/status probe returning 401 in the same window, so the client cannot rely only on reattach/turn-status when returning from background.
+- Fixed `apps/web/app/app/_components/use-chat.ts` so an authoritative history response with `activeTurn: null` or a stale activeTurn whose result is already committed clears local active state even when the browser still has `activeThreads`/AbortController state from before backgrounding.
+- Extended transient placeholder cleanup to include both `local-assistant-*` and server-projected `active-assistant-*` streaming placeholders, so committed history cannot keep a stale `Думаю...` bubble alive.
+- Updated the existing background image-turn regression to assert the authoritative `activeTurn: null` completion path.
+
+### Tests run
+
+- GKE log check: `kubectl logs -n persai-dev deploy/api --since=45m ...` and `kubectl logs -n persai-dev deploy/runtime --since=45m ...`
+- `corepack pnpm --filter @persai/web test -- app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm run format:check`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This specifically fixes the “final answer visible but stale `Думаю...` remains” background completion state. It still needs live validation after web deploy because the repro depends on browser background/focus timing and auth refresh timing.
+- A 401 status probe in logs suggests background auth/token availability can still make the turn-status path unreliable; this fix intentionally makes committed history authoritative enough to clean up without status.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then repeat the exact image/text turn flow: start a turn, background/switch away until completion, return without reload, and confirm only the final assistant message remains with no upper `Думаю...` placeholder.
+
+## 2026-04-30 (Quiet Android banner placement + live reattach streaming fix) — assistant settings banner moved to the bottom and running reattach keeps assistant bubbles streaming (`apps/web`; focused checks green)
+
+### Why this session
+
+Founder clarified the Android download banner placement: it should be quiet on the landing page and live at the bottom of the assistant-settings slide-out, not above the Character section. Founder also repeated the precise stream regression: start a long answer in Chat A, switch to Chat B, return to Chat A before completion, the stream continues briefly and then disappears until final completion.
+
+### What changed
+
+- Moved the Android download banner from the top of assistant settings to the bottom area under the settings sections, matching the screenshot callout.
+- Softened the shared Android banner visual treatment: quieter surface, weaker shadow, smaller icon tile, and a muted accent CTA instead of a loud primary button.
+- Found the remaining live-stream bug in `useChat`'s reattach running-status path: a server `assistantMessage` from turn status was converted as a committed message, so later `onDelta` handlers skipped it because they only append to `status === "streaming"` messages.
+- Updated running turn-status application so reattached assistant bubbles always remain `streaming`, preserve the longest currently known content, and continue accepting live deltas after status refresh.
+- Added a focused regression that restores `persai.active-web-turn.v1.thread-A`, receives a running reattach status with an assistant message, then verifies the next delta appends to the same still-streaming bubble.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web test -- app/app/_components/use-chat.test.tsx app/app/_components/assistant-settings.test.tsx app/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This fixes the client-side “returns briefly then disappears” shape caused by running status downgrading the assistant bubble out of streaming. Founder/live validation is still needed after deploy on the exact long-text chat-switch flow.
+- Existing assistant-settings task loading tests still print the known mocked relative-URL warning, but the suite passes.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then repeat: start a deliberately long answer in Chat A, switch to Chat B while it is running, return to Chat A before completion, and confirm the live text keeps growing continuously until the committed final answer arrives. Also visually confirm the Android banner is at the bottom of assistant settings and quiet on the landing page.
+
+## 2026-04-30 (Android app download surface) — landing and assistant settings now expose the current Android release APK through an auto-updated manifest (`apps/web`, `persai-mobile`; focused checks green)
+
+### Why this session
+
+Founder asked to add a visible Android app download banner on the landing page and in assistant settings, and to avoid manual UI edits every time a mobile build changes. Current live validation is still founder-run on debug builds, but the product needs an Android release download path with visible versioning.
+
+### What changed
+
+- Added a shared Android app download banner in `apps/web` with subdued PersAI styling, version/build display, and a direct APK link.
+- Added the banner to the public landing page and to the top of assistant settings.
+- Added `apps/web/public/mobile/android-release.json` and `apps/web/app/_data/android-release.json` as the web-visible and build-time manifests for the current Android release.
+- Added `persai-mobile` release scripts: `corepack pnpm android:release` builds Android release and exports `persai-android-release.apk` plus both manifests into `PersAI/apps/web`.
+- Updated Android release signing to use a configured release keystore when env/Gradle properties exist, otherwise fall back to the debug signing config so the internal release APK is installable during pre-store testing.
+- Built and exported Android release `v1.0` build `1` to `apps/web/public/mobile/persai-android-release.apk`.
+
+### Tests run
+
+- `corepack pnpm android:release` in `persai-mobile`
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web banner/settings/page/test files
+
+### Risks / residuals
+
+- The current fallback signing path is suitable for internal/pre-store APK distribution, not Play Store production. For store release, configure a real release keystore via `PERSAI_ANDROID_RELEASE_STORE_FILE`, `PERSAI_ANDROID_RELEASE_STORE_PASSWORD`, `PERSAI_ANDROID_RELEASE_KEY_ALIAS`, and `PERSAI_ANDROID_RELEASE_KEY_PASSWORD`.
+- The APK link becomes live after deploying `apps/web`; local file presence alone does not publish it to users.
+
+### Next recommended step
+
+Deploy web, open the landing page and assistant settings, download the APK from both banners on Android, install it, and confirm version `1.0` build `1` matches the manifest. When a real Play keystore is ready, rerun `corepack pnpm android:release` with the signing env vars set so the same automation exports a production-signed APK.
+
+## 2026-04-30 (Flexible image tool timeout fix) — image generate/edit now use bounded worker timeouts through runtime and provider-gateway instead of the shared 90s default (`apps/runtime`, `apps/provider-gateway`, `packages/runtime-contract`; focused checks green)
+
+### Why this session
+
+Founder asked to make image tools flexible like video because OpenAI image edit could run past the shared 90s provider-gateway timeout, fail with `Request was aborted`, and then burn the user's tool/quota attempt without producing an image.
+
+### What changed
+
+- Added optional `timeoutMs` to image generate/edit provider-gateway request contracts.
+- Updated runtime image generate/edit tool services to resolve `timeoutMs` from the published bundle's worker tool config, falling back to `180000ms` when missing.
+- Updated the runtime provider-gateway client to send that timeout in the JSON body and also use it for the runtime-side fetch abort window.
+- Updated provider-gateway image normalization and OpenAI image generate/edit calls so the OpenAI abort window uses a bounded image timeout: at least the shared gateway timeout, default `180000ms`, capped at `240000ms`.
+- Left video generation on its existing longer `300000ms` path.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/runtime test -- --runTestsByPath apps/runtime/test/provider-gateway.client.service.test.ts apps/runtime/test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway test -- --runTestsByPath apps/provider-gateway/test/provider-image-generation.service.test.ts apps/provider-gateway/test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+
+### Risks / residuals
+
+- This avoids the too-short 90s image abort but does not refund already-consumed tool quota when an external provider times out or rejects a request. If founder wants quota refund semantics, that should be a separate API/runtime billing decision.
+- Provider safety rejections remain real failures; this change only improves slow image generate/edit behavior.
+
+### Next recommended step
+
+Deploy/sync runtime and provider-gateway to `persai-dev`, then retry a slow image edit and confirm the provider gets up to the image timeout window instead of aborting at 90s. Watch for whether the turn succeeds or fails with a provider/safety error, not a local gateway abort.
+
 ## 2026-04-30 (Failed/interrupted duplicate thinking placeholder fix) — failed image/tool turns now remove stale empty `Думаю...` bubbles when a real failed/partial assistant message is already shown (`apps/web`; focused checks green)
 
 ### Why this session
@@ -47,7 +203,7 @@ Founder clarified that the still-broken symptom was not only the final committed
 
 ### Risks / residuals
 
-- This fix specifically targets the reattach terminal callbacks after a switched-away running turn. If founder still sees the *live* stream stop mid-generation before terminal completion, the next suspect is delta/thinking delivery during off-thread reattach rather than the final history refresh.
+- This fix specifically targets the reattach terminal callbacks after a switched-away running turn. If founder still sees the _live_ stream stop mid-generation before terminal completion, the next suspect is delta/thinking delivery during off-thread reattach rather than the final history refresh.
 - Live validation after deploy is still required because current evidence is hook-level plus API logs, not a captured browser HAR/video of the exact founder repro.
 
 ### Next recommended step

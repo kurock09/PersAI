@@ -28,10 +28,16 @@ vi.mock("next-intl/server", () => ({
       eyebrow: "Personal AI · context that stays with you",
       headlineLine1: "Your AI that remembers context.",
       headlineLine2: "",
-      subtitle: "Chats, tasks, and context across web and Telegram.",
+      subtitle: "Chats, tasks, and context always nearby.",
       capabilityMemory: "Remembers context",
       capabilityChannels: "Web and Telegram",
       capabilityTasks: "Carries tasks forward",
+      androidAppEyebrow: "Android release",
+      androidAppTitle: "PersAI for Android",
+      androidAppBody:
+        "Install the APK to use PersAI as an app: the same web product, native sharing, and faster access from your phone.",
+      androidAppCta: "Download APK",
+      androidAppVersion: "v{version} · build {code}",
       cta: "Get started free",
       ctaSecondary: "Sign in",
       plans: "Plans",
@@ -62,6 +68,12 @@ describe("Landing page", () => {
     expect(screen.getByText("Remembers context")).toBeInTheDocument();
     expect(screen.getByText("Web and Telegram")).toBeInTheDocument();
     expect(screen.getByText("Carries tasks forward")).toBeInTheDocument();
+    expect(screen.getByText("Chats, tasks, and context always nearby.")).toBeInTheDocument();
+    expect(screen.getByText("PersAI for Android")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Download APK/i })).toHaveAttribute(
+      "href",
+      "/mobile/persai-android-release.apk"
+    );
     expect(screen.queryByText(/^Telegram$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^VK$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^WhatsApp$/)).not.toBeInTheDocument();

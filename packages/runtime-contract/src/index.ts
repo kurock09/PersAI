@@ -1689,6 +1689,7 @@ export interface ProviderGatewayImageGenerateRequest {
   count: number;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
+  timeoutMs?: number | null;
   credential: {
     toolCode: "image_generate";
     secretId: string;
@@ -1718,6 +1719,7 @@ export interface ProviderGatewayImageEditRequest {
   model: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
+  timeoutMs?: number | null;
   sourceImage: {
     bytesBase64: string;
     mimeType: string;

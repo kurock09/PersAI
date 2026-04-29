@@ -993,6 +993,70 @@ describe("useChat", () => {
     );
   });
 
+  it("keeps a reattached running assistant bubble streaming after status refresh", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-A", "turn-A");
+    assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+      async (
+        _token: string,
+        _clientTurnId: string,
+        handlers: {
+          onHeadersOk?: () => void;
+          onTurnStatus?: (payload: { turn: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onTurnStatus?.({
+          turn: {
+            status: "running",
+            chat: { id: "chat-A" },
+            userMessage: {
+              id: "server-user-A",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "write a long text",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            assistantMessage: {
+              id: "server-assistant-A",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Already streamed",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:36.000Z"
+            },
+            currentActivity: null,
+            runtime: null,
+            error: null
+          }
+        });
+        handlers.onDelta?.({ delta: " and keeps going" });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-A"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({
+          id: "server-user-A",
+          role: "user"
+        }),
+        expect.objectContaining({
+          id: "server-assistant-A",
+          role: "assistant",
+          status: "streaming",
+          content: "Already streamed and keeps going"
+        })
+      ]);
+    });
+  });
+
   it("ignores stale running activeTurn when committed history already has the final assistant", async () => {
     window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-stale");
     assistantApiMocks.getChatMessages.mockResolvedValueOnce({
@@ -2822,6 +2886,7 @@ describe("useChat", () => {
       );
       assistantApiMocks.getChatMessages.mockResolvedValue({
         nextCursor: null,
+        activeTurn: null,
         messages: [
           {
             id: "server-user-1",

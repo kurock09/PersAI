@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
+import { AndroidAppDownloadBanner } from "./_components/android-app-download-banner";
 import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
 import { LandingThemeToggle } from "./_components/landing-theme-toggle";
 
@@ -80,14 +81,19 @@ export default async function HomePage() {
           </p>
 
           <div className="animate-fade-in-up-delay mt-5 flex w-full max-w-[34rem] flex-col items-center gap-3">
-            <div className="grid w-full max-w-[30rem] grid-cols-1 gap-2.5 sm:grid-cols-3">
-              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
+            <div className="flex w-full max-w-[30rem] flex-col items-center justify-center gap-3 text-[11px] font-medium tracking-[0.08em] text-text-subtle/75 sm:flex-row sm:gap-4">
+              <span className="inline-flex items-center gap-2">
+                <span className="h-1 w-1 rounded-full bg-accent/45" aria-hidden />
                 {t("capabilityMemory")}
               </span>
-              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
+              <span className="hidden h-px w-8 bg-border/60 sm:inline-block" aria-hidden />
+              <span className="inline-flex items-center gap-2">
+                <span className="h-1 w-1 rounded-full bg-accent/45" aria-hidden />
                 {t("capabilityChannels")}
               </span>
-              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
+              <span className="hidden h-px w-8 bg-border/60 sm:inline-block" aria-hidden />
+              <span className="inline-flex items-center gap-2">
+                <span className="h-1 w-1 rounded-full bg-accent/45" aria-hidden />
                 {t("capabilityTasks")}
               </span>
             </div>
@@ -113,6 +119,16 @@ export default async function HomePage() {
               {t("ctaSecondary")} →
             </Link>
           </div>
+          <AndroidAppDownloadBanner
+            className="animate-fade-in-up-delay mt-4 w-full max-w-[30rem]"
+            copy={{
+              eyebrow: t("androidAppEyebrow"),
+              title: t("androidAppTitle"),
+              body: t("androidAppBody"),
+              cta: t("androidAppCta"),
+              versionLabel: t("androidAppVersion")
+            }}
+          />
         </main>
 
         {/* Footer */}

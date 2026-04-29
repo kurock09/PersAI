@@ -30,6 +30,8 @@ const OPENAI_AUDIO_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const OPENAI_IMAGE_GENERATION_MODEL = "gpt-image-1";
 const OPENAI_SPEECH_GENERATION_MODEL = "gpt-4o-mini-tts";
 const OPENAI_VIDEO_GENERATION_MODEL = "sora-2";
+const OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 180_000;
+const MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 240_000;
 const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 300_000;
 const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
@@ -285,7 +287,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   ): Promise<ProviderGatewayImageGenerateResult> {
     const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
-      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+      this.resolveImageGenerationTimeoutMs(input.timeoutMs)
     );
     try {
       const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
@@ -347,7 +349,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
   ): Promise<ProviderGatewayImageEditResult> {
     const client = this.getApiClient(options?.apiKey);
     const { signal, dispose } = this.createTimedSignal(
-      this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS
+      this.resolveImageGenerationTimeoutMs(input.timeoutMs)
     );
     try {
       const model = input.model ?? OPENAI_IMAGE_GENERATION_MODEL;
@@ -420,6 +422,17 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     } finally {
       dispose();
     }
+  }
+
+  private resolveImageGenerationTimeoutMs(timeoutMs: number | null | undefined): number {
+    const configured =
+      Number.isInteger(timeoutMs) && Number(timeoutMs) > 0
+        ? Number(timeoutMs)
+        : OPENAI_IMAGE_GENERATION_TIMEOUT_MS;
+    return Math.min(
+      Math.max(configured, this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS),
+      MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS
+    );
   }
 
   async generateVideo(

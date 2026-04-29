@@ -24,6 +24,9 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { selectMediaModelForRequest } from "./media-model-routing";
 
+const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
+const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 180_000;
+
 export interface RuntimeImageGenerateToolExecutionResult {
   payload: RuntimeImageGenerateToolResult;
   artifacts: RuntimeOutputArtifact[];
@@ -69,7 +72,7 @@ export class RuntimeImageGenerateToolService {
       };
     }
 
-    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, "image_generate");
+    const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, IMAGE_GENERATE_TOOL_CODE);
     if (policy === null) {
       return {
         payload: {
@@ -92,7 +95,7 @@ export class RuntimeImageGenerateToolService {
       };
     }
 
-    const credential = this.resolveConfiguredCredentialRef(params.bundle, "image_generate");
+    const credential = this.resolveConfiguredCredentialRef(params.bundle, IMAGE_GENERATE_TOOL_CODE);
     if (credential === null) {
       return {
         payload: {
@@ -180,7 +183,7 @@ export class RuntimeImageGenerateToolService {
       // as a regular tool_quota_rejected outcome.
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
         assistantId: params.bundle.metadata.assistantId,
-        toolCode: "image_generate",
+        toolCode: IMAGE_GENERATE_TOOL_CODE,
         dailyCallLimit: policy.dailyCallLimit,
         units: request.count
       });
@@ -206,18 +209,24 @@ export class RuntimeImageGenerateToolService {
         };
       }
 
-      const providerResult = await this.providerGatewayClientService.generateImage({
-        prompt: request.prompt,
-        model: modelSelection.model,
-        count: request.count,
-        size: request.size,
-        background: request.background,
-        credential: {
-          toolCode: "image_generate",
-          secretId: modelSelection.credential.secretRef.id,
-          providerId
+      const timeoutMs = this.resolveWorkerTimeoutMs(params.bundle);
+      const providerResult = await this.providerGatewayClientService.generateImage(
+        {
+          prompt: request.prompt,
+          model: modelSelection.model,
+          count: request.count,
+          size: request.size,
+          background: request.background,
+          credential: {
+            toolCode: IMAGE_GENERATE_TOOL_CODE,
+            secretId: modelSelection.credential.secretRef.id,
+            providerId
+          }
+        },
+        {
+          timeoutMs
         }
-      });
+      );
       const artifacts = await Promise.all(
         providerResult.images.map((image, index) =>
           this.persistGeneratedArtifact({
@@ -437,6 +446,14 @@ export class RuntimeImageGenerateToolService {
       return null;
     }
     return policy;
+  }
+  private resolveWorkerTimeoutMs(bundle: AssistantRuntimeBundle): number {
+    const configured =
+      bundle.runtime.workerTools.tools.find((tool) => tool.toolCode === IMAGE_GENERATE_TOOL_CODE)
+        ?.timeoutMs ?? null;
+    return Number.isInteger(configured) && Number(configured) > 0
+      ? Number(configured)
+      : DEFAULT_IMAGE_GENERATE_TIMEOUT_MS;
   }
 
   private resolveConfiguredCredentialRef(
