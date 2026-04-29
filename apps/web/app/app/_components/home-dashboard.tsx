@@ -62,20 +62,6 @@ export function HomeDashboard({ data, onSettingsClick, onTelegramClick }: HomeDa
           )}
         </div>
 
-        {/* Quick prompts */}
-        <div className="mt-8 grid grid-cols-2 gap-2">
-          {(["prompt1", "prompt2", "prompt3", "prompt4"] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => router.push(`/app/chat?prompt=${encodeURIComponent(t(key))}` as Route)}
-              className="cursor-pointer rounded-xl border border-border bg-surface px-3 py-2.5 text-left text-xs text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
-            >
-              {t(key)}
-            </button>
-          ))}
-        </div>
-
         {/* Quick actions */}
         <div className="mt-8 flex flex-wrap justify-center gap-2">
           <QuickAction

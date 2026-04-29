@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { syncNativeSystemBars } from "./persai-native-bridge";
 
 export type ThemeChoice = "system" | "dark" | "light";
 export type ResolvedTheme = "dark" | "light";
@@ -46,31 +47,6 @@ function resolveChoice(choice: ThemeChoice): ResolvedTheme {
   if (choice !== "system") return choice;
   if (typeof window === "undefined") return "dark";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-/**
- * Native bridge exposed by the persai-mobile (Capacitor / Android) shell.
- * On the desktop / browser web this is undefined and the helper below is a
- * no-op. On Android it drives `Window#setStatusBarColor` +
- * `Window#setNavigationBarColor` + `WindowInsetsController` appearance
- * flags so the bottom system navigation bar matches the in-app theme
- * choice (independent of OS-level `prefers-color-scheme`).
- *
- * Documented in ADR-075 → "System bars theme bridge" and ADR-076 Slice 2a.
- */
-interface PersaiNativeBridge {
-  setTheme?: (theme: string) => void;
-}
-
-function syncNativeSystemBars(resolved: ResolvedTheme): void {
-  if (typeof window === "undefined") return;
-  const native = (window as unknown as { PersaiNative?: PersaiNativeBridge }).PersaiNative;
-  if (!native?.setTheme) return;
-  try {
-    native.setTheme(resolved);
-  } catch {
-    /* non-critical: bridge may not be ready immediately on cold-boot */
-  }
 }
 
 function applyResolved(resolved: ResolvedTheme): void {

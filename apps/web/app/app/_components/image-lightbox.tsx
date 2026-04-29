@@ -10,6 +10,7 @@ import {
 import { Download, Share2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
+import { tryNativeMediaShare } from "./persai-native-bridge";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface ImageLightboxProps {
@@ -276,6 +277,20 @@ export function ImageLightbox({
   }, [alt, downloadUrl, filename, src]);
 
   const handleShare = useCallback(async () => {
+    const shareTitle = safeImageFilename(filename ?? alt);
+    const shareUrl = new URL(downloadUrl ?? src, window.location.href).href;
+
+    if (
+      tryNativeMediaShare({
+        url: shareUrl,
+        filename: shareTitle,
+        title: shareTitle,
+        userAgent: navigator.userAgent
+      })
+    ) {
+      return;
+    }
+
     if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
       triggerDownload();
       return;
@@ -283,8 +298,7 @@ export function ImageLightbox({
 
     setSharing(true);
     try {
-      const shareTitle = safeImageFilename(filename ?? alt);
-      const response = await fetch(src);
+      const response = await fetch(downloadUrl ?? src);
       const blob = await response.blob();
       const file = new File([blob], shareTitle, {
         type: blob.type || "image/jpeg"
@@ -299,7 +313,7 @@ export function ImageLightbox({
       }
       await navigator.share({
         title: shareTitle,
-        url: new URL(src, window.location.href).href
+        url: shareUrl
       });
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -308,7 +322,7 @@ export function ImageLightbox({
     } finally {
       setSharing(false);
     }
-  }, [alt, filename, src, triggerDownload]);
+  }, [alt, downloadUrl, filename, src, triggerDownload]);
 
   if (!open) return null;
 

@@ -1,5 +1,92 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Background-completed stale thinking cursor fix) — resume/history reconcile now clears orphan local placeholder turns instead of leaving `Думаю...` behind after browser return (`apps/web`; focused checks green)
+
+### Why this session
+
+Founder reported a remaining continuity bug after the chat-switch fix: if a web turn finished while the browser/app was in the background, returning to the chat could still leave a stale local `Думаю...` placeholder/cursor on screen even though the final committed assistant reply was already present. Reload removed it, which pointed to an in-memory reconcile/cache cleanup bug rather than a server-side runtime failure.
+
+### What changed
+
+- Traced the bug to `apps/web/app/app/_components/use-chat.ts`: resume/soft-detach reconciliation could merge committed history with an older optimistic local assistant placeholder when the passive disconnect happened before `onStarted` had remapped the optimistic user message to the server id.
+- Tightened both `mergeCommittedHistoryWithActiveTurn()` and `refreshLatestHistory()` so a committed tail consisting of exactly one new server user + one new server assistant can replace the optimistic local snapshot even when the old local user id never matched the authoritative history.
+- Fixed the soft-detach reconcile bookkeeping so this replacement is recognized as a true reconcile result, which lets the shared detached-turn finalizer clear `isStreaming` instead of leaving the thread marked active after the final answer is already visible.
+- Added a focused regression in `use-chat.test.tsx` that simulates the passive-disconnect-before-`onStarted` path on an existing chat and verifies the stale local thinking placeholder is removed instead of surviving until reload.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The new replacement heuristic is intentionally narrow (`exactly 1 new user + 1 new assistant`, committed tail ends with assistant) so it does not steal the existing turn-status fallback path when `getChatMessages` only returns an unrelated 20-message tail.
+- This session verified hook-level regression coverage only; founder/live confirmation is still needed on the real browser/background flow after deploy.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then live-test the founder repro exactly: start a turn in an existing chat, background/switch away before `started` settles, wait for completion, return to the browser, and confirm no stale `Думаю...` cursor remains above the committed answer.
+
+## 2026-04-29 (Chat switch passive-disconnect fix) — switched-away turns now reconcile against their own chat instead of the currently open one (`apps/web`; focused checks green, GKE logs confirm server completed turns)
+
+### Why this session
+
+Founder reported that switching from one chat to another now made the earlier in-flight stream look interrupted, even though this continuity path had worked before. Investigation included both the current `useChat` thread-switch code and live `persai-dev` API logs to separate a real server abort from a client-side recovery regression.
+
+### What changed
+
+- Confirmed from `persai-dev` API logs that recent web turns were still reaching `web_turn_attempt_completed` / `web_stream_timing` without `client-aborted`, so the regression was not the API/runtime hard-stop path.
+- Found the client bug in `apps/web/app/app/_components/use-chat.ts`: after switching from `thread-A` to `thread-B`, a passive disconnect from the old `thread-A` stream used the global `activeChatIdRef.current` (now pointing at `chat-B`) when starting soft-detach reconciliation.
+- Added a thread-scoped `resolveKnownChatIdForThread()` helper and switched the passive-disconnect reconcile path to use the originating thread's known `chatId` from its active/cached snapshot rather than the currently open chat.
+- Also reused that same thread-scoped resolver for the post-completion compaction refresh path so off-thread completion bookkeeping does not accidentally point at the wrong chat.
+- Added a focused regression in `use-chat.test.tsx` covering the exact failure mode: stream starts in `thread-A`, user switches to `thread-B`, `thread-A` hits a passive disconnect, and reconciliation must fetch `chat-A` rather than `chat-B`.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The fix covers the identified client-side wrong-chat reconcile path. If founder still sees a repro after deploy, the next thing to capture is the exact visible symptom: whether the original chat loses only live cursor/activity or whether the final committed assistant message also fails to appear.
+- GKE evidence came from recent API logs only; no browser console/network HAR was captured in this session.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then live-test the exact founder flow: start a long tool/image turn in Chat A, switch to Chat B before completion, switch back to Chat A both before and after completion, and confirm the stream/current-turn UI or final committed result survives without manual refresh.
+
+## 2026-04-29 (Native mobile media share) — image lightbox now routes share through the shell on Android/iOS (`apps/web`, `persai-mobile`; focused checks green, iOS build not run on Windows)
+
+### Why this session
+
+Founder asked to fix the unreliable mobile media share path first. The current image lightbox relied on `navigator.share(...)`, which is fine in ordinary browsers but unstable in the Capacitor WebView for authenticated media URLs and file-backed share sheets.
+
+### What changed
+
+- Added a small shared web/native bridge helper in `apps/web` so the image lightbox can prefer `window.PersaiNative.shareMedia(...)` when the Capacitor shell exposes it, while browser web keeps the existing Web Share/download fallback.
+- Updated `apps/web/app/app/_components/image-lightbox.tsx` to share the authenticated `downloadUrl` when present instead of always fetching the display `src`, and added a focused regression that proves the native bridge is preferred when available.
+- Android shell: extended the existing `window.PersaiNative` JavaScript interface to accept `shareMedia(payloadJson)`, download the authenticated media URL with the WebView cookie into app cache, then open the native `ACTION_SEND` chooser via the existing `FileProvider`.
+- iOS shell: `AppDelegate.swift` now injects the same `window.PersaiNative.shareMedia(...)` bridge into the Capacitor WebView, reuses the WKWebView cookie store for the authenticated download, persists the file into temporary cache, and presents `UIActivityViewController`.
+- Updated `docs/ADR/075-mobile-capacitor-webview-shell.md` so the mobile shell contract now records native media sharing rather than implying WebView share sheets are the only option.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/image-lightbox.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `./gradlew.bat :app:assembleDebug` in `persai-mobile/android` with `JAVA_HOME=C:\Program Files\Android\Android Studio\jbr`
+
+### Risks / residuals
+
+- Android build is validated, but iOS compilation was not runnable from this Windows session; the new `AppDelegate.swift` bridge path still needs an Xcode/TestFlight-side smoke check on macOS or a device.
+- The focused fix currently targets the image lightbox share action. If other media surfaces later add share buttons, reuse the same `window.PersaiNative.shareMedia(...)` bridge instead of reintroducing direct `navigator.share` in mobile-only paths.
+
+### Next recommended step
+
+Install the fresh Android debug APK, open an assistant-generated image in the lightbox, tap `Поделиться`, and verify Telegram/system share targets receive a real file rather than a raw URL. Then do the same smoke on iOS once an Apple build environment is available.
+
 ## 2026-04-29 (Media model fallback routing) — plan-configured primary/fallback model chains for image/video tools (`apps/api`, `apps/runtime`, `apps/web`, `packages/contracts`; full gate green)
 
 ### Why this session

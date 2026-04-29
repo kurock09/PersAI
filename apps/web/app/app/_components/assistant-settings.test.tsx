@@ -312,6 +312,14 @@ describe("mergeMemoryViews (ADR-074 M3.3 — Memory Center merge + dedup)", () =
   });
 });
 
+describe("AssistantSettings character CTA", () => {
+  it("uses the shorter customize label in the character section", () => {
+    renderSettings(makeAppData(), "character");
+
+    expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // AssistantSettings — Memory Center close-button + tabs (ADR-074 M3.3).
 // ---------------------------------------------------------------------------

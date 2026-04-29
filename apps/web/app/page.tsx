@@ -6,14 +6,6 @@ import { getTranslations } from "next-intl/server";
 import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
 import { LandingThemeToggle } from "./_components/landing-theme-toggle";
 
-function TelegramIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L7.17 13.926l-2.96-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.978.633z" />
-    </svg>
-  );
-}
-
 export default async function HomePage() {
   const { userId } = await auth();
   if (userId !== null) {
@@ -88,14 +80,14 @@ export default async function HomePage() {
           </p>
 
           <div className="animate-fade-in-up-delay mt-5 flex w-full max-w-[34rem] flex-col items-center gap-3">
-            <div className="grid w-full max-w-[30rem] grid-cols-1 gap-2 sm:grid-cols-3">
-              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+            <div className="grid w-full max-w-[30rem] grid-cols-1 gap-2.5 sm:grid-cols-3">
+              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
                 {t("capabilityMemory")}
               </span>
-              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
                 {t("capabilityChannels")}
               </span>
-              <span className="rounded-full border border-border/50 bg-surface-raised/20 px-3 py-2 text-[11px] font-medium text-text-muted backdrop-blur-sm">
+              <span className="rounded-2xl border border-white/6 bg-white/[0.028] px-4 py-3 text-center text-[11px] font-medium tracking-[0.02em] text-text-muted/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-md">
                 {t("capabilityTasks")}
               </span>
             </div>
@@ -120,31 +112,6 @@ export default async function HomePage() {
             >
               {t("ctaSecondary")} →
             </Link>
-          </div>
-
-          {/* Platforms */}
-          <div className="animate-fade-in-up-delay mt-4 flex w-full max-w-[24rem] flex-wrap items-center justify-center gap-x-2 gap-y-2 opacity-80">
-            {/* Telegram — active */}
-            <span className="flex items-center justify-center gap-1.5 rounded-full border border-[#2AABEE]/12 bg-[#2AABEE]/[0.035] px-3 py-1.5 text-[10px] font-medium text-[#2AABEE]/75">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2AABEE] opacity-25" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#2AABEE]/85" />
-              </span>
-              <TelegramIcon className="h-3 w-3" />
-              Telegram
-            </span>
-            <span className="flex items-center justify-center gap-2 rounded-full border border-border/35 bg-surface-raised/10 px-3 py-1.5 backdrop-blur-sm">
-              <span className="flex items-center gap-2 text-[10px] font-medium">
-                <span className="text-[#0077FF]/45">VK</span>
-                <span className="text-text-subtle/30">·</span>
-                <span className="text-[#25D366]/45">WhatsApp</span>
-                <span className="text-text-subtle/30">·</span>
-                <span className="text-[#7B5CF6]/45">MAX</span>
-              </span>
-              <span className="ml-1 text-[9px] font-medium uppercase tracking-wider text-text-subtle/45">
-                {t("soon")}
-              </span>
-            </span>
           </div>
         </main>
 

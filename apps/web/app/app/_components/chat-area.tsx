@@ -68,13 +68,6 @@ export function ChatArea({
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
-  const sendPrompt = useCallback(
-    (text: string, files?: File[]) => {
-      if (assistantReady) void chat.send(text, files, { deepModeEnabled: deepMode });
-    },
-    [assistantReady, chat, deepMode]
-  );
-
   // Restore the cancelled draft into the composer when the user picks
   // "Cancel" on a failed pending-send bubble (text only — media/voice
   // blobs cannot be re-attached because they live in the now-removed
@@ -433,7 +426,6 @@ export function ChatArea({
             avatarUrl={assistantAvatarUrl}
             avatarEmoji={assistantAvatarEmoji}
             createdAt={assistantCreatedAt}
-            onPrompt={sendPrompt}
           />
         ) : (
           <div className="mx-auto w-full max-w-[50rem] px-3 pt-4 pb-24 md:px-0 md:pb-28">
@@ -743,14 +735,12 @@ function EmptyState({
   name,
   avatarUrl,
   avatarEmoji,
-  createdAt,
-  onPrompt
+  createdAt
 }: {
   name?: string | undefined;
   avatarUrl?: string | undefined;
   avatarEmoji?: string | undefined;
   createdAt?: string | undefined;
-  onPrompt?: (text: string) => void;
 }) {
   const t = useTranslations("chat");
   const assistantName = name ?? t("defaultAssistant");
@@ -771,18 +761,6 @@ function EmptyState({
           {t("togetherFor", { days: daysTogether })}
         </p>
       )}
-      <div className="mt-8 grid w-full max-w-md grid-cols-1 gap-2.5 sm:mt-10 sm:grid-cols-2">
-        {(["prompt1", "prompt2", "prompt3", "prompt4"] as const).map((key) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => onPrompt?.(t(key))}
-            className="cursor-pointer rounded-2xl border border-border bg-surface-raised/70 px-4 py-3 text-left text-[13px] leading-snug text-text-muted transition-all hover:border-accent/40 hover:bg-surface-raised hover:text-text"
-          >
-            {t(key)}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
