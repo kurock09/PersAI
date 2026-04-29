@@ -1,5 +1,126 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Active turn cache correction) — completed turn-status results survive chat switching (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder found one more cache bug: after backgrounding and returning, the completed result was visible, but switching to another chat and back restored an older cached version of the thread without the newest assistant result.
+
+### What changed
+
+- Fixed terminal turn-status reconciliation in `useChat`: completed user+assistant messages are now written into `cachedThreadHistorySnapshotsRef` before active turn state is cleared.
+- Added a regression covering: active `clientTurnId` restores a completed result from turn status, user switches away, then switches back and still sees the newest assistant message/attachment.
+- Added a one-shot guard for stored active-turn restore so reload recovery does not repeatedly poll turn status just because hook callbacks changed.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check apps/web/app/app/_components/use-chat.ts apps/web/app/app/_components/use-chat.test.tsx`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This fixes the in-memory per-thread cache for the current browser session. Cross-device consistency still depends on normal history fetch/bootstrap paths.
+
+### Next recommended step
+
+Run the full gate with the previous active-current-activity slice, deploy/sync `persai-dev`, then live-test: start image generation, switch apps/windows, return, switch chats away/back, and confirm the newest assistant result remains visible without F5.
+
+## 2026-04-29 (Active web-chat current activity) — reload/resume restores live tool status without historical badges (`apps/api`, `apps/web`; focused tests/typechecks green)
+
+### Why this session
+
+Founder asked to finish the tool/status continuity "по-взрослому": history refresh and full reload during an active tool turn must not make the UI look idle, but completed chat history must not fabricate old tool badges from attachments.
+
+### What changed
+
+- Added `assistant_web_chat_turn_attempts.current_activity` via Prisma migration.
+- `WebChatTurnAttemptService` now stores a bounded active-turn `currentActivity` projection from runtime tool lifecycle events and clears it on completed/failed/interrupted terminal states.
+- The existing `/assistant/chat/web/turns/:clientTurnId` status response now includes `currentActivity`, and OpenAPI/generated contracts were regenerated.
+- `useChat` persists only the active `clientTurnId` in session storage per thread. On resume/reload it asks the turn-status endpoint for the active turn and restores the current live tool badge/streaming state without creating historical activity badges.
+- Terminal turn status now deliberately clears live activity, stops streaming state, aborts the stale local SSE controller, and reconciles committed messages.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/web-chat-turn-attempt.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/web files
+
+### Risks / residuals
+
+- This restores live/current-turn tool status, not token-by-token SSE replay. Missed text/media still reconciles through committed history or terminal turn status.
+- `sessionStorage` is intentionally browser-session scoped; cross-device restoration of active turn ids is not part of this slice.
+- Requires applying the new API migration before relying on `currentActivity` in `persai-dev`.
+
+### Next recommended step
+
+Run the full verification gate, deploy/sync `persai-dev`, then live-test desktop and Capacitor: start `image_generate` or `web_search`, switch windows/apps, reload while the turn is running, and confirm the current status returns until the terminal message lands.
+
+## 2026-04-29 (Durable notification outbox and idle reengagement) — all assistant notifications now enqueue before delivery (`apps/api`, `apps/web`; focused tests/typechecks green)
+
+### Why this session
+
+Founder asked to implement the attached Durable Notification Outbox And Idle Reengagement plan exactly, without editing the plan file: one durable foundation for reminders, background pushes, idle reengagement, future system/security/billing events, and future mobile push readiness.
+
+### What changed
+
+- Added `assistant_notification_outbox` and `workspace_notification_policies` with Prisma migration and generated client updates.
+- Added `AssistantNotificationOutboxService` and `AssistantNotificationOutboxSchedulerService` for enqueue dedupe, claim/lease, retry, skip, dead-letter, and final delivery-result persistence.
+- Cut existing sources over cleanly: `HandleInternalCronFireService` and `PersaiBackgroundTaskSchedulerService` enqueue notifications; only the outbox worker calls `AssistantNotificationDeliveryService`.
+- Added `PersaiIdleReengagementSchedulerService`: it reads admin policy, checks idle threshold/cooldown, builds a compact recent-context packet, asks the runtime evaluator, and enqueues one deduped `idle_reengagement` notification when the evaluator returns `push`.
+- Reworked `/admin/notifications` into "Notification Settings": existing webhook/system channel settings remain and a new user-notification section edits idle reengagement enablement, idle hours, cooldown hours, and LLM instruction.
+- Updated OpenAPI contracts/generated clients and docs to make durable outbox the active notification truth.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-notification-outbox.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-notification-channels.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/persai-idle-reengagement-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-cron-fire.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Full mobile push delivery is still deferred by product decision; no token storage, Capacitor/FCM/APNS adapter, or permission flow was added.
+- Existing admin webhook delivery remains separate from assistant/user outbox delivery; future user-facing `system_event` notifications can enqueue into the outbox, but webhook-attempt migration is intentionally not part of this slice.
+- Idle reengagement uses the existing background-task evaluator endpoint shape to avoid a second runtime evaluator surface in this slice.
+
+### Next recommended step
+
+Run the full verification gate, deploy to `persai-dev`, then live-test: reminder push, background-task push, `/admin/notifications` policy save, and one shortened idle policy on a staging workspace to confirm evaluator-to-outbox-to-delivery end to end.
+
+## 2026-04-29 (Tool activity history correction) — completed media messages no longer get fabricated tool badges (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder caught that the previous tool UI continuity fix restored `Image ready` from committed attachments after reload, but not equivalent statuses for non-media tools. That was the wrong product model: tool status should be live/current-turn UI context, not a synthetic historical badge attached to old completed messages.
+
+### What changed
+
+- Removed `buildPersistedMediaActivity()` from `apps/web/app/app/_components/use-chat.ts`.
+- Loaded chat history no longer reconstructs `tool_use` activities from assistant attachments.
+- Live/current-turn activity behavior is unchanged: active turn snapshots still carry the current tool status while the turn is in progress and are shown only for the latest assistant reply.
+- Updated `apps/web/app/app/_components/use-chat.test.tsx` so committed image attachments in loaded history do not produce historical tool badges.
+- Corrected changelog/handoff wording that previously described attachment-derived tool activity as desired behavior.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- A full post-reload reconstruction of in-progress non-media tools would require a real current-turn activity source, not attachment inference. Do not fake it from completed history.
+
+### Next recommended step
+
+If product needs tool status to survive a full page reload while a turn is still running, add a bounded current-turn activity/status projection keyed by the active turn, and keep it separate from historical chat message rendering.
+
 ## 2026-04-29 (Shared assistant notification delivery) — background pushes and reminders now share one transport layer (`apps/api`; focused test/typecheck/gate green)
 
 ### Why this session
@@ -81,8 +202,8 @@ Founder reported that after switching away from the browser/app and returning, t
 
 - `apps/web/app/app/_components/use-chat.ts` now distinguishes explicit Stop from passive post-headers disconnects with a local hard-stop marker.
 - If a post-headers abort/disconnect happens without explicit Stop and the active turn snapshot still exists, `useChat` keeps the turn in soft-detach mode instead of clearing `isStreaming`; the existing bounded reconciliation loop continues polling committed history.
-- Reloaded committed media messages now reconstruct a quiet tool-complete activity from persisted assistant attachments (`Image ready`, `Video ready`, or `Voice ready`), so F5 no longer erases all tool context for successful media turns.
-- `apps/web/app/app/_components/use-chat.test.tsx` pins the persisted media activity regression.
+- Tool status remains live/current-turn UI state rather than historical message state.
+- `apps/web/app/app/_components/use-chat.test.tsx` pins the current-turn activity behavior.
 
 ### Tests run
 
@@ -93,8 +214,7 @@ Founder reported that after switching away from the browser/app and returning, t
 
 ### Risks / residuals
 
-- F5 can only reconstruct tool-complete status from persisted outputs currently available in chat history. Failed tool attempts without a persisted assistant attachment still need a future durable tool-event history if we want exact post-reload failed/running badges.
-- Needs deploy/live validation on desktop and Capacitor: start image generation/editing, switch away mid-tool, return before completion, then F5 after completion and confirm the UI remains understandable.
+- Needs deploy/live validation on desktop and Capacitor: start image generation/editing, switch away mid-tool, return before completion, and confirm the current-turn UI remains understandable without leaving historical badges on old messages.
 
 ### Next recommended step
 

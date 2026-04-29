@@ -11,6 +11,16 @@ export type AdminNotificationChannelState = {
   } | null;
 };
 
+export type IdleReengagementNotificationPolicyState = {
+  source: "idle_reengagement";
+  enabled: boolean;
+  idleHours: number;
+  cooldownHours: number;
+  llmInstruction: string;
+  updatedAt: string;
+  updatedByUserId: string | null;
+};
+
 export type AdminSystemNotificationSignalCode =
   | "assistant.runtime.apply_failed"
   | "assistant.runtime.apply_degraded"

@@ -23,8 +23,18 @@ export interface WebChatTurnStatusState {
   chat: AssistantWebChatState | null;
   userMessage: AssistantWebChatMessageState | null;
   assistantMessage: AssistantWebChatMessageState | null;
+  currentActivity: WebChatTurnCurrentActivityState | null;
   runtime: AssistantWebChatTurnState["runtime"] | null;
   error: { code: string | null; message: string | null } | null;
+}
+
+export interface WebChatTurnCurrentActivityState {
+  type: "tool_use";
+  toolName: string;
+  toolCallId: string;
+  phase: "start" | "end";
+  isError: boolean;
+  updatedAt: string;
 }
 
 export type WebTurnClaimResult = "claimed" | "duplicate_handled" | "duplicate_inflight";
@@ -87,6 +97,33 @@ function readTerminalPayload(value: Prisma.JsonValue | null): CompletedWebTurnRe
   };
 }
 
+function readCurrentActivityPayload(
+  value: Prisma.JsonValue | null
+): WebChatTurnCurrentActivityState | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    row.type !== "tool_use" ||
+    typeof row.toolName !== "string" ||
+    typeof row.toolCallId !== "string" ||
+    (row.phase !== "start" && row.phase !== "end") ||
+    typeof row.isError !== "boolean" ||
+    typeof row.updatedAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    type: "tool_use",
+    toolName: row.toolName,
+    toolCallId: row.toolCallId,
+    phase: row.phase,
+    isError: row.isError,
+    updatedAt: row.updatedAt
+  };
+}
+
 @Injectable()
 export class WebChatTurnAttemptService {
   private readonly logger = new Logger(WebChatTurnAttemptService.name);
@@ -143,6 +180,7 @@ export class WebChatTurnAttemptService {
           completedAt: null,
           failedAt: null,
           interruptedAt: null,
+          currentActivity: Prisma.DbNull,
           errorCode: null,
           errorMessage: null,
           surfaceClient: input.surfaceClient ?? existing.surfaceClient
@@ -222,6 +260,7 @@ export class WebChatTurnAttemptService {
         status: "completed",
         assistantMessageId: input.assistantMessageId,
         respondedAt: new Date(input.respondedAt),
+        currentActivity: Prisma.DbNull,
         terminalPayload: input.terminalPayload as unknown as Prisma.InputJsonValue,
         completedAt: new Date(),
         errorCode: null,
@@ -254,6 +293,39 @@ export class WebChatTurnAttemptService {
     message?: string | null;
   }): Promise<void> {
     await this.markTerminalFailure({ ...input, status: "interrupted" });
+  }
+
+  async markCurrentActivity(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+    toolName: string;
+    toolCallId: string;
+    phase: "start" | "end";
+    isError: boolean;
+    updatedAt?: Date;
+  }): Promise<void> {
+    const updatedAt = input.updatedAt ?? new Date();
+    await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
+      },
+      data: {
+        currentActivity: {
+          type: "tool_use",
+          toolName: input.toolName,
+          toolCallId: input.toolCallId,
+          phase: input.phase,
+          isError: input.isError,
+          updatedAt: updatedAt.toISOString()
+        } satisfies WebChatTurnCurrentActivityState
+      }
+    });
   }
 
   async getCompletedReplay(input: {
@@ -291,6 +363,7 @@ export class WebChatTurnAttemptService {
         chat: null,
         userMessage: null,
         assistantMessage: null,
+        currentActivity: null,
         runtime: null,
         error: null
       };
@@ -325,6 +398,7 @@ export class WebChatTurnAttemptService {
         ...(input.assistantMessageId === undefined
           ? {}
           : { assistantMessageId: input.assistantMessageId }),
+        currentActivity: Prisma.DbNull,
         errorCode: input.code ?? null,
         errorMessage: input.message ?? null,
         ...(input.status === "failed" ? { failedAt: new Date() } : { interruptedAt: new Date() })
@@ -367,8 +441,9 @@ export class WebChatTurnAttemptService {
       attachmentsByMessageId.set(attachment.messageId, existing);
     }
     const terminal = readTerminalPayload(attempt.terminalPayload);
+    const status = attempt.status as WebChatTurnAttemptStatus;
     return {
-      status: attempt.status as WebChatTurnAttemptStatus,
+      status,
       chat:
         chat === null
           ? null
@@ -408,6 +483,9 @@ export class WebChatTurnAttemptService {
               attachments: attachmentsByMessageId.get(assistantMessage.id) ?? [],
               createdAt: assistantMessage.createdAt.toISOString()
             },
+      currentActivity: TERMINAL_STATUSES.has(status)
+        ? null
+        : readCurrentActivityPayload(attempt.currentActivity),
       runtime:
         terminal === null
           ? null

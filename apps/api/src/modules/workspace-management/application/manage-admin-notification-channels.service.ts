@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { AdminNotificationChannelStatus } from "@prisma/client";
+import { AdminNotificationChannelStatus, WorkspaceNotificationPolicySource } from "@prisma/client";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { assertPublicWebhookUrl } from "./admin-webhook-url-policy";
-import type { AdminNotificationChannelState } from "./admin-system-notification.types";
+import type {
+  AdminNotificationChannelState,
+  IdleReengagementNotificationPolicyState
+} from "./admin-system-notification.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 export type UpdateAdminWebhookNotificationChannelInput = {
@@ -11,6 +14,19 @@ export type UpdateAdminWebhookNotificationChannelInput = {
   endpointUrl: string | null;
   signingSecret: string | null;
 };
+
+export type UpdateIdleReengagementNotificationPolicyInput = {
+  enabled: boolean;
+  idleHours: number;
+  cooldownHours: number;
+  llmInstruction: string;
+};
+
+const DEFAULT_IDLE_REENGAGEMENT_LLM_INSTRUCTION = [
+  "Decide whether to send a short, warm reengagement message after the user has been away.",
+  "Use the recent conversation context and active open loops. Push only when it is genuinely helpful.",
+  "The message must be one brief user-facing sentence, non-pushy, no guilt, no exact idle duration."
+].join("\n");
 
 function toTrimmedOrNull(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -28,6 +44,13 @@ function assertWebhookUrl(value: string): void {
       error instanceof Error ? error.message : "Invalid webhook endpointUrl."
     );
   }
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > max) {
+    throw new BadRequestException(`${fieldName} must be an integer between 1 and ${max}.`);
+  }
+  return value;
 }
 
 @Injectable()
@@ -68,6 +91,13 @@ export class ManageAdminNotificationChannelsService {
     }));
   }
 
+  async getIdleReengagementPolicy(
+    userId: string
+  ): Promise<IdleReengagementNotificationPolicyState> {
+    const context = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    return this.resolveIdleReengagementPolicyState(context.workspaceId);
+  }
+
   parseWebhookUpdateInput(body: unknown): UpdateAdminWebhookNotificationChannelInput {
     if (typeof body !== "object" || body === null || Array.isArray(body)) {
       throw new BadRequestException("Request body must be an object.");
@@ -90,6 +120,28 @@ export class ManageAdminNotificationChannelsService {
       enabled: row.enabled,
       endpointUrl,
       signingSecret
+    };
+  }
+
+  parseIdleReengagementPolicyUpdateInput(
+    body: unknown
+  ): UpdateIdleReengagementNotificationPolicyInput {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new BadRequestException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    if (typeof row.enabled !== "boolean") {
+      throw new BadRequestException("enabled must be a boolean.");
+    }
+    const llmInstruction = toTrimmedOrNull(row.llmInstruction);
+    if (llmInstruction === null) {
+      throw new BadRequestException("llmInstruction is required.");
+    }
+    return {
+      enabled: row.enabled,
+      idleHours: parsePositiveInteger(row.idleHours, "idleHours", 720),
+      cooldownHours: parsePositiveInteger(row.cooldownHours, "cooldownHours", 720),
+      llmInstruction
     };
   }
 
@@ -159,6 +211,101 @@ export class ManageAdminNotificationChannelsService {
               attemptedAt: lastDelivery.attemptedAt.toISOString(),
               errorMessage: lastDelivery.errorMessage
             }
+    };
+  }
+
+  async updateIdleReengagementPolicy(
+    userId: string,
+    input: UpdateIdleReengagementNotificationPolicyInput
+  ): Promise<IdleReengagementNotificationPolicyState> {
+    const context =
+      await this.adminAuthorizationService.assertCanManageAdminSystemNotifications(userId);
+    const policy = await this.prisma.workspaceNotificationPolicy.upsert({
+      where: {
+        workspaceId_source: {
+          workspaceId: context.workspaceId,
+          source: WorkspaceNotificationPolicySource.idle_reengagement
+        }
+      },
+      create: {
+        workspaceId: context.workspaceId,
+        source: WorkspaceNotificationPolicySource.idle_reengagement,
+        enabled: input.enabled,
+        idleHours: input.idleHours,
+        cooldownHours: input.cooldownHours,
+        llmInstruction: input.llmInstruction,
+        updatedByUserId: userId
+      },
+      update: {
+        enabled: input.enabled,
+        idleHours: input.idleHours,
+        cooldownHours: input.cooldownHours,
+        llmInstruction: input.llmInstruction,
+        updatedByUserId: userId
+      }
+    });
+
+    await this.appendAssistantAuditEventService.execute({
+      workspaceId: context.workspaceId,
+      assistantId: null,
+      actorUserId: userId,
+      eventCategory: "admin_action",
+      eventCode: "admin.notification_policy_updated",
+      summary: "Idle reengagement notification policy updated.",
+      details: {
+        source: "idle_reengagement",
+        enabled: input.enabled,
+        idleHours: input.idleHours,
+        cooldownHours: input.cooldownHours,
+        actorRoles: context.roles,
+        legacyOwnerFallback: context.hasLegacyOwnerFallback
+      }
+    });
+
+    return this.toIdleReengagementPolicyState(policy);
+  }
+
+  private async resolveIdleReengagementPolicyState(
+    workspaceId: string
+  ): Promise<IdleReengagementNotificationPolicyState> {
+    const policy = await this.prisma.workspaceNotificationPolicy.findUnique({
+      where: {
+        workspaceId_source: {
+          workspaceId,
+          source: WorkspaceNotificationPolicySource.idle_reengagement
+        }
+      }
+    });
+    if (policy === null) {
+      return {
+        source: "idle_reengagement",
+        enabled: false,
+        idleHours: 24,
+        cooldownHours: 72,
+        llmInstruction: DEFAULT_IDLE_REENGAGEMENT_LLM_INSTRUCTION,
+        updatedAt: new Date(0).toISOString(),
+        updatedByUserId: null
+      };
+    }
+    return this.toIdleReengagementPolicyState(policy);
+  }
+
+  private toIdleReengagementPolicyState(policy: {
+    enabled: boolean;
+    idleHours: number;
+    cooldownHours: number;
+    llmInstruction: string;
+    updatedAt: Date;
+    updatedByUserId: string | null;
+  }): IdleReengagementNotificationPolicyState {
+    return {
+      source: "idle_reengagement",
+      enabled: policy.enabled,
+      idleHours: policy.idleHours,
+      cooldownHours: policy.cooldownHours,
+      llmInstruction: policy.llmInstruction,
+      updatedAt: policy.updatedAt.toISOString(),
+      updatedByUserId: policy.updatedByUserId
     };
   }
 }

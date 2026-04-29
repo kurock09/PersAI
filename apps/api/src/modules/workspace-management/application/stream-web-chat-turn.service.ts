@@ -856,6 +856,18 @@ export class StreamWebChatTurnService {
           } else {
             watchdog.recordToolFinished();
           }
+          if (input.prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+            await this.webChatTurnAttemptService.markCurrentActivity({
+              assistantId: input.prepared.assistantId,
+              userId: input.prepared.userId,
+              surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+              clientTurnId: input.prepared.clientTurnId,
+              toolName: chunk.toolName,
+              toolCallId: chunk.toolCallId,
+              phase: chunk.toolPhase,
+              isError: chunk.isError === true
+            });
+          }
           input.callbacks.onTool?.({
             phase: chunk.toolPhase,
             toolName: chunk.toolName,

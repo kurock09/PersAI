@@ -3,9 +3,11 @@ import {
   type AdminNotificationChannelState,
   type AdminRuntimeProviderSettingsRequest,
   type AdminRuntimeProviderSettingsState,
+  type IdleReengagementNotificationPolicyState,
   type PlatformRolloutState,
   type PostAdminPlatformRolloutRequest,
   type PatchAdminNotificationWebhookChannelRequest,
+  type PatchAdminIdleReengagementNotificationPolicyRequest,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
   type AdminOpsCockpitState,
@@ -65,6 +67,7 @@ import {
   getAdminPlans as getAdminPlansContract,
   getAdminBusinessCockpit as getAdminBusinessCockpitContract,
   getAdminNotificationChannels as getAdminNotificationChannelsContract,
+  getAdminIdleReengagementNotificationPolicy as getAdminIdleReengagementNotificationPolicyContract,
   getAdminPlatformRollouts as getAdminPlatformRolloutsContract,
   getAdminOpsCockpit as getAdminOpsCockpitContract,
   postAdminOpsUserPlanOverride as postAdminOpsUserPlanOverrideContract,
@@ -75,6 +78,7 @@ import {
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
+  patchAdminIdleReengagementNotificationPolicy as patchAdminIdleReengagementNotificationPolicyContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
@@ -2123,6 +2127,43 @@ export async function patchAdminNotificationWebhookChannel(
   }
 }
 
+export async function getAdminIdleReengagementNotificationPolicy(
+  token: string
+): Promise<IdleReengagementNotificationPolicyState> {
+  try {
+    const response = await getAdminIdleReengagementNotificationPolicyContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for GET /admin/notifications/policies/idle-reengagement."
+      );
+    }
+    return response.data.policy;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function patchAdminIdleReengagementNotificationPolicy(
+  token: string,
+  input: PatchAdminIdleReengagementNotificationPolicyRequest
+): Promise<IdleReengagementNotificationPolicyState> {
+  try {
+    const response = await patchAdminIdleReengagementNotificationPolicyContract(input, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for PATCH /admin/notifications/policies/idle-reengagement."
+      );
+    }
+    return response.data.policy;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
 export async function getAdminPlatformRollouts(token: string): Promise<PlatformRolloutState[]> {
   try {
     const response = await getAdminPlatformRolloutsContract({
@@ -2652,8 +2693,18 @@ export type WebChatTurnStatusState = {
   chat: AssistantWebChatState | null;
   userMessage: ChatHistoryMessage | null;
   assistantMessage: ChatHistoryMessage | null;
+  currentActivity: WebChatTurnCurrentActivityState | null;
   runtime: AssistantWebChatRuntimeState | null;
   error: { code: string | null; message: string | null } | null;
+};
+
+export type WebChatTurnCurrentActivityState = {
+  type: "tool_use";
+  toolName: string;
+  toolCallId: string;
+  phase: "start" | "end";
+  isError: boolean;
+  updatedAt: string;
 };
 
 export type UploadedKnowledgeSource = {

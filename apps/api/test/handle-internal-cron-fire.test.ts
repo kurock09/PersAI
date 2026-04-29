@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { AssistantNotificationDeliveryService } from "../src/modules/workspace-management/application/assistant-notification-delivery.service";
+import { AssistantNotificationOutboxService } from "../src/modules/workspace-management/application/assistant-notification-outbox.service";
 import { HandleInternalCronFireService } from "../src/modules/workspace-management/application/handle-internal-cron-fire.service";
-import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
+
+type OutboxCreate = { data: Record<string, unknown> };
 
 function createHandleInternalCronFireService(params: {
   prisma: unknown;
@@ -12,26 +14,32 @@ function createHandleInternalCronFireService(params: {
   renderAssistantInboundSurfaceMessageService: unknown;
   mediaDeliveryService?: unknown;
   assistantChatRepository: unknown;
+  outboxCreates?: OutboxCreate[];
 }): HandleInternalCronFireService {
-  const notificationDeliveryService = new AssistantNotificationDeliveryService(
-    params.prisma as never,
-    params.platformRuntimeProviderSecretStoreService as never,
-    params.resolveAssistantInboundRuntimeContextService as never,
-    params.enforceAssistantCapabilityAndQuotaService as never,
-    params.renderAssistantInboundSurfaceMessageService as never,
-    (params.mediaDeliveryService ?? { deliver: async () => undefined }) as never,
-    params.assistantChatRepository as never
-  );
+  const prisma = params.prisma as Record<string, unknown>;
+  const outboxCreates = params.outboxCreates ?? [];
+  prisma.assistantNotificationOutbox ??= {
+    findUnique: async ({ where }: { where: { dedupeKey: string } }) => {
+      const index = outboxCreates.findIndex((item) => item.data.dedupeKey === where.dedupeKey);
+      return index === -1
+        ? null
+        : { id: `outbox-${index + 1}`, status: outboxCreates[index].data.status };
+    },
+    create: async ({ data }: OutboxCreate) => {
+      outboxCreates.push({ data });
+      return { id: `outbox-${outboxCreates.length}`, status: data.status };
+    }
+  };
+  const notificationOutboxService = new AssistantNotificationOutboxService(prisma as never);
   return new HandleInternalCronFireService(
-    params.prisma as never,
+    prisma as never,
     params.bindingRepository as never,
-    notificationDeliveryService as never
+    notificationOutboxService as never
   );
 }
 
 async function runWebDeliveryArtifactTest(): Promise<void> {
-  const deliveredMessages: string[] = [];
-  const deliveryThreadKeys: string[] = [];
+  const outboxCreates: OutboxCreate[] = [];
   const bindingRepository = {
     claimReminderDeliveryProcessing: async () => "claimed",
     getCompletedReminderDeliveryProcessing: async () => null,
@@ -68,16 +76,8 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
     createChat: async () => ({
       id: "chat-1"
     }),
-    findOrCreateChatBySurfaceThread: async (input: { surfaceThreadKey: string; title: string }) => {
-      deliveryThreadKeys.push(`${input.surfaceThreadKey}:${input.title}`);
-      return {
-        id: "chat-1"
-      };
-    },
-    createMessage: async (input: { content: string }) => {
-      deliveredMessages.push(input.content);
-      return { id: "message-1" };
-    }
+    findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
+    createMessage: async () => ({ id: "message-1" })
   };
 
   const service = createHandleInternalCronFireService({
@@ -105,7 +105,8 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
         return { code: "ok", text: "rendered" };
       }
     },
-    assistantChatRepository
+    assistantChatRepository,
+    outboxCreates
   });
 
   const result = await service.execute({
@@ -117,13 +118,19 @@ async function runWebDeliveryArtifactTest(): Promise<void> {
       "Пора спать!\n\nRecent context:\n- Assistant: Напоминание создано\n- User: напомни через 2 минуты спать"
   });
 
-  assert.equal(result.deliveredTo, "web");
-  assert.deepEqual(deliveryThreadKeys, ["system:notifications:Notifications"]);
-  assert.deepEqual(deliveredMessages, ["Пора спать!"]);
+  assert.equal(result.deliveredTo, "none");
+  assert.equal(outboxCreates.length, 1);
+  assert.equal(outboxCreates[0].data.source, "user_reminder");
+  assert.equal(outboxCreates[0].data.status, "pending");
+  assert.equal(
+    outboxCreates[0].data.text,
+    "Пора спать!\n\nRecent context:\n- Assistant: Напоминание создано\n- User: напомни через 2 минуты спать"
+  );
 }
 
 async function runTelegramTaskTargetTest(): Promise<void> {
   const sentPayloads: Array<{ chat_id: string; text: string }> = [];
+  const outboxCreates: OutboxCreate[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body ?? "{}")) as { chat_id: string; text: string };
@@ -214,7 +221,8 @@ async function runTelegramTaskTargetTest(): Promise<void> {
           return { code: "ok", text: "rendered" };
         }
       },
-      assistantChatRepository
+      assistantChatRepository,
+      outboxCreates
     });
 
     const result = await service.execute({
@@ -225,10 +233,11 @@ async function runTelegramTaskTargetTest(): Promise<void> {
       summary: "Пора идти гулять с Симбой!"
     });
 
-    assert.equal(result.deliveredTo, "telegram");
-    assert.deepEqual(sentPayloads, [
-      { chat_id: "group-locked", text: "Пора идти гулять с Симбой!" }
-    ]);
+    assert.equal(result.deliveredTo, "none");
+    assert.deepEqual(sentPayloads, []);
+    assert.equal(outboxCreates.length, 1);
+    assert.equal(outboxCreates[0].data.source, "user_reminder");
+    assert.equal(outboxCreates[0].data.text, "Пора идти гулять с Симбой!");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -324,7 +333,7 @@ async function runBackgroundNotificationUsesCommonDeliveryTest(): Promise<void> 
 }
 
 async function runQuotaRenderedFallbackTest(): Promise<void> {
-  const deliveredMessages: string[] = [];
+  const outboxCreates: OutboxCreate[] = [];
   const bindingRepository = {
     claimReminderDeliveryProcessing: async () => "claimed",
     getCompletedReminderDeliveryProcessing: async () => null,
@@ -357,15 +366,7 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
     platformRuntimeProviderSecretStoreService: {
       resolveSecretValueByProviderKey: async () => null
     },
-    resolveAssistantInboundRuntimeContextService: {
-      async resolveByAssistantId() {
-        throw new ApiErrorHttpException(409, {
-          code: "quota_limit_reached",
-          category: "conflict",
-          message: "Quota reached."
-        });
-      }
-    },
+    resolveAssistantInboundRuntimeContextService: {},
     enforceAssistantCapabilityAndQuotaService: {
       async enforceInboundTurn() {
         return;
@@ -383,11 +384,9 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
       findChatBySurfaceThread: async () => null,
       createChat: async () => ({ id: "chat-1" }),
       findOrCreateChatBySurfaceThread: async () => ({ id: "chat-1" }),
-      createMessage: async (input: { content: string }) => {
-        deliveredMessages.push(input.content);
-        return { id: "message-1" };
-      }
-    }
+      createMessage: async () => ({ id: "message-1" })
+    },
+    outboxCreates
   });
 
   const result = await service.execute({
@@ -398,14 +397,14 @@ async function runQuotaRenderedFallbackTest(): Promise<void> {
     summary: "Пора спать!"
   });
 
-  assert.equal(result.deliveredTo, "web");
-  assert.deepEqual(deliveredMessages, [
-    "Reminder could not be delivered because the current plan limit was reached."
-  ]);
+  assert.equal(result.deliveredTo, "none");
+  assert.equal(outboxCreates.length, 1);
+  assert.equal(outboxCreates[0].data.text, "Пора спать!");
 }
 
 async function runReminderReplayDedupTest(): Promise<void> {
   const deliveredMessages: string[] = [];
+  const outboxCreates: OutboxCreate[] = [];
   const replayStates = new Map<
     string,
     {
@@ -508,7 +507,8 @@ async function runReminderReplayDedupTest(): Promise<void> {
         deliveredMessages.push(input.content);
         return { id: "message-1" };
       }
-    }
+    },
+    outboxCreates
   });
 
   const first = await service.execute({
@@ -530,9 +530,10 @@ async function runReminderReplayDedupTest(): Promise<void> {
     summary: "Пора спать!"
   });
 
-  assert.equal(first.deliveredTo, "web");
-  assert.equal(second.deliveredTo, "web");
-  assert.deepEqual(deliveredMessages, ["Пора спать!"]);
+  assert.equal(first.deliveredTo, "none");
+  assert.equal(second.deliveredTo, "none");
+  assert.deepEqual(deliveredMessages, []);
+  assert.equal(outboxCreates.length, 1);
 }
 
 async function run(): Promise<void> {

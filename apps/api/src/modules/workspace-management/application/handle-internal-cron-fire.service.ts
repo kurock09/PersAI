@@ -6,10 +6,8 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
-import {
-  AssistantNotificationDeliveryService,
-  type AssistantNotificationDeliveryTarget
-} from "./assistant-notification-delivery.service";
+import type { AssistantNotificationDeliveryTarget } from "./assistant-notification-delivery.service";
+import { AssistantNotificationOutboxService } from "./assistant-notification-outbox.service";
 
 export interface InternalCronFireRequest {
   assistantId: string;
@@ -62,7 +60,7 @@ export class HandleInternalCronFireService {
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
-    private readonly assistantNotificationDeliveryService: AssistantNotificationDeliveryService
+    private readonly assistantNotificationOutboxService: AssistantNotificationOutboxService
   ) {}
 
   parseInput(assistantId: string, payload: unknown): InternalCronFireRequest {
@@ -132,14 +130,15 @@ export class HandleInternalCronFireService {
 
     try {
       await this.syncTaskRegistryFromCronRun(input);
-      const deliveryResult = await this.assistantNotificationDeliveryService.deliver({
+      await this.assistantNotificationOutboxService.enqueue({
         assistantId: input.assistantId,
         source: "user_reminder",
         sourceId: input.jobId,
         status: input.status,
+        dedupeKey: replayKey,
         ...(input.summary === undefined ? {} : { text: input.summary })
       });
-      const deliveredTo = deliveryResult.target;
+      const deliveredTo: AssistantNotificationDeliveryTarget = "none";
       await this.bindingRepository.completeReminderDeliveryProcessing(
         input.assistantId,
         REMINDER_REPLAY_PROVIDER_KEY,

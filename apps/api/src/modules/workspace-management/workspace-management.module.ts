@@ -136,6 +136,8 @@ import { PrepareAssistantInboundTurnService } from "./application/prepare-assist
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
 import { HandleInternalCronFireService } from "./application/handle-internal-cron-fire.service";
 import { AssistantNotificationDeliveryService } from "./application/assistant-notification-delivery.service";
+import { AssistantNotificationOutboxSchedulerService } from "./application/assistant-notification-outbox-scheduler.service";
+import { AssistantNotificationOutboxService } from "./application/assistant-notification-outbox.service";
 import { BuildReminderContextSnapshotService } from "./application/build-reminder-context-snapshot.service";
 import { PersaiScheduledActionSchedulerService } from "./application/persai-scheduled-action-scheduler.service";
 import { PersaiBackgroundCompactionSchedulerService } from "./application/persai-background-compaction-scheduler.service";
@@ -144,6 +146,7 @@ import { EnqueueBackgroundCompactionJobService } from "./application/enqueue-bac
 import { InternalRuntimeCompactionClientService } from "./application/internal-runtime-compaction.client.service";
 import { InternalRuntimeBackgroundTaskClientService } from "./application/internal-runtime-background-task.client.service";
 import { PersaiBackgroundTaskSchedulerService } from "./application/persai-background-task-scheduler.service";
+import { PersaiIdleReengagementSchedulerService } from "./application/persai-idle-reengagement-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
@@ -301,6 +304,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminWorkspaceSubscriptionService,
     HandleInternalCronFireService,
     AssistantNotificationDeliveryService,
+    AssistantNotificationOutboxService,
+    AssistantNotificationOutboxSchedulerService,
     BuildReminderContextSnapshotService,
     PersaiScheduledActionSchedulerService,
     PersaiBackgroundCompactionSchedulerService,
@@ -309,6 +314,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     EnqueueBackgroundCompactionJobService,
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,
+    PersaiIdleReengagementSchedulerService,
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,

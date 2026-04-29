@@ -82,6 +82,7 @@ describe("useChat", () => {
   }
 
   beforeEach(() => {
+    window.sessionStorage.clear();
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.compactChat.mockReset();
     assistantApiMocks.getAssistantWebChatTurnStatus.mockReset();
@@ -96,6 +97,7 @@ describe("useChat", () => {
       chat: null,
       userMessage: null,
       assistantMessage: null,
+      currentActivity: null,
       runtime: null,
       error: null
     });
@@ -610,7 +612,7 @@ describe("useChat", () => {
     });
   });
 
-  it("restores a persisted media tool status from loaded assistant attachments", async () => {
+  it("does not reconstruct tool status from historical media attachments", async () => {
     assistantApiMocks.getChatMessages.mockResolvedValue({
       messages: [
         {
@@ -653,16 +655,158 @@ describe("useChat", () => {
       await result.current.loadHistory("chat-1");
     });
 
-    expect(result.current.entries).toContainEqual(
-      expect.objectContaining({
-        kind: "activity",
-        event: expect.objectContaining({
-          type: "tool_use",
-          label: "Image ready",
-          afterMessageId: "server-assistant-1"
+    expect(
+      result.current.entries.some(
+        (entry) =>
+          entry.kind === "activity" &&
+          entry.event.type === "tool_use" &&
+          entry.event.afterMessageId === "server-assistant-1"
+      )
+    ).toBe(false);
+    expect(
+      result.current.entries.filter(
+        (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "message" }> =>
+          entry.kind === "message"
+      )
+    ).toHaveLength(2);
+  });
+
+  it("restores current tool status from active turn status after reload", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "running",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: "Chat",
+        deepModeEnabled: false,
+        archivedAt: null,
+        lastMessageAt: "2026-04-25T17:45:35.000Z",
+        createdAt: "2026-04-25T17:45:35.000Z",
+        updatedAt: "2026-04-25T17:45:35.000Z"
+      },
+      userMessage: {
+        id: "server-user-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "search this",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: null,
+      currentActivity: {
+        type: "tool_use",
+        toolName: "web_search",
+        toolCallId: "tool-1",
+        phase: "start",
+        isError: false,
+        updatedAt: "2026-04-25T17:45:36.000Z"
+      },
+      runtime: null,
+      error: null
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.chatId).toBe("chat-1");
+      expect(result.current.entries).toContainEqual(
+        expect.objectContaining({
+          kind: "activity",
+          event: expect.objectContaining({
+            type: "tool_use",
+            label: "Searching the web"
+          })
         })
-      })
+      );
+    });
+  });
+
+  it("keeps a completed turn-status result in the thread cache after switching away", async () => {
+    window.sessionStorage.setItem("persai.active-web-turn.v1.thread-1", "turn-1");
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+      status: "completed",
+      chat: {
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1",
+        title: "Chat",
+        deepModeEnabled: false,
+        archivedAt: null,
+        lastMessageAt: "2026-04-25T17:46:05.000Z",
+        createdAt: "2026-04-25T17:45:35.000Z",
+        updatedAt: "2026-04-25T17:46:05.000Z"
+      },
+      userMessage: {
+        id: "server-user-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "draw it",
+        attachments: [],
+        createdAt: "2026-04-25T17:45:35.000Z"
+      },
+      assistantMessage: {
+        id: "server-assistant-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "Готово.",
+        attachments: [
+          {
+            id: "att-1",
+            attachmentType: "image",
+            originalFilename: "image.png",
+            mimeType: "image/png",
+            sizeBytes: 123,
+            processingStatus: "ready",
+            createdAt: "2026-04-25T17:46:05.000Z"
+          }
+        ],
+        createdAt: "2026-04-25T17:46:05.000Z"
+      },
+      currentActivity: null,
+      runtime: {
+        respondedAt: "2026-04-25T17:46:05.000Z",
+        degradedByQuotaFallback: false,
+        quotaFallbackReason: null,
+        quotaFallbackModel: null
+      },
+      error: null
+    });
+
+    const { result, rerender } = renderHook(
+      ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+      {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>,
+        initialProps: { threadKey: "thread-1" }
+      }
     );
+
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.messages.map((message) => message.id)).toEqual([
+        "server-user-1",
+        "server-assistant-1"
+      ]);
+    });
+
+    rerender({ threadKey: "thread-2" });
+    expect(result.current.messages).toHaveLength(0);
+
+    rerender({ threadKey: "thread-1" });
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "server-user-1",
+      "server-assistant-1"
+    ]);
+    expect(result.current.messages[1]?.attachments?.[0]?.id).toBe("att-1");
   });
 
   it("restores previously loaded chat history from memory when switching threads", async () => {
@@ -1035,6 +1179,7 @@ describe("useChat", () => {
           attachments: [],
           createdAt: "2026-04-14T10:00:01.000Z"
         },
+        currentActivity: null,
         runtime: {
           respondedAt: "2026-04-14T10:00:01.000Z",
           degradedByQuotaFallback: false,
@@ -1800,7 +1945,6 @@ describe("useChat", () => {
         };
         assistantApiMocks.getChatMessages
           .mockResolvedValueOnce(incompleteHistory)
-          .mockResolvedValueOnce(incompleteHistory)
           .mockResolvedValue({
             nextCursor: null,
             messages: [
@@ -1834,6 +1978,73 @@ describe("useChat", () => {
               }
             ]
           });
+        const runningTurnStatus = {
+          status: "running",
+          chat: null,
+          userMessage: {
+            id: "server-user-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "нарисуй картинку",
+            attachments: [],
+            createdAt: "2026-04-25T17:45:35.000Z"
+          },
+          assistantMessage: null,
+          currentActivity: {
+            type: "tool_use",
+            toolName: "image_generate",
+            toolCallId: "tool-1",
+            phase: "start",
+            isError: false,
+            updatedAt: "2026-04-25T17:45:36.000Z"
+          },
+          runtime: null,
+          error: null
+        };
+        assistantApiMocks.getAssistantWebChatTurnStatus
+          .mockResolvedValueOnce(runningTurnStatus)
+          .mockResolvedValueOnce(runningTurnStatus)
+          .mockResolvedValue({
+            status: "completed",
+            chat: null,
+            userMessage: {
+              id: "server-user-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "нарисуй картинку",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            assistantMessage: {
+              id: "server-assistant-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Готово.",
+              attachments: [
+                {
+                  id: "att-1",
+                  attachmentType: "image",
+                  originalFilename: "image.png",
+                  mimeType: "image/png",
+                  sizeBytes: 123,
+                  processingStatus: "ready",
+                  createdAt: "2026-04-25T17:48:03.000Z"
+                }
+              ],
+              createdAt: "2026-04-25T17:48:03.000Z"
+            },
+            currentActivity: null,
+            runtime: {
+              respondedAt: "2026-04-25T17:48:03.000Z",
+              degradedByQuotaFallback: false,
+              quotaFallbackReason: null,
+              quotaFallbackModel: null
+            },
+            error: null
+          });
 
         const { result } = renderHook(() => useChat("thread-1"), {
           wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
@@ -1853,11 +2064,14 @@ describe("useChat", () => {
           document.dispatchEvent(new Event("visibilitychange"));
         });
 
-        await vi.waitFor(() => expect(assistantApiMocks.getChatMessages).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() =>
+          expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalled()
+        );
         expect(result.current.isStreaming).toBe(true);
 
         await act(async () => {
-          await vi.advanceTimersByTimeAsync(2_000);
+          await vi.advanceTimersByTimeAsync(1_500);
+          document.dispatchEvent(new Event("visibilitychange"));
         });
 
         await vi.waitFor(() => {

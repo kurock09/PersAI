@@ -129,19 +129,19 @@ The tool run may use LLM and allowed evidence tools, but neither phase creates a
 
 ### 4. Push directly through the existing notification delivery preference
 
-If the evaluator returns `decision="push"`, the background task executor delivers directly through the existing notification channel preference:
+If the evaluator returns `decision="push"`, the background task executor enqueues a durable notification through the existing notification channel preference:
 
 - use `Assistant.preferredNotificationChannel`
 - reuse the existing channel binding truth, including Telegram/web fallback behavior
 - do not introduce a second channel selector for background tasks
-- deliver through `AssistantNotificationDeliveryService`, the shared transport boundary for assistant notifications
+- enqueue through `AssistantNotificationOutboxService`; the outbox worker is the only active caller of `AssistantNotificationDeliveryService`
 - deliver generated artifacts through the same media-delivery adapters when the selected
   channel supports them
 
 The delivery path becomes:
 
 ```text
-source -> AssistantNotificationDeliveryService -> Assistant.preferredNotificationChannel -> Telegram / web fallback / future mobile push
+source -> AssistantNotificationOutboxService -> AssistantNotificationOutboxSchedulerService -> AssistantNotificationDeliveryService -> Assistant.preferredNotificationChannel -> Telegram / web fallback / future mobile push
 ```
 
 not:

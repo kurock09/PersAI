@@ -7,6 +7,7 @@
 import type { AssistantWebChatTurnStatusStateStatus } from "./assistantWebChatTurnStatusStateStatus";
 import type { AssistantWebChatState } from "./assistantWebChatState";
 import type { AssistantWebChatMessageState } from "./assistantWebChatMessageState";
+import type { AssistantWebChatTurnStatusStateCurrentActivity } from "./assistantWebChatTurnStatusStateCurrentActivity";
 import type { AssistantWebChatRuntimeState } from "./assistantWebChatRuntimeState";
 import type { AssistantWebChatTurnStatusStateError } from "./assistantWebChatTurnStatusStateError";
 
@@ -18,6 +19,8 @@ export interface AssistantWebChatTurnStatusState {
   userMessage: AssistantWebChatMessageState;
   /** @nullable */
   assistantMessage: AssistantWebChatMessageState;
+  /** @nullable */
+  currentActivity: AssistantWebChatTurnStatusStateCurrentActivity;
   /** @nullable */
   runtime: AssistantWebChatRuntimeState;
   /** @nullable */

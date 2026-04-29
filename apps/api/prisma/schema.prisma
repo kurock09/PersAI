@@ -108,6 +108,26 @@ enum AssistantPreferredNotificationChannel {
   whatsapp
 }
 
+enum AssistantNotificationOutboxSource {
+  user_reminder
+  background_task
+  idle_reengagement
+  system_event
+}
+
+enum AssistantNotificationOutboxStatus {
+  pending
+  in_progress
+  delivered
+  failed
+  skipped
+  dead_letter
+}
+
+enum WorkspaceNotificationPolicySource {
+  idle_reengagement
+}
+
 enum PlanCatalogStatus {
   active
   inactive
@@ -346,6 +366,7 @@ model AppUser {
   createdGlobalKnowledgeSources          GlobalKnowledgeSource[]
   updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
   updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
+  updatedWorkspaceNotificationPolicies   WorkspaceNotificationPolicy[]       @relation("WorkspaceNotificationPolicyUpdatedByUser")
 
   @@map("app_users")
 }
@@ -388,6 +409,8 @@ model Workspace {
   assistantBackgroundTasks          AssistantBackgroundTask[]
   assistantBackgroundTaskRuns       AssistantBackgroundTaskRun[]
   assistantWebChatTurnAttempts      AssistantWebChatTurnAttempt[]
+  assistantNotificationOutboxItems  AssistantNotificationOutbox[]
+  notificationPolicies              WorkspaceNotificationPolicy[]
 
   @@map("workspaces")
 }
@@ -404,6 +427,7 @@ model WorkspaceMember {
   assistantTaskRegistryItems   AssistantTaskRegistryItem[]
   assistantBackgroundTasks     AssistantBackgroundTask[]
   assistantBackgroundTaskRuns  AssistantBackgroundTaskRun[]
+  assistantNotificationOutbox  AssistantNotificationOutbox[]
   assistantKnowledgeSources    AssistantKnowledgeSource[]
   abuseGuardStates             AssistantAbuseGuardState[]
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -459,6 +483,7 @@ model Assistant {
   taskRegistryItems                    AssistantTaskRegistryItem[]
   backgroundTasks                      AssistantBackgroundTask[]
   backgroundTaskRuns                   AssistantBackgroundTaskRun[]
+  notificationOutboxItems              AssistantNotificationOutbox[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
   channelSurfaceBindings               AssistantChannelSurfaceBinding[]
@@ -1237,6 +1262,7 @@ model AssistantWebChatTurnAttempt {
   userMessageId      String?        @map("user_message_id") @db.Uuid
   assistantMessageId String?        @map("assistant_message_id") @db.Uuid
   respondedAt        DateTime?      @map("responded_at") @db.Timestamptz(6)
+  currentActivity    Json?          @map("current_activity") @db.JsonB
   terminalPayload    Json?          @map("terminal_payload") @db.JsonB
   errorCode          String?        @map("error_code") @db.VarChar(128)
   errorMessage       String?        @map("error_message") @db.Text
@@ -1398,33 +1424,91 @@ model AssistantBackgroundTask {
 /// shown inside expanded "Действия ассистента" cards: checked/no-push, pushed,
 /// completed, skipped, or failed with the evaluator decision and delivery result.
 model AssistantBackgroundTaskRun {
-  id                 String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  taskId             String                           @map("task_id") @db.Uuid
-  assistantId        String                           @map("assistant_id") @db.Uuid
-  userId             String                           @map("user_id") @db.Uuid
-  workspaceId        String                           @map("workspace_id") @db.Uuid
-  scheduledRunAt     DateTime                         @map("scheduled_run_at") @db.Timestamptz(6)
-  startedAt          DateTime?                        @map("started_at") @db.Timestamptz(6)
-  finishedAt         DateTime?                        @map("finished_at") @db.Timestamptz(6)
-  status             AssistantBackgroundTaskRunStatus @default(running)
-  decisionJson       Json?                            @map("decision_json") @db.JsonB
-  pushText           String?                          @map("push_text") @db.Text
-  deliveryTarget     String?                          @map("delivery_target") @db.VarChar(64)
-  deliveryResultJson Json?                            @map("delivery_result_json") @db.JsonB
-  errorCode          String?                          @map("error_code") @db.VarChar(128)
-  errorMessage       String?                          @map("error_message") @db.Text
-  usageJson          Json?                            @map("usage_json") @db.JsonB
-  createdAt          DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  task               AssistantBackgroundTask          @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  assistant          Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspaceMember    WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
-  workspace          Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  id                   String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  taskId               String                           @map("task_id") @db.Uuid
+  assistantId          String                           @map("assistant_id") @db.Uuid
+  userId               String                           @map("user_id") @db.Uuid
+  workspaceId          String                           @map("workspace_id") @db.Uuid
+  scheduledRunAt       DateTime                         @map("scheduled_run_at") @db.Timestamptz(6)
+  startedAt            DateTime?                        @map("started_at") @db.Timestamptz(6)
+  finishedAt           DateTime?                        @map("finished_at") @db.Timestamptz(6)
+  status               AssistantBackgroundTaskRunStatus @default(running)
+  decisionJson         Json?                            @map("decision_json") @db.JsonB
+  pushText             String?                          @map("push_text") @db.Text
+  notificationOutboxId String?                          @map("notification_outbox_id") @db.Uuid
+  deliveryTarget       String?                          @map("delivery_target") @db.VarChar(64)
+  deliveryResultJson   Json?                            @map("delivery_result_json") @db.JsonB
+  errorCode            String?                          @map("error_code") @db.VarChar(128)
+  errorMessage         String?                          @map("error_message") @db.Text
+  usageJson            Json?                            @map("usage_json") @db.JsonB
+  createdAt            DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  task                 AssistantBackgroundTask          @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  assistant            Assistant                        @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember      WorkspaceMember                  @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace            Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([taskId, createdAt(sort: Desc)])
   @@index([assistantId, createdAt(sort: Desc)])
+  @@index([notificationOutboxId])
   @@index([status, createdAt(sort: Desc)])
   @@map("assistant_background_task_runs")
+}
+
+model AssistantNotificationOutbox {
+  id                      String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source                  AssistantNotificationOutboxSource
+  sourceId                String                            @map("source_id") @db.VarChar(128)
+  dedupeKey               String                            @unique @map("dedupe_key") @db.VarChar(512)
+  assistantId             String                            @map("assistant_id") @db.Uuid
+  userId                  String                            @map("user_id") @db.Uuid
+  workspaceId             String                            @map("workspace_id") @db.Uuid
+  status                  AssistantNotificationOutboxStatus @default(pending)
+  deliveryStatus          String                            @default("ok") @map("delivery_status") @db.VarChar(32)
+  text                    String?                           @db.Text
+  artifactsJson           Json?                             @map("artifacts_json") @db.JsonB
+  metadataJson            Json?                             @map("metadata_json") @db.JsonB
+  deliveryResultJson      Json?                             @map("delivery_result_json") @db.JsonB
+  deliveryTarget          String?                           @map("delivery_target") @db.VarChar(64)
+  attemptCount            Int                               @default(0) @map("attempt_count")
+  retryAfterAt            DateTime?                         @map("retry_after_at") @db.Timestamptz(6)
+  schedulerClaimToken     String?                           @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt      DateTime?                         @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                         @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  lastErrorCode           String?                           @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage        String?                           @map("last_error_message") @db.Text
+  deliveredAt             DateTime?                         @map("delivered_at") @db.Timestamptz(6)
+  skippedAt               DateTime?                         @map("skipped_at") @db.Timestamptz(6)
+  deadLetteredAt          DateTime?                         @map("dead_lettered_at") @db.Timestamptz(6)
+  createdAt               DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant               Assistant                         @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspaceMember         WorkspaceMember                   @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  workspace               Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([status, retryAfterAt, createdAt])
+  @@index([assistantId, source, sourceId])
+  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@map("assistant_notification_outbox")
+}
+
+model WorkspaceNotificationPolicy {
+  id              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String                            @map("workspace_id") @db.Uuid
+  source          WorkspaceNotificationPolicySource
+  enabled         Boolean                           @default(false)
+  idleHours       Int                               @default(24) @map("idle_hours")
+  cooldownHours   Int                               @default(72) @map("cooldown_hours")
+  llmInstruction  String                            @map("llm_instruction") @db.Text
+  updatedByUserId String?                           @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedByUser   AppUser?                          @relation("WorkspaceNotificationPolicyUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([workspaceId, source])
+  @@index([workspaceId, enabled])
+  @@map("workspace_notification_policies")
 }
 
 model AssistantKnowledgeSource {

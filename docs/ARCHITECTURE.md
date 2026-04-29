@@ -27,7 +27,7 @@ ADR-072 is the historical migration ADR through the Step 18 native-path closeout
 - durable retrieval observability and workspace-scoped operator surfaces for knowledge quality
 - governance, quota, admin, and audit boundaries
 - Telegram webhook ingress
-- source-neutral assistant notification delivery from user reminders, background tasks, future idle reengagement, and future system events through `Assistant.preferredNotificationChannel`
+- durable source-neutral assistant notification outbox and delivery from user reminders, background tasks, idle reengagement, and future system events through `Assistant.preferredNotificationChannel`
 
 ### Runtime plane
 

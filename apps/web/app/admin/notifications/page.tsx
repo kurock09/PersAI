@@ -5,11 +5,15 @@ import { useAuth } from "@clerk/nextjs";
 import { Bell, Check, KeyRound, Loader2, Pencil, X } from "lucide-react";
 import type {
   AdminNotificationChannelState,
+  IdleReengagementNotificationPolicyState,
+  PatchAdminIdleReengagementNotificationPolicyRequest,
   PatchAdminNotificationWebhookChannelRequest
 } from "@persai/contracts";
 import { AdminNotificationChannelStatus, AdminNotificationChannelType } from "@persai/contracts";
 import {
+  getAdminIdleReengagementNotificationPolicy,
   getAdminNotificationChannels,
+  patchAdminIdleReengagementNotificationPolicy,
   patchAdminNotificationWebhookChannel
 } from "@/app/app/assistant-api-client";
 import { cn } from "@/app/lib/utils";
@@ -20,11 +24,27 @@ type WebhookDraft = {
   signingSecret: string;
 };
 
+type IdlePolicyDraft = {
+  enabled: boolean;
+  idleHours: string;
+  cooldownHours: string;
+  llmInstruction: string;
+};
+
 function emptyWebhookDraft(ch: AdminNotificationChannelState): WebhookDraft {
   return {
     enabled: ch.status === AdminNotificationChannelStatus.active,
     endpointUrl: ch.endpointUrl ?? "",
     signingSecret: ""
+  };
+}
+
+function idlePolicyToDraft(policy: IdleReengagementNotificationPolicyState): IdlePolicyDraft {
+  return {
+    enabled: policy.enabled,
+    idleHours: String(policy.idleHours),
+    cooldownHours: String(policy.cooldownHours),
+    llmInstruction: policy.llmInstruction
   };
 }
 
@@ -45,6 +65,9 @@ function ChannelStatusBadge({ status }: { status: AdminNotificationChannelState[
 export default function AdminNotificationsPage() {
   const { getToken } = useAuth();
   const [channels, setChannels] = useState<AdminNotificationChannelState[]>([]);
+  const [idlePolicy, setIdlePolicy] = useState<IdleReengagementNotificationPolicyState | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -54,6 +77,8 @@ export default function AdminNotificationsPage() {
   const [editingWebhook, setEditingWebhook] = useState(false);
   const [webhookDraft, setWebhookDraft] = useState<WebhookDraft | null>(null);
   const [savingWebhook, setSavingWebhook] = useState(false);
+  const [idleDraft, setIdleDraft] = useState<IdlePolicyDraft | null>(null);
+  const [savingIdlePolicy, setSavingIdlePolicy] = useState(false);
 
   const webhookChannel = channels.find(
     (c) => c.channelType === AdminNotificationChannelType.webhook
@@ -71,9 +96,15 @@ export default function AdminNotificationsPage() {
       else setLoading(true);
       setListError(null);
       try {
-        setChannels(await getAdminNotificationChannels(token));
+        const [nextChannels, nextIdlePolicy] = await Promise.all([
+          getAdminNotificationChannels(token),
+          getAdminIdleReengagementNotificationPolicy(token)
+        ]);
+        setChannels(nextChannels);
+        setIdlePolicy(nextIdlePolicy);
+        setIdleDraft(idlePolicyToDraft(nextIdlePolicy));
       } catch (e) {
-        setListError(e instanceof Error ? e.message : "Could not load notification channels.");
+        setListError(e instanceof Error ? e.message : "Could not load notification settings.");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -134,6 +165,53 @@ export default function AdminNotificationsPage() {
     }
   }
 
+  async function saveIdlePolicy(): Promise<void> {
+    if (!idleDraft) return;
+    const token = await getToken();
+    if (!token) {
+      setFeedbackTone("err");
+      setFeedback("Missing session.");
+      return;
+    }
+    const idleHours = Number(idleDraft.idleHours);
+    const cooldownHours = Number(idleDraft.cooldownHours);
+    if (!Number.isInteger(idleHours) || idleHours < 1 || idleHours > 720) {
+      setFeedbackTone("err");
+      setFeedback("Idle threshold must be an integer between 1 and 720 hours.");
+      return;
+    }
+    if (!Number.isInteger(cooldownHours) || cooldownHours < 1 || cooldownHours > 720) {
+      setFeedbackTone("err");
+      setFeedback("Cooldown must be an integer between 1 and 720 hours.");
+      return;
+    }
+    if (idleDraft.llmInstruction.trim() === "") {
+      setFeedbackTone("err");
+      setFeedback("LLM instruction is required.");
+      return;
+    }
+    const input: PatchAdminIdleReengagementNotificationPolicyRequest = {
+      enabled: idleDraft.enabled,
+      idleHours,
+      cooldownHours,
+      llmInstruction: idleDraft.llmInstruction.trim()
+    };
+    setSavingIdlePolicy(true);
+    setFeedback(null);
+    try {
+      const updated = await patchAdminIdleReengagementNotificationPolicy(token, input);
+      setIdlePolicy(updated);
+      setIdleDraft(idlePolicyToDraft(updated));
+      setFeedbackTone("ok");
+      setFeedback("Idle reengagement policy saved.");
+    } catch (e) {
+      setFeedbackTone("err");
+      setFeedback(e instanceof Error ? e.message : "Could not save idle reengagement policy.");
+    } finally {
+      setSavingIdlePolicy(false);
+    }
+  }
+
   if (loading && channels.length === 0) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center rounded-lg border border-border bg-surface">
@@ -147,7 +225,7 @@ export default function AdminNotificationsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Bell className="h-5 w-5 shrink-0 text-accent" />
-          <h1 className="text-lg font-bold text-text">Notification Channels</h1>
+          <h1 className="text-lg font-bold text-text">Notification Settings</h1>
           {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />}
         </div>
       </div>
@@ -170,6 +248,120 @@ export default function AdminNotificationsPage() {
           {feedback}
         </div>
       )}
+
+      <div className="rounded-lg border border-border bg-surface-raised p-3 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-text">User notifications</h2>
+            <p className="max-w-2xl text-xs text-text-muted">
+              Configure assistant-originated user notifications. Idle reengagement is evaluated by
+              the LLM from a compact conversation packet, then delivered through the user&apos;s
+              preferred channel.
+            </p>
+          </div>
+          {idlePolicy && (
+            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-[10px] text-text-muted">
+              Updated {new Date(idlePolicy.updatedAt).toLocaleString()}
+            </span>
+          )}
+        </div>
+
+        {idleDraft && (
+          <div className="mt-4 space-y-3 border-t border-border pt-3">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
+              <input
+                type="checkbox"
+                checked={idleDraft.enabled}
+                onChange={(ev) =>
+                  setIdleDraft((d) => (d ? { ...d, enabled: ev.target.checked } : d))
+                }
+                className="rounded border-border accent-accent"
+              />
+              Idle reengagement enabled
+            </label>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Idle threshold, hours
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={720}
+                  value={idleDraft.idleHours}
+                  onChange={(ev) =>
+                    setIdleDraft((d) => (d ? { ...d, idleHours: ev.target.value } : d))
+                  }
+                  className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
+                />
+                <p className="text-[10px] text-text-subtle">
+                  Example: 24 means the user was inactive across assistant threads for at least one
+                  day.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  Cooldown, hours
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={720}
+                  value={idleDraft.cooldownHours}
+                  onChange={(ev) =>
+                    setIdleDraft((d) => (d ? { ...d, cooldownHours: ev.target.value } : d))
+                  }
+                  className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
+                />
+                <p className="text-[10px] text-text-subtle">
+                  Example: 72 means at most one idle evaluation outcome per assistant in three days.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                LLM instruction
+              </label>
+              <textarea
+                value={idleDraft.llmInstruction}
+                onChange={(ev) =>
+                  setIdleDraft((d) => (d ? { ...d, llmInstruction: ev.target.value } : d))
+                }
+                rows={7}
+                className="w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text"
+              />
+              <p className="text-[10px] text-text-subtle">
+                The evaluator must return push or no_push. When pushing, it writes one short warm
+                user-facing message; this is not a fixed template.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={savingIdlePolicy}
+              onClick={() => void saveIdlePolicy()}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {savingIdlePolicy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              Save user notification policy
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-text">System channels</h2>
+        <p className="text-xs text-text-muted">
+          Existing admin webhook/system event delivery stays here.
+        </p>
+      </div>
 
       {channels.length === 0 ? (
         <p className="text-sm text-text-muted">No notification channels configured.</p>

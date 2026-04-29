@@ -2400,6 +2400,79 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/notifications/policies/idle-reengagement:
+    get:
+      operationId: getAdminIdleReengagementNotificationPolicy
+      summary: Read idle reengagement user-notification policy
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Idle reengagement notification policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminIdleReengagementNotificationPolicyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchAdminIdleReengagementNotificationPolicy
+      summary: Update idle reengagement user-notification policy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchAdminIdleReengagementNotificationPolicyRequest"
+      responses:
+        "200":
+          description: Updated idle reengagement notification policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatchAdminIdleReengagementNotificationPolicyResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/runtime/provider-settings:
     get:
       operationId: getAdminRuntimeProviderSettings
@@ -5311,6 +5384,7 @@ components:
         - chat
         - userMessage
         - assistantMessage
+        - currentActivity
         - runtime
         - error
       properties:
@@ -5332,6 +5406,35 @@ components:
         assistantMessage:
           nullable: true
           $ref: "#/components/schemas/AssistantWebChatMessageState"
+        currentActivity:
+          type: object
+          nullable: true
+          required:
+            - type
+            - toolName
+            - toolCallId
+            - phase
+            - isError
+            - updatedAt
+          properties:
+            type:
+              type: string
+              enum:
+                - tool_use
+            toolName:
+              type: string
+            toolCallId:
+              type: string
+            phase:
+              type: string
+              enum:
+                - start
+                - end
+            isError:
+              type: boolean
+            updatedAt:
+              type: string
+              format: date-time
         runtime:
           nullable: true
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
@@ -6841,6 +6944,79 @@ components:
           nullable: true
         channel:
           $ref: "#/components/schemas/AdminNotificationChannelState"
+    IdleReengagementNotificationPolicyState:
+      type: object
+      required:
+        - source
+        - enabled
+        - idleHours
+        - cooldownHours
+        - llmInstruction
+        - updatedAt
+        - updatedByUserId
+      properties:
+        source:
+          type: string
+          enum:
+            - idle_reengagement
+        enabled:
+          type: boolean
+        idleHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        cooldownHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        llmInstruction:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+        updatedByUserId:
+          type: string
+          nullable: true
+    GetAdminIdleReengagementNotificationPolicyResponse:
+      type: object
+      required:
+        - policy
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        policy:
+          $ref: "#/components/schemas/IdleReengagementNotificationPolicyState"
+    PatchAdminIdleReengagementNotificationPolicyRequest:
+      type: object
+      required:
+        - enabled
+        - idleHours
+        - cooldownHours
+        - llmInstruction
+      properties:
+        enabled:
+          type: boolean
+        idleHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        cooldownHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+        llmInstruction:
+          type: string
+    PatchAdminIdleReengagementNotificationPolicyResponse:
+      type: object
+      required:
+        - policy
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        policy:
+          $ref: "#/components/schemas/IdleReengagementNotificationPolicyState"
     ManagedRuntimeProvider:
       type: string
       enum:

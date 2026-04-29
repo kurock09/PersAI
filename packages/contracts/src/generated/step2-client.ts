@@ -28,6 +28,7 @@ import type {
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
+  GetAdminIdleReengagementNotificationPolicyResponse,
   GetAdminKnowledgeConnectorsParams,
   GetAdminKnowledgeConnectorsResponse,
   GetAdminKnowledgeObservabilityResponse,
@@ -60,6 +61,8 @@ import type {
   GetMeResponse,
   GlobalKnowledgeSourceScope,
   OnboardingRequest,
+  PatchAdminIdleReengagementNotificationPolicyRequest,
+  PatchAdminIdleReengagementNotificationPolicyResponse,
   PatchAdminNotificationWebhookChannelRequest,
   PatchAdminNotificationWebhookChannelResponse,
   PatchAdminPromptTemplateRequest,
@@ -3559,6 +3562,125 @@ export const patchAdminNotificationWebhookChannel = async (
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(patchAdminNotificationWebhookChannelRequest)
+    }
+  );
+};
+
+/**
+ * @summary Read idle reengagement user-notification policy
+ */
+export type getAdminIdleReengagementNotificationPolicyResponse200 = {
+  data: GetAdminIdleReengagementNotificationPolicyResponse;
+  status: 200;
+};
+
+export type getAdminIdleReengagementNotificationPolicyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminIdleReengagementNotificationPolicyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminIdleReengagementNotificationPolicyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminIdleReengagementNotificationPolicyResponseSuccess =
+  getAdminIdleReengagementNotificationPolicyResponse200 & {
+    headers: Headers;
+  };
+export type getAdminIdleReengagementNotificationPolicyResponseError = (
+  | getAdminIdleReengagementNotificationPolicyResponse401
+  | getAdminIdleReengagementNotificationPolicyResponse403
+  | getAdminIdleReengagementNotificationPolicyResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminIdleReengagementNotificationPolicyResponse =
+  | getAdminIdleReengagementNotificationPolicyResponseSuccess
+  | getAdminIdleReengagementNotificationPolicyResponseError;
+
+export const getGetAdminIdleReengagementNotificationPolicyUrl = () => {
+  return `/admin/notifications/policies/idle-reengagement`;
+};
+
+export const getAdminIdleReengagementNotificationPolicy = async (
+  options?: RequestInit
+): Promise<getAdminIdleReengagementNotificationPolicyResponse> => {
+  return customFetch<getAdminIdleReengagementNotificationPolicyResponse>(
+    getGetAdminIdleReengagementNotificationPolicyUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update idle reengagement user-notification policy
+ */
+export type patchAdminIdleReengagementNotificationPolicyResponse200 = {
+  data: PatchAdminIdleReengagementNotificationPolicyResponse;
+  status: 200;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponseSuccess =
+  patchAdminIdleReengagementNotificationPolicyResponse200 & {
+    headers: Headers;
+  };
+export type patchAdminIdleReengagementNotificationPolicyResponseError = (
+  | patchAdminIdleReengagementNotificationPolicyResponse400
+  | patchAdminIdleReengagementNotificationPolicyResponse401
+  | patchAdminIdleReengagementNotificationPolicyResponse403
+  | patchAdminIdleReengagementNotificationPolicyResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchAdminIdleReengagementNotificationPolicyResponse =
+  | patchAdminIdleReengagementNotificationPolicyResponseSuccess
+  | patchAdminIdleReengagementNotificationPolicyResponseError;
+
+export const getPatchAdminIdleReengagementNotificationPolicyUrl = () => {
+  return `/admin/notifications/policies/idle-reengagement`;
+};
+
+export const patchAdminIdleReengagementNotificationPolicy = async (
+  patchAdminIdleReengagementNotificationPolicyRequest: PatchAdminIdleReengagementNotificationPolicyRequest,
+  options?: RequestInit
+): Promise<patchAdminIdleReengagementNotificationPolicyResponse> => {
+  return customFetch<patchAdminIdleReengagementNotificationPolicyResponse>(
+    getPatchAdminIdleReengagementNotificationPolicyUrl(),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(patchAdminIdleReengagementNotificationPolicyRequest)
     }
   );
 };
