@@ -26,6 +26,22 @@ export interface NetworkOnlineState {
 
 const HEALTH_PATH = "/api/health";
 const RECHECK_TIMEOUT_MS = 4000;
+const NETWORK_ONLINE_CHANGE_EVENT = "persai-network-online-change";
+
+function publishNetworkOnlineState(isOnline: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(NETWORK_ONLINE_CHANGE_EVENT, {
+      detail: { isOnline }
+    })
+  );
+}
+
+function readNetworkOnlineChange(event: Event): boolean | null {
+  if (!(event instanceof CustomEvent)) return null;
+  const detail = event.detail as { isOnline?: unknown } | null;
+  return typeof detail?.isOnline === "boolean" ? detail.isOnline : null;
+}
 
 export function useNetworkOnline(): NetworkOnlineState {
   // Initial render is on the server during SSR — assume online to avoid a
@@ -40,17 +56,31 @@ export function useNetworkOnline(): NetworkOnlineState {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      publishNetworkOnlineState(true);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      publishNetworkOnlineState(false);
+    };
+    const handleSharedChange = (event: Event) => {
+      const next = readNetworkOnlineChange(event);
+      if (next !== null) {
+        setIsOnline(next);
+      }
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener(NETWORK_ONLINE_CHANGE_EVENT, handleSharedChange);
 
     setIsOnline(navigator.onLine);
 
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener(NETWORK_ONLINE_CHANGE_EVENT, handleSharedChange);
     };
   }, []);
 
@@ -72,9 +102,11 @@ export function useNetworkOnline(): NetworkOnlineState {
       });
       const ok = res.ok;
       setIsOnline(ok);
+      publishNetworkOnlineState(ok);
       return ok;
     } catch {
       setIsOnline(false);
+      publishNetworkOnlineState(false);
       return false;
     } finally {
       window.clearTimeout(timeoutId);

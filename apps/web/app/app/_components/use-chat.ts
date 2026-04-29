@@ -318,6 +318,31 @@ function buildRuntimeLiveActivity(params: {
   };
 }
 
+function buildPersistedMediaActivity(message: ChatMessage): ActivityEvent | null {
+  if (message.role !== "assistant" || message.status !== "committed") {
+    return null;
+  }
+  const attachmentTypes = new Set(
+    (message.attachments ?? []).map((attachment) => attachment.attachmentType)
+  );
+  const label = attachmentTypes.has("image")
+    ? "Image ready"
+    : attachmentTypes.has("video")
+      ? "Video ready"
+      : attachmentTypes.has("voice") || attachmentTypes.has("audio")
+        ? "Voice ready"
+        : null;
+  if (label === null) {
+    return null;
+  }
+  return {
+    id: `activity-persisted-media-${message.id}`,
+    type: "tool_use",
+    label,
+    afterMessageId: message.id
+  };
+}
+
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
 ): string {
@@ -457,6 +482,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const abortControllersByThreadRef = useRef<
     Map<string, { controller: AbortController; clientTurnId: string }>
   >(new Map());
+  const hardStoppedClientTurnIdsRef = useRef<Set<string>>(new Set());
   const activeTurnSnapshotsRef = useRef<Map<string, ActiveTurnSnapshot>>(new Map());
   const cachedThreadHistorySnapshotsRef = useRef<Map<string, CachedThreadHistorySnapshot>>(
     new Map()
@@ -653,6 +679,7 @@ export function useChat(threadKey: string): UseChatReturn {
       return;
     }
     const { controller, clientTurnId } = entry;
+    hardStoppedClientTurnIdsRef.current.add(clientTurnId);
     void (async () => {
       try {
         const token = await getToken();
@@ -1627,10 +1654,14 @@ export function useChat(threadKey: string): UseChatReturn {
           // send_failed and drop the unused assistant placeholder. Skip the
           // existing issue banner: the bubble + composer helper carry the UX.
           sendFailedCleanup(true);
-        } else if (!controller.signal.aborted && isPassiveStreamDisconnect(error)) {
-          softDetached = true;
+        } else if (
+          isPassiveStreamDisconnect(error) &&
+          !hardStoppedClientTurnIdsRef.current.has(clientTurnId)
+        ) {
           const targetChatId = activeChatIdRef.current;
-          if (targetChatId) {
+          const hasActiveSnapshot = activeTurnSnapshotsRef.current.has(sendThreadKey);
+          if (targetChatId && hasActiveSnapshot) {
+            softDetached = true;
             startSoftDetachReconcile(sendThreadKey, targetChatId);
           }
         } else {
@@ -1653,6 +1684,7 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       } finally {
         clearTimeout(headersTimer);
+        hardStoppedClientTurnIdsRef.current.delete(clientTurnId);
         if (!softDetached) {
           clearSoftDetachReconcileTimer(sendThreadKey);
           markStreaming(sendThreadKey, false);
@@ -2143,6 +2175,10 @@ export function useChat(threadKey: string): UseChatReturn {
         kind: "activity",
         event: shadowRoutingLabel === undefined ? live : { ...live, shadowRoutingLabel }
       });
+    }
+    const persistedMediaActivity = buildPersistedMediaActivity(m);
+    if (persistedMediaActivity !== null && live?.source !== "tool") {
+      entries.push({ kind: "activity", event: persistedMediaActivity });
     }
     const linked = activityByMsg.get(m.id);
     if (linked) {

@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-04-29 (Offline fallback) — Capacitor cold-start assets and mid-session navigation guard (`persai-mobile`, `apps/web`; focused tests/typecheck green)
+
+### Why this session
+
+Founder asked to implement the attached Offline Fallback Plan without editing the plan file. The goal was to fix the existing offline fallback so Android cold-start uses the bundled page instead of a white/native error screen, and to harden mid-session WebView behavior so app-owned navigation attempts do not route into blank/error screens when the network is actually down but `navigator.onLine` is stale.
+
+### What changed
+
+- Ran `npm run cap:sync -- android` in `persai-mobile` and verified generated Android assets now include:
+  - `android/app/src/main/assets/capacitor.config.json` with `server.errorPath: "offline.html"` and `android.backgroundColor: "#161513"`.
+  - `android/app/src/main/assets/public/offline.html`.
+- `persai-mobile/www/offline.html` retry now explicitly `replace()`s back to `https://persai.dev` instead of relying on reloading the local error page.
+- `apps/web/app/app/_components/use-network-online.ts` now broadcasts `/api/health` recheck results across hook instances, so a failed navigation preflight updates the root `OfflineGate`.
+- `apps/web/app/app/_components/sidebar.tsx` guards sidebar-owned app navigations (`new chat`, chat switch, admin/profile, locale reload) with bounded health verification. When offline, it leaves the current UI mounted and lets `OfflineGate` explain the state.
+- `apps/web/app/app/_components/sidebar.test.tsx` pins the stale-online navigation regression.
+- `docs/ADR/075-mobile-capacitor-webview-shell.md` now records the explicit retry and navigation-guard behavior.
+
+### Tests run
+
+- `npm run cap:sync -- android` in `persai-mobile`
+- inspected generated `android/app/src/main/assets/capacitor.config.json`
+- inspected generated `android/app/src/main/assets/public/offline.html`
+- `./gradlew.bat :app:assembleDebug` in `persai-mobile/android` with `JAVA_HOME=C:\Program Files\Android\Android Studio\jbr`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/sidebar.test.tsx app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Android airplane-mode cold-start was not manually device-validated in this session; generated assets now contain the required Capacitor truth and `:app:assembleDebug` succeeds with Android Studio's bundled JBR.
+- Browser Back and overlay close behavior remain unblocked by design. The guard only covers app-owned sidebar navigations/reloads that can otherwise force a failing WebView load.
+
+### Next recommended step
+
+Build/install the Android shell, enable airplane mode, cold-start the app, and verify the branded offline page plus Retry recovery. Then test mid-session sidebar navigation while network is cut but the app is still mounted.
+
+## 2026-04-29 (Tool UI continuity after window/app resume) — passive disconnects no longer hide an in-flight tool turn (`apps/web`; focused test/typecheck green)
+
+### Why this session
+
+Founder reported that after switching away from the browser/app and returning, the blinking cursor disappeared while the tool turn was still ambiguous. Pressing F5 then removed the visible tool status, making it look as if nothing was still happening or had just happened.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts` now distinguishes explicit Stop from passive post-headers disconnects with a local hard-stop marker.
+- If a post-headers abort/disconnect happens without explicit Stop and the active turn snapshot still exists, `useChat` keeps the turn in soft-detach mode instead of clearing `isStreaming`; the existing bounded reconciliation loop continues polling committed history.
+- Reloaded committed media messages now reconstruct a quiet tool-complete activity from persisted assistant attachments (`Image ready`, `Video ready`, or `Voice ready`), so F5 no longer erases all tool context for successful media turns.
+- `apps/web/app/app/_components/use-chat.test.tsx` pins the persisted media activity regression.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/web/app/app/_components/use-chat.ts" "apps/web/app/app/_components/use-chat.test.tsx"`
+- `ReadLints` on `use-chat.ts` and `use-chat.test.tsx`
+
+### Risks / residuals
+
+- F5 can only reconstruct tool-complete status from persisted outputs currently available in chat history. Failed tool attempts without a persisted assistant attachment still need a future durable tool-event history if we want exact post-reload failed/running badges.
+- Needs deploy/live validation on desktop and Capacitor: start image generation/editing, switch away mid-tool, return before completion, then F5 after completion and confirm the UI remains understandable.
+
+### Next recommended step
+
+Deploy the web image and re-run the founder repro on desktop and mobile. If failed tool badges must survive reload too, add a small durable tool-event projection to the chat history API in a separate slice.
+
 ## 2026-04-29 (Tool-turn resume reconciliation) — mobile/desktop resume now keeps polling until committed image/tool history lands (`apps/web`; focused test/typecheck green)
 
 ### Why this session

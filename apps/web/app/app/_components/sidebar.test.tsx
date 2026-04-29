@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar } from "./sidebar";
+import { OfflineGate } from "./offline-gate";
 import type { AppData } from "./use-app-data";
 
 const navigationMocks = vi.hoisted(() => ({
@@ -33,6 +34,13 @@ vi.mock("./assistant-avatar", () => ({
   AssistantAvatar: () => <div data-testid="assistant-avatar" />
 }));
 
+beforeEach(() => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("ok", { status: 200 }))
+  );
+});
+
 vi.mock("../assistant-api-client", () => ({
   patchAssistantWebChat: vi.fn(async () => undefined),
   postAssistantWebChatArchive: vi.fn(async () => undefined),
@@ -41,6 +49,7 @@ vi.mock("../assistant-api-client", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
 });
@@ -118,7 +127,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.queryByText(/Chat c-1/)).not.toBeNull();
   });
 
-  it("switches chats with local history so uploads do not wait for app-router navigation", () => {
+  it("switches chats with local history so uploads do not wait for app-router navigation", async () => {
     const pushState = vi.spyOn(window.history, "pushState");
     const data = makeAppData({
       chats: [makeChat("thread-a")]
@@ -128,7 +137,36 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     fireEvent.click(screen.getByText("Chat thread-a"));
 
-    expect(pushState).toHaveBeenCalledWith(null, "", "/app/chat?thread=thread-a");
+    await waitFor(() => {
+      expect(pushState).toHaveBeenCalledWith(null, "", "/app/chat?thread=thread-a");
+    });
+    expect(navigationMocks.push).not.toHaveBeenCalled();
+  });
+
+  it("blocks chat navigation and exposes the offline overlay when health recheck fails", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+    const pushState = vi.spyOn(window.history, "pushState");
+    const data = makeAppData({
+      chats: [makeChat("thread-a")]
+    });
+
+    render(
+      <>
+        <Sidebar data={data} />
+        <OfflineGate />
+      </>
+    );
+
+    fireEvent.click(screen.getByText("Chat thread-a"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/health",
+        expect.objectContaining({ cache: "no-store", method: "GET" })
+      );
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+    expect(pushState).not.toHaveBeenCalled();
     expect(navigationMocks.push).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,7 @@ import type { AppData, AssistantStatus } from "./use-app-data";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { useTheme } from "./use-theme";
 import { useClerkAvatar } from "./use-clerk-avatar";
+import { useNetworkOnline } from "./use-network-online";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
@@ -133,6 +134,7 @@ export function Sidebar({
 }: SidebarProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isOnline, recheck } = useNetworkOnline();
   const activeThread = searchParams.get("thread");
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -169,6 +171,19 @@ export function Sidebar({
         older: t("older")
       })
     : [];
+  const guardedNavigate = useCallback(
+    async (navigate: () => void) => {
+      if (!isOnline) {
+        return;
+      }
+      const confirmedOnline = await recheck();
+      if (!confirmedOnline) {
+        return;
+      }
+      navigate();
+    },
+    [isOnline, recheck]
+  );
   return (
     <aside className="flex h-dvh w-[280px] shrink-0 flex-col border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
       {/* Mobile close button */}
@@ -228,10 +243,12 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => {
-            if (!pushLocalChatUrl("/app/chat")) {
-              router.push("/app/chat" as Route);
-            }
-            onClose?.();
+            void guardedNavigate(() => {
+              if (!pushLocalChatUrl("/app/chat")) {
+                router.push("/app/chat" as Route);
+              }
+              onClose?.();
+            });
           }}
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2.5 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover"
         >
@@ -270,10 +287,12 @@ export function Sidebar({
                   isActive={activeThread === item.chat.surfaceThreadKey}
                   onNavigate={() => {
                     const url = `/app/chat?thread=${encodeURIComponent(item.chat.surfaceThreadKey)}`;
-                    if (!pushLocalChatUrl(url)) {
-                      router.push(url as Route);
-                    }
-                    onClose?.();
+                    void guardedNavigate(() => {
+                      if (!pushLocalChatUrl(url)) {
+                        router.push(url as Route);
+                      }
+                      onClose?.();
+                    });
                   }}
                   onChanged={data.reloadChats}
                 />
@@ -361,6 +380,7 @@ function AccountFooter({
   const { signOut } = useClerk();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const { isOnline, recheck } = useNetworkOnline();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const {
@@ -408,10 +428,26 @@ function AccountFooter({
     (typeof document !== "undefined" ? document.documentElement.lang : "en") ||
     "en";
 
+  const guardedNavigate = useCallback(
+    async (navigate: () => void) => {
+      if (!isOnline) {
+        return;
+      }
+      const confirmedOnline = await recheck();
+      if (!confirmedOnline) {
+        return;
+      }
+      navigate();
+    },
+    [isOnline, recheck]
+  );
+
   const switchLocale = (code: string) => {
-    document.cookie = `persai-locale=${code};path=/;max-age=${365 * 86400};samesite=lax`;
-    setOpen(false);
-    window.location.reload();
+    void guardedNavigate(() => {
+      document.cookie = `persai-locale=${code};path=/;max-age=${365 * 86400};samesite=lax`;
+      setOpen(false);
+      window.location.reload();
+    });
   };
 
   const themeOptions: { id: "system" | "light" | "dark"; icon: React.ReactNode; label: string }[] =
@@ -599,9 +635,11 @@ function AccountFooter({
               <button
                 type="button"
                 onClick={() => {
-                  setOpen(false);
-                  onClose?.();
-                  router.push("/admin" as Route);
+                  void guardedNavigate(() => {
+                    setOpen(false);
+                    onClose?.();
+                    router.push("/admin" as Route);
+                  });
                 }}
                 className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
               >
@@ -613,9 +651,11 @@ function AccountFooter({
             <button
               type="button"
               onClick={() => {
-                setOpen(false);
-                onClose?.();
-                router.push("/app/profile" as Route);
+                void guardedNavigate(() => {
+                  setOpen(false);
+                  onClose?.();
+                  router.push("/app/profile" as Route);
+                });
               }}
               className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
             >

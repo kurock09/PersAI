@@ -610,6 +610,61 @@ describe("useChat", () => {
     });
   });
 
+  it("restores a persisted media tool status from loaded assistant attachments", async () => {
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      messages: [
+        {
+          id: "server-user-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "make an image",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        {
+          id: "server-assistant-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Done.",
+          attachments: [
+            {
+              id: "att-1",
+              attachmentType: "image",
+              originalFilename: "image.png",
+              mimeType: "image/png",
+              sizeBytes: 123,
+              processingStatus: "ready",
+              createdAt: "2026-04-25T17:48:03.000Z"
+            }
+          ],
+          createdAt: "2026-04-25T17:48:03.000Z"
+        }
+      ],
+      nextCursor: null
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+
+    expect(result.current.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "activity",
+        event: expect.objectContaining({
+          type: "tool_use",
+          label: "Image ready",
+          afterMessageId: "server-assistant-1"
+        })
+      })
+    );
+  });
+
   it("restores previously loaded chat history from memory when switching threads", async () => {
     assistantApiMocks.getChatMessages
       .mockResolvedValueOnce({
