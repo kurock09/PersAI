@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
-import { AndroidAppDownloadBanner } from "./_components/android-app-download-banner";
+import { LandingAndroidAppDownload } from "./_components/landing-android-app-download";
 import { LandingLocaleSwitcher } from "./_components/landing-locale-switcher";
 import { LandingThemeToggle } from "./_components/landing-theme-toggle";
 
@@ -119,16 +119,11 @@ export default async function HomePage() {
               {t("ctaSecondary")} →
             </Link>
           </div>
-          <AndroidAppDownloadBanner
-            className="animate-fade-in-up-delay mt-4"
-            copy={{
-              cta: t("androidAppCta")
-            }}
-          />
         </main>
 
         {/* Footer */}
         <footer className="shrink-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center">
+          <LandingAndroidAppDownload cta={t("androidAppCta")} />
           <nav className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-medium text-text-subtle sm:gap-x-4 sm:text-[11px]">
             {footerLinks.map((link) =>
               link.href.startsWith("mailto:") || link.href.startsWith("#") ? (

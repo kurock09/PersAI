@@ -28,6 +28,12 @@ function createOverviewLatencyTraceServiceMock(options?: { enabled?: boolean }) 
   };
 }
 
+function createAttachmentObjectAvailabilityServiceMock() {
+  return {
+    assertRuntimeReadable: async () => undefined
+  };
+}
+
 function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
   result: T;
   captured: string;
@@ -188,7 +194,8 @@ describe("StreamWebChatTurnService", () => {
           ]
         })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -354,7 +361,8 @@ describe("StreamWebChatTurnService", () => {
           attachments: []
         })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -508,7 +516,8 @@ describe("StreamWebChatTurnService", () => {
           attachments: []
         })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -659,7 +668,8 @@ describe("StreamWebChatTurnService", () => {
       {
         deliver: async () => ({ attachments: [] })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -778,7 +788,8 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       {} as never,
       {} as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const preparation = await service.prepare("user-1", {
@@ -935,7 +946,8 @@ function buildToolStreamingServiceForTraceTest(options: {
     {
       deliver: async () => ({ attachments: [] })
     } as never,
-    createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never
+    createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
+    createAttachmentObjectAvailabilityServiceMock() as never
   );
 }
 

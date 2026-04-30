@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Quiet APK download placement polish) — settings button centered low, landing link moved near footer and hidden in Capacitor (`apps/web`; focused checks green)
+
+### Why this session
+
+Founder showed Assistant Settings and asked to make the APK action look intentional and premium instead of like a rough left-aligned button. Founder also asked to move the public landing APK action closer to the footer, prevent it from competing with the main CTA buttons, hide it on the landing page inside the Capacitor app, and use `Обновить` / `Update` copy in Assistant Settings when already running inside Capacitor.
+
+### What changed
+
+- Restyled the shared `AndroidAppDownloadBanner` into a quieter rounded pill: smaller phone icon, calmer surface, lower contrast border, and softer shadow.
+- Moved the Assistant Settings APK action into a centered lower block with more breathing room. In the native shell it now uses `androidAppUpdateCta` (`Обновить` / `Update`) instead of download copy.
+- Added a client-only `LandingAndroidAppDownload` wrapper. The public landing now renders the APK action near the footer, not next to the primary CTA group, and suppresses it when `window.PersaiNative` or Capacitor native platform detection is present.
+- Updated RU/EN settings copy and tests for the native-shell update action plus landing native-shell hiding.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- Visual validation is still needed in the live mobile shell and desktop landing because the final judgment is spacing/feel, not just DOM behavior.
+
+### Next recommended step
+
+Deploy/sync web and visually check: settings APK action should sit centered in the lower empty area and read `Обновить` inside the app; landing should show one quiet footer-adjacent APK link in browser web and no APK link inside Capacitor.
+
 ## 2026-04-30 (Soft-detached stream continuity reset) — passive post-header disconnects now recover by clientTurnId and no longer delete live turns after 120s (`apps/web`; fresh GKE audit, focused use-chat suite green)
 
 ### Why this session

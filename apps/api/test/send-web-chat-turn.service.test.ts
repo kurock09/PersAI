@@ -26,6 +26,12 @@ function createOverviewLatencyTraceServiceMock() {
   };
 }
 
+function createAttachmentObjectAvailabilityServiceMock() {
+  return {
+    assertRuntimeReadable: async () => undefined
+  };
+}
+
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let nativeRuntimeCalls = 0;
@@ -98,7 +104,8 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       {} as never,
       {} as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -206,7 +213,8 @@ describe("SendWebChatTurnService", () => {
       {
         deliver: async () => ({ attachments: [] })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -312,7 +320,8 @@ describe("SendWebChatTurnService", () => {
       {
         deliver: async () => ({ attachments: [] })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     await service.execute("user-1", {
@@ -438,7 +447,8 @@ describe("SendWebChatTurnService", () => {
           return { attachments: deliveredAttachments };
         }
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -571,7 +581,8 @@ describe("SendWebChatTurnService", () => {
       {
         deliver: async () => ({ attachments: [] })
       } as never,
-      createOverviewLatencyTraceServiceMock() as never
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never
     );
 
     const result = await service.execute("user-1", {

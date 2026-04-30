@@ -184,6 +184,19 @@ function isSessionExpiredText(text: string): boolean {
   return text.includes("Session expired") || text.includes("Сессия истекла");
 }
 
+function isNativeShell(): boolean {
+  if (typeof window === "undefined") return false;
+  const maybeNative = window as unknown as {
+    PersaiNative?: unknown;
+    Capacitor?: { isNativePlatform?: () => boolean };
+  };
+  return Boolean(
+    maybeNative.PersaiNative ||
+    (typeof maybeNative.Capacitor?.isNativePlatform === "function" &&
+      maybeNative.Capacitor.isNativePlatform())
+  );
+}
+
 function FeedbackLine({ fb }: { fb: ActionFeedback }) {
   if (!fb) return null;
   const sessionExpired = fb.type === "err" && isSessionExpiredText(fb.text);
@@ -447,6 +460,7 @@ export function AssistantSettings({
   const { getToken } = useAuth();
   const t = useTranslations("settings");
   const tp = useTranslations("persona");
+  const [nativeShell, setNativeShell] = useState(false);
   const assistant = data.assistant;
   const statusLabel = t(
     (
@@ -574,6 +588,10 @@ export function AssistantSettings({
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
   );
+
+  useEffect(() => {
+    setNativeShell(isNativeShell());
+  }, []);
 
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
@@ -2222,11 +2240,11 @@ export function AssistantSettings({
         )}
       </Section>
 
-      <div className="px-5 pt-7 pb-6">
+      <div className="flex justify-center px-5 pt-10 pb-12">
         <AndroidAppDownloadBanner
-          className="opacity-90"
+          className="min-w-[12.5rem] opacity-90"
           copy={{
-            cta: t("androidAppCta")
+            cta: nativeShell ? t("androidAppUpdateCta") : t("androidAppCta")
           }}
         />
       </div>

@@ -353,6 +353,7 @@
     "androidAppTitle": "Мобильное приложение",
     "androidAppBody": "Скачай текущий Android APK. Версия обновляется из release build, так что ссылка ведёт на последний опубликованный файл.",
     "androidAppCta": "Скачать Android APK",
+    "androidAppUpdateCta": "Обновить",
     "androidAppVersion": "Версия",
     "editPersonality": "Настроить",
     "hidePersonality": "Скрыть настройки",

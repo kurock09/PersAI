@@ -231,6 +231,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  delete (window as unknown as { PersaiNative?: unknown }).PersaiNative;
   vi.resetAllMocks();
 });
 
@@ -323,6 +324,17 @@ describe("AssistantSettings character CTA", () => {
     renderSettings(makeAppData(), "character");
 
     expect(screen.getByRole("link", { name: /Download Android APK/i })).toHaveAttribute(
+      "href",
+      "/mobile/persai-android-release.apk"
+    );
+  });
+
+  it("uses update copy for the Android release action in the native shell", async () => {
+    (window as unknown as { PersaiNative?: unknown }).PersaiNative = {};
+
+    renderSettings(makeAppData(), "character");
+
+    expect(await screen.findByRole("link", { name: "Update" })).toHaveAttribute(
       "href",
       "/mobile/persai-android-release.apk"
     );

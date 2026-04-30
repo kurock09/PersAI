@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
 const clerkServerMocks = vi.hoisted(() => ({
@@ -60,6 +60,11 @@ vi.mock("./_components/landing-theme-toggle", () => ({
   LandingThemeToggle: () => <div data-testid="landing-theme-toggle" />
 }));
 
+afterEach(() => {
+  cleanup();
+  delete (window as unknown as { PersaiNative?: unknown }).PersaiNative;
+});
+
 describe("Landing page", () => {
   it("keeps the premium capability labels without the messenger strip", async () => {
     const view = await HomePage();
@@ -69,7 +74,7 @@ describe("Landing page", () => {
     expect(screen.getByText("Web and Telegram")).toBeInTheDocument();
     expect(screen.getByText("Carries tasks forward")).toBeInTheDocument();
     expect(screen.getByText("Chats, tasks, and context always nearby.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Download APK/i })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: /Download APK/i })).toHaveAttribute(
       "href",
       "/mobile/persai-android-release.apk"
     );
@@ -77,5 +82,14 @@ describe("Landing page", () => {
     expect(screen.queryByText(/^VK$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^WhatsApp$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^MAX$/)).not.toBeInTheDocument();
+  });
+
+  it("hides the Android APK link inside the native shell", async () => {
+    (window as unknown as { PersaiNative?: unknown }).PersaiNative = {};
+
+    const view = await HomePage();
+    render(view);
+
+    expect(screen.queryByRole("link", { name: /Download APK/i })).not.toBeInTheDocument();
   });
 });

@@ -353,6 +353,7 @@
     "androidAppTitle": "Mobile app",
     "androidAppBody": "Download the current Android APK. The version is updated from the release build, so this link points at the latest published file.",
     "androidAppCta": "Download Android APK",
+    "androidAppUpdateCta": "Update",
     "androidAppVersion": "Version",
     "editPersonality": "Customize",
     "hidePersonality": "Hide settings",
