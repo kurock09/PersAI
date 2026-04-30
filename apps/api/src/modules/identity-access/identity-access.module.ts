@@ -152,6 +152,10 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
       { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },
       { path: "api/v1/admin/prompt-templates/:id", method: RequestMethod.PATCH },
+      {
+        path: "api/v1/admin/prompt-templates/:id/reset-to-default",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/persona-archetypes", method: RequestMethod.GET },
       { path: "api/v1/admin/persona-archetypes/:key", method: RequestMethod.PATCH },
       {
