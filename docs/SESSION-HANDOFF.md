@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Web stream continuity — id-set pollution fix) — live turn now tracks scoped `liveUserMessageId` / `liveAssistantMessageId` instead of the polluted snapshot.messages id-set; reattach SSE flushes its trailing block; phantom `Думаю...` placeholders deduped (`apps/web`; focused vitest + repo lint/format/typecheck green)
+
+### Why this session
+
+Founder said the previous round of "stream continuity" hotfixes did not actually fix the symptom and may have made the swap-flow worse: long answer in Chat A, switch to Chat B, switch back — live bubble disappears entirely, the chat looks empty or shows only old history until reload. Streams also abruptly cut even without a chat switch, and a phantom upper `Думаю...` / blinking-cursor / empty streaming assistant bubble survives a background-completed turn. Founder explicitly asked for a real fix, not another heuristic.
+
+### Diagnosis (root cause, not symptom)
+
+`ActiveTurnSnapshot.messages` was being used for two incompatible purposes inside `apps/web/app/app/_components/use-chat.ts`:
+
+1. as the visible thread state (which `loadHistory` and the cache merge with older committed history), AND
+2. as the canonical id-set for "which messages BELONG to the live turn?"
+
+Every reconciliation predicate in the file (`committedHistoryHasActiveSnapshotResult`, `mergeCommittedHistoryWithActiveTurn`, `refreshLatestHistory`, the terminal cleanup branch in `applyTurnStatusState`) scanned `snapshot.messages` for user/assistant ids. After a thread switch / cache hydration, that set legitimately included OLDER committed user/assistant ids that had nothing to do with the live turn. The id-set check `"loaded contains a snapshot user with an assistant after it"` then fired on those older committed pairs, the code concluded "the active turn already landed", and tore down the live snapshot — abort controller killed, `markStreaming(false)`, snapshot deleted, live bubble gone. Reload "fixed" it because reload rebuilt the snapshot from authoritative state instead of the polluted in-memory one.
+
+Two secondary bugs amplified the user-visible damage:
+
+- `reattachAssistantWebChatTurnStream` did NOT flush the trailing SSE block, so a server-sent `completed` arriving on a connection close without a final blank `\n\n` was silently dropped. The reattach loop spun on `"Stream closed before terminal event"`.
+- The chat-area entries pipeline rendered `"Думаю..."` for any `assistant + status:streaming + content:""` message. After background completion, a stale streaming placeholder above the committed final bubble kept showing the cursor forever.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Added `liveUserMessageId: string | null` and `liveAssistantMessageId: string` to `ActiveTurnSnapshot` as the SCOPED identity of the live turn. `messages` is documented as visible thread state only.
+  - Rewrote `committedHistoryHasActiveSnapshotResult`, `mergeCommittedHistoryWithActiveTurn`, the snapshot-id checks inside `refreshLatestHistory`, and the terminal cleanup branch of `applyTurnStatusState` to use only the scoped `liveUserMessageId` / `liveAssistantMessageId` and to ignore `local-*` / `active-*` ids when scanning loaded history.
+  - Updated `toActiveTurnOverlayMessages` to expose `liveUserMessageId` / `liveAssistantMessageId` for the projected-active-turn path of `loadHistory`.
+  - Kept `liveUserMessageId` / `liveAssistantMessageId` in sync at every snapshot mutation: `send` (initial), `sendWelcome` (assistant-only), `applyTurnStatusState` (running + terminal), `loadHistory` projected active turn, cached snapshot writes, and primary stream `onStarted` / `onCompleted` / `onInterrupted` / `onFailed`.
+  - Added a defensive deduplication step in the entries-assembly: a streaming-empty assistant message is hidden from `entries` when a NEWER assistant message exists below it. Prevents the phantom `Думаю...` even when the underlying placeholder cleanup did not fire (e.g. registry was on a different pod, status reattach completed via different id, projection injected an extra placeholder).
+- `apps/web/app/app/assistant-api-client.ts`: `reattachAssistantWebChatTurnStream` now flushes the trailing SSE buffer with `decoder.decode()` + `parseSseBlock(buffer)` after the read loop ends, matching `streamAssistantWebChatTurn`. A `completed` / `interrupted` / `failed` event arriving without a final `\n\n` is now consumed instead of dropped.
+
+### Regression tests added
+
+In `apps/web/app/app/_components/use-chat.test.tsx` (`stream continuity regression suite (live-id scoping)`):
+
+- `loadHistory while still streaming does NOT tear down a live turn whose user id matches an older committed user/assistant pair` — pins the id-set pollution fix.
+- `switch A → B → A while a long Chat A turn is streaming preserves the live bubble in Chat A` — pins the chat-swap repro.
+- `background-completed turn removes a phantom empty streaming assistant placeholder above the committed answer` — pins the phantom `Думаю...` cleanup.
+- `hides a phantom empty streaming assistant when a newer assistant exists below it` — pins the entries-pipeline dedup.
+
+In `apps/web/app/app/assistant-api-client.test.ts` (`reattachAssistantWebChatTurnStream`):
+
+- `flushes the trailing SSE block when the connection closes without a final blank line` — pins the reattach trailing-flush fix.
+- `rejects when the reattach stream closes with no terminal event at all` — pins the genuine no-terminal-event behavior.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 53 / 53 pass (49 prior + 4 new).
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts` — 34 / 34 pass (32 prior + 2 new).
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+- `corepack pnpm run format:check` — clean.
+- `corepack pnpm -r --if-present run lint` — clean across all 14 lint-enabled packages.
+
+### Risks / residuals
+
+- The fix is purely client-side. Server contract was unchanged.
+- The dedup step in the entries pipeline is a defensive UI safeguard. If a future change starts emitting NON-empty streaming assistants intentionally placed above the latest assistant, those would be unaffected — only `streaming + content:""` placeholders are hidden.
+- One existing test (`switch A → B → A while a long Chat A turn is streaming preserves the live bubble in Chat A`) asserts on the live bubble's presence, not its content, because RAF-batched delta flushing is mocked in this suite and would require manual `requestAnimationFrame` dispatch to assert content. The bug was the bubble disappearing — that is what is pinned.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev` and retest the founder's three classes: (1) long Chat A answer + switch to Chat B + switch back: live bubble must remain and continue streaming, (2) one-word turn / silent passive disconnect: final answer must appear without reload, (3) background-completed turn: no phantom `Думаю...` / blinking cursor above the committed assistant message.
+
 ## 2026-04-30 (Quiet APK download placement polish) — settings button centered low, landing link moved near footer and hidden in Capacitor (`apps/web`; focused checks green)
 
 ### Why this session

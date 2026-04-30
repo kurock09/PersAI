@@ -1131,6 +1131,31 @@ export async function reattachAssistantWebChatTurnStream(
     }
   }
 
+  // Flush trailing SSE block. The primary stream (above) handles the
+  // `\n\n`-less last block via `decoder.decode()` + `parseSseBlock(buffer)`;
+  // the reattach stream MUST do the same, otherwise a server-side
+  // `completed` / `interrupted` / `failed` event arriving on a connection
+  // close without a final blank line is silently dropped, leaving the
+  // client in "still streaming" state forever (and the reattach loop spins
+  // on "Stream closed before terminal event" → retry → spins again).
+  buffer += decoder.decode();
+  if (buffer.trim().length > 0) {
+    const parsed = parseSseBlock(buffer.trim());
+    if (parsed !== null) {
+      let payloadObject: unknown = null;
+      try {
+        payloadObject = JSON.parse(parsed.data);
+      } catch {
+        payloadObject = null;
+      }
+      const streamEvent =
+        payloadObject === null ? null : toStreamEvent(parsed.eventName, payloadObject);
+      if (streamEvent !== null) {
+        handleStreamEvent(streamEvent);
+      }
+    }
+  }
+
   if (!sawTerminalEvent) {
     throw new Error("Stream closed before terminal event.");
   }

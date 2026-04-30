@@ -8,6 +8,7 @@ import {
   postAdminPlatformRolloutRollback,
   postAssistantMemoryItemCloseOpenLoop,
   postAssistantTelegramDisconnect,
+  reattachAssistantWebChatTurnStream,
   toWebChatUxIssue,
   putAdminRuntimeProviderSettings,
   stopAssistantWebChatTurn,
@@ -670,6 +671,44 @@ describe("streamAssistantWebChatTurn", () => {
     );
 
     expect(order).toEqual(["delta:Preface ", "tool:start:summarize_context"]);
+  });
+});
+
+describe("reattachAssistantWebChatTurnStream", () => {
+  it("flushes the trailing SSE block when the connection closes without a final blank line", async () => {
+    // Pre-fix the reattach reader exited the read loop on `done=true`
+    // without flushing the in-buffer last block, so a server-sent
+    // `completed` frame that arrived without a trailing `\n\n` was
+    // silently dropped — leaving the client perpetually in
+    // "Stream closed before terminal event" retry loops.
+    const onCompleted = vi.fn();
+    global.fetch = vi.fn().mockResolvedValue(
+      createSseResponse([
+        `event: turn_status\ndata: ${JSON.stringify({ turn: { status: "running", chat: null, userMessage: null, assistantMessage: null, currentActivity: null, runtime: null, error: null } })}\n\n`,
+        // Last frame deliberately has NO trailing `\n\n`
+        `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}`
+      ])
+    ) as typeof fetch;
+
+    await expect(
+      reattachAssistantWebChatTurnStream("token-1", "turn-1", { onCompleted })
+    ).resolves.toBeUndefined();
+
+    expect(onCompleted).toHaveBeenCalledWith({ transport: { mode: "sse" } });
+  });
+
+  it("rejects when the reattach stream closes with no terminal event at all", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: turn_status\ndata: ${JSON.stringify({ turn: { status: "running", chat: null, userMessage: null, assistantMessage: null, currentActivity: null, runtime: null, error: null } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await expect(reattachAssistantWebChatTurnStream("token-1", "turn-1", {})).rejects.toThrow(
+      /Stream closed before terminal event/
+    );
   });
 });
 
