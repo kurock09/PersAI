@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Web chat passive reconnect auth allowlist) — fixed a real stream-continuity backend auth gap: the web turn-status and reattach-stream GET routes were not registered with Clerk auth middleware, so focus/app-switch passive reconnects received `401 userId=null`, the client lost the running turn, and the composer re-enabled while the server turn still existed (`apps/api`; API lint/typecheck/format green)
+
+### Why this session
+
+Founder reproduced the old stream bug after deploy: while a long answer streamed, switching to another Windows app and returning made the UI stop streaming, show a blinking cursor / enabled composer, and allow sending another message even though the server-side turn was still alive. Screenshots also showed stale assistant/user bubbles after this state corruption.
+
+### Diagnosis
+
+- GKE logs showed the key failure: `GET /api/v1/assistant/chat/web/turns/93b8...` returned `401 userId=null`.
+- Adjacent `/messages?limit=20` calls in the same browser session resolved `userId=1ae...` and returned `200`, so auth generally worked.
+- The missing route was not a frontend token issue. `ClerkAuthMiddleware` was registered for `POST /assistant/chat/web`, `POST /assistant/chat/web/stream`, and `POST /assistant/chat/web/stop`, but not for:
+  - `GET /api/v1/assistant/chat/web/turns/:clientTurnId`
+  - `GET /api/v1/assistant/chat/web/turns/:clientTurnId/stream`
+- Those are exactly the endpoints used by passive disconnect / focus return reconciliation. When they return 401, the client cannot prove the turn is still running and can clear streaming state while the backend continues.
+
+### What changed
+
+- `apps/api/src/modules/identity-access/identity-access.module.ts` now registers Clerk auth middleware for both web turn-status and reattach-stream GET endpoints.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Deploy the new API image and repeat the founder repro: start a long web chat stream, switch to another Windows app, return, and confirm the turn-status request is `200 userId=...` in GKE logs and the composer stays guarded until the original turn is terminal.
+
+---
+
 ## 2026-04-30 (Memory Center workspace badges/actions survive deploy/reapply) — fixed disappearing `Core` / `Fact` / `Open loop` labels and the missing close-loop action on Memory Center workspace rows by preserving registry metadata through the workspace-memory API and rendering metadata/actions from either merged source (`apps/api`, `apps/web`; focused settings test + API/web typecheck green)
 
 ### Why this session
