@@ -2226,11 +2226,7 @@ export function AssistantSettings({
         <AndroidAppDownloadBanner
           className="opacity-90"
           copy={{
-            eyebrow: t("androidAppEyebrow"),
-            title: t("androidAppTitle"),
-            body: t("androidAppBody"),
-            cta: t("androidAppCta"),
-            versionLabel: t("androidAppVersion")
+            cta: t("androidAppCta")
           }}
         />
       </div>

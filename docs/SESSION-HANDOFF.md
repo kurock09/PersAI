@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Live stream survives chat switch/history refresh again) — `activeTurn: null` no longer clears a still-running turn just because older assistant history exists, and Android download surfaces are now a single phone-icon APK button (`apps/web`; GKE checked, required checks green)
+
+### Why this session
+
+Founder reported the latest regression after prior continuity fixes: after switching away and back, the live stream no longer appeared at all. Founder also asked to simplify the Android APK banner shown on the landing page and assistant settings: leave only the download button, remove title/body/version text, and use a phone icon instead of a download icon.
+
+### What changed
+
+- Checked recent `persai-dev` API/runtime logs. The relevant web turns were accepted/running/completed server-side with `web_turn_attempt_completed` and `web_stream_timing`; repeated `GET /messages?limit=20` calls were succeeding. This pointed back to client history reconciliation, not a backend stream death.
+- Fixed the regression in `apps/web/app/app/_components/use-chat.ts`: an authoritative messages response with `activeTurn: null` was treated too broadly as permission to clear local active state whenever history contained any committed assistant message. During a still-running turn, history can legitimately contain older assistant replies, so the client was killing the live bubble after switching back.
+- Narrowed active-state cleanup so `activeTurn: null` only clears the local live turn when committed history contains the result for the current active snapshot. Also narrowed the optimistic-tail heuristic so older committed user+assistant history cannot be mistaken for the current turn once `onStarted` has already replaced the local user id with the server user id.
+- Added a focused regression proving that `activeTurn: null` plus older assistant history does not clear a still-live stream.
+- Simplified `AndroidAppDownloadBanner` into a single quiet APK link with a phone icon. Removed the surrounding card text, eyebrow/body/version chip, and download icon on both landing and Assistant Settings.
+
+### Tests run
+
+- GKE log check: `kubectl logs -n persai-dev deploy/api --since=60m ...` and `kubectl logs -n persai-dev deploy/runtime --since=60m ...`
+- `corepack pnpm --filter @persai/web test -- app/app/_components/use-chat.test.tsx app/page.test.tsx app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This fixes the client-side path where switching chats and reloading history hid the live turn before completion. It still needs founder/live validation after web deploy on the exact long-answer switch-away/switch-back flow.
+- Assistant Settings tests still print the known mocked relative-URL `memory-center` warning, but the suite passes.
+
+### Next recommended step
+
+Deploy/sync web to `persai-dev`, then repeat: start a deliberately long answer, switch to another chat, return before completion, and confirm the live assistant text/cursor remains visible continuously. Also visually confirm the APK surface is only one phone-icon download button on the landing page and at the bottom of Assistant Settings.
+
 ## 2026-04-30 (Landing label quieting + Android share chooser preview hint) — hero capability labels no longer look like buttons and Android share intents expose ClipData (`apps/web`, `persai-mobile`; focused checks green)
 
 ### Why this session

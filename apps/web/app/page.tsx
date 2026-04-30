@@ -120,13 +120,9 @@ export default async function HomePage() {
             </Link>
           </div>
           <AndroidAppDownloadBanner
-            className="animate-fade-in-up-delay mt-4 w-full max-w-[30rem]"
+            className="animate-fade-in-up-delay mt-4"
             copy={{
-              eyebrow: t("androidAppEyebrow"),
-              title: t("androidAppTitle"),
-              body: t("androidAppBody"),
-              cta: t("androidAppCta"),
-              versionLabel: t("androidAppVersion")
+              cta: t("androidAppCta")
             }}
           />
         </main>

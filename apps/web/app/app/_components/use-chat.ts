@@ -408,6 +408,38 @@ function committedHistoryHasActiveTurnResult(
     loaded.slice(activeUserIndex + 1).some((message) => message.role === "assistant")
   );
 }
+function committedHistoryHasActiveSnapshotResult(
+  loaded: ChatMessage[],
+  activeSnapshot: ActiveTurnSnapshot | undefined
+): boolean {
+  if (activeSnapshot === undefined) {
+    return false;
+  }
+  const activeUserMessageIds = new Set(
+    activeSnapshot.messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.id)
+  );
+  const activeAssistantMessageIds = new Set(
+    activeSnapshot.messages
+      .filter((message) => message.role === "assistant")
+      .map((message) => message.id)
+  );
+  if (
+    activeAssistantMessageIds.size > 0 &&
+    loaded.some((message) => activeAssistantMessageIds.has(message.id))
+  ) {
+    return true;
+  }
+  if (activeUserMessageIds.size === 0) {
+    return false;
+  }
+  const activeUserIndex = loaded.findIndex((message) => activeUserMessageIds.has(message.id));
+  return (
+    activeUserIndex >= 0 &&
+    loaded.slice(activeUserIndex + 1).some((message) => message.role === "assistant")
+  );
+}
 function mergeCommittedHistoryWithActiveTurn(input: {
   loaded: ChatMessage[];
   activeSnapshot: ActiveTurnSnapshot | undefined;
@@ -429,6 +461,9 @@ function mergeCommittedHistoryWithActiveTurn(input: {
   const baseMessageIds = new Set((baseMessages ?? []).map((message) => message.id));
   const activeSnapshotHasOptimisticLocalMessages =
     activeSnapshot.messages.some(isOptimisticLocalMessage);
+  const activeSnapshotHasOptimisticUserMessages = activeSnapshot.messages.some(
+    (message) => message.role === "user" && isOptimisticLocalMessage(message)
+  );
   const newLoadedUserMessages =
     baseMessages === undefined
       ? []
@@ -444,6 +479,7 @@ function mergeCommittedHistoryWithActiveTurn(input: {
   const loadedIntroducedCommittedTurnTail =
     baseMessages !== undefined &&
     activeSnapshotHasOptimisticLocalMessages &&
+    activeSnapshotHasOptimisticUserMessages &&
     loaded.length > 0 &&
     loaded[loaded.length - 1]?.role === "assistant" &&
     newLoadedUserMessages.length === 1 &&
@@ -795,6 +831,9 @@ export function useChat(threadKey: string): UseChatReturn {
             activeUserMessageIds.has(message.id)
           );
           const loadedHasAssistantMessage = loaded.some((message) => message.role === "assistant");
+          const activeSnapshotHasOptimisticUserMessages = activeSnapshot.messages.some(
+            (message) => message.role === "user" && isOptimisticLocalMessage(message)
+          );
           const newLoadedUserMessages = loaded.filter(
             (message) => message.role === "user" && !currentBaseMessageIds.has(message.id)
           );
@@ -803,6 +842,7 @@ export function useChat(threadKey: string): UseChatReturn {
           );
           loadedIntroducedCommittedTurnTail =
             activeSnapshot.messages.some(isOptimisticLocalMessage) &&
+            activeSnapshotHasOptimisticUserMessages &&
             loaded.length > 0 &&
             loaded[loaded.length - 1]?.role === "assistant" &&
             newLoadedUserMessages.length === 1 &&
@@ -827,8 +867,13 @@ export function useChat(threadKey: string): UseChatReturn {
           const hasNewServerAssistantMessage = newServerAssistantMessages.length > 0;
           const activeSnapshotHasOptimisticLocalMessages =
             activeSnapshot?.messages.some(isOptimisticLocalMessage) ?? false;
+          const activeSnapshotHasOptimisticUserMessages =
+            activeSnapshot?.messages.some(
+              (message) => message.role === "user" && isOptimisticLocalMessage(message)
+            ) ?? false;
           const loadedIntroducedCommittedTurnTailFromPrev =
             activeSnapshotHasOptimisticLocalMessages &&
+            activeSnapshotHasOptimisticUserMessages &&
             loaded.length > 0 &&
             loaded[loaded.length - 1]?.role === "assistant" &&
             newServerUserMessages.length === 1 &&
@@ -2563,11 +2608,14 @@ export function useChat(threadKey: string): UseChatReturn {
         const localActiveSnapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
         const serverActiveTurnAlreadyCommitted =
           rawActiveTurn !== null && committedHistoryHasActiveTurnResult(loaded, rawActiveTurn);
-        const historyHasCommittedAssistant = loaded.some((message) => message.role === "assistant");
+        const localActiveSnapshotAlreadyCommitted = committedHistoryHasActiveSnapshotResult(
+          loaded,
+          localActiveSnapshot
+        );
         const shouldClearAuthoritativeActiveTurn =
           hasAuthoritativeActiveTurn &&
-          historyHasCommittedAssistant &&
-          (rawActiveTurn === null || serverActiveTurnAlreadyCommitted);
+          (serverActiveTurnAlreadyCommitted ||
+            (rawActiveTurn === null && localActiveSnapshotAlreadyCommitted));
         const projectedActiveTurn =
           rawActiveTurn !== null &&
           !serverActiveTurnAlreadyCommitted &&
@@ -2663,14 +2711,13 @@ export function useChat(threadKey: string): UseChatReturn {
           setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
           markStreaming(targetThreadKey, true);
         } else if (
+          rawActiveTurn !== null &&
           hasAuthoritativeActiveTurn &&
           !activeThreads.has(targetThreadKey) &&
           !abortControllersByThreadRef.current.has(targetThreadKey)
         ) {
-          if (rawActiveTurn !== null) {
-            softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
-            clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
-          }
+          softDetachedClientTurnIdsRef.current.delete(rawActiveTurn.clientTurnId);
+          clearStoredActiveTurnClientTurnId(targetThreadKey, rawActiveTurn.clientTurnId);
           activeTurnSnapshotsRef.current.delete(targetThreadKey);
           setLiveActivitiesByMessageId({});
           markStreaming(targetThreadKey, false);

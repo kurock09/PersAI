@@ -69,7 +69,6 @@ describe("Landing page", () => {
     expect(screen.getByText("Web and Telegram")).toBeInTheDocument();
     expect(screen.getByText("Carries tasks forward")).toBeInTheDocument();
     expect(screen.getByText("Chats, tasks, and context always nearby.")).toBeInTheDocument();
-    expect(screen.getByText("PersAI for Android")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Download APK/i })).toHaveAttribute(
       "href",
       "/mobile/persai-android-release.apk"

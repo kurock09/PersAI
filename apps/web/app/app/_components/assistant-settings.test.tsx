@@ -322,8 +322,6 @@ describe("AssistantSettings character CTA", () => {
   it("shows the Android release download banner in settings", () => {
     renderSettings(makeAppData(), "character");
 
-    expect(screen.getByText("Mobile app")).toBeInTheDocument();
-    expect(screen.getByText("Version 1.0 · build 1")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Download Android APK/i })).toHaveAttribute(
       "href",
       "/mobile/persai-android-release.apk"
