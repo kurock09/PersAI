@@ -36,6 +36,16 @@ import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
 
+function shouldRestoreComposerFocusAfterSend(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return true;
+  }
+  // Hybrid Windows laptops can report maxTouchPoints > 0 while the primary
+  // interaction is still a desktop keyboard/mouse. Only suppress focus on
+  // touch-only environments where focusing would pop the mobile keyboard.
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
 function fileIcon(mime: string) {
   if (mime.startsWith("image/")) return null;
   if (mime.startsWith("audio/")) return <Music className="h-5 w-5 text-text-subtle" />;
@@ -214,7 +224,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    if (!isTouchDevice) {
+    if (!isTouchDevice || shouldRestoreComposerFocusAfterSend()) {
       el.focus();
     }
   }, [addToKnowledgeBase, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);

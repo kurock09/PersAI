@@ -30,6 +30,19 @@ function enableTouchDevice() {
   });
 }
 
+function enableHybridDesktopTouchDevice() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(pointer: coarse)" || query === "(hover: hover) and (pointer: fine)",
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn()
+  }));
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    configurable: true,
+    value: 1
+  });
+}
+
 describe("ChatInput", () => {
   afterEach(() => {
     cleanup();
@@ -157,6 +170,31 @@ describe("ChatInput", () => {
     fireEvent.click(screen.getByTitle("send"));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, undefined);
+    expect(textarea).toHaveFocus();
+  });
+
+  it("returns focus after send on hybrid desktop touch devices", async () => {
+    enableHybridDesktopTouchDevice();
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("placeholder")).toBeInTheDocument();
+    });
+    const textarea = screen.getByPlaceholderText("placeholder");
+    fireEvent.change(textarea, {
+      target: { value: "hello from desktop touch" }
+    });
+    fireEvent.click(screen.getByTitle("send"));
+
+    expect(onSend).toHaveBeenCalledWith("hello from desktop touch", undefined, undefined);
     expect(textarea).toHaveFocus();
   });
 
