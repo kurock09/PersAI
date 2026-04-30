@@ -267,6 +267,155 @@ describe("useChat", () => {
     expect(assistantEntry?.message.id).toBe("assistant-msg-1");
   });
 
+  it("keeps primary stream ownership when focus status returns running before completed", async () => {
+    let releaseStream: (() => void) | null = null;
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onHeadersOk?: () => void;
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "First " });
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        handlers.onDelta?.({ delta: "Second " });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "First Second final",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+    assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+      status: "running",
+      chat: { id: "chat-1" },
+      userMessage: {
+        id: "user-msg-1",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "user",
+        content: "Hello",
+        attachments: [],
+        createdAt: "2026-04-30T21:21:09.000Z"
+      },
+      assistantMessage: {
+        id: "active-assistant-from-status",
+        chatId: "chat-1",
+        assistantId: "assistant-1",
+        author: "assistant",
+        content: "First ",
+        attachments: [],
+        createdAt: "2026-04-30T21:21:10.000Z"
+      },
+      currentActivity: null,
+      runtime: null,
+      error: null
+    });
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: {
+        clientTurnId: "client-turn-1",
+        status: "running",
+        chat: { id: "chat-1" },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Hello",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:09.000Z"
+        },
+        assistantMessage: {
+          id: "active-assistant-from-status",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "First ",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:10.000Z"
+        },
+        currentActivity: null
+      },
+      messages: [
+        {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Hello",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:09.000Z"
+        }
+      ]
+    });
+
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = result.current.send("Hello", undefined, { clientTurnId: "client-turn-1" });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(result.current.isStreaming).toBe(true);
+    });
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledWith(
+        "token-1",
+        "client-turn-1"
+      );
+    });
+
+    await act(async () => {
+      releaseStream?.();
+      if (sendPromise !== undefined) {
+        await sendPromise;
+      }
+    });
+
+    const assistants = result.current.messages.filter((message) => message.role === "assistant");
+    expect(assistants).toEqual([
+      expect.objectContaining({
+        id: "assistant-msg-1",
+        content: "First Second final",
+        status: "committed"
+      })
+    ]);
+    expect(result.current.messages.map((message) => message.id)).not.toContain(
+      "active-assistant-from-status"
+    );
+    expect(result.current.isStreaming).toBe(false);
+  });
+
   it("keeps authoritative interrupted partial text instead of the shorter streamed prefix", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
@@ -4867,6 +5016,124 @@ describe("useChat", () => {
       expect(liveUserBubbles.length).toBe(1);
       // And it should be the canonical server-mapped id.
       expect(liveUserBubbles[0]?.id).toBe("server-user-A-live");
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("history refresh drops non-live user messages that leaked into the active snapshot but disappeared from authoritative history", async () => {
+      let releaseStream: (() => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "live partial" });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => resolve();
+          });
+        }
+      );
+
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "old question",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "old question",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-user-A-stale",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "stale user that must not survive the next authoritative refresh",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "old question",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            }
+          ]
+        });
+
+      const { result } = renderHook(() => useChat("thread-A"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("live question");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-live");
+      });
+
+      // First refresh pollutes the active snapshot with a non-live user.
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-stale");
+
+      // Next authoritative refresh no longer contains that user. Pre-fix,
+      // mergeCommittedHistoryWithActiveTurn kept it from snapshot.messages
+      // because it was a non-cached id, so it could later reappear beside the
+      // live assistant during chat swaps. It must now be purged.
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      expect(result.current.messages.map((m) => m.id)).not.toContain("server-user-A-stale");
+      expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-live");
 
       await act(async () => {
         releaseStream?.();

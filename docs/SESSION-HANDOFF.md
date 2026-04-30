@@ -1,5 +1,82 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Web chat focus-return stream id race + A→B→A diagnostic instrumentation) — live Chrome/GKE audit found the focus-return stream freeze root cause: a running turn-status refresh could replace the live assistant id while the original primary SSE stream still owned the turn; fixed that race and added gated snapshot-debug instrumentation for the remaining A→B→A phantom-source hunt (`apps/web`; focused regression fails on old logic and passes on fix)
+
+### Why this session
+
+Founder reproduced the bug in the Chrome instance exposed over CDP: while a long answer streamed, switching to Cursor and returning froze the visible stream, re-enabled input, and later showed a duplicated/final assistant with a stale blinking cursor until F5.
+
+### Diagnosis
+
+- GKE showed the backend turn completed normally. The key focus-return sequence was `GET /api/v1/assistant/chat/web/turns/:clientTurnId status=running` plus `/messages?limit=20` before `web_turn_attempt_completed`.
+- Live Chrome showed server history was clean: one committed assistant for the turn.
+- The DOM/client had duplicate assistant bubbles: one stale streaming/status-projected bubble and one final/history bubble.
+- Root cause: `applyTurnStatusState("running")` accepted a server/status assistant id while the original primary `POST /assistant/chat/web/stream` request was still alive. The primary stream handlers captured the original `assistantMsgId`, so later primary `onDelta` / `onCompleted` missed the status-swapped bubble and left the UI stuck with a streaming cursor.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Running turn-status refresh now checks whether the primary stream still owns the same `clientTurnId`.
+  - If primary stream still owns it, status may update content/activity but must not replace `liveAssistantMessageId`; the final id mapping remains owned by primary `onCompleted`.
+  - Added gated diagnostic instrumentation for A→B→A phantom-source capture. Enable in Chrome with:
+    - `localStorage.setItem("persai.debug.chatSnapshots", "1"); location.reload()`
+    - or `?debugChatSnapshots=1`
+  - Events are emitted as `[persai-chat-snapshot-debug]` and retained in `window.__persaiChatSnapshotDebug`.
+  - Instrumented callsites include `applyThreadMessages`, `swap-out-cache-sync`, `swap-back-restore`, `applyTurnStatusState:running`, `send:onStarted`, `send:onCompleted`, and `loadHistory:*`.
+- `apps/web/app/app/_components/use-chat.test.tsx`:
+  - Added a regression for focus-return status `running` arriving before primary `completed`. It fails on old logic with a stale `active-assistant-from-status` streaming bubble and passes with the fix.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "keeps primary stream ownership"` — fails on old logic, passes on fixed logic.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 62 / 62 pass before the instrumentation-only patch; focused regression re-run after instrumentation passed.
+- `ReadLints` on `use-chat.ts` and `use-chat.test.tsx` — clean.
+
+### Next recommended step
+
+Deploy this web build with debug enabled only in the founder Chrome session, reproduce A→B→A once, then read `window.__persaiChatSnapshotDebug` to identify the exact callsite that first places a non-live user near the live turn. Remove or keep the gated instrumentation only until the source is confirmed.
+
+---
+
+## 2026-05-01 (Web chat phantom-bubble swap cleanup) — closed the second A→B→A phantom-bubble path in `useChat`: snapshot carry-over can no longer append non-live user messages that disappeared from authoritative history/cache; only the canonical live pair and missing assistant tail are allowed (`apps/web`; new regression fails on old logic and passes on fix, `use-chat.test.tsx` 61/61 green)
+
+### Why this session
+
+Founder correctly rejected tying the old phantom-bubble bug to the backend `401` reconnect issue. The second symptom is different: after chat swap, a user/assistant bubble appears in the visible DOM even though `/messages?limit=20` returns the correct authoritative history.
+
+### Diagnosis
+
+- `activeTurnSnapshotsRef.current[thread].messages` is not guaranteed to be a pure live-pair store. Other paths intentionally grow it to full visible state after history/restore merges.
+- On swap-back restore and in `mergeCommittedHistoryWithActiveTurn()`, snapshot messages were admitted when their id was missing from cache/server history (`!cachedIds.has(id) || liveTurnIds.has(id)` or equivalent no-replace merge).
+- That broad rule was kept to preserve a legitimate missing assistant tail that has reached snapshot before cache.
+- But it also preserved non-live user messages that authoritative history no longer contained. Those user messages could later be appended next to the live assistant as phantom bubbles.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Snapshot carry-over now admits only:
+    - canonical live user / live assistant ids;
+    - missing non-transient assistant messages.
+  - Snapshot carry-over now rejects:
+    - non-live user messages absent from authoritative history/cache;
+    - optimistic local user ids unless they are the current live user;
+    - transient local/active assistant placeholders unless they are the current live assistant.
+- `apps/web/app/app/_components/use-chat.test.tsx`:
+  - Added a regression that pollutes the active snapshot with a non-live user, then refreshes authoritative history without that user and asserts the stale user is purged while the live user stays.
+  - Verified the new regression fails against the old merge logic and passes with the fix.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "history refresh drops non-live user"` — fails on old logic, passes on fixed logic.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 61 / 61 pass.
+- `ReadLints` on `use-chat.ts` and `use-chat.test.tsx` — clean.
+
+### Next recommended step
+
+Run full web format/typecheck, then deploy the web image and repeat the exact founder A→B→A swap repro while watching DOM and `/messages?limit=20`. If the server history is clean, no non-live user from snapshot should be able to reappear in the visible thread.
+
+---
+
 ## 2026-04-30 (Web chat passive reconnect auth allowlist) — fixed a real stream-continuity backend auth gap: the web turn-status and reattach-stream GET routes were not registered with Clerk auth middleware, so focus/app-switch passive reconnects received `401 userId=null`, the client lost the running turn, and the composer re-enabled while the server turn still existed (`apps/api`; API lint/typecheck/format green)
 
 ### Why this session

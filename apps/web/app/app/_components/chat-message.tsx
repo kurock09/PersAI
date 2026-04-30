@@ -200,7 +200,7 @@ export function parseAssistantResponseBlocks(content: string): AssistantResponse
 
   const flushBody = () => {
     const body = bodyLines.join("\n").trim();
-    if (body) {
+    if (body || pendingTitle) {
       blocks.push({
         type: "body",
         content: body,

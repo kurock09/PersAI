@@ -161,6 +161,86 @@ type CachedThreadHistorySnapshot = ActiveTurnSnapshot & {
   olderCursor: string | null;
   hasOlderMessages: boolean;
 };
+type SnapshotDebugEvent = {
+  type: "active-snapshot-non-live-user";
+  at: string;
+  callsite: string;
+  threadKey: string;
+  clientTurnId: string;
+  chatId: string | null;
+  liveUserMessageId: string | null;
+  liveAssistantMessageId: string;
+  nonLiveUsers: Array<{
+    id: string;
+    status: ChatMessageStatus;
+    contentPreview: string;
+    index: number;
+  }>;
+  messagesTail: Array<{
+    id: string;
+    role: ChatMessageRole;
+    status: ChatMessageStatus;
+    contentPreview: string;
+    index: number;
+  }>;
+};
+function isSnapshotDebugEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      params.get("debugChatSnapshots") === "1" ||
+      window.localStorage.getItem("persai.debug.chatSnapshots") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+function recordSnapshotDebugEvent(event: SnapshotDebugEvent): void {
+  if (typeof window === "undefined") return;
+  const debugWindow = window as typeof window & {
+    __persaiChatSnapshotDebug?: SnapshotDebugEvent[];
+  };
+  const events = debugWindow.__persaiChatSnapshotDebug ?? [];
+  events.push(event);
+  debugWindow.__persaiChatSnapshotDebug = events.slice(-100);
+  console.warn("[persai-chat-snapshot-debug]", event);
+}
+function auditActiveTurnSnapshotMessages(
+  callsite: string,
+  threadKey: string,
+  snapshot: ActiveTurnSnapshot
+): void {
+  if (!isSnapshotDebugEnabled()) return;
+  const nonLiveUsers = snapshot.messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => message.role === "user" && message.id !== snapshot.liveUserMessageId)
+    .map(({ message, index }) => ({
+      id: message.id,
+      status: message.status,
+      contentPreview: message.content.replace(/\s+/g, " ").slice(0, 160),
+      index
+    }));
+  if (nonLiveUsers.length === 0) return;
+  recordSnapshotDebugEvent({
+    type: "active-snapshot-non-live-user",
+    at: new Date().toISOString(),
+    callsite,
+    threadKey,
+    clientTurnId: snapshot.clientTurnId,
+    chatId: snapshot.chatId,
+    liveUserMessageId: snapshot.liveUserMessageId,
+    liveAssistantMessageId: snapshot.liveAssistantMessageId,
+    nonLiveUsers,
+    messagesTail: snapshot.messages.slice(-8).map((message, offset) => ({
+      id: message.id,
+      role: message.role,
+      status: message.status,
+      contentPreview: message.content.replace(/\s+/g, " ").slice(0, 160),
+      index: snapshot.messages.length - Math.min(snapshot.messages.length, 8) + offset
+    }))
+  });
+}
 type PendingSendSlot = {
   text: string;
   files: File[];
@@ -559,9 +639,14 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     const sanitizedLoaded = loaded.filter(
       (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
     );
+    const sanitizedLoadedIds = new Set(sanitizedLoaded.map((message) => message.id));
     const liveSnapshotMessages = activeSnapshot.messages.filter((message) => {
       if (liveTurnIds.has(message.id)) return true;
-      return !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message);
+      if (sanitizedLoadedIds.has(message.id)) return false;
+      if (isOptimisticLocalMessage(message) || isTransientActiveAssistantMessage(message)) {
+        return false;
+      }
+      return message.role === "assistant";
     });
     return {
       messages: mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages),
@@ -722,10 +807,12 @@ export function useChat(threadKey: string): UseChatReturn {
     (targetThreadKey: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
       const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (snapshot !== undefined) {
-        activeTurnSnapshotsRef.current.set(targetThreadKey, {
+        const nextSnapshot = {
           ...snapshot,
           messages: updater(snapshot.messages)
-        });
+        };
+        activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+        auditActiveTurnSnapshotMessages("applyThreadMessages", targetThreadKey, nextSnapshot);
       }
       if (currentThreadKeyRef.current === targetThreadKey) {
         setMessages(updater);
@@ -881,7 +968,7 @@ export function useChat(threadKey: string): UseChatReturn {
           // last-write-wins on value, so any fresher status from the
           // visible array still overrides cached entries.
           const merged = mergeChatMessagesById(filteredCache, sanitizedVisible);
-          cachedThreadHistorySnapshotsRef.current.set(outgoingThreadKey, {
+          const nextCache = {
             clientTurnId: existingCache?.clientTurnId ?? outgoingSnapshot.clientTurnId,
             messages: merged,
             liveUserMessageId:
@@ -899,7 +986,9 @@ export function useChat(threadKey: string): UseChatReturn {
               existingCache?.compactionRunning ?? outgoingSnapshot.compactionRunning,
             olderCursor: existingCache?.olderCursor ?? null,
             hasOlderMessages: existingCache?.hasOlderMessages ?? false
-          });
+          };
+          cachedThreadHistorySnapshotsRef.current.set(outgoingThreadKey, nextCache);
+          auditActiveTurnSnapshotMessages("swap-out-cache-sync", outgoingThreadKey, nextCache);
           if (outgoingSnapshot.chatId !== null) {
             cachedThreadKeyByChatIdRef.current.set(outgoingSnapshot.chatId, outgoingThreadKey);
           }
@@ -958,17 +1047,24 @@ export function useChat(threadKey: string): UseChatReturn {
       // streaming-deltas chunk that has not yet been written back to
       // cache by `cacheThreadHistorySnapshot`). Keep those, plus the
       // live turn pair (canonical source for in-flight live state).
-      const liveTurnMessages = liveSnapshot.messages.filter(
-        (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)
-      );
+      const liveTurnMessages = liveSnapshot.messages.filter((message) => {
+        if (liveTurnIds.has(message.id)) return true;
+        if (cachedIds.has(message.id)) return false;
+        if (isOptimisticLocalMessage(message) || isTransientActiveAssistantMessage(message)) {
+          return false;
+        }
+        return message.role === "assistant";
+      });
       return mergeChatMessagesById(cachedBase, liveTurnMessages);
     })();
     setMessages(restoredMessages);
     if (liveSnapshot !== undefined && restoredMessages !== liveSnapshot.messages) {
-      activeTurnSnapshotsRef.current.set(threadKey, {
+      const nextSnapshot = {
         ...liveSnapshot,
         messages: restoredMessages
-      });
+      };
+      activeTurnSnapshotsRef.current.set(threadKey, nextSnapshot);
+      auditActiveTurnSnapshotMessages("swap-back-restore", threadKey, nextSnapshot);
     }
     setActivities([]);
     setLiveActivitiesByMessageId(liveSnapshot?.liveActivitiesByMessageId ?? {});
@@ -1224,6 +1320,14 @@ export function useChat(threadKey: string): UseChatReturn {
               )
             : undefined);
         const statusAssistantMessage = assistantMessage ?? null;
+        // A focus/visibility resume can ask for turn-status while the original
+        // POST /stream is still alive. In that case the captured primary stream
+        // handlers still write to `assistantMsgId`, so a running status must not
+        // swap the live assistant id to the server-projected id before the
+        // primary `onCompleted` maps it to the committed message id.
+        const primaryStreamStillOwnsTurn =
+          abortControllersByThreadRef.current.get(targetThreadKey)?.clientTurnId === clientTurnId &&
+          !softDetachedClientTurnIdsRef.current.has(clientTurnId);
         const fallbackAssistantMessage = existingAssistant ?? {
           id: `local-assistant-${clientTurnId}`,
           role: "assistant" as const,
@@ -1238,7 +1342,9 @@ export function useChat(threadKey: string): UseChatReturn {
           ...(statusAssistantMessage === null
             ? {}
             : {
-                id: statusAssistantMessage.id,
+                id: primaryStreamStillOwnsTurn
+                  ? fallbackAssistantMessage.id
+                  : statusAssistantMessage.id,
                 attachments: statusAssistantMessage.attachments,
                 thought: statusAssistantMessage.thought,
                 thoughtStartedAt: statusAssistantMessage.thoughtStartedAt,
@@ -1335,7 +1441,7 @@ export function useChat(threadKey: string): UseChatReturn {
               ? visibleBase
               : mergeChatMessagesById(visibleBase, snapshotBase);
         const nextMessages = reconcileWithLiveTurn(baseMessages);
-        activeTurnSnapshotsRef.current.set(targetThreadKey, {
+        const nextSnapshot = {
           clientTurnId,
           messages: nextMessages,
           liveUserMessageId: userMessage?.id ?? existingSnapshot?.liveUserMessageId ?? null,
@@ -1344,7 +1450,13 @@ export function useChat(threadKey: string): UseChatReturn {
           shadowRoutingLabelsByMessageId: existingSnapshot?.shadowRoutingLabelsByMessageId ?? {},
           chatId: status.chat?.id ?? existingSnapshot?.chatId ?? null,
           compactionRunning: existingSnapshot?.compactionRunning ?? false
-        });
+        };
+        activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+        auditActiveTurnSnapshotMessages(
+          "applyTurnStatusState:running",
+          targetThreadKey,
+          nextSnapshot
+        );
         markStreaming(targetThreadKey, true);
         if (currentThreadKeyRef.current === targetThreadKey) {
           setMessages(reconcileWithLiveTurn);
@@ -1935,7 +2047,7 @@ export function useChat(threadKey: string): UseChatReturn {
         thoughtStartedAt: null,
         thoughtFinishedAt: null
       };
-      activeTurnSnapshotsRef.current.set(sendThreadKey, {
+      const initialSnapshot = {
         clientTurnId,
         messages: [userMsg, assistantMsg],
         liveUserMessageId: userMsgId,
@@ -1944,7 +2056,9 @@ export function useChat(threadKey: string): UseChatReturn {
         shadowRoutingLabelsByMessageId: {},
         chatId: null,
         compactionRunning: false
-      });
+      };
+      activeTurnSnapshotsRef.current.set(sendThreadKey, initialSnapshot);
+      auditActiveTurnSnapshotMessages("send:initial-snapshot", sendThreadKey, initialSnapshot);
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setThreadPendingSend(sendThreadKey, {
         text: trimmed,
@@ -2167,10 +2281,12 @@ export function useChat(threadKey: string): UseChatReturn {
                 );
                 const startedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
                 if (startedSnapshot !== undefined) {
-                  activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                  const nextSnapshot = {
                     ...startedSnapshot,
                     liveUserMessageId: u.id
-                  });
+                  };
+                  activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
+                  auditActiveTurnSnapshotMessages("send:onStarted", sendThreadKey, nextSnapshot);
                 }
               }
             },
@@ -2396,11 +2512,13 @@ export function useChat(threadKey: string): UseChatReturn {
               }
               const completedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
               if (completedSnapshot !== undefined) {
-                activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                const nextSnapshot = {
                   ...completedSnapshot,
                   liveUserMessageId: realUserMsgId ?? completedSnapshot.liveUserMessageId,
                   liveAssistantMessageId: newAssistantId ?? completedSnapshot.liveAssistantMessageId
-                });
+                };
+                activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
+                auditActiveTurnSnapshotMessages("send:onCompleted", sendThreadKey, nextSnapshot);
               }
               appendQuotaFallbackActivity({
                 setActivities,
@@ -2665,7 +2783,7 @@ export function useChat(threadKey: string): UseChatReturn {
         thoughtStartedAt: null,
         thoughtFinishedAt: null
       };
-      activeTurnSnapshotsRef.current.set(sendThreadKey, {
+      const initialSnapshot = {
         clientTurnId,
         messages: [assistantMsg],
         liveUserMessageId: null,
@@ -2674,7 +2792,13 @@ export function useChat(threadKey: string): UseChatReturn {
         shadowRoutingLabelsByMessageId: {},
         chatId: null,
         compactionRunning: false
-      });
+      };
+      activeTurnSnapshotsRef.current.set(sendThreadKey, initialSnapshot);
+      auditActiveTurnSnapshotMessages(
+        "sendWelcome:initial-snapshot",
+        sendThreadKey,
+        initialSnapshot
+      );
       setMessages([assistantMsg]);
       /* Snapshot is now claimed; concurrent `sendWelcome` would be blocked   */
       /* by the snapshot existing on this thread (and the next render's      */
@@ -3038,11 +3162,17 @@ export function useChat(threadKey: string): UseChatReturn {
           setLiveActivitiesByMessageId({});
           setThreadPendingSend(targetThreadKey, null);
         } else if (activeSnapshot !== undefined) {
-          activeTurnSnapshotsRef.current.set(targetThreadKey, {
+          const nextSnapshot = {
             ...activeSnapshot,
             messages: merged.messages,
             chatId: targetChatId
-          });
+          };
+          activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+          auditActiveTurnSnapshotMessages(
+            "loadHistory:cached-merge",
+            targetThreadKey,
+            nextSnapshot
+          );
         }
         setMessages(merged.messages);
         olderCursorRef.current = cachedHistory.olderCursor;
@@ -3116,11 +3246,17 @@ export function useChat(threadKey: string): UseChatReturn {
               setLiveActivitiesByMessageId({});
               setThreadPendingSend(targetThreadKey, null);
             } else {
-              activeTurnSnapshotsRef.current.set(targetThreadKey, {
+              const nextSnapshot = {
                 ...currentActiveSnapshot,
                 messages: merged.messages,
                 chatId: targetChatId
-              });
+              };
+              activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+              auditActiveTurnSnapshotMessages(
+                "loadHistory:authoritative-merge",
+                targetThreadKey,
+                nextSnapshot
+              );
             }
             setMessages(merged.messages);
           } else if (currentThreadKeyRef.current === targetThreadKey) {
@@ -3168,7 +3304,7 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         }
         if (projectedActiveTurn) {
-          activeTurnSnapshotsRef.current.set(targetThreadKey, {
+          const nextSnapshot = {
             clientTurnId: projectedActiveTurn.clientTurnId,
             messages: messagesForCache,
             liveUserMessageId: activeOverlay.liveUserMessageId,
@@ -3179,7 +3315,13 @@ export function useChat(threadKey: string): UseChatReturn {
             shadowRoutingLabelsByMessageId: {},
             chatId: targetChatId,
             compactionRunning: false
-          });
+          };
+          activeTurnSnapshotsRef.current.set(targetThreadKey, nextSnapshot);
+          auditActiveTurnSnapshotMessages(
+            "loadHistory:projected-active-turn",
+            targetThreadKey,
+            nextSnapshot
+          );
           writeStoredActiveTurnClientTurnId(targetThreadKey, projectedActiveTurn.clientTurnId);
           setLiveActivitiesByMessageId(activeOverlay.liveActivitiesByMessageId);
           markStreaming(targetThreadKey, true);
