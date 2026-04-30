@@ -3,9 +3,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
 
+const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
+const getTokenMock = vi.hoisted(() => vi.fn(async () => null));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
-    getToken: vi.fn(async () => null)
+    getToken: getTokenMock
   })
 }));
 
@@ -20,7 +23,14 @@ vi.mock("./app-shell", () => ({
 }));
 
 vi.mock("./chat-message", () => ({
-  ChatMessageBubble: ({ message }: { message: ChatMessage }) => <div>{message.content}</div>
+  ChatMessageBubble: (props: {
+    message: ChatMessage;
+    onAssistantAction?: (text: string) => void;
+    onDoNotRemember?: (messageId: string) => void;
+  }) => {
+    chatMessageBubbleMock(props);
+    return <div>{props.message.content}</div>;
+  }
 }));
 
 vi.mock("./chat-input", () => ({
@@ -70,6 +80,8 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   intersectionObserverCallback = null;
+  chatMessageBubbleMock.mockClear();
+  getTokenMock.mockClear();
   vi.restoreAllMocks();
 });
 
@@ -278,5 +290,49 @@ describe("ChatArea", () => {
     await waitFor(() => {
       expect(scrollTo).toHaveBeenCalledWith({ top: 1400, behavior: "auto" });
     });
+  });
+
+  it("keeps assistant bubble callbacks stable across streaming rerenders", () => {
+    const firstChat = createChat(["Stable answer", "Streaming"]);
+    const { rerender } = render(<ChatArea chat={firstChat} />);
+
+    const firstProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "assistant-1"
+    )?.[0];
+    expect(firstProps?.onAssistantAction).toBeTypeOf("function");
+    expect(firstProps?.onDoNotRemember).toBeTypeOf("function");
+
+    chatMessageBubbleMock.mockClear();
+
+    const secondChat: UseChatReturn = {
+      ...firstChat,
+      entries: [
+        firstChat.entries[0]!,
+        {
+          kind: "message",
+          message: {
+            ...(firstChat.entries[1]!.kind === "message"
+              ? firstChat.entries[1]!.message
+              : firstChat.messages[1]!),
+            content: "Streaming update"
+          }
+        }
+      ],
+      messages: [
+        firstChat.messages[0]!,
+        {
+          ...firstChat.messages[1]!,
+          content: "Streaming update"
+        }
+      ]
+    };
+
+    rerender(<ChatArea chat={secondChat} />);
+
+    const secondProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "assistant-1"
+    )?.[0];
+    expect(secondProps?.onAssistantAction).toBe(firstProps?.onAssistantAction);
+    expect(secondProps?.onDoNotRemember).toBe(firstProps?.onDoNotRemember);
   });
 });

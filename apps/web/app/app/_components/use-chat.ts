@@ -559,8 +559,12 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     const sanitizedLoaded = loaded.filter(
       (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
     );
+    const liveSnapshotMessages = activeSnapshot.messages.filter((message) => {
+      if (liveTurnIds.has(message.id)) return true;
+      return !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message);
+    });
     return {
-      messages: mergeChatMessagesById(sanitizedLoaded, activeSnapshot.messages),
+      messages: mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages),
       replacedActiveTurn: false
     };
   }
@@ -933,9 +937,6 @@ export function useChat(threadKey: string): UseChatReturn {
       }
       const liveUserId = liveSnapshot.liveUserMessageId;
       const liveAssistantId = liveSnapshot.liveAssistantMessageId;
-      const liveTurnIds = new Set<string>(
-        [liveUserId, liveAssistantId].filter((value): value is string => typeof value === "string")
-      );
       // STRIP optimistic / transient ids from the cached base. They are
       // by definition transient (the snapshot's canonical
       // liveUserMessageId / liveAssistantMessageId is the truth) and
@@ -947,6 +948,9 @@ export function useChat(threadKey: string): UseChatReturn {
         (message) =>
           !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
       );
+      const liveTurnIds = new Set<string>(
+        [liveUserId, liveAssistantId].filter((value): value is string => typeof value === "string")
+      );
       const cachedIds = new Set(cachedBase.map((message) => message.id));
       // Snapshot may legitimately contain messages that are NOT yet in
       // the cache (e.g. a server-assistant just appended by
@@ -954,12 +958,6 @@ export function useChat(threadKey: string): UseChatReturn {
       // streaming-deltas chunk that has not yet been written back to
       // cache by `cacheThreadHistorySnapshot`). Keep those, plus the
       // live turn pair (canonical source for in-flight live state).
-      // The founder's off-screen-message-appears-at-end phantom is
-      // prevented by the OUTGOING-SYNC writing into CACHE (not
-      // snapshot) above — so by construction snapshot.messages only
-      // carries the live pair plus genuinely new committed messages,
-      // never older off-screen history that has been paginated out
-      // of the cache.
       const liveTurnMessages = liveSnapshot.messages.filter(
         (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)
       );
@@ -3130,9 +3128,17 @@ export function useChat(threadKey: string): UseChatReturn {
               setMessages(messagesForCache);
             } else {
               setMessages((prev) => {
+                const loadedIds = new Set(loaded.map((message) => message.id));
                 const existingIds = new Set(prev.map((m) => m.id));
                 const newHistory = loaded.filter((m) => !existingIds.has(m.id));
-                const nextMessages = [...newHistory, ...prev];
+                const sanitizedPrev = prev.filter((message) => {
+                  if (loadedIds.has(message.id)) return false;
+                  return (
+                    !isOptimisticLocalMessage(message) &&
+                    !isTransientActiveAssistantMessage(message)
+                  );
+                });
+                const nextMessages = [...newHistory, ...sanitizedPrev];
                 messagesForCache = nextMessages;
                 return nextMessages;
               });

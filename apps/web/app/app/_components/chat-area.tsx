@@ -98,6 +98,15 @@ export function ChatArea({
     },
     [getToken]
   );
+  const handleAssistantAction = useCallback((text: string) => {
+    chatInputRef.current?.setDraft(text);
+  }, []);
+  const handleDoNotRememberClick = useCallback(
+    (messageId: string) => {
+      void handleDoNotRemember(messageId);
+    },
+    [handleDoNotRemember]
+  );
 
   const isInitialLoad = useRef(true);
   const prevMessageCount = useRef(0);
@@ -454,12 +463,12 @@ export function ChatArea({
                   preResponseStatus={preResponseStatus}
                   assistantAvatarUrl={assistantAvatarUrl}
                   assistantAvatarEmoji={assistantAvatarEmoji}
-                  onAssistantAction={(text) => chatInputRef.current?.setDraft(text)}
+                  onAssistantAction={handleAssistantAction}
                   onDoNotRemember={
                     entry.message.role === "assistant" &&
                     entry.message.status === "committed" &&
                     !forgottenIds.has(entry.message.id)
-                      ? (id) => void handleDoNotRemember(id)
+                      ? handleDoNotRememberClick
                       : undefined
                   }
                   forgotten={forgottenIds.has(entry.message.id)}

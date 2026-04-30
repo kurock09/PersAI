@@ -80,7 +80,12 @@ const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex];
 
 type AssistantResponseBlock =
   | { type: "header"; content: string }
-  | { type: "body"; content: string; title?: string | undefined }
+  | {
+      type: "body";
+      content: string;
+      title?: string | undefined;
+      titleLevel?: 1 | 2 | 3 | undefined;
+    }
   | { type: "callout"; content: string; label?: string | undefined }
   | { type: "actions"; actions: string[] }
   | { type: "divider" };
@@ -142,8 +147,11 @@ function isExplicitActionLine(line: string): boolean {
   return /^\s*(?:[-*]\s*)?\[\[?action:\s*.+?\]?\]\s*$/i.test(line);
 }
 
-function maybeExtractActionBlock(lines: string[]): { actions: string[]; consumed: number } | null {
-  let idx = 0;
+function maybeExtractActionBlock(
+  lines: string[],
+  startIndex = 0
+): { actions: string[]; consumed: number } | null {
+  let idx = startIndex;
   while (idx < lines.length && lines[idx]?.trim() === "") idx += 1;
   if (idx >= lines.length) return null;
 
@@ -170,37 +178,53 @@ function maybeExtractActionBlock(lines: string[]): { actions: string[]; consumed
 
   if (actions.length === 0) return null;
   if (!hasActionHeading && !hasExplicitAction) return null;
-  return { actions, consumed };
+  return { actions, consumed: consumed - startIndex };
 }
 
 export function parseAssistantResponseBlocks(content: string): AssistantResponseBlock[] {
   const lines = content.replace(/\r\n/g, "\n").trim().split("\n");
   const blocks: AssistantResponseBlock[] = [];
   let bodyLines: string[] = [];
+  let bodyHasText = false;
   let pendingTitle: string | undefined;
+  let pendingTitleLevel: 1 | 2 | 3 | undefined;
   let inFence = false;
   let sawContent = false;
+
+  const pushBodyLine = (line: string) => {
+    bodyLines.push(line);
+    if (line.trim().length > 0) {
+      bodyHasText = true;
+    }
+  };
 
   const flushBody = () => {
     const body = bodyLines.join("\n").trim();
     if (body) {
-      blocks.push({ type: "body", content: body, title: pendingTitle });
+      blocks.push({
+        type: "body",
+        content: body,
+        title: pendingTitle,
+        titleLevel: pendingTitleLevel
+      });
       sawContent = true;
     }
     bodyLines = [];
+    bodyHasText = false;
     pendingTitle = undefined;
+    pendingTitleLevel = undefined;
   };
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? "";
     if (/^\s*```/.test(line)) {
       inFence = !inFence;
-      bodyLines.push(line);
+      pushBodyLine(line);
       continue;
     }
 
     if (inFence) {
-      bodyLines.push(line);
+      pushBodyLine(line);
       continue;
     }
 
@@ -213,25 +237,17 @@ export function parseAssistantResponseBlocks(content: string): AssistantResponse
     const heading = line.match(/^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$/);
     if (heading) {
       const title = stripInlineMarkdown(heading[2] ?? "");
-      const rest = lines.slice(i + 1);
-      const actionBlock = maybeExtractActionBlock(rest);
+      const titleLevel = heading[1]!.length as 1 | 2 | 3;
+      const actionBlock = maybeExtractActionBlock(lines, i + 1);
       if (ACTION_HEADING_RE.test(title) && actionBlock) {
         flushBody();
         blocks.push({ type: "actions", actions: actionBlock.actions });
         i += actionBlock.consumed;
         continue;
       }
-      if (
-        !sawContent &&
-        bodyLines.join("\n").trim().length === 0 &&
-        isShortHeaderCandidate(title)
-      ) {
-        blocks.push({ type: "header", content: title });
-        sawContent = true;
-        continue;
-      }
       flushBody();
       pendingTitle = title;
+      pendingTitleLevel = titleLevel;
       continue;
     }
 
@@ -255,13 +271,13 @@ export function parseAssistantResponseBlocks(content: string): AssistantResponse
       continue;
     }
 
-    if (!sawContent && bodyLines.join("\n").trim().length === 0 && isShortHeaderCandidate(line)) {
+    if (pendingTitle === undefined && !sawContent && !bodyHasText && isShortHeaderCandidate(line)) {
       blocks.push({ type: "header", content: stripInlineMarkdown(line) });
       sawContent = true;
       continue;
     }
 
-    const actionBlock = maybeExtractActionBlock(lines.slice(i));
+    const actionBlock = maybeExtractActionBlock(lines, i);
     if (actionBlock) {
       flushBody();
       blocks.push({ type: "actions", actions: actionBlock.actions });
@@ -269,7 +285,7 @@ export function parseAssistantResponseBlocks(content: string): AssistantResponse
       continue;
     }
 
-    bodyLines.push(line);
+    pushBodyLine(line);
   }
 
   flushBody();
@@ -582,6 +598,18 @@ function AssistantActionChips({
   );
 }
 
+function AssistantSectionTitle({ title, level }: { title: string; level?: 1 | 2 | 3 | undefined }) {
+  const effectiveLevel = level ?? 3;
+  const className =
+    effectiveLevel === 1
+      ? "mb-3 mt-2 text-[19px] font-semibold leading-[1.35] tracking-[-0.02em] text-text"
+      : effectiveLevel === 2
+        ? "mb-3 mt-1.5 text-[17px] font-semibold leading-[1.4] tracking-[-0.015em] text-text"
+        : "mb-2.5 mt-1 text-[14px] font-semibold leading-[1.45] tracking-[-0.005em] text-text";
+
+  return <div className={className}>{title}</div>;
+}
+
 const MarkdownMessageContent = memo(function MarkdownMessageContent({
   content,
   onAction
@@ -631,14 +659,9 @@ const MarkdownMessageContent = memo(function MarkdownMessageContent({
           );
         }
         return (
-          <section
-            key={key}
-            className="rounded-2xl border border-border/55 bg-surface-raised/30 px-3.5 py-3 shadow-[0_1px_0_rgba(255,255,255,0.02)]"
-          >
+          <section key={key} className="py-1.5 first:pt-0 last:pb-0">
             {block.title ? (
-              <div className="mb-2 text-[13px] font-semibold tracking-tight text-text">
-                {block.title}
-              </div>
+              <AssistantSectionTitle title={block.title} level={block.titleLevel} />
             ) : null}
             <MarkdownFragment content={block.content} />
           </section>
@@ -670,7 +693,7 @@ function StreamingMarkdownMessageContent({
       ) : null}
       {liveTailPreview.length > 0 ? (
         <div className="streaming-markdown-live text-text/95">
-          <MarkdownMessageContent content={liveTailPreview} onAction={onAction} />
+          <MarkdownFragment content={liveTailPreview} />
         </div>
       ) : null}
     </>

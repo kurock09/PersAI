@@ -20,6 +20,10 @@ import {
   evaluateGlobalMemoryWritePolicy,
   isGlobalMemoryReadAllowed
 } from "../domain/memory-source-policy";
+import type {
+  AssistantMemoryRegistryClassState,
+  AssistantMemoryRegistryKindState
+} from "./assistant-memory.types";
 
 const WORKSPACE_MEMORY_LIST_LIMIT = 100;
 const WORKSPACE_MEMORY_SEARCH_LIMIT = 50;
@@ -30,6 +34,9 @@ export type WorkspaceMemoryItemState = {
   content: string;
   createdAt: string | null;
   source: string;
+  memoryClass: AssistantMemoryRegistryClassState;
+  kind: AssistantMemoryRegistryKindState | null;
+  resolvedAt: string | null;
 };
 
 @Injectable()
@@ -161,12 +168,18 @@ export class ManageAssistantWorkspaceMemoryService {
     createdAt: Date;
     sourceType: string;
     sourceLabel: string | null;
+    memoryClass: AssistantMemoryRegistryClassState;
+    kind: AssistantMemoryRegistryKindState | null;
+    resolvedAt: Date | null;
   }): WorkspaceMemoryItemState {
     return {
       id: item.id,
       content: item.summary,
       createdAt: item.createdAt.toISOString(),
-      source: item.sourceLabel ?? item.sourceType
+      source: item.sourceLabel ?? item.sourceType,
+      memoryClass: item.memoryClass,
+      kind: item.kind,
+      resolvedAt: item.resolvedAt === null ? null : item.resolvedAt.toISOString()
     };
   }
 }

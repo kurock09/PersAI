@@ -1794,6 +1794,9 @@ export type WorkspaceMemoryItem = {
   content: string;
   createdAt: string | null;
   source: string;
+  memoryClass?: AssistantMemoryRegistryItemState["memoryClass"] | undefined;
+  kind?: AssistantMemoryRegistryItemState["kind"] | undefined;
+  resolvedAt?: string | null | undefined;
 };
 
 export type AssistantPreferredNotificationChannel = "web" | "telegram" | "whatsapp";

@@ -474,6 +474,62 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps memory badges on workspace rows that carry registry metadata", async () => {
+    const wsRow = workspace({
+      id: "ws-core-fact",
+      content: "User asked to remember the Mistral OCR integration plan",
+      memoryClass: "core",
+      kind: "fact"
+    });
+
+    assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
+    assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsRow]);
+
+    renderSettings();
+
+    const workspaceList = await screen.findByTestId("memory-center-workspace-list");
+    const row = within(workspaceList).getByText(wsRow.content).closest("li");
+    expect(row).not.toBeNull();
+    const rowScope = within(row as HTMLElement);
+    expect(rowScope.getByText(/^core$/i)).toBeInTheDocument();
+    expect(rowScope.getByText(/^fact$/i)).toBeInTheDocument();
+  });
+
+  it("keeps the open-loop badge and close action on workspace rows that carry registry metadata", async () => {
+    const wsLoop = workspace({
+      id: "ws-open-loop",
+      content: "Follow up on the OCR ingestion deployment",
+      memoryClass: "contextual",
+      kind: "open_loop",
+      resolvedAt: null
+    });
+
+    assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
+    assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([wsLoop]);
+    assistantApiMocks.postAssistantMemoryItemCloseOpenLoop.mockResolvedValue(undefined);
+
+    renderSettings();
+
+    const workspaceList = await screen.findByTestId("memory-center-workspace-list");
+    const row = within(workspaceList).getByText(wsLoop.content).closest("li");
+    expect(row).not.toBeNull();
+    const rowScope = within(row as HTMLElement);
+    expect(rowScope.getByText(/^contextual$/i)).toBeInTheDocument();
+    expect(rowScope.getByText(/^open loop$/i)).toBeInTheDocument();
+
+    fireEvent.click(rowScope.getByTestId(`close-open-loop-${wsLoop.id}`));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantMemoryItemCloseOpenLoop).toHaveBeenCalledWith(
+        "token-1",
+        wsLoop.id
+      );
+    });
+    await waitFor(() => {
+      expect(within(workspaceList).queryByText(wsLoop.content)).not.toBeInTheDocument();
+    });
+  });
+
   it("only renders the OPEN_LOOP badge + close-button when kind === 'open_loop'", async () => {
     const fact = registry({ id: "r-fact", summary: "Fact row", kind: "fact" });
     const pref = registry({ id: "r-pref", summary: "Preference row", kind: "preference" });

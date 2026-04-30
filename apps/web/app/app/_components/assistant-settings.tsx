@@ -376,9 +376,9 @@ function normalizeMemoryText(text: string): string {
 // ADR-074 Slice M3.3 — Memory Center merged view row. The Workspace tab
 // renders both registry rows (structured `kind ∈ {fact, preference,
 // open_loop}`) and workspace rows; deduplicated by normalized text with
-// registry rows winning collisions because they carry status badges +
-// action buttons. The History tab only renders registry rows with
-// `kind === null` (turn-derived echoes), so it is a single source.
+// registry rows winning collisions because they carry close/resolved actions.
+// Both sources may carry memoryClass/kind badges. The History tab only renders
+// registry rows with `kind === null` (turn-derived echoes), so it is a single source.
 type MergedMemoryRow =
   | {
       readonly source: "registry";
@@ -1112,6 +1112,7 @@ export function AssistantSettings({
       try {
         await postAssistantMemoryItemCloseOpenLoop(token, itemId);
         setMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
+        setWsMemoryItems((prev) => prev.filter((m) => m.id !== itemId));
       } catch (error) {
         console.error("[memory-center] handleCloseOpenLoop failed", error);
         setMemoryFb({
@@ -1705,66 +1706,65 @@ export function AssistantSettings({
                   data-testid="memory-center-workspace-list"
                   aria-label={t("workspace")}
                 >
-                  {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => (
-                    <li
-                      key={row.key}
-                      data-testid={`memory-row-${row.source}`}
-                      className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
-                          {row.source === "registry" ? row.item.summary : row.item.content}
-                        </p>
-                        {row.source === "registry" && (
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
-                            <span
-                              className={
-                                row.item.memoryClass === "core"
-                                  ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
-                                  : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
-                              }
-                            >
-                              {row.item.memoryClass === "core"
-                                ? t("memoryClassCore")
-                                : t("memoryClassContextual")}
-                            </span>
-                            {/* ADR-074 Slice M3.3 — strict per-kind
-                                badges. The previous ternary fell back
-                                to "Open loop" for any non-null kind,
-                                which made the close-loop button appear
-                                next to facts/preferences and confused
-                                users. Render exactly one badge per
-                                known kind, render nothing for an
-                                unknown kind, and gate the close-loop
-                                button on the same `=== "open_loop"`
-                                check. */}
-                            {row.item.kind === "fact" && (
-                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindFact")}
+                  {mergedWorkspaceMemoryView.slice(0, wsMemoryVisibleCount).map((row) => {
+                    const { memoryClass, kind } = row.item;
+                    const resolvedAt =
+                      row.source === "registry"
+                        ? row.item.resolvedAt
+                        : (row.item.resolvedAt ?? null);
+                    return (
+                      <li
+                        key={row.key}
+                        data-testid={`memory-row-${row.source}`}
+                        className="flex items-start gap-2 rounded-lg bg-surface-raised p-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs leading-relaxed text-text-muted whitespace-pre-wrap">
+                            {row.source === "registry" ? row.item.summary : row.item.content}
+                          </p>
+                          {memoryClass !== undefined && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-subtle">
+                              <span
+                                className={
+                                  memoryClass === "core"
+                                    ? "rounded bg-accent/15 px-1.5 py-0.5 font-medium text-accent"
+                                    : "rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle"
+                                }
+                              >
+                                {memoryClass === "core"
+                                  ? t("memoryClassCore")
+                                  : t("memoryClassContextual")}
                               </span>
-                            )}
-                            {row.item.kind === "preference" && (
-                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindPreference")}
-                              </span>
-                            )}
-                            {row.item.kind === "open_loop" && (
-                              <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
-                                {t("memoryKindOpenLoop")}
-                              </span>
-                            )}
-                            {row.item.resolvedAt !== null && (
-                              <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
-                                {t("memoryResolved")}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {row.source === "registry" &&
-                          row.item.kind === "open_loop" &&
-                          row.item.resolvedAt === null && (
+                              {/* ADR-074 Slice M3.3 — strict per-kind badges.
+                                  Workspace rows can now arrive with the same
+                                  metadata as registry rows, so render badges
+                                  from either source while keeping actions
+                                  source-specific. */}
+                              {kind === "fact" && (
+                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindFact")}
+                                </span>
+                              )}
+                              {kind === "preference" && (
+                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindPreference")}
+                                </span>
+                              )}
+                              {kind === "open_loop" && (
+                                <span className="rounded bg-surface-hover px-1.5 py-0.5 font-medium text-text-subtle">
+                                  {t("memoryKindOpenLoop")}
+                                </span>
+                              )}
+                              {resolvedAt !== null && (
+                                <span className="rounded bg-success/15 px-1.5 py-0.5 font-medium text-success">
+                                  {t("memoryResolved")}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {kind === "open_loop" && resolvedAt === null && (
                             <button
                               type="button"
                               disabled={closingOpenLoopId === row.item.id}
@@ -1781,42 +1781,43 @@ export function AssistantSettings({
                               )}
                             </button>
                           )}
-                        {row.source === "registry" ? (
-                          <button
-                            type="button"
-                            disabled={forgettingId === row.item.id}
-                            onClick={() => void handleForget(row.item.id)}
-                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                            title={t("forget")}
-                            aria-label={t("forget")}
-                            data-testid={`forget-registry-${row.item.id}`}
-                          >
-                            {forgettingId === row.item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
-                            )}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={wsForgettingId === row.item.id}
-                            onClick={() => void handleForgetWsMemory(row.item.id)}
-                            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
-                            title={t("forget")}
-                            aria-label={t("forget")}
-                            data-testid={`forget-workspace-${row.item.id}`}
-                          >
-                            {wsForgettingId === row.item.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                          {row.source === "registry" ? (
+                            <button
+                              type="button"
+                              disabled={forgettingId === row.item.id}
+                              onClick={() => void handleForget(row.item.id)}
+                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                              title={t("forget")}
+                              aria-label={t("forget")}
+                              data-testid={`forget-registry-${row.item.id}`}
+                            >
+                              {forgettingId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={wsForgettingId === row.item.id}
+                              onClick={() => void handleForgetWsMemory(row.item.id)}
+                              className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:bg-surface-hover hover:text-destructive disabled:cursor-default disabled:opacity-50"
+                              title={t("forget")}
+                              aria-label={t("forget")}
+                              data-testid={`forget-workspace-${row.item.id}`}
+                            >
+                              {wsForgettingId === row.item.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
                 {wsMemoryVisibleCount < mergedWorkspaceMemoryView.length && (
                   <button

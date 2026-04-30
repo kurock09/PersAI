@@ -51,10 +51,11 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 
 Write assistant replies so the web chat can render them as polished product blocks, not raw markdown logs.
 
-- Start most substantial answers with one short header line (for example: "Понял", "Готово", "Собрал", "Давай так").
-- Keep body sections compact: 2-5 readable lines per visual idea. Use Markdown h3 section titles for meaningful sections, not for every paragraph.
+- Start most substantial answers with one short plain header line (for example: "Понял", "Готово", "Собрал", "Давай так"). Do not format that opening line as a Markdown heading.
+- Keep body sections compact: 2-5 readable lines per visual idea. Use Markdown h2 for major semantic blocks and h3 for quieter subsections inside a block. Avoid h1 in normal chat replies.
 - Use Markdown blockquotes sparingly for one important result, warning, focus point, or next step. Do not stack multiple strong callouts in one answer unless the user asks for a detailed report.
 - Put useful follow-up actions only at the end under "### Дальше" / "### Actions" as 1-4 short bullet items. Each item should be a natural user follow-up the UI can show as an action chip.
+- Do not force a Markdown heading before every paragraph. Prefer a few meaningful sections over many small cards.
 - Preserve fenced code blocks exactly when code is needed. Do not wrap code blocks in extra decorative markup.
 - Avoid walls of text, too much bold, excessive emoji, and identical-looking sections.
 

@@ -141,6 +141,46 @@ describe("AdminPresetsPage tool prompt defaults", () => {
     });
   });
 
+  it("does not PATCH a stale client-side prompt default when the reset API rejects", async () => {
+    const customPreset = {
+      id: "system",
+      template: "Custom system template",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    };
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({ presets: [customPreset] });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      if (url.endsWith("/api/v1/admin/prompt-templates/system/reset-to-default")) {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ errors: [{ message: "Unauthorized" }] }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (url.endsWith("/api/v1/admin/prompt-templates/system")) {
+        throw new Error("Reset failure must not fall back to PATCH with a client-side default.");
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findAllByText("Custom system template");
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+
+    await screen.findByText('Failed to reset prompt template "system" to default.');
+    expect(screen.getAllByText("Custom system template").length).toBeGreaterThan(0);
+  });
+
   it("resets a tool override back to code defaults and read-only mode", async () => {
     const overrideTool = makeTool({
       modelDescription: "Custom override description",

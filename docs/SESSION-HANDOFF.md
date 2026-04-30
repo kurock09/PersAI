@@ -1,5 +1,189 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Memory Center workspace badges/actions survive deploy/reapply) — fixed disappearing `Core` / `Fact` / `Open loop` labels and the missing close-loop action on Memory Center workspace rows by preserving registry metadata through the workspace-memory API and rendering metadata/actions from either merged source (`apps/api`, `apps/web`; focused settings test + API/web typecheck green)
+
+### Why this session
+
+Founder showed Memory Center screenshots where some memory cards had no `ЯДРО` / `ФАКТ` labels after deploy/reapply, while the same kind of memory card could show those labels in another state. This was unrelated to the current chat markdown/response-block work.
+
+### Diagnosis
+
+- Memory Center merges two sources in the Workspace tab:
+  - `/assistant/memory/items` registry rows, which include `memoryClass` and `kind`.
+- `/assistant/memory/workspace/items` workspace rows, which were backed by the same registry table but returned only `id/content/createdAt/source`.
+- The UI only rendered badges and the close-loop button for `row.source === "registry"`. If a row survived in the merged view as a workspace row (for example after reload/deploy/reapply timing or when the registry list did not win the normalized-text dedup), the content still appeared but its labels and open-loop close action disappeared.
+- This matched the screenshot pattern: the card text was present, but the metadata/action layer was missing.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/manage-assistant-workspace-memory.service.ts`:
+  - `WorkspaceMemoryItemState` now includes `memoryClass`, `kind`, and `resolvedAt`, copied from the underlying `AssistantMemoryRegistryItem`.
+- `apps/web/app/app/assistant-api-client.ts`:
+  - `WorkspaceMemoryItem` accepts optional `memoryClass` / `kind` / `resolvedAt` so existing clients remain tolerant while the deployed API starts sending metadata.
+- `apps/web/app/app/_components/assistant-settings.tsx`:
+  - Workspace-tab badge rendering now reads metadata from either registry rows or workspace rows.
+  - The close-loop button now appears for either source when `kind === "open_loop"` and `resolvedAt === null`. It calls the same registry close endpoint because workspace-memory ids are registry item ids.
+  - Successful close removes the row from both registry and workspace local lists. Forget actions remain source-specific.
+- `apps/web/app/app/_components/assistant-settings.test.tsx`:
+  - Added regression coverage that a workspace row carrying `memoryClass: "core"` and `kind: "fact"` renders both badges.
+  - Added regression coverage that a workspace row carrying `kind: "open_loop"` renders the open-loop badge, shows the close action, calls the close endpoint with the workspace/registry id, and removes the row on success.
+
+### Tests run
+
+- `ReadLints` on touched files — no linter errors.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx` — 18 / 18 pass. Existing non-fatal stderr remains from the test harness attempting a relative background-tasks fetch.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+
+### Next recommended step
+
+After deploy/reapply, hard-refresh the app and open Memory Center. Workspace memories that come from `memory_write` should keep `ЯДРО` / `ФАКТ` / `НЕЗАКРЫТАЯ ПЕТЛЯ` labels and the close-loop action even when rendered as workspace rows. If labels/actions still disappear, inspect the live `/api/v1/assistant/memory/workspace/items` response first: each item should now include `memoryClass`, `kind`, and `resolvedAt`.
+
+---
+
+## 2026-04-30 (Admin prompt reset hardening + live DB prompt sync) — fixed Admin → Reset to default silently overwriting a fresher server-side template with a stale client-side default when the API call rejected (e.g. 401), and pushed the new Response UI Contract system template directly into the live dev DB so founder sees structured assistant responses without waiting for a redeploy (`apps/web`; focused admin presets test + full web/api typecheck/format)
+
+### Why this session
+
+Founder reported that the new structured response blocks (header / body / callout / actions) were not visible in production and demanded an immediate fix. Admin UI showed that the system template had been silently reverted: GKE logs revealed `POST /reset-to-default` returning `401 userId=null`, then an immediate `PATCH /system` with status `200` overwriting the freshly-deployed default with the editor's stale local default. The same session also continued the long-running stream-continuity diagnosis, with founder claiming Pt 1–5 fixes had not changed his repro.
+
+### Diagnosis
+
+- `handleResetTemplate` in `apps/web/app/admin/presets/page.tsx` did not throw on `!response.ok` from the API and silently fell back to `handleSaveTemplate(id, VISIBLE_PROMPT_TEMPLATE_DEFAULTS[id])`. That template constant lived in the web bundle and lagged behind `apps/api/prisma/bootstrap-preset-data.ts`, so a failed reset effectively rewrote the prompt to an old version.
+- The dev DB still held the pre-Response-UI-Contract system template (`length=1189` after the manual upsert below; pre-fix it was missing the contract block entirely), so the assistant continued to write plain-paragraph answers and the new chat blocks UI had nothing to render.
+- Stream-continuity Pt 1–5 fixes are already deployed (`0a36d8d9`). API logs (`web_turn_attempt_*`, `web_stream_timing`) over the last 30 minutes show clean accept → running → completed transitions with zero `client-aborted`, `409`, or `499` events. Server side is not the symptom source. A speculative Pt 6 attempt (cache-only restore on swap-back, dropping anything outside the canonical live pair from snapshot) regressed the legitimate "soft-detach reattach refresh" test path where a server-committed assistant message lives in `snapshot.messages` before being written into cache, and was reverted; no Pt 6 was deployed.
+
+### What changed
+
+- `apps/web/app/admin/presets/page.tsx`:
+  - `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system` synced to the API default (Response UI Contract included).
+  - `handleResetTemplate` throws on `!response.ok` instead of falling back to a client-side default; the editor surfaces the error via `saveError`.
+- `apps/web/app/admin/presets/page.test.tsx`:
+  - New regression test asserts that a rejected reset (`401`) does not trigger a `PATCH` with the stale client-side default and surfaces the error in the UI.
+- Live dev DB (`europe-west1-docker.pkg.dev/.../api:0a36d8d9...` pod, `kubectl exec`):
+  - Upserted `PromptTemplate.system` with `VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system` from the running image. New template length: `1189`, `hasContract=true`. Founder's next message will compile against the new contract without a redeploy.
+- `apps/web/app/app/_components/chat-area.tsx`, `chat-message.tsx`:
+  - Memoized `onAssistantAction` and `onDoNotRemember` callbacks so streaming rerenders no longer break callback referential equality on every assistant bubble.
+  - Streaming live-tail uses `MarkdownFragment` (no response-block parsing on every delta) to avoid re-running the full block parser per stream tick.
+  - Action chips no longer render until the assistant message commits (prevents partial chip flicker mid-stream).
+  - Prettier reformat of `chat-message.tsx` and an unrelated API controller picked up by `format:check`.
+
+### What did NOT change
+
+- `apps/web/app/app/_components/use-chat.ts` swap-back restore logic. The Pt 6 hypothesis (stray ids in `snapshot.messages` leaking between live user and live assistant on swap-back) could not be reproduced: stream handlers are all `prev.map(updater)` (never inject new ids) and `applyTurnStatusState` only replaces the live pair. The strict cache-only variant broke the legitimate "soft-detach reattach refresh" path (`refreshes terminal reattach history against the originating chat after switching away`) where a server-committed assistant message reaches snapshot before cache, so the speculative fix was reverted in this session.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/chat-message-blocks.test.tsx app/admin/presets/page.test.tsx` — 76 / 76 pass.
+- `corepack pnpm run format:check` — clean after one prettier pass on the two warning files.
+- `corepack pnpm --filter @persai/web run typecheck` — clean.
+- `corepack pnpm --filter @persai/api run typecheck` — clean.
+
+### Next recommended step
+
+Founder hard-refreshes the live web app (`Ctrl+Shift+R`) to drop any client state from before the deployed Pt 5 fix, sends a fresh message, and visually confirms (a) the assistant answer renders with the new structured blocks (header / body / callout / actions), and (b) the A→B→A swap-during-stream no longer surfaces a phantom user bubble. If the phantom still reproduces, give the next session a Chrome DevTools port (`http://127.0.0.1:9222/json`) immediately after the symptom appears so the actual `messages` / `snapshot` / `cache` state can be inspected without guessing.
+
+---
+
+## 2026-04-30 (Assistant markdown heading polish — remove noisy paragraph cards) — fixed the post-stream committed renderer so Markdown h2/h3 headings keep breathable section spacing instead of collapsing into tiny titles, and removed the noisy rounded body cards around ordinary paragraphs; prompt now discourages heading-per-paragraph output (`apps/web`, `apps/api`; focused markdown/prompt tests green)
+
+### Why this session
+
+Founder showed a screenshot where normal assistant paragraphs were rendered as multiple rounded “baby blocks”, making the answer feel noisy and less premium. Founder also reported that some h1/h2-style headings appeared correctly while streaming, then visually “fell” after the message committed.
+
+### Diagnosis
+
+- During live streaming, the live tail used normal Markdown rendering, so `##` / `###` temporarily looked like real headings.
+- Once content became stable/committed, `parseAssistantResponseBlocks()` converted Markdown headings into `body.title`, and the committed renderer displayed those titles as a small `div text-[13px]`. That made headings lose size, line-height, and spacing after stream stabilization.
+- Ordinary body sections were wrapped in rounded bordered cards, so every paragraph/section looked like a separate bubble instead of one calm assistant answer.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-message.tsx`:
+  - `parseAssistantResponseBlocks()` now preserves Markdown heading level (`titleLevel: 1 | 2 | 3`) for body section titles.
+  - The short opening header detection no longer steals the first paragraph after a pending Markdown heading.
+  - Body section titles now render with level-aware size, line-height, top/bottom spacing, and tighter premium typography.
+  - Ordinary body sections are flat (`py` spacing only), with no rounded border/background card. Callouts and action chips remain visually distinct because they carry different semantics.
+- `apps/api/prisma/bootstrap-preset-data.ts`:
+  - Response UI Contract now says the opening line should be plain, h2 is for major semantic blocks, h3 for quieter subsections, h1 should be avoided in normal chat, and headings should not be forced before every paragraph.
+- `apps/web/app/admin/presets/page.tsx`:
+  - Removed the stale local `VISIBLE_PROMPT_TEMPLATE_DEFAULTS` fallback block, which was no longer used after the admin reset path switched to the API default and caused repo lint to fail as dead code. Reset behavior itself was not changed in this slice.
+- `apps/web/app/app/_components/chat-message-blocks.test.tsx`:
+  - Added coverage for preserving h2/h3 levels and for ensuring normal body sections do not render as rounded cards.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-message.test.tsx` — 19 / 19 pass.
+- `corepack pnpm --filter @persai/api exec tsx test/manage-bootstrap-presets.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts` — pass.
+- `corepack pnpm -r --if-present run lint` — green.
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `ReadLints` on touched files — no linter errors.
+
+### Next recommended step
+
+Visually verify one streamed answer with `##` and `###`: headings should keep their size/air after commit, while normal paragraphs should read as one minimalist assistant response rather than a stack of cards.
+
+---
+
+## 2026-04-30 (Web chat performance audit — response blocks + streaming render path) — audited the post-continuity/post-response-block web chat path with CDP and source evidence, then applied narrow UI-side optimizations: stable message callbacks, lighter live-tail streaming rendering, and cheaper response-block parsing; no `useChat` continuity guards or API streaming logic changed (`apps/web`; focused chat tests + full web vitest + lint/format/typecheck gate)
+
+### Why this session
+
+Founder reported that after the stream-continuity fixes and assistant response blocks, web chat felt subjectively slower. The constraint was to find concrete causes and improve only low-risk hot paths without weakening stream continuity, A→B→A chat swap while streaming, passive disconnect recovery, phantom `Думаю...` cleanup, or the new assistant response blocks. Code-block highlighting/style was explicitly out of scope unless proven as a bottleneck.
+
+### Evidence / diagnosis
+
+- Source audit found that `ChatMessageBubble` is memoized, but `chat-area.tsx` passed new inline callbacks for assistant action chips and `Do not remember` on every render. During streaming deltas this broke memoization for older visible messages and could re-run markdown/response-block rendering outside the active assistant bubble.
+- `parseAssistantResponseBlocks()` allocated `lines.slice(...)` during its main scan and repeatedly joined `bodyLines` just to test whether a body had text. On long responses this added avoidable work on a path introduced by the new structured renderer.
+- Streaming assistant rendering parsed the live tail through the full response-block renderer. This made action-chip extraction eligible while text was still changing and added parser work to the most frequently updated part of a stream.
+- CDP was available against the live `persai.dev` chat tab. Snapshot evidence showed a moderate DOM (`~2073` nodes, `34` message containers), no buffered `longtask` entries at capture time, and recent chat network dominated by `/assistant/chat/web/stream`, `/messages?limit=20`, and small `/compaction` refreshes. This supported a client render-path optimization rather than an API streaming rewrite.
+- API streaming audit found ordinary send still uses one `POST /assistant/chat/web/stream`; the 1s status poll is scoped to the reattach endpoint. No API change was needed for this slice.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-area.tsx`:
+  - Replaced per-message inline callbacks with stable `useCallback` handlers for assistant action drafting and `Do not remember`.
+  - This lets unchanged committed bubbles keep benefiting from `ChatMessageBubble` memoization while the active assistant bubble receives stream deltas.
+- `apps/web/app/app/_components/chat-message.tsx`:
+  - Made `parseAssistantResponseBlocks()` avoid per-scan `slice()` allocations and repeated `join()` checks by scanning from an index and tracking whether the current body has text.
+  - Changed streaming live-tail rendering to use the lighter `MarkdownFragment` directly instead of the full response-block parser. Stable/committed content still uses the structured `header/body/callout/actions/divider` renderer, and code blocks still flow through the existing markdown/code path.
+- Tests:
+  - Added regression coverage that streaming live tail does not expose action chips before committed/stable rendering.
+  - Added coverage that assistant bubble callbacks remain stable across streaming rerenders.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/chat-area.test.tsx` — 85 / 85 pass.
+- `corepack pnpm --filter @persai/web exec vitest run` — 217 / 217 pass (existing `assistant-settings` stderr about relative background-task URL remains non-fatal in tests).
+- `corepack pnpm -r --if-present run lint` — green.
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `ReadLints` on touched web files — no linter errors.
+
+### Files touched
+
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-message-blocks.test.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/chat-area.test.tsx`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- While a response is still streaming, the live tail may look slightly plainer until it crosses a stable markdown boundary or commits; the committed message still renders with the structured response blocks and action chips. This is the intentional trade-off to keep the high-frequency live tail lighter.
+- The optimization does not reduce the necessary `messages.map(...)` update of the active assistant in `useChat`; it avoids making unchanged bubbles pay for that active-delta render. A future larger slice could consider per-message stores or list virtualization if live chats grow far beyond the current visible window, but that would be a higher-risk UI architecture change.
+
+### Next recommended step
+
+Deploy and visually verify a long streaming answer in chat A while switching A→B→A: the live answer should continue, older history should not collapse or duplicate, no phantom `Думаю...` should remain after completion, and final committed assistant text should still show response blocks/action chips.
+
+---
+
 ## 2026-04-30 (Assistant response blocks + console cleanup) — assistant text now renders as structured product blocks (`header/body/callout/actions/divider`) while keeping existing code-block highlighting intact; default system prompt now tells assistants to write compact block-friendly replies; live console audit also fixed the SSR offline-overlay hydration mismatch and disabled unused Clerk UI prefetch (`apps/web`, `apps/api`; focused tests + lint/format/typecheck green)
 
 ### Why this session

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatMessageBubble, parseAssistantResponseBlocks } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
@@ -23,6 +23,10 @@ vi.mock("../assistant-api-client", () => ({
   getAttachmentDownloadUrl: () => "/dummy"
 }));
 
+afterEach(() => {
+  cleanup();
+});
+
 function assistantMessage(content: string): ChatMessage {
   return {
     id: "assistant-1",
@@ -38,7 +42,7 @@ describe("assistant response blocks", () => {
 
 Короткая суть ответа.
 
-### Что важно
+## Что важно
 - первый пункт
 - второй пункт
 
@@ -60,12 +64,45 @@ describe("assistant response blocks", () => {
       "actions"
     ]);
     expect(blocks[0]).toMatchObject({ type: "header", content: "Понял" });
-    expect(blocks[2]).toMatchObject({ type: "body", title: "Что важно" });
+    expect(blocks[2]).toMatchObject({ type: "body", title: "Что важно", titleLevel: 2 });
     expect(blocks[3]).toMatchObject({ type: "callout", label: "Итог" });
     expect(blocks[5]).toMatchObject({
       type: "actions",
       actions: ["Дать короткий план", "Сделать мягкий режим"]
     });
+  });
+
+  it("keeps markdown heading levels as spacious section titles after commit", () => {
+    const blocks = parseAssistantResponseBlocks(`## Главный блок
+Короткий абзац.
+
+### Деталь
+Ещё один абзац.`);
+
+    expect(blocks).toEqual([
+      {
+        type: "body",
+        title: "Главный блок",
+        titleLevel: 2,
+        content: "Короткий абзац."
+      },
+      {
+        type: "body",
+        title: "Деталь",
+        titleLevel: 3,
+        content: "Ещё один абзац."
+      }
+    ]);
+
+    render(<ChatMessageBubble message={assistantMessage(`## Главный блок\nКороткий абзац.`)} />);
+
+    expect(screen.getByText("Главный блок")).toHaveClass("text-[17px]", "mb-3", "leading-[1.4]");
+    expect(screen.getByText("Главный блок").closest("section")).toHaveClass("py-1.5");
+    expect(screen.getByText("Главный блок").closest("section")).not.toHaveClass(
+      "rounded-2xl",
+      "border",
+      "bg-surface-raised/30"
+    );
   });
 
   it("keeps fenced code inside a body block instead of treating markdown markers as UI sections", () => {
@@ -106,5 +143,23 @@ console.log(title);
 
     expect(onAction).toHaveBeenCalledWith("Дать короткий план");
     expect(screen.getByTestId("assistant-response-actions")).toBeInTheDocument();
+  });
+
+  it("does not parse live streaming tail into action chips before the message is committed", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          ...assistantMessage(`Собрал
+
+### Дальше
+- Дать короткий план`),
+          status: "streaming"
+        }}
+        onAssistantAction={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId("assistant-response-actions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Дать короткий план" })).not.toBeInTheDocument();
   });
 });
