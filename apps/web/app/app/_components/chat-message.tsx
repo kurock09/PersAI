@@ -582,13 +582,16 @@ function AssistantActionChips({
   if (actions.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 pt-1" data-testid="assistant-response-actions">
+    <div
+      className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap"
+      data-testid="assistant-response-actions"
+    >
       {actions.slice(0, 4).map((action) => (
         <button
           key={action}
           type="button"
           onClick={() => onAction?.(action)}
-          className="inline-flex h-8 cursor-pointer items-center rounded-full border border-accent/20 bg-accent/8 px-3 text-[12px] font-medium text-accent transition-colors hover:border-accent/35 hover:bg-accent/12 disabled:cursor-default disabled:opacity-70"
+          className="assistant-response-action-chip"
           disabled={!onAction}
         >
           {action}
@@ -625,10 +628,7 @@ const MarkdownMessageContent = memo(function MarkdownMessageContent({
         const key = `${block.type}-${index}`;
         if (block.type === "header") {
           return (
-            <div
-              key={key}
-              className="inline-flex max-w-full items-center rounded-full border border-accent/15 bg-accent/8 px-3 py-1 text-[12px] font-semibold tracking-[0.01em] text-accent"
-            >
+            <div key={key} className="assistant-response-header">
               {block.content}
             </div>
           );

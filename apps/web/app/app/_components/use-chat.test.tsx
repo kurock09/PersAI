@@ -526,6 +526,132 @@ describe("useChat", () => {
     expect(ids.some((id) => id.startsWith("local-assistant-"))).toBe(false);
   });
 
+  it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden"
+    });
+
+    vi.useFakeTimers();
+    try {
+      let observedSignal: AbortSignal | undefined;
+      let sendPromise: Promise<void> | undefined;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          },
+          signal?: AbortSignal
+        ) => {
+          observedSignal = signal;
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-1" },
+            userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Visible streaming text " });
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
+        status: "running",
+        chat: { id: "chat-1" },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Hello",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:09.000Z"
+        },
+        assistantMessage: null,
+        currentActivity: null,
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        activeTurn: null,
+        messages: [
+          {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Hello",
+            attachments: [],
+            createdAt: "2026-04-30T21:21:09.000Z"
+          },
+          {
+            id: "assistant-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "Visible streaming text final",
+            attachments: [],
+            createdAt: "2026-04-30T21:21:10.000Z"
+          }
+        ]
+      });
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        sendPromise = result.current.send("Hello", undefined, { clientTurnId: "client-turn-1" });
+        await Promise.resolve();
+      });
+      await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+      expect(
+        result.current.messages.some((message) => message.id.startsWith("local-assistant-"))
+      ).toBe(true);
+
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible"
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_500);
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await vi.waitFor(() =>
+        expect(assistantApiMocks.getAssistantWebChatTurnStatus).toHaveBeenCalledWith(
+          "token-1",
+          "client-turn-1"
+        )
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      await vi.waitFor(() => {
+        expect(result.current.messages.map((message) => message.id)).toEqual([
+          "user-msg-1",
+          "assistant-msg-1"
+        ]);
+      });
+      expect(
+        result.current.messages.filter((message) => message.role === "assistant")
+      ).toHaveLength(1);
+      expect(result.current.messages.some((message) => message.status === "streaming")).toBe(false);
+      expect(result.current.isStreaming).toBe(false);
+      expect(observedSignal?.aborted).toBe(true);
+      await sendPromise?.catch(() => undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps authoritative interrupted partial text instead of the shorter streamed prefix", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (

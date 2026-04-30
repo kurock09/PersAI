@@ -631,7 +631,16 @@ function mergeCommittedHistoryWithActiveTurn(input: {
   const { loaded, activeSnapshot, baseMessages } = input;
   if (activeSnapshot === undefined) {
     return {
-      messages: baseMessages === undefined ? loaded : mergeChatMessagesById(loaded, baseMessages),
+      messages:
+        baseMessages === undefined
+          ? loaded
+          : mergeChatMessagesById(
+              loaded,
+              baseMessages.filter(
+                (message) =>
+                  !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+              )
+            ),
       replacedActiveTurn: false
     };
   }
@@ -1237,18 +1246,27 @@ export function useChat(threadKey: string): UseChatReturn {
         const currentBaseMessages = cachedSnapshot?.messages ?? activeSnapshot?.messages ?? [];
         const currentBaseMessageIds = new Set(currentBaseMessages.map((message) => message.id));
         let loadedHasActiveUserMessage = false;
+        let loadedHasAssistantMessageAfterActiveUser = false;
         let loadedIntroducedCommittedTurnTail = false;
         if (activeSnapshot !== undefined) {
           loadedHasActiveUserMessage =
             liveUserId !== null &&
             !liveUserIsOptimistic &&
             loaded.some((message) => message.id === liveUserId);
-          const loadedHasAssistantMessage = loaded.some(
-            (message) =>
-              message.role === "assistant" &&
-              !isLocalScopedAssistantId(message.id) &&
-              message.id !== liveAssistantId
-          );
+          const activeUserIndexInLoaded =
+            liveUserId === null || liveUserIsOptimistic
+              ? -1
+              : loaded.findIndex((message) => message.id === liveUserId);
+          loadedHasAssistantMessageAfterActiveUser =
+            activeUserIndexInLoaded >= 0 &&
+            loaded
+              .slice(activeUserIndexInLoaded + 1)
+              .some(
+                (message) =>
+                  message.role === "assistant" &&
+                  !isLocalScopedAssistantId(message.id) &&
+                  message.id !== liveAssistantId
+              );
           const newLoadedUserMessages = loaded.filter(
             (message) => message.role === "user" && !currentBaseMessageIds.has(message.id)
           );
@@ -1262,7 +1280,7 @@ export function useChat(threadKey: string): UseChatReturn {
             loaded[loaded.length - 1]?.role === "assistant" &&
             newLoadedUserMessages.length === 1 &&
             newLoadedAssistantMessages.length === 1;
-          if (loadedHasActiveUserMessage && loadedHasAssistantMessage) {
+          if (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) {
             reconciledOptimisticTurn = true;
           }
           if (loadedIntroducedCommittedTurnTail) {
@@ -1272,14 +1290,12 @@ export function useChat(threadKey: string): UseChatReturn {
         applyThreadMessages(targetThreadKey, (prev) => {
           const loadedById = new Map(loaded.map((message) => [message.id, message]));
           const prevIds = new Set(prev.map((message) => message.id));
-          const hasNewServerMessages = loaded.some((message) => !prevIds.has(message.id));
           const newServerAssistantMessages = loaded.filter(
             (message) => message.role === "assistant" && !prevIds.has(message.id)
           );
           const newServerUserMessages = loaded.filter(
             (message) => message.role === "user" && !prevIds.has(message.id)
           );
-          const hasNewServerAssistantMessage = newServerAssistantMessages.length > 0;
           const loadedIntroducedCommittedTurnTailFromPrev =
             liveUserIsOptimistic &&
             liveAssistantIsOptimistic &&
@@ -1288,7 +1304,7 @@ export function useChat(threadKey: string): UseChatReturn {
             newServerUserMessages.length === 1 &&
             newServerAssistantMessages.length === 1;
           const shouldReplaceActiveTurn =
-            (hasNewServerMessages && hasNewServerAssistantMessage && loadedHasActiveUserMessage) ||
+            (loadedHasActiveUserMessage && loadedHasAssistantMessageAfterActiveUser) ||
             loadedIntroducedCommittedTurnTail ||
             loadedIntroducedCommittedTurnTailFromPrev;
           if (shouldReplaceActiveTurn) {

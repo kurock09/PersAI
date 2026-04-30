@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Web chat focus-return completed-history terminal cleanup) — live Chrome/GKE repro after `c96f4483` showed A→B→A fixed but focus-switch still left a stale `local-assistant-*` streaming cursor beside the committed server assistant; fixed authoritative-history terminal reconciliation to remove the local streaming bubble even when the final server assistant was already present in visible state (`apps/web`; `use-chat.test.tsx` 64/64 green)
+
+### Why this session
+
+Founder retested the deployed `c96f4483` web image:
+
+- A→B→A phantom message no longer reproduced.
+- The focus/app-switch bug still reproduced: start a stream, switch to Cursor, return to Chrome, stream freezes with a blinking cursor, then the full committed answer appears below while the cursor remains between messages.
+
+### Diagnosis
+
+- GKE confirmed the latest focus repro was server-clean:
+  - `web_turn_attempt_running` then `web_turn_attempt_completed`
+  - `GET /api/v1/assistant/chat/web/turns/:clientTurnId` returned `200`
+  - `/messages?limit=20` returned clean history with `activeTurn:null`
+- Live Chrome confirmed the client mismatch:
+  - DOM had `local-assistant-1777590412842` still `status:"streaming"` with the blinking cursor.
+  - The same turn's committed server assistant (`8b1a1ec4...`) was already present below it.
+  - Server history for the chat contained only the canonical user + final assistant for that turn.
+- Root cause: the focus/history terminal path only replaced the active turn when the history refresh introduced a *new* server assistant relative to `prev`. In the live repro, a prior refresh had already appended the final server assistant to visible state, so the later terminal cleanup saw no "new" assistant and left the old `local-assistant-*` bubble alive.
+- A second guardrail was needed for authoritative history merges without an active snapshot: once server history is authoritative and no active turn participates, transient local/active assistant placeholders are not valid history and must not be carried forward.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - `refreshLatestHistory()` now treats committed history as terminal when it contains the live user followed by a committed server assistant, even if that server assistant already existed in `prev`.
+  - The check is order-scoped to "assistant after live user", so older assistants above the live user do not kill a legitimate running reattach.
+  - Authoritative no-active-snapshot merges now strip optimistic/transient `local-*` / `active-assistant-*` messages instead of preserving stale streaming UI.
+- `apps/web/app/app/_components/use-chat.test.tsx`:
+  - Added regression coverage for the exact focus-return shape: running status first, then history already contains the completed server turn while the primary local stream is still hanging; the local cursor is removed and only the committed assistant remains.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "clears the local streaming bubble|keeps primary stream ownership|does not restore the primary local assistant"` — passed.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 64 / 64 passed.
+
+### Next recommended step
+
+Run full lint/format/typecheck, deploy the new web image, and repeat the focus repro in Chrome with `persai.debug.chatSnapshots=1`. Expected: if the server completes while Chrome is backgrounded, returning to Chrome may reconcile from history, but the old local cursor must disappear and only the committed server assistant remains.
+
+---
+
 ## 2026-05-01 (Web chat A→B→A assistant-tail contamination + focus terminal snapshot cleanup) — live Chrome/GKE debug found two client-state lifecycle bugs: completed primary streams could cache an old local streaming assistant placeholder, and swap-back restore could append arbitrary non-live assistant messages from `activeTurnSnapshot.messages`; fixed restore/cache to accept only the canonical live pair plus a terminal replacement assistant, and pinned with focused regressions (`apps/web`; `use-chat.test.tsx` 63/63 green)
 
 ### Why this session
