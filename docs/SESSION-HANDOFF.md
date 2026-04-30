@@ -1,5 +1,234 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Assistant response blocks + console cleanup) — assistant text now renders as structured product blocks (`header/body/callout/actions/divider`) while keeping existing code-block highlighting intact; default system prompt now tells assistants to write compact block-friendly replies; live console audit also fixed the SSR offline-overlay hydration mismatch and disabled unused Clerk UI prefetch (`apps/web`, `apps/api`; focused tests + lint/format/typecheck green)
+
+### Why this session
+
+Founder asked to polish the assistant text block so normal answers feel cleaner, more compact, more premium, and more readable: not a raw markdown wall, but a chat product response with a short opening, semantic sections, occasional callouts, and useful action chips. Founder explicitly liked the current code-block and syntax-highlight style, so code rendering was out of scope and preserved.
+
+Earlier in the same working session founder also asked to check generic web console errors. CDP against `https://persai.dev/app/chat?...` found:
+
+- a minified React #418 hydration mismatch;
+- repeated Clerk warning: `@clerk/ui@1/dist/ui.browser.js` was preloaded but unused;
+- one stale one-off 404 log that did not reproduce on a fresh CDP reload.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-message.tsx`:
+  - Added `parseAssistantResponseBlocks()` and a structured assistant renderer for normal assistant text.
+  - Supported block types: `header`, `body`, `callout`, `actions`, `divider`.
+  - `###` headings become body section titles, `>` quote blocks become callouts, `---` becomes a soft divider, and a final `### Дальше` / `### Actions` bullet list becomes action chips.
+  - Fenced code blocks stay inside body markdown and still flow through the existing `CodeBlock` + `highlight.js` path; no code-block color/highlight change.
+  - Action chips are conservative: max 4, compact pill style, and clicking one only drafts that follow-up into the composer via `ChatInputHandle.setDraft()`; it does not auto-send.
+- `apps/web/app/app/_components/chat-area.tsx`:
+  - Wires assistant action chips to the composer draft.
+- `apps/api/prisma/bootstrap-preset-data.ts`:
+  - Added a default `# Response UI Contract` section to the default `system` prompt template, instructing assistants to write short header + compact sections + sparse callout + optional final action bullets, while preserving fenced code blocks exactly.
+- `apps/web/app/app/_components/use-network-online.ts`:
+  - Fixed the console React #418 root cause. Node 18+/22 exposes `globalThis.navigator`, but `navigator.onLine` may be `undefined` server-side; the previous initializer wrote `undefined` into `isOnline`, so SSR rendered the offline overlay while the browser rendered nothing. Initial state is now always `true`, and the real `navigator.onLine` value is only applied post-mount when it is actually a boolean.
+- `apps/web/app/layout.tsx`:
+  - Added `prefetchUI={false}` to `ClerkProvider` because PersAI uses Clerk headlessly (`useAuth`, `useSignIn`, custom sign-in UI) and does not render Clerk prebuilt UI components. This removes the unused `@clerk/ui` preload warning and avoids loading a bundle that is not reachable in the app.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/chat-area.test.tsx` — 23 / 23 pass.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-network-online.test.tsx app/app/_components/sidebar.test.tsx` — 9 / 9 pass.
+- `corepack pnpm --filter @persai/web exec vitest run` — 212 / 212 pass (run before the later assistant-block docs update).
+- `corepack pnpm --filter @persai/api exec tsx test/manage-bootstrap-presets.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts` — pass.
+- `corepack pnpm -r --if-present run lint` — green.
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `ReadLints` on touched files — no linter errors.
+
+### Files touched
+
+- `apps/web/app/app/_components/chat-message.tsx`
+- `apps/web/app/app/_components/chat-message-blocks.test.tsx`
+- `apps/web/app/app/_components/chat-area.tsx`
+- `apps/web/app/app/_components/use-network-online.ts`
+- `apps/web/app/app/_components/use-network-online.test.tsx`
+- `apps/web/app/layout.tsx`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- Existing saved/custom admin prompt templates in DB are not silently overwritten by default changes. The new Response UI Contract applies to fresh/default/reset system prompt templates; if production has a customized `system` template row, it must be reset/merged by admin intentionally.
+- Action chips are UI-only follow-up drafts. They do not execute hidden actions and do not auto-send, which keeps behavior safe but means usefulness depends on the model writing good final action bullets.
+- The structured renderer is deliberately line-based and conservative. Complex markdown still renders through `ReactMarkdown` inside body blocks, while code fences are protected from section/action parsing.
+
+### Next recommended step
+
+Deploy and visually verify a short, medium, and long assistant reply:
+
+1. A normal short answer should show a compact header/body and no noisy chips unless useful.
+2. A structured answer with `###` and `>` should show section cards and at most one strong callout.
+3. A code answer should keep the same code-block colors/copy/collapse behavior as before.
+4. A reply ending with `### Дальше` bullets should show 1-4 chips that draft text into the composer.
+
+---
+
+## 2026-04-30 (Web stream continuity — pt 5: outgoing-sync writes to CACHE, not snapshot, to stop the off-screen-message-appears-at-end phantom) — redirected the swap-out outgoing-sync from `activeTurnSnapshotsRef` to `cachedThreadHistorySnapshotsRef`; the founder-reported "phantom user message from the off-screen top of the chat appears right before the live assistant after a chat-swap" symptom — caught live via CDP DOM dump on the running (pre-deploy) pod — no longer reproduces (`apps/web`; focused vitest 60/60 + repo lint/format/typecheck green; pt-3 outgoing-sync was the regression source, pt-4 fix remains in place)
+
+### Why this session
+
+After landing pt 4, founder set up a Chrome DevTools remote-debugging port (127.0.0.1:9222) on the running (still-pre-deploy) pod and reproduced the bug live so I could confirm the diagnosis directly against the rendered DOM. Connected over CDP and dumped the visible chat — items 19/20/21 were:
+
+```
+19  user  "Напиши длинный спич для теста еще раз"   ← real send
+20  user  "когда openai научиться..."               ← PHANTOM (no asst between 19 and 20)
+21  asst  "Окей, держи ещё один длинный спич..."   ← live answer to 19
+```
+
+Item 20's text is the FIRST user message of the same chat (item 0 is the assistant reply "Погуглил... у OpenAI нет анонса", which answers exactly that question). It was paginated off the visible window by `getChatMessages` (latest 20 only) but was visible on screen because the founder had earlier scrolled up via `loadOlderMessages`. After a chat-swap it re-appeared right before the live assistant; F5 fixed it (hard reload rebuilds cache from authoritative paginated server history).
+
+### Diagnosis (different root cause from pt 1–4, traceable to pt 3 itself)
+
+The `pt 3` outgoing-sync block (added to preserve the visible window across swap-out so the swap-back restore could rehydrate the live snapshot) wrote the FULL visible array into `activeTurnSnapshotsRef.current.get(outgoingThreadKey).messages`:
+
+```
+if (outgoingSnapshot !== undefined && messages.length > outgoingSnapshot.messages.length) {
+  activeTurnSnapshotsRef.current.set(outgoingThreadKey, {
+    ...outgoingSnapshot,
+    messages: mergeChatMessagesById(messages, outgoingSnapshot.messages)
+  });
+}
+```
+
+That snapshot therefore carried EVERY visible id including those older than the paginated cache window. On swap-back the restore merge
+
+```
+const liveTurnMessages = liveSnapshot.messages.filter(
+  (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)
+);
+return mergeChatMessagesById(cachedBase, liveTurnMessages);
+```
+
+saw the snapshot ids that were NOT in the paginated cache and APPENDED them at the END of the merged result. Result: the off-screen older user message re-appeared right before the live assistant. F5 cleared it because hard reload purges the in-memory `activeTurnSnapshotsRef` map and rebuilds cache from the server's paginated window only.
+
+`pt 1`/`pt 2`/`pt 3`/`pt 4` were each real bugs — but pt-3's outgoing-sync introduced THIS one as a regression. The fix is to redirect the outgoing-sync to write into CACHE (the proper place for "what the user was looking at") instead of into the snapshot. Snapshot.messages then stays minimal (live pair + any in-flight committed appends from `refreshLatestHistory`), and the swap-back filter has nothing stale to resurrect.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Swap-out outgoing-sync block (top of the `prevThreadKeyRef.current !== threadKey` branch): now writes `messages` (sanitized, optimistic/transient placeholders stripped) into `cachedThreadHistorySnapshotsRef.current` (cache map) instead of into `activeTurnSnapshotsRef.current` (live snapshot map). It merges with the existing cache entry (cache first, visible second) and preserves the cache's `olderCursor` / `hasOlderMessages` / `chatId` / etc. fields. Also updates `cachedThreadKeyByChatIdRef` so subsequent `loadHistory(chatId)` paths can find the cache entry.
+  - Long-form comment in the block explaining the founder repro, the regression source (pt 3), and why writing to cache (not snapshot) is the correct fix.
+  - Swap-back restore (a few lines below) keeps the existing `!cachedIds.has(m.id) || liveTurnIds.has(m.id)` filter — it is safe again now that snapshot.messages stays minimal. The accompanying comment was rewritten to make this invariant explicit (snapshot only contains live pair + genuinely new committed messages, never older off-screen history).
+  - `mergeCommittedHistoryWithActiveTurn` no-replace branch: kept the original `mergeChatMessagesById(sanitizedLoaded, activeSnapshot.messages)` (the over-restrictive `liveTurnIds`-only filter I tried first broke the `refreshes terminal reattach history against the originating chat after switching away` test, where snapshot.messages legitimately carries a newly-appended `server-assistant-A` that is not yet in cache).
+  - All `pt 1–4` fixes remain untouched.
+- `apps/web/app/app/_components/use-chat.test.tsx`: one new regression test under `stream continuity regression suite (live-id scoping)`:
+  - `swap A→B→A does NOT resurrect an older message at the END of the merged thread when cache is paginated and visible included loadOlderMessages results (pt-3 outgoing-sync regression)` — drives the founder repro exactly: paginated `loadHistory` (latest 2 of 3 messages, cursor non-null), `loadOlderMessages` to bring the off-screen user into visible (but NOT into cache, since `loadOlderMessages` only writes to `setMessages`), `send()`, swap A→B→A, then asserts the off-screen user appears EXACTLY ONCE and at a position ABOVE the live user (not duplicated below / before the live assistant).
+
+### Live-debug evidence
+
+- CDP DOM dump (`.tmp/cdp-tools/inspect-detail.mjs`) on the running pod confirmed the exact DOM order: items 19/20/21 = `[user "Напиши...", user "когда openai...", asst "Окей,..."]`, with item 0 already being the assistant reply to "когда openai...". This is the founder's "phantom message from off-screen top appears right before the live assistant" symptom verbatim.
+- Server probe via CDP `/api/chats?surface=web&limit=50` returned HTML (Next.js routing for that path), so the canonical server-side message ordering was not directly retrievable from this surface — but the founder explicitly confirmed F5 clears the duplicate, which already places the bug squarely on the client.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 60 / 60 pass (was 59 before; 1 new test added for this fix).
+- `corepack pnpm -r --if-present run lint` — green (14 packages).
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+
+### Files touched
+
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- The fix is a pure REDIRECT of an existing pt-3 write target (snapshot → cache). No new state or new lifecycles are introduced; the cache map already supports identical snapshot data via `cacheThreadHistorySnapshot()` and the swap-back restore already reads from cache as the primary source of older history.
+- Other code paths that still write full visible into `snapshot.messages` (loadHistory line ~2987 / ~3065 writes, applyTurnStatusState running branch line ~1351) remain — but those paths also synchronously update cache, so the snapshot pollution they introduce is already covered by the swap-back filter that prefers cache and only takes ids NOT in cache from snapshot. The residual exposure is theoretical: if some future code path writes a stale id into `snapshot.messages` AND fails to update cache, the swap-back merge would re-append it. There is no such path today.
+- `loadOlderMessages` still does NOT write into cache (it uses `setMessages` directly). Founder's repro depends on this: cache stays paginated, visible has the older message. The pt-5 outgoing-sync→cache redirect now syncs the visible window (including loadOlderMessages results) into cache on swap-out, so on swap-back the cache is authoritative for everything the user has seen. A future cleanup could push the cache write into `loadOlderMessages` itself, but that is out of scope for this slice.
+
+### Next recommended step
+
+Commit + push pt-5. After deploy, founder verifies in the CDP-attached browser:
+
+1. Send a long answer in chat A.
+2. Scroll up to load older history above the latest paginated window.
+3. Swap A → B → A while the long answer streams.
+4. Assert: no duplicate of the older user appears below the assistant; live assistant content keeps streaming; user bubble stays above the live assistant.
+
+---
+
+## 2026-04-30 (Web stream continuity — pt 4: synchronous re-entrancy guard for `send()` / `sendWelcome()`) — added `sendInPreflightByThreadRef` set/release pair around `await getToken()` in both `send()` and `sendWelcome()`; the founder-reported "phantom user bubble below the real one" symptom (where two near-simultaneous Enter presses produced two parallel turns, two optimistic `[user, asst]` pairs, snapshot clobber, cache poisoning, and a missing or extra user bubble that only F5 cleared) no longer reproduces (`apps/web`; focused vitest + full web vitest + repo lint/format/typecheck green; live-validated against running pod via Chrome DevTools / CDP monitor)
+
+### Why this session
+
+Founder live-validated the previous pt-3 fix and reported that the duplicate-user-bubble symptom STILL happened — but with a wrinkle: the second bubble's text was _different_ from the first ("Давай еще последний раз" followed by "Еще"), so it could not be the optimistic-vs-server-id leak addressed in pt-3 (those collide on identical content). Founder also opened a Chrome DevTools remote-debugging port (127.0.0.1:9222) and asked me to use it.
+
+### Diagnosis (different root cause from pt 1–3)
+
+Connected to the live page over CDP, dumped DOM + sessionStorage + injected a MutationObserver that logs every change to user bubbles, and re-read `send()` carefully. The race is in `send()` itself:
+
+```
+if (trimmed.length === 0 || isStreaming) return;     // (A) closure-stale
+if (pendingSendStatusRef.current !== null) return;   // (B) ref, sync, but null in normal idle
+const token = await getToken();                      // (C) microtask suspend
+// ... synchronous setup ...
+markStreaming(sendThreadKey, true);                  // (D) registry flip (React state)
+setMessages((prev) => [...prev, userMsg, asst]);     // (E) optimistic pair
+setThreadPendingSend(sendThreadKey, { status: "sending" }); // (F) ref claim
+```
+
+Between (B) and (F) there is at least one microtask (the `await getToken()`). If a SECOND `send()` runs before (F) — e.g. user presses Enter twice between two key events, or hits Send right as the previous turn's `markStreaming(false)` flipped but React has not re-rendered yet — both calls pass (A) (closure value of `isStreaming` is still false; useState updates are batched/scheduled, not synchronous to other closures) and both pass (B) (ref still null until (F) runs). Both reach (E) and append their own optimistic pair → two user bubbles, two assistant placeholders. Both reach (F) but the second `setThreadPendingSend` clobbers the first (per-thread, single-slot). Both call `activeTurnSnapshotsRef.set(threadKey, ...)` — the second snapshot overwrites the first (per-thread, single-slot). Both call `streamAssistantWebChatTurn(...)` — two real network turns to the API.
+
+After both streams complete, the loser's `finally` block runs `cacheThreadHistorySnapshot(threadKey, snapshot)` against whatever snapshot is left in the map (which is the OTHER turn's by then) and `activeTurnSnapshotsRef.delete(threadKey)` removes that snapshot, so the still-running second turn loses its snapshot mid-stream. Cache for the next swap is corrupt: it carries one turn's optimistic state and the visible state has fragments of both. The founder's "extra user bubble below the real one" / "missing user bubble above the assistant" / "different content from a neighbouring chat" symptoms all map to different orderings of this race.
+
+`pt-3` fixed the optimistic-id leak inside cache, which was a real but separate bug. The race above is upstream of cache and produces _content-distinct_ duplicates, which is exactly what the founder's latest screenshot shows.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Added `sendInPreflightByThreadRef = useRef<Set<string>>(new Set())` with a long-form comment explaining the race window above.
+  - In `send()`: at the top, after the existing `isStreaming` and `pendingSendStatusRef` guards, the function now checks `sendInPreflightByThreadRef.current.has(sendThreadKey)` and returns early if true. If false, it adds the thread key to the set and creates a `releasePreflight()` closure. The set entry is released on every pre-`(F)` exit path: missing token, offline pre-flight, and on the main path RIGHT AFTER `setThreadPendingSend(..., "sending")` (because at that point the synchronous `pendingSendStatusRef` claim is in place and any subsequent `send()` for this thread will be blocked by guard (B)).
+  - In `sendWelcome()`: same gate at the top, released right after `setMessages([assistantMsg])` (welcome does not write to `pendingSendStatusRef`, so we hold the gate until the snapshot + visible array contain the welcome assistant id).
+  - The previous `pt-3` filtering, `pt-2` thread-restore window collapse fix, and `pt-1` id-set scoping all remain untouched.
+- `apps/web/app/app/_components/use-chat.test.tsx`: two new regression tests under `pending-send slot (ADR-075)`:
+  - `blocks a second send() that races the first one through `await getToken()` (no double user bubble, no double stream)` — pins the founder's race exactly: a controllable `getToken()` promise, two `send()` calls interleaved with a single microtask yield between them, asserts ONE stream call and ONE user bubble.
+  - `blocks a third send() fired in the same microtask as the second (triple-press defence)` — covers the "user mashed Enter three times" angle.
+
+### Live-debug evidence
+
+- CDP monitor (`.tmp/cdp-tools/monitor.mjs`) attached to the running pod, dumped DOM + sessionStorage + intercepted `/messages` + `/turns` traffic.
+- Pre-fix DOM at session start showed the founder's actual chat with no live duplicates (he had F5'd before opening DevTools), but `sessionStorage` was clean and history was sound — confirming that the duplicate is purely client-side and disappears on hard reload (consistent with cache being rebuilt from authoritative server history).
+- Reading `send()` end-to-end with the CDP DOM observer running, the only path that can append two `(user, assistant)` pairs without the snapshot's `liveUserMessageId` ever pointing at both is the race above — every other code path either gates on the snapshot existing or on the per-id reconciliation that pt-1 / pt-3 hardened.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 59 / 59 pass (was 57 before; 2 new tests added for this fix).
+- `corepack pnpm -r --if-present run lint` — green (14 packages).
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+
+### Files touched
+
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- The preflight gate is per-thread and lives entirely in a ref, so it is invisible to React DevTools. If a future refactor moves the synchronous claim point (for example, defers `setThreadPendingSend` past another await), the release point in `send()` / `sendWelcome()` MUST move with it or the gate will release too early and the race comes back. There is now a long-form comment at the ref declaration explaining this constraint.
+- A user who programmatically fires `chat.send()` from a userscript or test harness without going through the `ChatInput` keyboard guard will still be capped at one in-flight turn per thread, which is the desired behaviour but is a behaviour change vs. the pre-fix code (which allowed two parallel turns to slip through and appear in the UI; that was the bug).
+- Live verification by founder still needed for: (a) double-press Enter in the chat-input no longer produces a phantom user bubble, (b) sending immediately after the previous turn's `Stop` button flips back to `Send` no longer produces a phantom user bubble, (c) chat A → B → A swap during long stream still preserves the live bubble (was already covered by pt-2 + pt-3 tests, but worth re-running by hand against the latest pod).
+
+### Next recommended step
+
+If the founder still sees phantom-user-bubble symptoms after this fix is deployed, the next angle to investigate is the _server_-side concurrent-turn handling: in particular whether the `/assistant/chat/web/turns` POST handler currently accepts overlapping turns from the same chat (which would otherwise be invisibly tolerated because the client now blocks on its side), and whether the pending-send-slot recovery flow (retry / cancel) re-uses the same `sendInPreflightByThreadRef` window or needs a separate gate. Both are out of scope for this slice (focused on the founder's exact repro), but would be the natural pt-5 if a related symptom resurfaces.
+
+---
+
 ## 2026-04-30 (Web stream continuity — pt 3: optimistic-id leak into cached history) — `cacheThreadHistorySnapshot`, the swap-back restore, and `mergeCommittedHistoryWithActiveTurn` now strip `local-user-*` / `local-assistant-*` / `active-assistant-*` from cached history; the chat-swap duplicate-bubble symptom (two of the same user message appearing side by side, one optimistic and one server-mapped) no longer reproduces (`apps/web`; focused vitest + full web vitest + repo lint/format/typecheck green)
 
 ### Why this session
@@ -8,7 +237,7 @@ Founder live-validated the previous pt-2 fix and reported that the stream itself
 
 ### Diagnosis (additional root cause, not symptom)
 
-`cacheThreadHistorySnapshot` and the swap-back restore both treated the cached history snapshot as authoritative and merged it with the live snapshot's `liveUserMessageId` / `liveAssistantMessageId`. When a `loadHistory` ran during the optimistic window of `send()` (the period between `send()` initialising the snapshot with `local-user-XXX` / `local-assistant-XXX` and the server's `onStarted` event remapping them to `server-user-NEW` / `server-assistant-NEW`), the cache snapshot stored the optimistic `local-*` ids — exactly the founder-reported timing where a swap or re-render between send and onStarted is plausible. Subsequently `onStarted` remapped the snapshot to the canonical server ids, but the cache STILL carried the original `local-user-*` entry. On the next swap-back restore (or the no-replace branch of `mergeCommittedHistoryWithActiveTurn` inside `loadHistory`'s cached path), the merge appended the snapshot's canonical `server-user-*` next to the cached `local-user-*` — same content, different ids, two bubbles. F5 fixed it because hard reload rebuilt cache from authoritative server history with no local-* survivors.
+`cacheThreadHistorySnapshot` and the swap-back restore both treated the cached history snapshot as authoritative and merged it with the live snapshot's `liveUserMessageId` / `liveAssistantMessageId`. When a `loadHistory` ran during the optimistic window of `send()` (the period between `send()` initialising the snapshot with `local-user-XXX` / `local-assistant-XXX` and the server's `onStarted` event remapping them to `server-user-NEW` / `server-assistant-NEW`), the cache snapshot stored the optimistic `local-*` ids — exactly the founder-reported timing where a swap or re-render between send and onStarted is plausible. Subsequently `onStarted` remapped the snapshot to the canonical server ids, but the cache STILL carried the original `local-user-*` entry. On the next swap-back restore (or the no-replace branch of `mergeCommittedHistoryWithActiveTurn` inside `loadHistory`'s cached path), the merge appended the snapshot's canonical `server-user-*` next to the cached `local-user-*` — same content, different ids, two bubbles. F5 fixed it because hard reload rebuilt cache from authoritative server history with no local-\* survivors.
 
 ### What changed
 

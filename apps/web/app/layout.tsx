@@ -119,7 +119,19 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeFallbackScript }} />
       </head>
       <body className="bg-chrome font-sans text-text antialiased">
-        <ClerkProvider appearance={clerkAppearance}>
+        {/*
+          `prefetchUI={false}`: we use Clerk in fully headless mode
+          (`useAuth`, `useSignIn` + a hand-rolled sign-in UI in
+          `app/sign-in/[[...sign-in]]/page.tsx`) and never render any
+          prebuilt Clerk component (`<SignIn/>`, `<UserButton/>`, etc.).
+          Without this prop, clerk-js injects a
+          `<link rel="preload" href=".../@clerk/ui@1/dist/ui.browser.js">`
+          into the document head and the browser loudly warns
+          "preloaded but not used within a few seconds from the
+          window's load event" — wasting bandwidth on a bundle that
+          is genuinely unreachable in our app.
+        */}
+        <ClerkProvider appearance={clerkAppearance} prefetchUI={false}>
           <NextIntlClientProvider locale={locale} messages={messages}>
             {children}
           </NextIntlClientProvider>

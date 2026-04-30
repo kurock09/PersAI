@@ -454,6 +454,7 @@ export function ChatArea({
                   preResponseStatus={preResponseStatus}
                   assistantAvatarUrl={assistantAvatarUrl}
                   assistantAvatarEmoji={assistantAvatarEmoji}
+                  onAssistantAction={(text) => chatInputRef.current?.setDraft(text)}
                   onDoNotRemember={
                     entry.message.role === "assistant" &&
                     entry.message.status === "committed" &&

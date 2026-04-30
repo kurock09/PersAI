@@ -2175,6 +2175,164 @@ describe("useChat", () => {
       expect(result.current.pendingSendStatus).toBeNull();
       expect(result.current.messages).toHaveLength(0);
     });
+
+    /*
+     * Founder-repro: pressing Enter twice in quick succession (or sending,
+     * then sending again immediately as the previous stream wraps up but
+     * before React re-renders `isStreaming = false → true`) used to start
+     * TWO parallel turns. Both pushed their own optimistic `[user, asst]`
+     * pair into `messages`, both wrote their own snapshot to
+     * `activeTurnSnapshotsRef` (snapshot is per-thread → the second
+     * silently clobbered the first), and the loser's `finally` cleanup
+     * cached the winner's snapshot — leaving a phantom user bubble or a
+     * missing user bubble after the next swap, which only F5 cleared.
+     *
+     * The fix is the synchronous `sendInPreflightByThreadRef` gate added
+     * at the top of `send()` (and `sendWelcome()`). The second call must
+     * return *before* it claims an optimistic slot.
+     */
+    it("blocks a second send() that races the first one through `await getToken()` (no double user bubble, no double stream)", async () => {
+      // Make `getToken` block on a controllable promise so we can interleave
+      // a second `send()` exactly inside the microtask window between the
+      // top-of-function guards and the synchronous slot-claim block.
+      let releaseToken: ((value: string) => void) | undefined;
+      clerkMocks.getToken.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            releaseToken = resolve;
+          })
+      );
+      // Subsequent calls (if the second send leaks through and reaches
+      // `await getToken()` again) should resolve normally so we observe the
+      // bug rather than hang the test.
+      clerkMocks.getToken.mockResolvedValue("token-1");
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { message?: string; clientTurnId?: string },
+          handlers: {
+            onStarted?: (p: { chat: unknown; userMessage: unknown }) => void;
+            onCompleted?: (p: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onStarted?.({
+            chat: { id: "chat-1" },
+            userMessage: { id: `server-user-${payload.clientTurnId ?? "x"}` }
+          });
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: {
+                id: `server-user-${payload.clientTurnId ?? "x"}`,
+                chatId: "chat-1"
+              },
+              assistantMessage: {
+                id: `server-assistant-${payload.clientTurnId ?? "x"}`,
+                content: payload.message ?? ""
+              }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let firstPromise: Promise<void> | undefined;
+      let secondPromise: Promise<void> | undefined;
+      await act(async () => {
+        // First call: passes both guards, suspends inside `await getToken()`.
+        firstPromise = result.current.send("first");
+        // Yield ONE microtask so the first call has hit `await getToken()`
+        // (and is now parked) but has NOT yet reached the synchronous
+        // `markStreaming(true)` / `setThreadPendingSend(... "sending")`
+        // claim block — exactly the founder's race window.
+        await Promise.resolve();
+        secondPromise = result.current.send("second");
+        // Let the second call also reach its first await/return point.
+        await Promise.resolve();
+      });
+
+      // Before any token resolves, neither stream should have been started.
+      expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+
+      await act(async () => {
+        releaseToken?.("token-1");
+        await firstPromise;
+        await secondPromise;
+      });
+
+      // Exactly ONE stream must have been issued — the second send must
+      // have been short-circuited by the synchronous preflight guard.
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+
+      // Visible state must have ONLY the first user bubble + one assistant.
+      const userMessages = result.current.messages.filter((m) => m.role === "user");
+      const assistantMessages = result.current.messages.filter((m) => m.role === "assistant");
+      expect(userMessages).toHaveLength(1);
+      expect(userMessages[0]?.content).toBe("first");
+      expect(assistantMessages).toHaveLength(1);
+    });
+
+    it("blocks a third send() fired in the same microtask as the second (triple-press defence)", async () => {
+      let releaseToken: ((value: string) => void) | undefined;
+      clerkMocks.getToken.mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            releaseToken = resolve;
+          })
+      );
+      clerkMocks.getToken.mockResolvedValue("token-1");
+
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { message?: string },
+          handlers: {
+            onStarted?: (p: { chat: unknown; userMessage: unknown }) => void;
+            onCompleted?: (p: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onStarted?.({
+            chat: { id: "chat-1" },
+            userMessage: { id: "server-user-1" }
+          });
+          handlers.onCompleted?.({
+            transport: {
+              userMessage: { id: "server-user-1", chatId: "chat-1" },
+              assistantMessage: { id: "server-assistant-1", content: payload.message ?? "" }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let p1: Promise<void> | undefined;
+      let p2: Promise<void> | undefined;
+      let p3: Promise<void> | undefined;
+      await act(async () => {
+        p1 = result.current.send("first");
+        await Promise.resolve();
+        p2 = result.current.send("second");
+        p3 = result.current.send("third");
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        releaseToken?.("token-1");
+        await p1;
+        await p2;
+        await p3;
+      });
+
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledTimes(1);
+      const userMessages = result.current.messages.filter((m) => m.role === "user");
+      expect(userMessages.map((m) => m.content)).toEqual(["first"]);
+    });
   });
 
   describe("per-thread streaming (slice 1.1)", () => {
@@ -4874,6 +5032,193 @@ describe("useChat", () => {
         (m) => m.role === "assistant" && m.status === "streaming"
       );
       expect(liveAssistant).toBeDefined();
+    });
+
+    /*
+     * Founder live-repro caught via CDP-attached browser:
+     *
+     *   user:  "Напиши длинный спич для теста еще раз"   ← real send
+     *   user:  "когда openai научиться..."               ← PHANTOM
+     *   asst:  "Окей, держи ещё один длинный спич..."   ← live answer
+     *
+     * The phantom user was the FIRST user message of the chat, which
+     * had been loaded earlier via `loadOlderMessages` and was visible
+     * on screen but is NOT part of the latest paginated `getChatMessages`
+     * window (cursor pagination → server only returns the most-recent
+     * 20). After a chat-swap it re-appeared right before the live
+     * assistant and disappeared on F5 (which rebuilt cache from
+     * authoritative paginated server history).
+     *
+     * Root cause (pt 4 outgoing-sync regression, fixed in pt 5):
+     * the swap-OUT outgoing-sync wrote the FULL visible array into
+     * `activeTurnSnapshotsRef.current.get(outgoingThreadKey).messages`.
+     * That array therefore carried every visible id including the
+     * older messages that the paginated cache no longer contains. On
+     * swap-back the restore merge —
+     * `mergeChatMessagesById(cachedBase, liveSnapshot.messages
+     *  .filter((m) => !cachedIds.has(m.id) || liveTurnIds.has(m.id)))` —
+     * saw the snapshot ids that were NOT in the paginated cache and
+     * APPENDED them at the END of the merged result.
+     *
+     * The fix is to redirect the outgoing-sync to write into
+     * `cachedThreadHistorySnapshotsRef` (the cache map) instead of
+     * into the snapshot, so `snapshot.messages` stays minimal (live
+     * pair only) and the swap-back filter has nothing stale to
+     * resurrect.
+     */
+    it("swap A→B→A does NOT resurrect an older message at the END of the merged thread when cache is paginated and visible included loadOlderMessages results (pt-3 outgoing-sync regression)", async () => {
+      let releaseStream: (() => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "live partial" });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => resolve();
+          });
+        }
+      );
+
+      // Initial loadHistory(chat-A): paginated window with a
+      // non-null cursor (older messages exist on the server beyond
+      // the cap). Returns the LATEST window only.
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: "older-cursor",
+          messages: [
+            {
+              id: "server-user-A-1",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1 (visible)",
+              attachments: [],
+              createdAt: "2026-04-25T10:00:10.000Z"
+            },
+            {
+              id: "server-asst-A-1",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1 (visible)",
+              attachments: [],
+              createdAt: "2026-04-25T10:00:15.000Z"
+            }
+          ]
+        })
+        // loadOlderMessages → returns the off-screen user (older
+        // than the latest window).
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-OFFSCREEN",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q0 (older)",
+              attachments: [],
+              createdAt: "2026-04-25T10:00:00.000Z"
+            }
+          ]
+        })
+        // Chat B history.
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "B msg",
+              attachments: [],
+              createdAt: "2026-04-25T10:01:00.000Z"
+            }
+          ]
+        });
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      // Founder scrolls up to see older history. `loadOlderMessages`
+      // calls `setMessages` only — it does NOT update cache or
+      // snapshot. After this, visible = [server-user-A-OFFSCREEN,
+      // server-user-A-1, server-asst-A-1] but cache still = [...
+      // latest 2 only].
+      await act(async () => {
+        await result.current.loadOlderMessages();
+      });
+      const idsAfterScroll = result.current.messages.map((m) => m.id);
+      expect(idsAfterScroll).toEqual([
+        "server-user-A-OFFSCREEN",
+        "server-user-A-1",
+        "server-asst-A-1"
+      ]);
+
+      // Send the live turn.
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("Live Q (very long)");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+      const idsAfterSend = result.current.messages.map((m) => m.id);
+      expect(idsAfterSend[0]).toBe("server-user-A-OFFSCREEN");
+
+      // Swap A → B → A while the long answer is still streaming.
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      rerender({ threadKey: "thread-A" });
+
+      // POST-FIX: `server-user-A-OFFSCREEN` must remain in its
+      // CORRECT position (top of the chat) and must NOT be
+      // duplicated AT THE END of the merged window after the live
+      // assistant. PRE-FIX it appeared TWICE: once at top
+      // (preserved by the swap-out → cache sync, which now
+      // includes the loadOlderMessages results), once at the END
+      // (because snapshot.A.messages was polluted with full visible
+      // by the old outgoing-sync, and the swap-back merge appended
+      // the snapshot id that was not in the paginated cache).
+      const ids = result.current.messages.map((m) => m.id);
+      const offScreenOccurrences = ids.filter((id) => id === "server-user-A-OFFSCREEN").length;
+      expect(offScreenOccurrences).toBe(1);
+      const liveUserIndex = ids.indexOf("server-user-A-live");
+      const offScreenIndex = ids.indexOf("server-user-A-OFFSCREEN");
+      // The off-screen user must be ABOVE the live user (top of
+      // chat), not below / next to the live assistant.
+      expect(offScreenIndex).toBeLessThan(liveUserIndex);
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
     });
   });
 });

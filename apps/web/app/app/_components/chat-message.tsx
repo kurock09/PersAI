@@ -78,11 +78,210 @@ hljs.registerLanguage("yml", yaml);
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkMath];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeKatex];
 
+type AssistantResponseBlock =
+  | { type: "header"; content: string }
+  | { type: "body"; content: string; title?: string | undefined }
+  | { type: "callout"; content: string; label?: string | undefined }
+  | { type: "actions"; actions: string[] }
+  | { type: "divider" };
+
+const HEADER_WORDS = new Set([
+  "понял",
+  "готово",
+  "собрал",
+  "давай так",
+  "принял",
+  "окей",
+  "хорошо",
+  "итак",
+  "done",
+  "ready",
+  "got it",
+  "understood"
+]);
+
+const ACTION_HEADING_RE =
+  /^(actions?|quick actions?|next|next steps?|действия|быстрые действия|варианты|дальше|следующие шаги|что можно сделать дальше)$/i;
+const CALLOUT_HEADING_RE =
+  /^(важно|итог|фокус|вывод|результат|следующий шаг|note|important|summary|focus|result)$/i;
+
+function stripInlineMarkdown(value: string): string {
+  return value
+    .replace(/^\s{0,3}#{1,6}\s+/, "")
+    .replace(/^[*>_`~]+|[*>_`~]+$/g, "")
+    .trim();
+}
+
+function isShortHeaderCandidate(value: string): boolean {
+  const text = stripInlineMarkdown(value)
+    .replace(/[.!?:;]+$/g, "")
+    .trim();
+  if (!text || text.length > 48) return false;
+  if (HEADER_WORDS.has(text.toLowerCase())) return true;
+  return text.split(/\s+/).length <= 3 && !/[,.!?;:]/.test(text);
+}
+
+function isDividerLine(line: string): boolean {
+  return /^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line);
+}
+
+function parseActionLine(line: string): string | null {
+  const explicit = line.match(/^\s*(?:[-*]\s*)?\[\[?action:\s*(.+?)\]?\]\s*$/i);
+  if (explicit) return stripInlineMarkdown(explicit[1] ?? "");
+
+  const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/);
+  if (!bullet) return null;
+
+  const text = stripInlineMarkdown(bullet[1] ?? "");
+  if (!text || text.length > 72) return null;
+  if (/```|`{3,}/.test(text)) return null;
+  return text;
+}
+
+function isExplicitActionLine(line: string): boolean {
+  return /^\s*(?:[-*]\s*)?\[\[?action:\s*.+?\]?\]\s*$/i.test(line);
+}
+
+function maybeExtractActionBlock(lines: string[]): { actions: string[]; consumed: number } | null {
+  let idx = 0;
+  while (idx < lines.length && lines[idx]?.trim() === "") idx += 1;
+  if (idx >= lines.length) return null;
+
+  const heading = stripInlineMarkdown(lines[idx] ?? "");
+  const hasActionHeading = ACTION_HEADING_RE.test(heading);
+  if (hasActionHeading) idx += 1;
+
+  const actions: string[] = [];
+  let consumed = idx;
+  let hasExplicitAction = false;
+  while (consumed < lines.length) {
+    const line = lines[consumed] ?? "";
+    if (line.trim() === "") {
+      consumed += 1;
+      continue;
+    }
+    const action = parseActionLine(line);
+    if (!action) break;
+    hasExplicitAction = hasExplicitAction || isExplicitActionLine(line);
+    actions.push(action);
+    consumed += 1;
+    if (actions.length === 4) break;
+  }
+
+  if (actions.length === 0) return null;
+  if (!hasActionHeading && !hasExplicitAction) return null;
+  return { actions, consumed };
+}
+
+export function parseAssistantResponseBlocks(content: string): AssistantResponseBlock[] {
+  const lines = content.replace(/\r\n/g, "\n").trim().split("\n");
+  const blocks: AssistantResponseBlock[] = [];
+  let bodyLines: string[] = [];
+  let pendingTitle: string | undefined;
+  let inFence = false;
+  let sawContent = false;
+
+  const flushBody = () => {
+    const body = bodyLines.join("\n").trim();
+    if (body) {
+      blocks.push({ type: "body", content: body, title: pendingTitle });
+      sawContent = true;
+    }
+    bodyLines = [];
+    pendingTitle = undefined;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      bodyLines.push(line);
+      continue;
+    }
+
+    if (inFence) {
+      bodyLines.push(line);
+      continue;
+    }
+
+    if (isDividerLine(line)) {
+      flushBody();
+      blocks.push({ type: "divider" });
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const title = stripInlineMarkdown(heading[2] ?? "");
+      const rest = lines.slice(i + 1);
+      const actionBlock = maybeExtractActionBlock(rest);
+      if (ACTION_HEADING_RE.test(title) && actionBlock) {
+        flushBody();
+        blocks.push({ type: "actions", actions: actionBlock.actions });
+        i += actionBlock.consumed;
+        continue;
+      }
+      if (
+        !sawContent &&
+        bodyLines.join("\n").trim().length === 0 &&
+        isShortHeaderCandidate(title)
+      ) {
+        blocks.push({ type: "header", content: title });
+        sawContent = true;
+        continue;
+      }
+      flushBody();
+      pendingTitle = title;
+      continue;
+    }
+
+    if (/^\s{0,3}>\s?/.test(line)) {
+      flushBody();
+      const quoteLines: string[] = [];
+      while (i < lines.length && /^\s{0,3}>\s?/.test(lines[i] ?? "")) {
+        quoteLines.push((lines[i] ?? "").replace(/^\s{0,3}>\s?/, ""));
+        i += 1;
+      }
+      i -= 1;
+      const [first, ...rest] = quoteLines;
+      const firstText = stripInlineMarkdown(first ?? "");
+      const hasLabel = CALLOUT_HEADING_RE.test(firstText);
+      blocks.push({
+        type: "callout",
+        label: hasLabel ? firstText : undefined,
+        content: (hasLabel ? rest : quoteLines).join("\n").trim()
+      });
+      sawContent = true;
+      continue;
+    }
+
+    if (!sawContent && bodyLines.join("\n").trim().length === 0 && isShortHeaderCandidate(line)) {
+      blocks.push({ type: "header", content: stripInlineMarkdown(line) });
+      sawContent = true;
+      continue;
+    }
+
+    const actionBlock = maybeExtractActionBlock(lines.slice(i));
+    if (actionBlock) {
+      flushBody();
+      blocks.push({ type: "actions", actions: actionBlock.actions });
+      i += actionBlock.consumed - 1;
+      continue;
+    }
+
+    bodyLines.push(line);
+  }
+
+  flushBody();
+  return blocks.length > 0 ? blocks : [{ type: "body", content }];
+}
+
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
   preResponseStatus?: "thinking" | "working" | undefined;
+  onAssistantAction?: ((text: string) => void) | undefined;
   onDoNotRemember?: ((messageId: string) => void) | undefined;
   forgotten?: boolean | undefined;
   /**
@@ -345,11 +544,7 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-const MarkdownMessageContent = memo(function MarkdownMessageContent({
-  content
-}: {
-  content: string;
-}) {
+function MarkdownFragment({ content }: { content: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
@@ -359,9 +554,107 @@ const MarkdownMessageContent = memo(function MarkdownMessageContent({
       {content}
     </ReactMarkdown>
   );
+}
+
+function AssistantActionChips({
+  actions,
+  onAction
+}: {
+  actions: string[];
+  onAction?: ((text: string) => void) | undefined;
+}) {
+  if (actions.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 pt-1" data-testid="assistant-response-actions">
+      {actions.slice(0, 4).map((action) => (
+        <button
+          key={action}
+          type="button"
+          onClick={() => onAction?.(action)}
+          className="inline-flex h-8 cursor-pointer items-center rounded-full border border-accent/20 bg-accent/8 px-3 text-[12px] font-medium text-accent transition-colors hover:border-accent/35 hover:bg-accent/12 disabled:cursor-default disabled:opacity-70"
+          disabled={!onAction}
+        >
+          {action}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MarkdownMessageContent = memo(function MarkdownMessageContent({
+  content,
+  onAction
+}: {
+  content: string;
+  onAction?: ((text: string) => void) | undefined;
+}) {
+  const blocks = useMemo(() => parseAssistantResponseBlocks(content), [content]);
+
+  return (
+    <div className="assistant-response-blocks space-y-3">
+      {blocks.map((block, index) => {
+        const key = `${block.type}-${index}`;
+        if (block.type === "header") {
+          return (
+            <div
+              key={key}
+              className="inline-flex max-w-full items-center rounded-full border border-accent/15 bg-accent/8 px-3 py-1 text-[12px] font-semibold tracking-[0.01em] text-accent"
+            >
+              {block.content}
+            </div>
+          );
+        }
+        if (block.type === "divider") {
+          return <div key={key} className="h-px bg-border/70" />;
+        }
+        if (block.type === "actions") {
+          return <AssistantActionChips key={key} actions={block.actions} onAction={onAction} />;
+        }
+        if (block.type === "callout") {
+          return (
+            <div
+              key={key}
+              className="rounded-2xl border border-accent/20 bg-accent/8 px-3.5 py-3 text-sm shadow-[inset_3px_0_0_rgba(191,148,84,0.45)]"
+            >
+              {block.label ? (
+                <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-accent/90">
+                  {block.label}
+                </div>
+              ) : null}
+              {block.content ? (
+                <div className="text-text-muted">
+                  <MarkdownFragment content={block.content} />
+                </div>
+              ) : null}
+            </div>
+          );
+        }
+        return (
+          <section
+            key={key}
+            className="rounded-2xl border border-border/55 bg-surface-raised/30 px-3.5 py-3 shadow-[0_1px_0_rgba(255,255,255,0.02)]"
+          >
+            {block.title ? (
+              <div className="mb-2 text-[13px] font-semibold tracking-tight text-text">
+                {block.title}
+              </div>
+            ) : null}
+            <MarkdownFragment content={block.content} />
+          </section>
+        );
+      })}
+    </div>
+  );
 });
 
-function StreamingMarkdownMessageContent({ content }: { content: string }) {
+function StreamingMarkdownMessageContent({
+  content,
+  onAction
+}: {
+  content: string;
+  onAction?: ((text: string) => void) | undefined;
+}) {
   const { stableContent, liveTailPreview } = useMemo(() => {
     const segments = splitStreamingMarkdownContent(content);
     return {
@@ -372,10 +665,12 @@ function StreamingMarkdownMessageContent({ content }: { content: string }) {
 
   return (
     <>
-      {stableContent.length > 0 ? <MarkdownMessageContent content={stableContent} /> : null}
+      {stableContent.length > 0 ? (
+        <MarkdownMessageContent content={stableContent} onAction={onAction} />
+      ) : null}
       {liveTailPreview.length > 0 ? (
         <div className="streaming-markdown-live text-text/95">
-          <MarkdownMessageContent content={liveTailPreview} />
+          <MarkdownMessageContent content={liveTailPreview} onAction={onAction} />
         </div>
       ) : null}
     </>
@@ -567,6 +862,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   assistantAvatarEmoji,
   onDoNotRemember,
   forgotten,
+  onAssistantAction,
   onRetryPendingSend,
   onCancelPendingSend,
   preResponseStatus
@@ -722,9 +1018,12 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             ) : (
               <>
                 {isStreaming ? (
-                  <StreamingMarkdownMessageContent content={message.content} />
+                  <StreamingMarkdownMessageContent
+                    content={message.content}
+                    onAction={onAssistantAction}
+                  />
                 ) : (
-                  <MarkdownMessageContent content={message.content} />
+                  <MarkdownMessageContent content={message.content} onAction={onAssistantAction} />
                 )}
 
                 {/* Streaming cursor */}

@@ -44,12 +44,23 @@ function readNetworkOnlineChange(event: Event): boolean | null {
 }
 
 export function useNetworkOnline(): NetworkOnlineState {
-  // Initial render is on the server during SSR — assume online to avoid a
-  // flicker of the offline overlay before hydration completes.
-  const [isOnline, setIsOnline] = useState<boolean>(() => {
-    if (typeof navigator === "undefined") return true;
-    return navigator.onLine;
-  });
+  // SSR-safe initial state: ALWAYS `true` on the very first render, on
+  // both server and client. The real value is read from
+  // `navigator.onLine` in the post-mount `useEffect` below. Reading
+  // `navigator.onLine` directly in the `useState` initializer is unsafe
+  // in Node 18+ / 21+: `globalThis.navigator` IS defined on the server
+  // but does NOT carry the `onLine` property (it returns `undefined`),
+  // so `useState<boolean>(undefined)` sets the SSR state to `undefined`
+  // — which is falsy at `if (isOnline) return null` in `OfflineGate`
+  // and causes the server to render the full offline overlay HTML. The
+  // client then mounts with `navigator.onLine === true`, renders
+  // nothing, and React tears down the entire root with a hydration
+  // mismatch (minified React error #418, "Hydration failed because the
+  // server rendered HTML didn't match the client"). Starting at `true`
+  // and updating from the effect is the canonical SSR-safe pattern and
+  // matches the comment's original intent ("assume online to avoid a
+  // flicker of the offline overlay before hydration completes").
+  const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isRechecking, setIsRechecking] = useState(false);
   const recheckAbortRef = useRef<AbortController | null>(null);
 
@@ -75,7 +86,14 @@ export function useNetworkOnline(): NetworkOnlineState {
     window.addEventListener("offline", handleOffline);
     window.addEventListener(NETWORK_ONLINE_CHANGE_EVENT, handleSharedChange);
 
-    setIsOnline(navigator.onLine);
+    // Only commit to React state when the platform actually exposes a
+    // boolean. On jsdom and on some Node-side polyfills `navigator`
+    // exists but `navigator.onLine` is `undefined`; writing that into
+    // state would set `isOnline` to `undefined`, which is falsy and
+    // would render the offline overlay even though the network is up.
+    if (typeof navigator.onLine === "boolean") {
+      setIsOnline(navigator.onLine);
+    }
 
     return () => {
       window.removeEventListener("online", handleOnline);

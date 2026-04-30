@@ -664,6 +664,37 @@ export function useChat(threadKey: string): UseChatReturn {
     useRef<PendingSendSlot | null>(null);
   const pendingSendsByThreadRef = useRef<Map<string, PendingSendSlot>>(new Map());
   const pendingSendStatusRef = useRef<PendingSendStatus | null>(null);
+  /**
+   * Per-thread synchronous re-entrancy guard for `send()` / `sendWelcome()`.
+   *
+   * The `isStreaming` / `pendingSendStatusRef` guards inside `send()` are checked
+   * BEFORE `await getToken()`. Between that check and the synchronous
+   * `markStreaming(true)` + `setThreadPendingSend(..., "sending")` calls below
+   * (lines ~1825 / ~1850) there is at least one microtask suspend during which
+   * a *second* synchronous `send()` invocation — e.g. the user pressing Enter
+   * twice between two key events, or the composer's `Stop` flipping back to
+   * `Send` plus an immediate Enter — also passes both guards (React state for
+   * `isStreaming` has not flipped yet, the pending-slot ref is still null) and
+   * starts a *parallel* second turn.
+   *
+   * Both turns then race: each calls `setMessages([...prev, userMsg, asst])`
+   * appending its own optimistic pair, each calls
+   * `activeTurnSnapshotsRef.set(threadKey, ...)` clobbering the other's
+   * snapshot, both stream in parallel, and the loser's `finally` block ends
+   * up running `cacheThreadHistorySnapshot()` against the winner's snapshot
+   * (since snapshot is per-thread, single-slot). The visible state ends with
+   * a phantom user bubble (the second send's optimistic that survived
+   * cleanup) AND/OR a missing user bubble (the first send's optimistic that
+   * was overwritten in cache); the cached state is corrupt for the next swap.
+   *
+   * This ref is set synchronously at the top of `send()` / `sendWelcome()`
+   * BEFORE any `await`, so the second invocation hits the guard and returns
+   * before it can claim a slot. It is cleared once the function reaches the
+   * synchronous slot-claim block (`markStreaming(true)` +
+   * `setThreadPendingSend(..., "sending")`), or earlier on every pre-flight
+   * abort path (offline, missing token).
+   */
+  const sendInPreflightByThreadRef = useRef<Set<string>>(new Set());
   const setPendingSendStatus = useCallback((next: PendingSendStatus | null) => {
     pendingSendStatusRef.current = next;
     setPendingSendStatusState(next);
@@ -807,23 +838,68 @@ export function useChat(threadKey: string): UseChatReturn {
   if (prevThreadKeyRef.current !== threadKey) {
     const outgoingThreadKey = prevThreadKeyRef.current;
     prevThreadKeyRef.current = threadKey;
-    // Sync the OUTGOING thread's live snapshot.messages with what the
-    // user was actually looking at. The snapshot is initialised by
-    // `send()` with only `[liveUser, liveAssistant]` and never grows
-    // to include older history on its own — only `loadHistory`'s
-    // cached/API merge or my swap-back restore writes the full window
-    // back into it. If the user sends in chat A and immediately swaps
-    // away BEFORE the post-render `loadHistory` for A finishes
-    // hydrating snapshot.A, the snapshot loses sight of older history
-    // visible on A. Persist the visible state into snapshot.A here so
-    // a later swap-back restores the full window.
+    // Sync the OUTGOING thread's full visible state into the CACHE
+    // (NOT into `activeTurnSnapshotsRef`). The snapshot is initialised
+    // by `send()` with only `[liveUser, liveAssistant]` and is the
+    // source of truth for the live turn ids; promoting full visible
+    // history into snapshot.messages causes a regression where, on
+    // swap-back, the swap-back merge below treats every off-screen id
+    // promoted into snapshot.messages as a "live turn carry-over" and
+    // re-appends it AT THE END of the merged window when the
+    // paginated cache no longer contains it. Founder repro:
+    // `send("Напиши длинный спич... ещё раз")`, before the
+    // post-render `loadHistory` rehydrates snapshot.A, swap A→B→A;
+    // an old user message from the off-screen top of chat A
+    // ("когда openai научиться...") suddenly re-appears RIGHT BEFORE
+    // the live assistant. F5 fixes it because hard reload rebuilds
+    // cache from authoritative paginated server history. Writing into
+    // cache (which is the proper place for "what the user was
+    // looking at last") preserves the swap-out window for the
+    // swap-back restore below WITHOUT polluting the live snapshot.
     if (outgoingThreadKey !== threadKey) {
       const outgoingSnapshot = activeTurnSnapshotsRef.current.get(outgoingThreadKey);
-      if (outgoingSnapshot !== undefined && messages.length > outgoingSnapshot.messages.length) {
-        activeTurnSnapshotsRef.current.set(outgoingThreadKey, {
-          ...outgoingSnapshot,
-          messages: mergeChatMessagesById(messages, outgoingSnapshot.messages)
-        });
+      if (outgoingSnapshot !== undefined && messages.length > 0) {
+        const sanitizedVisible = messages.filter(
+          (message) =>
+            !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+        );
+        if (sanitizedVisible.length > 0) {
+          const existingCache = cachedThreadHistorySnapshotsRef.current.get(outgoingThreadKey);
+          const filteredCache = (existingCache?.messages ?? []).filter(
+            (message) =>
+              !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+          );
+          // Cache first preserves the canonical paginated order;
+          // `sanitizedVisible` only contributes ids the cache has not
+          // seen yet (e.g. older messages the user scrolled up to load
+          // via `loadOlderMessages`, or the live turn pair that has
+          // not yet been written to cache). `mergeChatMessagesById` is
+          // last-write-wins on value, so any fresher status from the
+          // visible array still overrides cached entries.
+          const merged = mergeChatMessagesById(filteredCache, sanitizedVisible);
+          cachedThreadHistorySnapshotsRef.current.set(outgoingThreadKey, {
+            clientTurnId: existingCache?.clientTurnId ?? outgoingSnapshot.clientTurnId,
+            messages: merged,
+            liveUserMessageId:
+              existingCache?.liveUserMessageId ?? outgoingSnapshot.liveUserMessageId,
+            liveAssistantMessageId:
+              existingCache?.liveAssistantMessageId ?? outgoingSnapshot.liveAssistantMessageId,
+            liveActivitiesByMessageId:
+              existingCache?.liveActivitiesByMessageId ??
+              outgoingSnapshot.liveActivitiesByMessageId,
+            shadowRoutingLabelsByMessageId:
+              existingCache?.shadowRoutingLabelsByMessageId ??
+              outgoingSnapshot.shadowRoutingLabelsByMessageId,
+            chatId: existingCache?.chatId ?? outgoingSnapshot.chatId,
+            compactionRunning:
+              existingCache?.compactionRunning ?? outgoingSnapshot.compactionRunning,
+            olderCursor: existingCache?.olderCursor ?? null,
+            hasOlderMessages: existingCache?.hasOlderMessages ?? false
+          });
+          if (outgoingSnapshot.chatId !== null) {
+            cachedThreadKeyByChatIdRef.current.set(outgoingSnapshot.chatId, outgoingThreadKey);
+          }
+        }
       }
     }
     const pendingForThread = pendingSendsByThreadRef.current.get(threadKey) ?? null;
@@ -833,19 +909,18 @@ export function useChat(threadKey: string): UseChatReturn {
         ? activeTurnSnapshotsRef.current.get(threadKey)
         : undefined;
     const restoredSnapshot = liveSnapshot ?? cachedHistorySnapshot;
-    // RESTORE the FULL visible state, not just the snapshot's window. When a
-    // live turn is in flight, `liveSnapshot.messages` may only contain the
-    // live user/assistant pair (the snapshot is created with the live pair
-    // by `send()` and only grows to include older history after a
-    // post-restore `loadHistory` merge has run). If we set visible to JUST
-    // the live pair, the older history above the live turn briefly
-    // disappears between this synchronous reset and the post-render
-    // `loadHistory` merge, and any earlier intermediate state (e.g. a
-    // `applyTurnStatusState` running refresh, a soft-detach reattach, or a
-    // failed loadHistory) leaves the user staring at "my own bubble is
-    // gone, only the assistant streams". Pre-merge cached history with the
-    // live snapshot here so the visible state is correct immediately on
-    // thread switch and never flickers down to a 2-message window.
+    // RESTORE the FULL visible state by merging the cached window
+    // (older history + previously-committed turns) with ONLY the live
+    // turn slice of the snapshot. We MUST restrict the snapshot
+    // contribution to messages whose id is in `liveTurnIds`: other
+    // code paths (`applyThreadMessages`, `loadHistory`'s post-merge
+    // write at line ~2987 / ~3065) intentionally write the full
+    // visible window into `snapshot.messages` for other purposes,
+    // and a permissive filter here re-introduces those non-live
+    // committed entries at the END of the merge whenever the
+    // paginated cache does not include them — which is exactly the
+    // founder-reported "phantom user message from the off-screen
+    // top of the chat shows up right before the live assistant".
     const restoredMessages = (() => {
       if (liveSnapshot === undefined) {
         // Even on the no-live-snapshot path, never resurrect a stale
@@ -873,6 +948,18 @@ export function useChat(threadKey: string): UseChatReturn {
           !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
       );
       const cachedIds = new Set(cachedBase.map((message) => message.id));
+      // Snapshot may legitimately contain messages that are NOT yet in
+      // the cache (e.g. a server-assistant just appended by
+      // `refreshLatestHistory`'s missing-tail logic, or an in-flight
+      // streaming-deltas chunk that has not yet been written back to
+      // cache by `cacheThreadHistorySnapshot`). Keep those, plus the
+      // live turn pair (canonical source for in-flight live state).
+      // The founder's off-screen-message-appears-at-end phantom is
+      // prevented by the OUTGOING-SYNC writing into CACHE (not
+      // snapshot) above — so by construction snapshot.messages only
+      // carries the live pair plus genuinely new committed messages,
+      // never older off-screen history that has been paginated out
+      // of the cache.
       const liveTurnMessages = liveSnapshot.messages.filter(
         (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)
       );
@@ -1728,10 +1815,23 @@ export function useChat(threadKey: string): UseChatReturn {
         return;
       /* Capture the thread key at send time so every subsequent */ /* markStreaming / abort-map mutation in this turn targets the *originating* */ /* thread, even if the user navigates away mid-stream. */ const sendThreadKey =
         threadKey;
+      /* Synchronous re-entrancy guard. Between the `isStreaming` /            */
+      /* `pendingSendStatusRef` checks above and the synchronous               */
+      /* `markStreaming(true)` + `setThreadPendingSend(..., "sending")`        */
+      /* claim-block below (after `await getToken()`) there is a microtask     */
+      /* window in which a second call to `send()` for the same thread also    */
+      /* passes both guards, races to its own optimistic pair, and clobbers    */
+      /* this turn's snapshot. See `sendInPreflightByThreadRef` doc above.     */
+      if (sendInPreflightByThreadRef.current.has(sendThreadKey)) return;
+      sendInPreflightByThreadRef.current.add(sendThreadKey);
+      const releasePreflight = () => {
+        sendInPreflightByThreadRef.current.delete(sendThreadKey);
+      };
       const compactionBeforeTurn = compaction;
       const token = await getToken();
       if (token === null) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
+        releasePreflight();
         return;
       }
       const pendingFiles = files ?? [];
@@ -1820,6 +1920,7 @@ export function useChat(threadKey: string): UseChatReturn {
           status: "send_failed_confirmed"
         });
         releaseAbortController();
+        releasePreflight();
         return;
       }
       markStreaming(sendThreadKey, true);
@@ -1857,6 +1958,11 @@ export function useChat(threadKey: string): UseChatReturn {
         clientAttachmentIds,
         status: "sending"
       });
+      /* Pending-slot is now claimed synchronously via `pendingSendStatusRef`  */
+      /* (set by `setThreadPendingSend` above). Any later `send()` for this   */
+      /* thread will be blocked by `pendingSendStatusRef.current !== null` in */
+      /* its top-of-function guards, so we can release the preflight gate.   */
+      releasePreflight();
       if (pendingFiles.length > 0) {
         try {
           for (let i = 0; i < pendingFiles.length; i++) {
@@ -2510,12 +2616,24 @@ export function useChat(threadKey: string): UseChatReturn {
   const sendWelcome = useCallback(
     async (locale: string) => {
       if (isStreaming) return;
+      const sendThreadKey = threadKey;
+      /* See `sendInPreflightByThreadRef` doc above. The same microtask race  */
+      /* exists here between the `isStreaming` check and the synchronous     */
+      /* `markStreaming(true)` below. Without this guard, two near-                 */
+      /* simultaneous welcome triggers (e.g. a fast remount on first paint)  */
+      /* would both reach the snapshot/setMessages claim and clobber each   */
+      /* other.                                                              */
+      if (sendInPreflightByThreadRef.current.has(sendThreadKey)) return;
+      sendInPreflightByThreadRef.current.add(sendThreadKey);
+      const releasePreflight = () => {
+        sendInPreflightByThreadRef.current.delete(sendThreadKey);
+      };
       const token = await getToken();
       if (token === null) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
+        releasePreflight();
         return;
       }
-      const sendThreadKey = threadKey;
       const assistantMsgId = `local-assistant-welcome-${Date.now()}`;
       const clientTurnId = createClientTurnId();
       const controller = new AbortController();
@@ -2527,6 +2645,17 @@ export function useChat(threadKey: string): UseChatReturn {
         }
       };
       markStreaming(sendThreadKey, true);
+      /* `markStreaming(true)` schedules a React state flip but the closure   */
+      /* of any in-flight concurrent `sendWelcome` still sees the old        */
+      /* `isStreaming = false`. We rely on the preflight ref above to gate   */
+      /* re-entrancy until *this* welcome turn has appended its assistant    */
+      /* placeholder + claimed the snapshot (a few lines below). Releasing   */
+      /* immediately after `setMessages([assistantMsg])` is correct because   */
+      /* by then both the snapshot map and the visible `messages` array      */
+      /* contain the welcome assistant id, so a follow-up `send()` would     */
+      /* still skip via its own `pendingSendStatusRef` check (welcome does   */
+      /* not set the pending slot, so we keep the preflight ref live until   */
+      /* after the assistant placeholder is mounted).                         */
       writeStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
       setIssue(null);
       const assistantMsg: ChatMessage = {
@@ -2549,6 +2678,10 @@ export function useChat(threadKey: string): UseChatReturn {
         compactionRunning: false
       });
       setMessages([assistantMsg]);
+      /* Snapshot is now claimed; concurrent `sendWelcome` would be blocked   */
+      /* by the snapshot existing on this thread (and the next render's      */
+      /* `isStreaming = true`). Release the synchronous preflight gate.      */
+      releasePreflight();
       const pendingDelta = { text: "", raf: 0 };
       const flushDelta = () => {
         const chunk = pendingDelta.text;
