@@ -548,8 +548,19 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     loadedHasLiveAssistantId ||
     loadedIntroducedCommittedTurnTail;
   if (!shouldReplaceActiveTurn) {
+    // Filter optimistic / transient ids out of `loaded` here too. The
+    // snapshot's `liveUserMessageId` / `liveAssistantMessageId` are
+    // the canonical truth for the live turn; if `loaded` (e.g. a cached
+    // history snapshot written between `send()` and `onStarted`) still
+    // carries the original `local-user-*` id, leaving it in the merge
+    // produces a duplicate user bubble next to the canonical
+    // `server-user-*` one. The snapshot's entries are appended after,
+    // so removing the optimistic stub from `loaded` is safe.
+    const sanitizedLoaded = loaded.filter(
+      (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+    );
     return {
-      messages: mergeChatMessagesById(loaded, activeSnapshot.messages),
+      messages: mergeChatMessagesById(sanitizedLoaded, activeSnapshot.messages),
       replacedActiveTurn: false
     };
   }
@@ -559,7 +570,13 @@ function mergeCommittedHistoryWithActiveTurn(input: {
       !isOptimisticLocalMessage(message) &&
       !isTransientActiveAssistantMessage(message)
   );
-  return { messages: mergeChatMessagesById(baseWithoutActive, loaded), replacedActiveTurn: true };
+  const sanitizedLoadedForReplace = loaded.filter(
+    (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+  );
+  return {
+    messages: mergeChatMessagesById(baseWithoutActive, sanitizedLoadedForReplace),
+    replacedActiveTurn: true
+  };
 }
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -726,7 +743,22 @@ export function useChat(threadKey: string): UseChatReturn {
   const cacheThreadHistorySnapshot = useCallback(
     (targetThreadKey: string, snapshot: ActiveTurnSnapshot) => {
       const existing = cachedThreadHistorySnapshotsRef.current.get(targetThreadKey);
-      const messages = mergeChatMessagesById(existing?.messages ?? [], snapshot.messages);
+      // Strip OPTIMISTIC `local-user-*` / `local-assistant-*` and
+      // server-projected `active-assistant-*` ids from the existing
+      // cached base before merging with the snapshot. Without this
+      // filter, a cache write that happened DURING the optimistic
+      // window of `send()` (e.g. a `loadHistory` that ran between
+      // send() and `onStarted`) leaves the local-* user/assistant in
+      // the cached set even after `onStarted` has remapped the
+      // snapshot to canonical server ids — and the next swap-back
+      // restore then merges the cached `local-user-*` AND the
+      // snapshot's `server-user-*` side by side, rendering the
+      // founder's reported "two of my bubbles, one is a phantom".
+      const filteredExisting = (existing?.messages ?? []).filter(
+        (message) =>
+          !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+      );
+      const messages = mergeChatMessagesById(filteredExisting, snapshot.messages);
       cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
         ...snapshot,
         messages,
@@ -816,14 +848,30 @@ export function useChat(threadKey: string): UseChatReturn {
     // thread switch and never flickers down to a 2-message window.
     const restoredMessages = (() => {
       if (liveSnapshot === undefined) {
-        return restoredSnapshot?.messages ?? [];
+        // Even on the no-live-snapshot path, never resurrect a stale
+        // optimistic / transient placeholder that may have leaked
+        // into cache from an earlier in-flight write.
+        return (restoredSnapshot?.messages ?? []).filter(
+          (message) =>
+            !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+        );
       }
       const liveUserId = liveSnapshot.liveUserMessageId;
       const liveAssistantId = liveSnapshot.liveAssistantMessageId;
       const liveTurnIds = new Set<string>(
         [liveUserId, liveAssistantId].filter((value): value is string => typeof value === "string")
       );
-      const cachedBase = cachedHistorySnapshot?.messages ?? [];
+      // STRIP optimistic / transient ids from the cached base. They are
+      // by definition transient (the snapshot's canonical
+      // liveUserMessageId / liveAssistantMessageId is the truth) and
+      // leaving them in produces the duplicate-bubble symptom: cached
+      // has `local-user-XXX` from a write that happened before
+      // `onStarted` remapped it, the snapshot now carries the canonical
+      // `server-user-NEW`, and the merge appends both side by side.
+      const cachedBase = (cachedHistorySnapshot?.messages ?? []).filter(
+        (message) =>
+          !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
+      );
       const cachedIds = new Set(cachedBase.map((message) => message.id));
       const liveTurnMessages = liveSnapshot.messages.filter(
         (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)

@@ -4508,6 +4508,216 @@ describe("useChat", () => {
       });
     });
 
+    it("swap A→B→A does NOT produce a duplicate user bubble when cached history was written between send() and onStarted (optimistic local-user-* leak)", async () => {
+      // Founder live-repro: after the previous chat-swap fix landed,
+      // a phantom second user bubble appeared next to the real one in
+      // the live chat after a swap. Root cause: cached history could
+      // be written DURING the optimistic window of `send()` (e.g. a
+      // `loadHistory` that ran between send() and onStarted), so the
+      // cache snapshot stored the `local-user-*` id; later
+      // `onStarted` remapped the snapshot's id to `server-user-*`,
+      // and on swap-back the restore merged BOTH the cached
+      // `local-user-*` and the snapshot's canonical `server-user-*`
+      // side by side — same content, different ids, two bubbles.
+      let resolveStartedGate: (() => void) | null = null;
+      const startedGate = new Promise<void>((resolve) => {
+        resolveStartedGate = resolve;
+      });
+      let releaseStream: (() => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          // Hold off on onStarted until the test explicitly releases
+          // the gate, so we can simulate a `loadHistory` running
+          // BEFORE the optimistic local-user id has been remapped.
+          await startedGate;
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Streaming..." });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => resolve();
+          });
+        }
+      );
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          activeTurn: null,
+          messages: [
+            // Server doesn't yet have the live user message persisted
+            // because onStarted hasn't fired. The cache write that
+            // happens at this loadHistory's tail will therefore
+            // include the snapshot's optimistic `local-user-*` id.
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "B",
+              attachments: [],
+              createdAt: "2026-04-25T17:05:00.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          activeTurn: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            },
+            // Live user is now persisted server-side.
+            {
+              id: "server-user-A-live",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "long Q",
+              attachments: [],
+              createdAt: "2026-04-25T17:10:00.000Z"
+            }
+          ]
+        });
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("long Q");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+      // While the optimistic local-user is still in snapshot (gate not
+      // released), simulate a `loadHistory` running mid-flight (e.g.
+      // page effect re-fired). This will write the cache with the
+      // optimistic local-user snapshot included.
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      // NOW release onStarted so the snapshot remaps the user id from
+      // the optimistic local id to the canonical server id.
+      await act(async () => {
+        resolveStartedGate?.();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        const ids = result.current.messages.map((m) => m.id);
+        return expect(ids).toContain("server-user-A-live");
+      });
+
+      // Swap A → B → A.
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      rerender({ threadKey: "thread-A" });
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+
+      // The user bubble for the live turn must appear EXACTLY ONCE.
+      // Pre-fix the cached `local-user-*` and the snapshot's
+      // `server-user-A-live` would both render.
+      const userMessages = result.current.messages.filter((m) => m.role === "user");
+      const liveUserBubbles = userMessages.filter(
+        (m) => m.id === "server-user-A-live" || m.id.startsWith("local-user-")
+      );
+      expect(liveUserBubbles.length).toBe(1);
+      // And it should be the canonical server-mapped id.
+      expect(liveUserBubbles[0]?.id).toBe("server-user-A-live");
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
     it("soft-detach reattach (running status) PRESERVES older committed history above the live turn", async () => {
       // Internal-fix regression test: when applyTurnStatusState is
       // invoked with a running status (the path softDetachReconcile +

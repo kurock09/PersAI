@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Web stream continuity — pt 3: optimistic-id leak into cached history) — `cacheThreadHistorySnapshot`, the swap-back restore, and `mergeCommittedHistoryWithActiveTurn` now strip `local-user-*` / `local-assistant-*` / `active-assistant-*` from cached history; the chat-swap duplicate-bubble symptom (two of the same user message appearing side by side, one optimistic and one server-mapped) no longer reproduces (`apps/web`; focused vitest + full web vitest + repo lint/format/typecheck green)
+
+### Why this session
+
+Founder live-validated the previous pt-2 fix and reported that the stream itself now survives chat A→B→A swaps, but a NEW symptom appeared: on swap-back, a second copy of his own user bubble showed up next to the real one (or just above / below it), sometimes with content that looked like it came from a neighbouring chat or older state. F5 fixed it. The previous symptoms (live bubble / older history disappearing, phantom `Думаю...`) were gone.
+
+### Diagnosis (additional root cause, not symptom)
+
+`cacheThreadHistorySnapshot` and the swap-back restore both treated the cached history snapshot as authoritative and merged it with the live snapshot's `liveUserMessageId` / `liveAssistantMessageId`. When a `loadHistory` ran during the optimistic window of `send()` (the period between `send()` initialising the snapshot with `local-user-XXX` / `local-assistant-XXX` and the server's `onStarted` event remapping them to `server-user-NEW` / `server-assistant-NEW`), the cache snapshot stored the optimistic `local-*` ids — exactly the founder-reported timing where a swap or re-render between send and onStarted is plausible. Subsequently `onStarted` remapped the snapshot to the canonical server ids, but the cache STILL carried the original `local-user-*` entry. On the next swap-back restore (or the no-replace branch of `mergeCommittedHistoryWithActiveTurn` inside `loadHistory`'s cached path), the merge appended the snapshot's canonical `server-user-*` next to the cached `local-user-*` — same content, different ids, two bubbles. F5 fixed it because hard reload rebuilt cache from authoritative server history with no local-* survivors.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - `cacheThreadHistorySnapshot` now strips `local-user-*` / `local-assistant-*` / `active-assistant-*` from the EXISTING cached base before merging with the new snapshot. Optimistic / transient ids never persist into cache going forward.
+  - The synchronous swap-back restore (`prevThreadKeyRef` block) now also filters optimistic / transient ids out of the cached base before computing `liveTurnMessages` and merging with the snapshot. This is defence in depth — even if a stale cache entry from before this fix still has a `local-user-*` (e.g. left over from a previous session), the restore no longer renders it.
+  - The no-snapshot branch of the same restore filters optimistic / transient ids out of `restoredSnapshot.messages` for the same reason.
+  - `mergeCommittedHistoryWithActiveTurn` now sanitises `loaded` (the cached history input) by removing optimistic / transient ids in BOTH the no-replace branch (line 552 path) and the replace branch (line 562 path). The snapshot's canonical `liveUserMessageId` / `liveAssistantMessageId` is the truth; any optimistic stub in `loaded` is by definition stale and would otherwise duplicate alongside the snapshot's server-mapped entry.
+
+### Regression test added
+
+In `apps/web/app/app/_components/use-chat.test.tsx` (`stream continuity regression suite (live-id scoping)`):
+
+- `swap A→B→A does NOT produce a duplicate user bubble when cached history was written between send() and onStarted (optimistic local-user-* leak)` — pins the founder's live repro by gating `onStarted`, running a `loadHistory` while the snapshot is still optimistic, releasing `onStarted` so the snapshot remaps to the server id, then swapping A→B→A. Asserts that the live user bubble appears EXACTLY ONCE and is the canonical `server-user-A-live` id, not the optimistic `local-user-*` cached stub.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 57 / 57 pass.
+- `corepack pnpm --filter @persai/web exec vitest run` — 207 / 207 pass.
+- `corepack pnpm -r --if-present run lint` — green.
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+
+### Files touched
+
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- Pre-existing cached snapshots in user sessionStorage / in-memory state from before this fix may still contain `local-*` ids until they're overwritten by the next `cacheThreadHistorySnapshot` call (or hard-reloaded). The restore-side filter mitigates this, so even if a stale cache survives until the next swap, the visible state is correct.
+- `loadHistory` tail at line ~2982 still writes `messagesForCache` directly without filtering. This is normally fine because by that point the snapshot's optimistic ids should have been merged through `mergeCommittedHistoryWithActiveTurn` (which I just sanitised) and `messagesForCache` reflects the merged result. But if a future code path constructs `messagesForCache` from a path that bypasses the merge, the cache could regress. I left this unchanged for now (the merge is the choke point) but it's worth a follow-up audit.
+- Live verification by founder still needed for: (a) swap A→B→A produces a single user bubble for the most recent send, (b) swap during the optimistic window between send() and onStarted does not duplicate.
+
+### Next recommended step
+
+Founder live-validates the duplicate-bubble repro on the deployed dev cluster:
+
+1. Open Chat A. Send a long question. Swap to Chat B and back to Chat A while the stream is still in flight.
+2. Verify the user message bubble for the live turn appears EXACTLY ONCE and the stream content continues normally.
+3. Bonus: try swap-back IMMEDIATELY after pressing Enter (before the visible "send" animation completes) to maximise the optimistic-window race.
+
+If the duplicate-bubble symptom returns, capture the `chat.messages` array from React DevTools at the moment of the duplicate so we can see whether both ids are `local-*` / `server-*` (still the same root cause) or something else entirely.
+
+---
+
 ## 2026-04-30 (Web stream continuity — pt 2: thread-restore window collapse) — `applyTurnStatusState` running branch + thread-switch synchronous restore no longer shrink visible state down to `[user, liveAssistant]`; older committed history above the live turn now survives a focus / soft-detach reattach AND a chat A→B→A→B→A double-swap (`apps/web`; focused vitest + full web vitest + repo lint/format/typecheck green)
 
 ### Why this session
