@@ -565,6 +565,64 @@ function committedHistoryHasActiveSnapshotResult(
         message.id !== liveAssistantId
     );
 }
+function dropSupersededLiveAssistantPlaceholder(
+  messages: ChatMessage[],
+  activeSnapshot: ActiveTurnSnapshot | undefined
+): ChatMessage[] {
+  if (activeSnapshot === undefined) {
+    return messages;
+  }
+  const liveUserId = activeSnapshot.liveUserMessageId;
+  const liveAssistantId = activeSnapshot.liveAssistantMessageId;
+  if (liveUserId === null || liveUserId.startsWith("local-user-")) {
+    return messages;
+  }
+  const liveUserIndex = messages.findIndex((message) => message.id === liveUserId);
+  if (liveUserIndex < 0) {
+    return messages;
+  }
+  const hasCommittedAssistantAfterLiveUser = messages
+    .slice(liveUserIndex + 1)
+    .some(
+      (message) =>
+        message.role === "assistant" &&
+        !isLocalScopedAssistantId(message.id) &&
+        message.id !== liveAssistantId
+    );
+  if (!hasCommittedAssistantAfterLiveUser || !isLocalScopedAssistantId(liveAssistantId)) {
+    return messages;
+  }
+  return messages.filter((message) => message.id !== liveAssistantId);
+}
+function getSnapshotTerminalAssistantReplacementId(
+  snapshot: ActiveTurnSnapshot,
+  liveTurnIds: Set<string>
+): string | null {
+  const liveUserId = snapshot.liveUserMessageId;
+  const liveAssistantId = snapshot.liveAssistantMessageId;
+  if (
+    liveUserId === null ||
+    liveUserId.startsWith("local-user-") ||
+    !isLocalScopedAssistantId(liveAssistantId) ||
+    snapshot.messages.some((message) => message.id === liveAssistantId)
+  ) {
+    return null;
+  }
+  const liveUserIndex = snapshot.messages.findIndex((message) => message.id === liveUserId);
+  if (liveUserIndex < 0) {
+    return null;
+  }
+  return (
+    snapshot.messages
+      .slice(liveUserIndex + 1)
+      .find(
+        (message) =>
+          message.role === "assistant" &&
+          !liveTurnIds.has(message.id) &&
+          !isLocalScopedAssistantId(message.id)
+      )?.id ?? null
+  );
+}
 function mergeCommittedHistoryWithActiveTurn(input: {
   loaded: ChatMessage[];
   activeSnapshot: ActiveTurnSnapshot | undefined;
@@ -639,17 +697,18 @@ function mergeCommittedHistoryWithActiveTurn(input: {
     const sanitizedLoaded = loaded.filter(
       (message) => !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
     );
-    const sanitizedLoadedIds = new Set(sanitizedLoaded.map((message) => message.id));
-    const liveSnapshotMessages = activeSnapshot.messages.filter((message) => {
-      if (liveTurnIds.has(message.id)) return true;
-      if (sanitizedLoadedIds.has(message.id)) return false;
-      if (isOptimisticLocalMessage(message) || isTransientActiveAssistantMessage(message)) {
-        return false;
-      }
-      return message.role === "assistant";
-    });
+    const terminalReplacementAssistantId = getSnapshotTerminalAssistantReplacementId(
+      activeSnapshot,
+      liveTurnIds
+    );
+    const liveSnapshotMessages = activeSnapshot.messages.filter(
+      (message) => liveTurnIds.has(message.id) || message.id === terminalReplacementAssistantId
+    );
     return {
-      messages: mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages),
+      messages: dropSupersededLiveAssistantPlaceholder(
+        mergeChatMessagesById(sanitizedLoaded, liveSnapshotMessages),
+        activeSnapshot
+      ),
       replacedActiveTurn: false
     };
   }
@@ -880,7 +939,10 @@ export function useChat(threadKey: string): UseChatReturn {
         (message) =>
           !isOptimisticLocalMessage(message) && !isTransientActiveAssistantMessage(message)
       );
-      const messages = mergeChatMessagesById(filteredExisting, snapshot.messages);
+      const messages = dropSupersededLiveAssistantPlaceholder(
+        mergeChatMessagesById(filteredExisting, snapshot.messages),
+        snapshot
+      );
       cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
         ...snapshot,
         messages,
@@ -1040,21 +1102,17 @@ export function useChat(threadKey: string): UseChatReturn {
       const liveTurnIds = new Set<string>(
         [liveUserId, liveAssistantId].filter((value): value is string => typeof value === "string")
       );
-      const cachedIds = new Set(cachedBase.map((message) => message.id));
-      // Snapshot may legitimately contain messages that are NOT yet in
-      // the cache (e.g. a server-assistant just appended by
-      // `refreshLatestHistory`'s missing-tail logic, or an in-flight
-      // streaming-deltas chunk that has not yet been written back to
-      // cache by `cacheThreadHistorySnapshot`). Keep those, plus the
-      // live turn pair (canonical source for in-flight live state).
-      const liveTurnMessages = liveSnapshot.messages.filter((message) => {
-        if (liveTurnIds.has(message.id)) return true;
-        if (cachedIds.has(message.id)) return false;
-        if (isOptimisticLocalMessage(message) || isTransientActiveAssistantMessage(message)) {
-          return false;
-        }
-        return message.role === "assistant";
-      });
+      const terminalReplacementAssistantId = getSnapshotTerminalAssistantReplacementId(
+        liveSnapshot,
+        liveTurnIds
+      );
+      // Snapshot restore is allowed to contribute only the canonical live
+      // pair. Committed history belongs to cache/server history; accepting
+      // arbitrary assistant messages from snapshot lets another thread's
+      // assistant tail reappear during A->B->A swaps.
+      const liveTurnMessages = liveSnapshot.messages.filter(
+        (message) => liveTurnIds.has(message.id) || message.id === terminalReplacementAssistantId
+      );
       return mergeChatMessagesById(cachedBase, liveTurnMessages);
     })();
     setMessages(restoredMessages);

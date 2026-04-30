@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Web chat A→B→A assistant-tail contamination + focus terminal snapshot cleanup) — live Chrome/GKE debug found two client-state lifecycle bugs: completed primary streams could cache an old local streaming assistant placeholder, and swap-back restore could append arbitrary non-live assistant messages from `activeTurnSnapshot.messages`; fixed restore/cache to accept only the canonical live pair plus a terminal replacement assistant, and pinned with focused regressions (`apps/web`; `use-chat.test.tsx` 63/63 green)
+
+### Why this session
+
+Founder reproduced two remaining web chat continuity bugs in the live Chrome session after the prior deploy:
+
+- focus/app switch could leave a duplicated assistant answer: a stale streaming local bubble plus the committed server answer
+- A→B→A swap could show several assistant messages from a neighboring/older visible window under the current user message, while F5 restored clean server truth
+
+### Diagnosis
+
+- GKE showed the backend turns completed normally; `/messages?limit=20` returned `activeTurn:null` and clean committed history.
+- Live Chrome confirmed the bug was frontend state contamination:
+  - current chat server history had one user (`25644...`) and one final assistant (`3ee...`)
+  - DOM had extra committed assistant bubbles (`7353...`, `eb1a...`, `642e...`) between that user and the final assistant
+- Snapshot debug showed those extra assistant ids were already inside `activeTurnSnapshotsRef.current[thread].messages` during `applyThreadMessages`.
+- Root cause 1: after terminal completion, `activeTurnSnapshot.messages` / cache could keep the old `local-assistant-*` streaming bubble even after visible messages had been remapped to the server assistant id.
+- Root cause 2: swap-back restore treated any assistant in `liveSnapshot.messages` that was missing from cache as valid carry-over. Since `activeTurnSnapshot.messages` is a visible-state container, not a pure live-pair store, this allowed non-live assistant tails from polluted visible state to be appended into the active chat.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Added terminal snapshot/cache cleanup so a local live assistant placeholder cannot survive beside the committed server assistant for the same turn.
+  - Tightened active-snapshot restore/merge: snapshot can contribute only the canonical live user/live assistant ids.
+  - Preserved the legitimate terminal reattach case by allowing one server assistant replacement only when the local live assistant id has already been removed from snapshot messages.
+- `apps/web/app/app/_components/use-chat.test.tsx`:
+  - Added regression coverage for completed history not restoring the old primary local assistant.
+  - Extended active-snapshot pollution regression to cover both non-live user and non-live assistant messages disappearing from authoritative history.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "does not restore the primary local assistant"` — passed.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "history refresh drops non-live messages"` — passed.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 63 / 63 passed.
+- `ReadLints` on `use-chat.ts` and `use-chat.test.tsx` — clean.
+
+### Next recommended step
+
+Run full repo lint/format/typecheck, commit/push if requested, deploy web, then repeat the founder repro with `persai.debug.chatSnapshots=1`: long answer in Chat A, switch to Chat B, return to Chat A, and verify Chrome DOM matches `/messages?limit=20` after terminal completion with no extra assistant/user bubbles.
+
+---
+
 ## 2026-05-01 (Web chat focus-return stream id race + A→B→A diagnostic instrumentation) — live Chrome/GKE audit found the focus-return stream freeze root cause: a running turn-status refresh could replace the live assistant id while the original primary SSE stream still owned the turn; fixed that race and added gated snapshot-debug instrumentation for the remaining A→B→A phantom-source hunt (`apps/web`; focused regression fails on old logic and passes on fix)
 
 ### Why this session

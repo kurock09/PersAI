@@ -416,6 +416,116 @@ describe("useChat", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("does not restore the primary local assistant after completed history replaces it", async () => {
+    let releaseStream: (() => void) | null = null;
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onHeadersOk?: () => void;
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onDelta?: (payload: { delta: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onHeadersOk?.();
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onDelta?.({ delta: "Visible streaming text " });
+        await new Promise<void>((resolve) => {
+          releaseStream = resolve;
+        });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "Visible streaming text final",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const completedHistory = {
+      nextCursor: null,
+      activeTurn: null,
+      messages: [
+        {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Hello",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:09.000Z"
+        },
+        {
+          id: "assistant-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Visible streaming text final",
+          attachments: [],
+          createdAt: "2026-04-30T21:21:10.000Z"
+        }
+      ]
+    };
+    assistantApiMocks.getChatMessages.mockResolvedValue(completedHistory);
+
+    const { result, rerender } = renderHook(
+      ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+      {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>,
+        initialProps: { threadKey: "thread-1" }
+      }
+    );
+
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = result.current.send("Hello", undefined, { clientTurnId: "client-turn-1" });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.isStreaming).toBe(true));
+    expect(
+      result.current.messages.some((message) => message.id.startsWith("local-assistant-"))
+    ).toBe(true);
+
+    await act(async () => {
+      releaseStream?.();
+      if (sendPromise !== undefined) {
+        await sendPromise;
+      }
+    });
+    expect(result.current.messages.map((message) => message.id)).toEqual([
+      "user-msg-1",
+      "assistant-msg-1"
+    ]);
+
+    await act(async () => {
+      await result.current.loadHistory("chat-1");
+    });
+    rerender({ threadKey: "thread-2" });
+    rerender({ threadKey: "thread-1" });
+
+    const ids = result.current.messages.map((message) => message.id);
+    expect(ids).toEqual(["user-msg-1", "assistant-msg-1"]);
+    expect(result.current.messages.filter((message) => message.role === "assistant")).toHaveLength(
+      1
+    );
+    expect(result.current.messages.some((message) => message.status === "streaming")).toBe(false);
+    expect(ids.some((id) => id.startsWith("local-assistant-"))).toBe(false);
+  });
+
   it("keeps authoritative interrupted partial text instead of the shorter streamed prefix", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
@@ -5025,7 +5135,7 @@ describe("useChat", () => {
       });
     });
 
-    it("history refresh drops non-live user messages that leaked into the active snapshot but disappeared from authoritative history", async () => {
+    it("history refresh drops non-live messages that leaked into the active snapshot but disappeared from authoritative history", async () => {
       let releaseStream: (() => void) | null = null;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
@@ -5084,6 +5194,15 @@ describe("useChat", () => {
               content: "stale user that must not survive the next authoritative refresh",
               attachments: [],
               createdAt: "2026-04-25T17:00:05.000Z"
+            },
+            {
+              id: "server-assistant-A-stray",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "stray assistant tail from a different visible window",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:06.000Z"
             }
           ]
         })
@@ -5119,13 +5238,14 @@ describe("useChat", () => {
         expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-live");
       });
 
-      // First refresh pollutes the active snapshot with a non-live user.
+      // First refresh pollutes the active snapshot with non-live messages.
       await act(async () => {
         await result.current.loadHistory("chat-A");
       });
       expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-stale");
+      expect(result.current.messages.map((m) => m.id)).toContain("server-assistant-A-stray");
 
-      // Next authoritative refresh no longer contains that user. Pre-fix,
+      // Next authoritative refresh no longer contains those messages. Pre-fix,
       // mergeCommittedHistoryWithActiveTurn kept it from snapshot.messages
       // because it was a non-cached id, so it could later reappear beside the
       // live assistant during chat swaps. It must now be purged.
@@ -5133,6 +5253,7 @@ describe("useChat", () => {
         await result.current.loadHistory("chat-A");
       });
       expect(result.current.messages.map((m) => m.id)).not.toContain("server-user-A-stale");
+      expect(result.current.messages.map((m) => m.id)).not.toContain("server-assistant-A-stray");
       expect(result.current.messages.map((m) => m.id)).toContain("server-user-A-live");
 
       await act(async () => {
