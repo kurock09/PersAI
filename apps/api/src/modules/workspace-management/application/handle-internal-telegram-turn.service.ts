@@ -19,6 +19,7 @@ import {
 } from "../domain/assistant-channel-surface-binding.repository";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { SendNativeTelegramTurnService } from "./send-native-telegram-turn.service";
+import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -68,7 +69,8 @@ export class HandleInternalTelegramTurnService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly inboundMediaService: InboundMediaService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
-    private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService
+    private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
+    private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -201,6 +203,13 @@ export class HandleInternalTelegramTurnService {
         });
         enrichedMessage = resolvedInboundMedia.enrichedMessage;
         mediaSystemNotices = resolvedInboundMedia.systemNotices;
+        await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
+          assistantId: resolved.assistantId,
+          chatId: chat.id,
+          messageId: userMessage.id,
+          channel: "telegram",
+          attachments: resolvedInboundMedia.attachments
+        });
         runtimeAttachments = resolvedInboundMedia.attachments.map((attachment) =>
           toRuntimeAttachmentRef(attachment)
         );

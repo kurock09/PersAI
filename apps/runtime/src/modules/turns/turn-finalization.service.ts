@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import type {
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
@@ -25,6 +25,8 @@ export interface InterruptAcceptedTurnInput {
 
 @Injectable()
 export class TurnFinalizationService {
+  private readonly logger = new Logger(TurnFinalizationService.name);
+
   constructor(
     private readonly runtimeStatePostgresService: RuntimeStatePostgresService,
     private readonly sessionStoreService: SessionStoreService,
@@ -121,6 +123,11 @@ export class TurnFinalizationService {
         leaseReleased = await this.releaseLeaseQuietly(input.acceptedTurn);
       }
     }
+    if (!leaseReleased) {
+      this.logger.warn(
+        `runtime_turn_interrupted_lease_not_released requestId=${input.acceptedTurn.receipt.requestId} sessionId=${input.acceptedTurn.session.sessionId}`
+      );
+    }
 
     return {
       receiptStatus: "interrupted",
@@ -143,6 +150,7 @@ export class TurnFinalizationService {
     try {
       await this.runtimeStatePostgresService.markTurnReceiptFailed({
         requestId: acceptedTurn.receipt.requestId,
+        resultPayload: event,
         errorCode: event.code,
         errorMessage: event.message,
         completedAt
@@ -152,6 +160,11 @@ export class TurnFinalizationService {
       if (terminalReceiptPersisted) {
         leaseReleased = await this.releaseLeaseQuietly(acceptedTurn);
       }
+    }
+    if (!leaseReleased) {
+      this.logger.warn(
+        `runtime_turn_failed_lease_not_released requestId=${acceptedTurn.receipt.requestId} sessionId=${acceptedTurn.session.sessionId} code=${event.code}`
+      );
     }
 
     return {

@@ -5,6 +5,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
+  RuntimeOutputArtifact,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -26,6 +27,7 @@ import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout
 import type { RuntimeTier } from "./runtime-assignment";
 
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
+const DEGRADED_TOOL_OUTPUT_MESSAGE = "Tool completed, but follow-up text was interrupted.";
 
 export interface StreamNativeWebChatTurnInput {
   assistantId: string;
@@ -160,6 +162,27 @@ export class StreamNativeWebChatTurnService {
 
       let accumulated = "";
       const emittedArtifactIds = new Set<string>();
+      const yieldArtifacts = async function* (
+        artifacts: RuntimeOutputArtifact[]
+      ): AsyncGenerator<AssistantRuntimeWebChatTurnStreamChunk> {
+        const remainingArtifacts = artifacts.filter((artifact) => {
+          if (emittedArtifactIds.has(artifact.artifactId)) {
+            return false;
+          }
+          emittedArtifactIds.add(artifact.artifactId);
+          return true;
+        });
+        if (remainingArtifacts.length === 0) {
+          return;
+        }
+        const media = runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts);
+        if (media.length > 0) {
+          yield {
+            type: "media",
+            media
+          };
+        }
+      };
       for await (const event of this.readRuntimeStream(response)) {
         switch (event.type) {
           case "started":
@@ -210,26 +233,65 @@ export class StreamNativeWebChatTurnService {
               }
             }
             continue;
-          case "interrupted":
-            throw this.toInterruptedRuntimeError(event);
-          case "failed":
-            throw this.toRuntimeFailedError(event);
-          case "completed": {
-            const remainingArtifacts = event.result.artifacts.filter((artifact) => {
-              if (emittedArtifactIds.has(artifact.artifactId)) {
-                return false;
-              }
-              emittedArtifactIds.add(artifact.artifactId);
-              return true;
-            });
-            if (remainingArtifacts.length > 0) {
-              const media = runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts);
-              if (media.length > 0) {
+          case "interrupted": {
+            for await (const chunk of yieldArtifacts(event.artifacts ?? [])) {
+              yield chunk;
+            }
+            if (emittedArtifactIds.size === 0 && event.assistantText.trim().length === 0) {
+              throw this.toInterruptedRuntimeError(event);
+            }
+            const assistantText = this.resolveDegradedAssistantMessage(event.assistantText);
+            if (
+              assistantText.length > accumulated.length &&
+              assistantText.startsWith(accumulated)
+            ) {
+              const delta = assistantText.slice(accumulated.length);
+              if (delta.length > 0) {
+                accumulated = assistantText;
                 yield {
-                  type: "media",
-                  media
+                  type: "delta",
+                  delta,
+                  accumulated: assistantText
                 };
               }
+            } else if (accumulated.trim().length === 0) {
+              accumulated = assistantText;
+              yield {
+                type: "delta",
+                delta: assistantText,
+                accumulated: assistantText
+              };
+            }
+            yield {
+              type: "done",
+              respondedAt: event.respondedAt ?? new Date().toISOString(),
+              ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+            };
+            return;
+          }
+          case "failed": {
+            for await (const chunk of yieldArtifacts(event.artifacts ?? [])) {
+              yield chunk;
+            }
+            if (emittedArtifactIds.size > 0) {
+              accumulated = DEGRADED_TOOL_OUTPUT_MESSAGE;
+              yield {
+                type: "delta",
+                delta: DEGRADED_TOOL_OUTPUT_MESSAGE,
+                accumulated: DEGRADED_TOOL_OUTPUT_MESSAGE
+              };
+              yield {
+                type: "done",
+                respondedAt: new Date().toISOString(),
+                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+              };
+              return;
+            }
+            throw this.toRuntimeFailedError(event);
+          }
+          case "completed": {
+            for await (const chunk of yieldArtifacts(event.result.artifacts)) {
+              yield chunk;
             }
             const assistantText = event.result.assistantText;
             if (
@@ -490,6 +552,11 @@ export class StreamNativeWebChatTurnService {
         ? "Native runtime stream interrupted before completion."
         : "Native runtime stream interrupted without assistant output."
     );
+  }
+
+  private resolveDegradedAssistantMessage(assistantText: string): string {
+    const trimmed = assistantText.trim();
+    return trimmed.length > 0 ? trimmed : DEGRADED_TOOL_OUTPUT_MESSAGE;
   }
 
   private throwForFailedResponse(response: JsonResponse): never {

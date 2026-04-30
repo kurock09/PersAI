@@ -25,6 +25,7 @@ import {
 } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { toRuntimeAttachmentRef } from "./media/media.types";
+import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
@@ -137,6 +138,7 @@ export class SendWebChatTurnService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
+    private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -235,6 +237,13 @@ export class SendWebChatTurnService {
       const userAttachments = await this.attachmentRepository.listByMessageId(
         prepared.userMessage.id
       );
+      await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
+        assistantId: prepared.assistantId,
+        chatId: prepared.chat.id,
+        messageId: prepared.userMessage.id,
+        channel: "web",
+        attachments: userAttachments
+      });
       const baseMessage = request.welcomeTurn
         ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, request.welcomeLocale)
         : prepared.userMessage.content;

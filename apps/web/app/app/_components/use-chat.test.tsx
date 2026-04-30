@@ -3422,6 +3422,201 @@ describe("useChat", () => {
       }
     });
 
+    it("keeps a soft-detached long turn alive past the old polling cap and reconciles later", async () => {
+      vi.useFakeTimers();
+      try {
+        assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onHeadersOk?: () => void;
+              onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            }
+          ) => {
+            handlers.onHeadersOk?.();
+            handlers.onStarted?.({
+              chat: { id: "chat-1" },
+              userMessage: { id: "server-user-1", chatId: "chat-1", attachments: [] }
+            });
+            throw new TypeError("network disconnected after headers");
+          }
+        );
+        assistantApiMocks.reattachAssistantWebChatTurnStream.mockRejectedValue(
+          new Error("reattach unavailable")
+        );
+
+        const incompleteHistory = {
+          nextCursor: null,
+          activeTurn: null,
+          messages: [
+            {
+              id: "older-user-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "older",
+              attachments: [],
+              createdAt: "2026-04-25T17:40:00.000Z"
+            },
+            {
+              id: "older-assistant-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Older answer.",
+              attachments: [],
+              createdAt: "2026-04-25T17:40:05.000Z"
+            }
+          ]
+        };
+        const completedHistory = {
+          nextCursor: null,
+          activeTurn: null,
+          messages: [
+            {
+              id: "server-user-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "long image turn",
+              attachments: [],
+              createdAt: "2026-04-25T17:45:35.000Z"
+            },
+            {
+              id: "server-assistant-1",
+              chatId: "chat-1",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Finally done.",
+              attachments: [],
+              createdAt: "2026-04-25T17:48:03.000Z"
+            }
+          ]
+        };
+        assistantApiMocks.getChatMessages.mockResolvedValue(incompleteHistory);
+
+        const { result } = renderHook(() => useChat("thread-1"), {
+          wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+        });
+
+        let sendPromise: Promise<void> | undefined;
+        await act(async () => {
+          sendPromise = result.current.send("long image turn");
+          await Promise.resolve();
+        });
+        await act(async () => {
+          await sendPromise;
+        });
+
+        await vi.waitFor(() => expect(result.current.isStreaming).toBe(true));
+        expect(result.current.messages.some((message) => message.status === "streaming")).toBe(
+          true
+        );
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(122_000);
+        });
+        expect(assistantApiMocks.getChatMessages.mock.calls.length).toBeGreaterThanOrEqual(60);
+        expect(result.current.isStreaming).toBe(true);
+        expect(result.current.messages.some((message) => message.status === "streaming")).toBe(
+          true
+        );
+
+        assistantApiMocks.getChatMessages.mockResolvedValue(completedHistory);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(20_000);
+        });
+        await vi.waitFor(() => {
+          expect(result.current.isStreaming).toBe(false);
+          expect(result.current.messages.map((message) => message.id)).toEqual([
+            "server-user-1",
+            "server-assistant-1"
+          ]);
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps a post-headers passive disconnect recoverable even before onStarted provides a chat id", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          throw new TypeError("network disconnected before started event");
+        }
+      );
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onReattached?: (payload: { turn: unknown; live: boolean }) => void;
+          }
+        ) => {
+          handlers.onReattached?.({
+            live: false,
+            turn: {
+              status: "completed",
+              chat: { id: "chat-1" },
+              userMessage: {
+                id: "server-user-1",
+                chatId: "chat-1",
+                assistantId: "assistant-1",
+                author: "user",
+                content: "recover without started",
+                attachments: [],
+                createdAt: "2026-04-25T17:45:35.000Z"
+              },
+              assistantMessage: {
+                id: "server-assistant-1",
+                chatId: "chat-1",
+                assistantId: "assistant-1",
+                author: "assistant",
+                content: "Recovered.",
+                attachments: [],
+                createdAt: "2026-04-25T17:45:45.000Z"
+              },
+              currentActivity: null,
+              runtime: null,
+              error: null
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("recover without started");
+        await Promise.resolve();
+      });
+      await act(async () => {
+        await sendPromise;
+      });
+
+      await waitFor(() =>
+        expect(assistantApiMocks.reattachAssistantWebChatTurnStream).toHaveBeenCalledTimes(1)
+      );
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(false);
+        expect(result.current.messages.map((message) => message.id)).toEqual([
+          "server-user-1",
+          "server-assistant-1"
+        ]);
+      });
+      expect(assistantApiMocks.stopAssistantWebChatTurn).not.toHaveBeenCalled();
+    });
+
     it("uses turn status when tail history does not include the completed turn", async () => {
       Object.defineProperty(document, "visibilityState", {
         configurable: true,

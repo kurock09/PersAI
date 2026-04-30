@@ -362,4 +362,93 @@ describe("SendNativeTelegramTurnService", () => {
         error.message.includes("PERSAI_RUNTIME_BASE_URL")
     );
   });
+
+  test("returns degraded media result when runtime fails after emitting an artifact", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-3",
+            sessionId: "runtime-session-3"
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-3",
+            sessionId: "runtime-session-3",
+            artifact: {
+              artifactId: "artifact-degraded-1",
+              kind: "image",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+              mimeType: "image/png",
+              filename: "degraded.png",
+              sizeBytes: 512,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
+            type: "failed",
+            requestId: "runtime-request-3",
+            sessionId: "runtime-session-3",
+            code: "provider_stream_failed",
+            message: "Follow-up failed.",
+            willRetry: false,
+            artifacts: [
+              {
+                artifactId: "artifact-degraded-1",
+                kind: "image",
+                objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+                mimeType: "image/png",
+                filename: "degraded.png",
+                sizeBytes: 512,
+                voiceNote: false
+              }
+            ]
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new SendNativeTelegramTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const result = await service.execute({
+        assistantId: "assistant-1",
+        publishedVersionId: "version-1",
+        runtimeTier: "paid_shared_restricted",
+        workspaceId: "workspace-1",
+        threadId: "telegram-chat-1",
+        externalUserKey: "telegram-user-1",
+        mode: "direct",
+        userMessageId: "message-1",
+        userMessage: "generate image",
+        attachments: []
+      });
+
+      assert.equal(result.assistantMessage, "Tool completed, but follow-up text was interrupted.");
+      assert.deepEqual(result.media, [
+        {
+          source: "persai_object_storage",
+          objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+          type: "image",
+          mimeType: "image/png",
+          filename: "degraded.png",
+          sizeBytes: 512
+        }
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

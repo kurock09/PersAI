@@ -35,6 +35,7 @@ import { useStreamingThreadsRegistry } from "./streaming-threads";
 /** Avoid duplicate focus/visibility refresh bursts from the same browser resume. */ const RESUME_REFRESH_DEBOUNCE_MS = 1_500;
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
+const SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS = 10_000;
 const ACTIVE_TURN_RESTORE_INTERVAL_MS = 1_000;
 const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
 const PENDING_RECONCILE_INTERVAL_MS = 1_000;
@@ -1162,25 +1163,25 @@ export function useChat(threadKey: string): UseChatReturn {
               }));
             },
             onCompleted: async () => {
-              latestResult = "terminal";
               const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              if (targetChatId) {
-                await refreshLatestHistory(targetChatId, { targetThreadKey });
-              }
+              const reconciled = targetChatId
+                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                : false;
+              latestResult = reconciled ? "terminal" : "unknown";
             },
             onInterrupted: async () => {
-              latestResult = "terminal";
               const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              if (targetChatId) {
-                await refreshLatestHistory(targetChatId, { targetThreadKey });
-              }
+              const reconciled = targetChatId
+                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                : false;
+              latestResult = reconciled ? "terminal" : "unknown";
             },
             onFailed: async () => {
-              latestResult = "terminal";
               const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
-              if (targetChatId) {
-                await refreshLatestHistory(targetChatId, { targetThreadKey });
-              }
+              const reconciled = targetChatId
+                ? await refreshLatestHistory(targetChatId, { targetThreadKey })
+                : false;
+              latestResult = reconciled ? "terminal" : "unknown";
             }
           },
           controller.signal
@@ -1229,7 +1230,11 @@ export function useChat(threadKey: string): UseChatReturn {
           }
           const statusResult = await startTurnReattach(targetThreadKey, snapshot.clientTurnId);
           if (statusResult === "running") {
-            const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_INTERVAL_MS);
+            const interval =
+              attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS
+                ? SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS
+                : SOFT_DETACH_RECONCILE_INTERVAL_MS;
+            const timer = setTimeout(tick, interval);
             softDetachReconcileTimersByThreadRef.current.set(targetThreadKey, timer);
             return;
           }
@@ -1238,14 +1243,19 @@ export function useChat(threadKey: string): UseChatReturn {
             return;
           }
         }
-        if (attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS) {
+        const stillHasLocalActiveTurn =
+          activeTurnSnapshotsRef.current.has(targetThreadKey) ||
+          activeThreads.has(targetThreadKey) ||
+          abortControllersByThreadRef.current.has(targetThreadKey);
+        if (attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS && !stillHasLocalActiveTurn) {
           clearSoftDetachReconcileTimer(targetThreadKey);
-          markStreaming(targetThreadKey, false);
-          activeTurnSnapshotsRef.current.delete(targetThreadKey);
-          abortControllersByThreadRef.current.delete(targetThreadKey);
           return;
         }
-        const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_INTERVAL_MS);
+        const interval =
+          attempts >= SOFT_DETACH_RECONCILE_MAX_ATTEMPTS
+            ? SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS
+            : SOFT_DETACH_RECONCILE_INTERVAL_MS;
+        const timer = setTimeout(tick, interval);
         softDetachReconcileTimersByThreadRef.current.set(targetThreadKey, timer);
       };
       void tick();
@@ -1290,7 +1300,12 @@ export function useChat(threadKey: string): UseChatReturn {
           ? SOFT_DETACH_RECONCILE_MAX_ATTEMPTS
           : ACTIVE_TURN_RESTORE_MAX_ATTEMPTS;
         if (attempts >= maxAttempts) {
-          clearActiveTurnRestoreTimer(restoreKey);
+          if (!hasSeenRunning) {
+            clearActiveTurnRestoreTimer(restoreKey);
+            return;
+          }
+          const timer = setTimeout(tick, SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS);
+          activeTurnRestoreTimersByKeyRef.current.set(restoreKey, timer);
           return;
         }
         const interval = hasSeenRunning
@@ -2125,10 +2140,14 @@ export function useChat(threadKey: string): UseChatReturn {
         ) {
           const targetChatId = resolveKnownChatIdForThread(sendThreadKey);
           const hasActiveSnapshot = activeTurnSnapshotsRef.current.has(sendThreadKey);
-          if (targetChatId && hasActiveSnapshot) {
+          if (hasActiveSnapshot) {
             softDetached = true;
             softDetachedClientTurnIdsRef.current.add(clientTurnId);
-            startSoftDetachReconcile(sendThreadKey, targetChatId);
+            if (targetChatId) {
+              startSoftDetachReconcile(sendThreadKey, targetChatId);
+            } else {
+              startStoredActiveTurnRestore(sendThreadKey, clientTurnId);
+            }
           }
         } else {
           if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -2185,6 +2204,7 @@ export function useChat(threadKey: string): UseChatReturn {
       setThreadPendingSend,
       setThreadChatId,
       startSoftDetachReconcile,
+      startStoredActiveTurnRestore,
       t,
       threadKey
     ]

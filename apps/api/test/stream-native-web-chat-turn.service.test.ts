@@ -444,4 +444,107 @@ describe("StreamNativeWebChatTurnService", () => {
         error.message.includes("PERSAI_RUNTIME_BASE_URL")
     );
   });
+
+  test("completes degraded web stream when runtime fails after emitting an artifact", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4"
+          }),
+          JSON.stringify({
+            type: "artifact",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4",
+            artifact: {
+              artifactId: "artifact-degraded-1",
+              kind: "image",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+              mimeType: "image/png",
+              filename: "degraded.png",
+              sizeBytes: 512,
+              voiceNote: false
+            }
+          }),
+          JSON.stringify({
+            type: "failed",
+            requestId: "runtime-request-4",
+            sessionId: "runtime-session-4",
+            code: "provider_stream_failed",
+            message: "Follow-up failed.",
+            willRetry: false,
+            artifacts: [
+              {
+                artifactId: "artifact-degraded-1",
+                kind: "image",
+                objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+                mimeType: "image/png",
+                filename: "degraded.png",
+                sizeBytes: 512,
+                voiceNote: false
+              }
+            ]
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      const chunks = await collectChunks(
+        service.execute({
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          surfaceThreadKey: "thread-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          userMessageId: "user-msg-1",
+          userMessage: "generate image",
+          attachments: []
+        })
+      );
+
+      assert.deepEqual(chunks, [
+        {
+          type: "media",
+          media: [
+            {
+              source: "persai_object_storage",
+              objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+              type: "image",
+              mimeType: "image/png",
+              filename: "degraded.png",
+              sizeBytes: 512
+            }
+          ]
+        },
+        {
+          type: "delta",
+          delta: "Tool completed, but follow-up text was interrupted.",
+          accumulated: "Tool completed, but follow-up text was interrupted."
+        },
+        {
+          type: "done",
+          respondedAt: chunks.at(-1)?.respondedAt
+        }
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

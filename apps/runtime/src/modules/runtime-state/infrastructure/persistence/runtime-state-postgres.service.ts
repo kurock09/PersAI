@@ -344,16 +344,20 @@ export class RuntimeStatePostgresService {
 
   markTurnReceiptFailed(input: {
     requestId: string;
+    resultPayload?: unknown;
     errorCode: string;
     errorMessage: string;
     completedAt: Date;
   }) {
+    const resultPayload = this.toNullableJsonInput(input.resultPayload);
+
     return this.prisma.runtimeTurnReceipt.update({
       where: {
         requestId: input.requestId
       },
       data: {
         status: "failed",
+        ...(resultPayload === undefined ? {} : { resultPayload }),
         errorCode: input.errorCode,
         errorMessage: input.errorMessage,
         completedAt: input.completedAt

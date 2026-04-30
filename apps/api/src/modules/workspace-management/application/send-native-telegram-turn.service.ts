@@ -5,6 +5,7 @@ import type {
   RuntimeFailedEvent,
   RuntimeAttachmentRef,
   RuntimeInterruptedEvent,
+  RuntimeOutputArtifact,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -26,6 +27,7 @@ import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout
 import type { RuntimeTier } from "./runtime-assignment";
 
 const HIDDEN_RUNTIME_TOOL_NAMES = new Set<string>();
+const DEGRADED_TOOL_OUTPUT_MESSAGE = "Tool completed, but follow-up text was interrupted.";
 
 export interface SendNativeTelegramTurnInput {
   assistantId: string;
@@ -167,6 +169,18 @@ export class SendNativeTelegramTurnService {
 
       const emittedArtifactIds = new Set<string>();
       const collectedMedia: AssistantRuntimeWebChatTurnResult["media"] = [];
+      const collectArtifacts = (artifacts: RuntimeOutputArtifact[]) => {
+        const remainingArtifacts = artifacts.filter((artifact) => {
+          if (emittedArtifactIds.has(artifact.artifactId)) {
+            return false;
+          }
+          emittedArtifactIds.add(artifact.artifactId);
+          return true;
+        });
+        if (remainingArtifacts.length > 0) {
+          collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts));
+        }
+      };
 
       for await (const event of this.readRuntimeStream(response)) {
         switch (event.type) {
@@ -201,21 +215,32 @@ export class SendNativeTelegramTurnService {
               collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts([event.artifact]));
             }
             continue;
-          case "interrupted":
-            throw this.toInterruptedRuntimeError(event);
-          case "failed":
-            throw this.toRuntimeFailedError(event);
-          case "completed": {
-            const remainingArtifacts = event.result.artifacts.filter((artifact) => {
-              if (emittedArtifactIds.has(artifact.artifactId)) {
-                return false;
-              }
-              emittedArtifactIds.add(artifact.artifactId);
-              return true;
-            });
-            if (remainingArtifacts.length > 0) {
-              collectedMedia.push(...runtimeOutputArtifactsToMediaArtifacts(remainingArtifacts));
+          case "interrupted": {
+            collectArtifacts(event.artifacts ?? []);
+            if (collectedMedia.length > 0) {
+              return {
+                assistantMessage: this.resolveDegradedAssistantMessage(event.assistantText),
+                respondedAt: event.respondedAt ?? new Date().toISOString(),
+                media: collectedMedia,
+                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+              };
             }
+            throw this.toInterruptedRuntimeError(event);
+          }
+          case "failed": {
+            collectArtifacts(event.artifacts ?? []);
+            if (collectedMedia.length > 0) {
+              return {
+                assistantMessage: DEGRADED_TOOL_OUTPUT_MESSAGE,
+                respondedAt: new Date().toISOString(),
+                media: collectedMedia,
+                ...(event.trace === undefined ? {} : { runtimeTrace: event.trace })
+              };
+            }
+            throw this.toRuntimeFailedError(event);
+          }
+          case "completed": {
+            collectArtifacts(event.result.artifacts);
             return {
               assistantMessage: event.result.assistantText,
               respondedAt: event.result.respondedAt,
@@ -449,6 +474,11 @@ export class SendNativeTelegramTurnService {
         ? "Native runtime Telegram stream interrupted before completion."
         : "Native runtime Telegram stream interrupted without assistant output."
     );
+  }
+
+  private resolveDegradedAssistantMessage(assistantText: string): string {
+    const trimmed = assistantText.trim();
+    return trimmed.length > 0 ? trimmed : DEGRADED_TOOL_OUTPUT_MESSAGE;
   }
 
   private throwForFailedResponse(response: JsonResponse): never {

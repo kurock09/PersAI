@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { RuntimeTurnRequest, RuntimeSessionSummary } from "@persai/runtime-contract";
 import { type RuntimeSessionLease, SessionLeaseService } from "../sessions/session-lease.service";
 import { SessionStoreService } from "../sessions/session-store.service";
@@ -40,6 +40,8 @@ export type TurnAcceptanceResult =
 
 @Injectable()
 export class TurnAcceptanceService {
+  private readonly logger = new Logger(TurnAcceptanceService.name);
+
   constructor(
     private readonly sessionStoreService: SessionStoreService,
     private readonly sessionLeaseService: SessionLeaseService,
@@ -78,6 +80,9 @@ export class TurnAcceptanceService {
       requestId: input.requestId
     });
     if (leaseClaim.outcome === "busy") {
+      this.logger.warn(
+        `runtime_turn_busy sessionId=${ensuredSession.session.sessionId} conversationKey=${ensuredSession.conversationKey} requestId=${input.requestId} idempotencyKey=${input.idempotencyKey}`
+      );
       return {
         outcome: "busy",
         conversationKey: ensuredSession.conversationKey,
@@ -86,6 +91,9 @@ export class TurnAcceptanceService {
     }
 
     if (leaseClaim.outcome === "in_flight") {
+      this.logger.warn(
+        `runtime_turn_in_flight sessionId=${ensuredSession.session.sessionId} conversationKey=${ensuredSession.conversationKey} requestId=${input.requestId} idempotencyKey=${input.idempotencyKey} inFlightRequestId=${leaseClaim.requestId ?? "unknown"}`
+      );
       return {
         outcome: "in_flight",
         conversationKey: ensuredSession.conversationKey,

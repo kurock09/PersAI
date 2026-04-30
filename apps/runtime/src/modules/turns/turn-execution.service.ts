@@ -389,7 +389,7 @@ export class TurnExecutionService {
       );
       return this.buildTurnResult(acceptedTurn, providerResult, turnState, execution.routeDecision);
     } catch (error) {
-      await this.failAcceptedTurnQuietly(acceptedTurn, error);
+      await this.failAcceptedTurnQuietly(acceptedTurn, error, undefined, turnState);
       throw this.toHttpException(error);
     }
   }
@@ -579,7 +579,8 @@ export class TurnExecutionService {
                 acceptedTurn,
                 deliveredText,
                 null,
-                trace?.build("interrupted")
+                trace?.build("interrupted"),
+                turnState
               )
             });
             return;
@@ -779,7 +780,8 @@ export class TurnExecutionService {
                 acceptedTurn,
                 deliveredText,
                 null,
-                trace?.build("interrupted")
+                trace?.build("interrupted"),
+                turnState
               );
               await this.interruptAcceptedTurnQuietly({
                 acceptedTurn,
@@ -789,15 +791,20 @@ export class TurnExecutionService {
               return;
             }
 
-            const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
-              type: "failed",
-              requestId: acceptedTurn.receipt.requestId,
-              sessionId: acceptedTurn.session.sessionId,
-              code: event.code ?? "provider_stream_failed",
-              message: event.message ?? "Provider stream failed.",
-              willRetry: false,
-              ...(trace === undefined ? {} : { trace: trace.build("failed") })
-            });
+            const failed = await this.failAcceptedTurnQuietly(
+              acceptedTurn,
+              {
+                type: "failed",
+                requestId: acceptedTurn.receipt.requestId,
+                sessionId: acceptedTurn.session.sessionId,
+                code: event.code ?? "provider_stream_failed",
+                message: event.message ?? "Provider stream failed.",
+                willRetry: false,
+                ...(trace === undefined ? {} : { trace: trace.build("failed") })
+              },
+              undefined,
+              turnState
+            );
             yield failed;
             return;
           }
@@ -812,7 +819,8 @@ export class TurnExecutionService {
             acceptedTurn,
             deliveredText,
             null,
-            trace?.build("interrupted")
+            trace?.build("interrupted"),
+            turnState
           );
           await this.interruptAcceptedTurnQuietly({
             acceptedTurn,
@@ -822,28 +830,38 @@ export class TurnExecutionService {
           return;
         }
 
-        const failed = await this.failAcceptedTurnQuietly(acceptedTurn, {
-          type: "failed",
-          requestId: acceptedTurn.receipt.requestId,
-          sessionId: acceptedTurn.session.sessionId,
-          code: "provider_stream_ended",
-          message: "Provider stream ended before native turn completion.",
-          willRetry: false,
-          ...(trace === undefined ? {} : { trace: trace.build("failed") })
-        });
+        const failed = await this.failAcceptedTurnQuietly(
+          acceptedTurn,
+          {
+            type: "failed",
+            requestId: acceptedTurn.receipt.requestId,
+            sessionId: acceptedTurn.session.sessionId,
+            code: "provider_stream_ended",
+            message: "Provider stream ended before native turn completion.",
+            willRetry: false,
+            ...(trace === undefined ? {} : { trace: trace.build("failed") })
+          },
+          undefined,
+          turnState
+        );
         yield failed;
         return;
       }
 
-      const exhausted = await this.failAcceptedTurnQuietly(acceptedTurn, {
-        type: "failed",
-        requestId: acceptedTurn.receipt.requestId,
-        sessionId: acceptedTurn.session.sessionId,
-        code: "native_tool_loop_exhausted",
-        message: `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`,
-        willRetry: false,
-        ...(trace === undefined ? {} : { trace: trace.build("failed") })
-      });
+      const exhausted = await this.failAcceptedTurnQuietly(
+        acceptedTurn,
+        {
+          type: "failed",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          code: "native_tool_loop_exhausted",
+          message: `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`,
+          willRetry: false,
+          ...(trace === undefined ? {} : { trace: trace.build("failed") })
+        },
+        undefined,
+        turnState
+      );
       yield exhausted;
     } catch (error) {
       if (completionFinalizationAttempted) {
@@ -857,7 +875,8 @@ export class TurnExecutionService {
             acceptedTurn,
             deliveredText,
             null,
-            trace?.build("interrupted")
+            trace?.build("interrupted"),
+            turnState
           )
         });
         return;
@@ -868,7 +887,8 @@ export class TurnExecutionService {
           acceptedTurn,
           deliveredText,
           null,
-          trace?.build("interrupted")
+          trace?.build("interrupted"),
+          turnState
         );
         await this.interruptAcceptedTurnQuietly({
           acceptedTurn,
@@ -881,7 +901,8 @@ export class TurnExecutionService {
       const failed = await this.failAcceptedTurnQuietly(
         acceptedTurn,
         error,
-        trace?.build("failed")
+        trace?.build("failed"),
+        turnState
       );
       yield failed;
     }
@@ -2968,9 +2989,10 @@ export class TurnExecutionService {
   private async failAcceptedTurnQuietly(
     acceptedTurn: AcceptedRuntimeTurn,
     error: unknown,
-    trace?: RuntimeTrace
+    trace?: RuntimeTrace,
+    turnState?: TurnExecutionState
   ): Promise<RuntimeFailedEvent> {
-    const failure = this.toFailureEvent(acceptedTurn, error, trace);
+    const failure = this.toFailureEvent(acceptedTurn, error, trace, turnState);
     try {
       await this.turnFinalizationService.failAcceptedTurn(acceptedTurn, failure);
     } catch {
@@ -2995,13 +3017,20 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     assistantText: string,
     respondedAt: string | null,
-    trace?: RuntimeTrace
+    trace?: RuntimeTrace,
+    turnState?: TurnExecutionState
   ): RuntimeInterruptedEvent {
     return {
       type: "interrupted",
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       assistantText: assistantText.trim(),
+      ...(turnState === undefined || turnState.artifacts.length === 0
+        ? {}
+        : { artifacts: [...turnState.artifacts] }),
+      ...(turnState === undefined || turnState.fileRefs.length === 0
+        ? {}
+        : { fileRefs: [...turnState.fileRefs] }),
       respondedAt,
       ...(trace === undefined ? {} : { trace })
     };
@@ -3010,55 +3039,84 @@ export class TurnExecutionService {
   private toFailureEvent(
     acceptedTurn: AcceptedRuntimeTurn,
     error: unknown,
-    trace?: RuntimeTrace
+    trace?: RuntimeTrace,
+    turnState?: TurnExecutionState
   ): RuntimeFailedEvent {
     if (this.isRuntimeFailedEvent(error)) {
-      return trace === undefined || error.trace !== undefined ? error : { ...error, trace };
+      const withTrace =
+        trace === undefined || error.trace !== undefined ? error : { ...error, trace };
+      return this.withTerminalRecoveryOutputs(withTrace, turnState);
     }
     if (error instanceof TurnExecutionError) {
-      return {
-        type: "failed",
-        requestId: acceptedTurn.receipt.requestId,
-        sessionId: acceptedTurn.session.sessionId,
-        code: error.code,
-        message: error.message,
-        willRetry: false,
-        ...(trace === undefined ? {} : { trace })
-      };
+      return this.withTerminalRecoveryOutputs(
+        {
+          type: "failed",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          code: error.code,
+          message: error.message,
+          willRetry: false,
+          ...(trace === undefined ? {} : { trace })
+        },
+        turnState
+      );
     }
     if (error instanceof HttpException) {
       const status = error.getStatus();
       if (status === 400 || status === 413) {
-        return {
-          type: "failed",
-          requestId: acceptedTurn.receipt.requestId,
-          sessionId: acceptedTurn.session.sessionId,
-          code: "native_runtime_request_invalid",
-          message: error.message,
-          willRetry: false,
-          ...(trace === undefined ? {} : { trace })
-        };
+        return this.withTerminalRecoveryOutputs(
+          {
+            type: "failed",
+            requestId: acceptedTurn.receipt.requestId,
+            sessionId: acceptedTurn.session.sessionId,
+            code: "native_runtime_request_invalid",
+            message: error.message,
+            willRetry: false,
+            ...(trace === undefined ? {} : { trace })
+          },
+          turnState
+        );
       }
     }
     if (error instanceof Error && error.message.trim().length > 0) {
-      return {
+      return this.withTerminalRecoveryOutputs(
+        {
+          type: "failed",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          code: "turn_execution_failed",
+          message: error.message,
+          willRetry: false,
+          ...(trace === undefined ? {} : { trace })
+        },
+        turnState
+      );
+    }
+    return this.withTerminalRecoveryOutputs(
+      {
         type: "failed",
         requestId: acceptedTurn.receipt.requestId,
         sessionId: acceptedTurn.session.sessionId,
         code: "turn_execution_failed",
-        message: error.message,
+        message: "Native turn execution failed.",
         willRetry: false,
         ...(trace === undefined ? {} : { trace })
-      };
+      },
+      turnState
+    );
+  }
+
+  private withTerminalRecoveryOutputs<T extends RuntimeFailedEvent>(
+    event: T,
+    turnState?: TurnExecutionState
+  ): T {
+    if (turnState === undefined) {
+      return event;
     }
     return {
-      type: "failed",
-      requestId: acceptedTurn.receipt.requestId,
-      sessionId: acceptedTurn.session.sessionId,
-      code: "turn_execution_failed",
-      message: "Native turn execution failed.",
-      willRetry: false,
-      ...(trace === undefined ? {} : { trace })
+      ...event,
+      ...(turnState.artifacts.length === 0 ? {} : { artifacts: [...turnState.artifacts] }),
+      ...(turnState.fileRefs.length === 0 ? {} : { fileRefs: [...turnState.fileRefs] })
     };
   }
 

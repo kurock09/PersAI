@@ -73,6 +73,16 @@ export class PersaiMediaObjectStorageService {
     };
   }
 
+  async existsObject(objectKey: string): Promise<boolean> {
+    try {
+      const [exists] = await this.getBucket().file(objectKey).exists();
+      return exists;
+    } catch (error) {
+      this.logger.warn(`Failed to check media object "${objectKey}": ${String(error)}`);
+      return false;
+    }
+  }
+
   async deleteObject(objectKey: string): Promise<void> {
     try {
       await this.getBucket().file(objectKey).delete({ ignoreNotFound: true });

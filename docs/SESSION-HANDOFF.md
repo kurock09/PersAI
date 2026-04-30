@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Soft-detached stream continuity reset) — passive post-header disconnects now recover by clientTurnId and no longer delete live turns after 120s (`apps/web`; fresh GKE audit, focused use-chat suite green)
+
+### Why this session
+
+Founder reported that the same stream bugs still reproduced after prior targeted fixes: switching away/back did not continue a live stream, streams sometimes disappeared even without switching until reload, and a phantom upper `Думаю...` / cursor still remained after background turn completion. Founder explicitly asked to stop guessing from old context and re-audit as a fresh agent.
+
+### What changed
+
+- Re-read the required source-of-truth docs and re-audited the stream lifecycle from send -> passive disconnect -> switch/reattach -> history/status reconciliation -> background completion.
+- Correlated fresh `persai-dev` API/runtime logs. The important signal was not server death: turns were completing server-side, including one long case with `web_stream_timing totalRuntimeMs=153061` / `firstDeltaMs=151013`. Logs also showed occasional unauthenticated turn-status probes (`userId=null`, `401`) while `/messages?limit=20` continued returning `200`, so the client must tolerate status-path gaps and stale history tails.
+- Fixed `apps/web/app/app/_components/use-chat.ts` so the soft-detach reconciliation cap is no longer a destructive cleanup deadline. After the old 60 x 2s window, the client now keeps the active snapshot/streaming state and backs off to a 10s poll instead of deleting `activeTurnSnapshotsRef`, abort-controller state, and `markStreaming(false)` while the turn may still be alive.
+- Fixed the shorter/silent failure class too: if the stream closes after 2xx headers but before `onStarted` supplies `chatId`, the client now marks it soft-detached and starts recovery by stored `clientTurnId` instead of falling through to ordinary cleanup.
+- Reattach terminal callbacks now only report `terminal` if the follow-up history refresh actually reconciled committed history. If history is still stale, the client keeps polling instead of clearing the live turn just because an SSE terminal callback fired before persisted history was visible.
+- Added regressions for both classes: history stays stale/older beyond the former 120s cap, and a post-header/pre-`onStarted` disconnect recovers by `clientTurnId` without sending a hard Stop.
+
+### Tests run
+
+- Fresh GKE log check: `kubectl logs -n persai-dev deploy/api --since=12h ...` and `kubectl logs -n persai-dev deploy/runtime --since=12h ...`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `ReadLints` on `apps/web/app/app/_components/use-chat.ts` and `apps/web/app/app/_components/use-chat.test.tsx`
+
+### Risks / residuals
+
+- This fixes the client-side destructive passive-disconnect exits that match the live evidence. If auth remains unavailable forever, the UI will prefer keeping the live placeholder and continue long-interval polling rather than hiding a still-running turn.
+- Full repo lint/format/typecheck still need to be run before calling the entire slice clean.
+
+### Next recommended step
+
+Run the required repo verification gate, deploy/sync web to `persai-dev`, then retest both a short/silent flaky stream and one deliberately long turn over 150s: stay in chat, switch away/back, and background/return after completion. Expected: the live bubble never disappears before completion, and final committed history replaces any `Думаю...` placeholder without reload.
+
+## 2026-04-30 (Systemic attachment/object and degraded artifact recovery) — missing source media now fails before runtime tools, and produced artifacts survive failed/interrupted follow-up paths (`apps/api`, `apps/runtime`, runtime contract; focused checks green)
+
+### Why this session
+
+Founder reported Telegram image/file turns where source media could be missing in GCS by runtime execution time, and successful tool artifacts could be lost if the later LLM follow-up failed. The requested fix was systemic across Telegram/web and all artifact/file-bearing tools, not image-specific.
+
+### What changed
+
+- Added a shared API pre-runtime attachment object availability gate used by Telegram inbound media, web sync turns, and web stream turns. Ready attachment rows now must still have a readable media object before runtime receives attachment refs.
+- Extended runtime terminal degraded events so `failed` / `interrupted` can carry already-produced `artifacts` / `fileRefs`; failed turn receipts now persist the terminal payload before lease release.
+- Updated Telegram and web native stream adapters to return/deliver a degraded final result with generic fallback text when artifacts exist after a failed/interrupted follow-up, instead of throwing away already-produced media.
+- Added observability for runtime busy/in-flight turn acceptance and failed/interrupted lease-release failures.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/attachment-object-availability.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on touched API/runtime/contract files
+
+### Risks / residuals
+
+- The API gate proves object presence immediately before runtime handoff; a rare object deletion after that point can still fail inside runtime, but degraded terminal artifact recovery now prevents already-produced outputs from being lost.
+- Live GKE validation is still recommended with Telegram photo edit, Telegram generated artifact delivery after forced follow-up failure, and web staged upload.
+
+### Next recommended step
+
+Run live GKE validation for Telegram photo/document and web staged upload turns, then force or observe a post-tool follow-up interruption and confirm the artifact is delivered with the degraded fallback text and no lingering busy lease.
+
 ## 2026-04-30 (Live stream survives chat switch/history refresh again) — `activeTurn: null` no longer clears a still-running turn just because older assistant history exists, and Android download surfaces are now a single phone-icon APK button (`apps/web`; GKE checked, required checks green)
 
 ### Why this session

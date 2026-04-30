@@ -1953,6 +1953,8 @@ export interface RuntimeInterruptedEvent {
   requestId: string;
   sessionId: string;
   assistantText: string;
+  artifacts?: RuntimeOutputArtifact[];
+  fileRefs?: RuntimeFileRef[];
   respondedAt: IsoTimestamp | null;
   trace?: RuntimeTrace;
 }
@@ -1964,6 +1966,8 @@ export interface RuntimeFailedEvent {
   code: string;
   message: string;
   willRetry: boolean;
+  artifacts?: RuntimeOutputArtifact[];
+  fileRefs?: RuntimeFileRef[];
   trace?: RuntimeTrace;
 }
 

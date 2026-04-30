@@ -30,6 +30,7 @@ import { PrepareAssistantInboundTurnService } from "./prepare-assistant-inbound-
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
 import { toRuntimeAttachmentRef } from "./media/media.types";
+import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { resolveWelcomeTurnInstruction } from "./send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -165,6 +166,7 @@ export class StreamWebChatTurnService {
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
+    private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -271,6 +273,13 @@ export class StreamWebChatTurnService {
     const userAttachments = await this.attachmentRepository.listByMessageId(
       prepared.userMessage.id
     );
+    await this.attachmentObjectAvailabilityService.assertRuntimeReadable({
+      assistantId: prepared.assistantId,
+      chatId: prepared.chat.id,
+      messageId: prepared.userMessage.id,
+      channel: "web",
+      attachments: userAttachments
+    });
     trace.stage("attachments_loaded");
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)

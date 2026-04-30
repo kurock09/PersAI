@@ -211,6 +211,7 @@ import { NativeMediaTranscriptionService } from "./application/media/native-medi
 import { ProviderGatewayPdfTextExtractionService } from "./application/media/provider-gateway-pdf-text-extraction.service";
 import { InboundMediaService } from "./application/media/inbound-media.service";
 import { MediaDeliveryService } from "./application/media/media-delivery.service";
+import { AttachmentObjectAvailabilityService } from "./application/media/attachment-object-availability.service";
 import { PersaiMediaObjectStorageService } from "./application/media/persai-media-object-storage.service";
 import { PersaiKnowledgeObjectStorageService } from "./application/persai-knowledge-object-storage.service";
 import { CHANNEL_MEDIA_ADAPTERS } from "./application/media/channel-adapters/channel-media-adapter.interface";
@@ -480,6 +481,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     PersaiKnowledgeObjectStorageService,
     InboundMediaService,
     MediaDeliveryService,
+    AttachmentObjectAvailabilityService,
     WebMediaAdapter,
     TelegramMediaAdapter,
     {
