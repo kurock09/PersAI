@@ -4089,5 +4089,581 @@ describe("useChat", () => {
       );
       expect(streamingEmptyAssistantInEntries).toBe(false);
     });
+
+    it("switch A → B → A while streaming preserves OLDER committed history above the live turn (no 2-message flash)", async () => {
+      // The user-reported live repro: in chat A there is older committed
+      // history (a prior question + answer). User asks a NEW question that
+      // triggers a long stream, then switches to chat B and back. Pre-fix,
+      // the synchronous prevThreadKeyRef restore set visible state to JUST
+      // `liveSnapshot.messages` (only the live user + live assistant 2-msg
+      // window), so older history above the live turn briefly disappeared
+      // — and any later state mutation (focus, soft-detach reattach,
+      // failed loadHistory) left the user staring at a chat where their
+      // own bubble + older context vanished.
+      let releaseStream: (() => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Streaming long answer..." });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => resolve();
+          });
+        }
+      );
+      // Initial chat-A history: an older user/assistant pair above the
+      // (about-to-be-sent) live turn.
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "а нужно ли это?",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Не всегда.",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            }
+          ]
+        })
+        // chat-B history while we're switched away.
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "B",
+              attachments: [],
+              createdAt: "2026-04-25T17:05:00.000Z"
+            }
+          ]
+        })
+        // chat-A re-fetch after switching back: server has the live user
+        // message persisted but assistant is still in flight server-side.
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "а нужно ли это?",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "Не всегда.",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            },
+            {
+              id: "server-user-A-live",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Длинный ответ",
+              attachments: [],
+              createdAt: "2026-04-25T17:10:00.000Z"
+            }
+          ]
+        });
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+
+      // Load chat-A's older history first.
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual([
+        "server-user-A-old",
+        "server-assistant-A-old"
+      ]);
+
+      // Send the long-stream question.
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("Длинный ответ");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+      // Visible after send must include older + live pair.
+      expect(result.current.messages.map((m) => m.id)).toEqual([
+        "server-user-A-old",
+        "server-assistant-A-old",
+        "server-user-A-live",
+        expect.stringMatching(/^local-assistant-/)
+      ]);
+
+      // Switch to thread-B (loads chat-B's history).
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      expect(result.current.messages.map((m) => m.id)).toEqual(["server-user-B"]);
+
+      // Switch back to thread-A. The synchronous restore in
+      // prevThreadKeyRef MUST present the FULL state immediately
+      // (older + live pair), not just the 2-msg live window.
+      rerender({ threadKey: "thread-A" });
+      const afterRestoreIds = result.current.messages.map((m) => m.id);
+      expect(afterRestoreIds).toContain("server-user-A-old");
+      expect(afterRestoreIds).toContain("server-assistant-A-old");
+      expect(afterRestoreIds).toContain("server-user-A-live");
+      expect(
+        afterRestoreIds.some((id) => typeof id === "string" && id.startsWith("local-assistant-"))
+      ).toBe(true);
+
+      // Now run the post-render loadHistory the page effect would
+      // dispatch. Older history + live pair MUST persist.
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      const afterReloadIds = result.current.messages.map((m) => m.id);
+      expect(afterReloadIds).toContain("server-user-A-old");
+      expect(afterReloadIds).toContain("server-assistant-A-old");
+      expect(afterReloadIds).toContain("server-user-A-live");
+      const liveAssistant = result.current.messages.find(
+        (m) => m.role === "assistant" && m.status === "streaming"
+      );
+      expect(liveAssistant).toBeDefined();
+      expect(result.current.isStreaming).toBe(true);
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("double swap A→B→A→B→A while streaming preserves older history AND the live assistant content (no 'Думаю...' regression)", async () => {
+      // The user-reported second symptom: on a SECOND swap while the long
+      // stream is still in flight, the live assistant content disappears
+      // and a phantom 'Думаю...' (empty streaming bubble) appears. This
+      // happens when ANY code path replaces the visible state with just
+      // [user, liveAssistantMessage] using a fallback empty assistant
+      // (e.g. applyTurnStatusState running, or the prevThreadKeyRef
+      // synchronous restore not pre-merging cached history).
+      let releaseStream: (() => void) | null = null;
+      let onDeltaRef: ((payload: { delta: string }) => void) | null = null;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          onDeltaRef = handlers.onDelta ?? null;
+          handlers.onDelta?.({ delta: "First chunk. " });
+          await new Promise<void>((resolve) => {
+            releaseStream = () => resolve();
+          });
+        }
+      );
+      assistantApiMocks.getChatMessages
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "B",
+              attachments: [],
+              createdAt: "2026-04-25T17:05:00.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            },
+            {
+              id: "server-user-A-live",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Long Q",
+              attachments: [],
+              createdAt: "2026-04-25T17:10:00.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-B",
+              chatId: "chat-B",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "B",
+              attachments: [],
+              createdAt: "2026-04-25T17:05:00.000Z"
+            }
+          ]
+        })
+        .mockResolvedValueOnce({
+          nextCursor: null,
+          messages: [
+            {
+              id: "server-user-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Q1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:00.000Z"
+            },
+            {
+              id: "server-assistant-A-old",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "assistant",
+              content: "A1",
+              attachments: [],
+              createdAt: "2026-04-25T17:00:05.000Z"
+            },
+            {
+              id: "server-user-A-live",
+              chatId: "chat-A",
+              assistantId: "assistant-1",
+              author: "user",
+              content: "Long Q",
+              attachments: [],
+              createdAt: "2026-04-25T17:10:00.000Z"
+            }
+          ]
+        });
+
+      const { result, rerender } = renderHook(
+        ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+        {
+          wrapper: ({ children }) => (
+            <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+          ),
+          initialProps: { threadKey: "thread-A" }
+        }
+      );
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("Long Q");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      // Swap A→B→A
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      rerender({ threadKey: "thread-A" });
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      // Confirm older history + live pair are present after first swap-back.
+      let ids = result.current.messages.map((m) => m.id);
+      expect(ids).toContain("server-user-A-old");
+      expect(ids).toContain("server-assistant-A-old");
+      expect(ids).toContain("server-user-A-live");
+
+      // Stream another delta to grow the live assistant content.
+      await act(async () => {
+        onDeltaRef?.({ delta: "Second chunk." });
+        await Promise.resolve();
+      });
+
+      // Swap A→B→A AGAIN (the founder's "повторный свап").
+      rerender({ threadKey: "thread-B" });
+      await act(async () => {
+        await result.current.loadHistory("chat-B");
+      });
+      rerender({ threadKey: "thread-A" });
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+
+      // After SECOND swap-back: older history + live pair MUST still be
+      // present. The live assistant MUST still be the streaming bubble
+      // (not a stale phantom that lost its content).
+      ids = result.current.messages.map((m) => m.id);
+      expect(ids).toContain("server-user-A-old");
+      expect(ids).toContain("server-assistant-A-old");
+      expect(ids).toContain("server-user-A-live");
+      const liveAssistant = result.current.messages.find(
+        (m) => m.role === "assistant" && m.status === "streaming"
+      );
+      expect(liveAssistant).toBeDefined();
+      expect(result.current.isStreaming).toBe(true);
+      // At most ONE streaming assistant survives in the entries pipeline
+      // (the live one). PRE-FIX a stale `[user, liveAssistantMessage]`
+      // collapse could leave a 2nd empty placeholder above the real one.
+      const streamingAssistantsInEntries = result.current.entries.filter(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.message.role === "assistant" &&
+          entry.message.status === "streaming"
+      );
+      expect(streamingAssistantsInEntries.length).toBeLessThanOrEqual(1);
+
+      await act(async () => {
+        releaseStream?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("soft-detach reattach (running status) PRESERVES older committed history above the live turn", async () => {
+      // Internal-fix regression test: when applyTurnStatusState is
+      // invoked with a running status (the path softDetachReconcile +
+      // startTurnReattach take after a passive SSE disconnect), it MUST
+      // NOT collapse the visible state down to
+      // [userMessage, liveAssistantMessage]. Older committed history
+      // above the live turn must remain.
+      let capturedClientTurnId: string | null = null;
+      let streamCallCount = 0;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          payload: { clientTurnId?: string },
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onDelta?: (payload: { delta: string }) => void;
+          }
+        ) => {
+          streamCallCount += 1;
+          capturedClientTurnId = payload.clientTurnId ?? null;
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-A" },
+            userMessage: { id: "server-user-A-live", chatId: "chat-A", attachments: [] }
+          });
+          handlers.onDelta?.({ delta: "Partial." });
+          // Simulate passive SSE disconnect (e.g. tab backgrounded /
+          // proxy hung up) AFTER onStarted. The hook will mark the
+          // turn as soft-detached and start the reattach reconcile.
+          throw new Error("Stream closed before terminal event.");
+        }
+      );
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        nextCursor: null,
+        messages: [
+          {
+            id: "server-user-A-old",
+            chatId: "chat-A",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Q1",
+            attachments: [],
+            createdAt: "2026-04-25T17:00:00.000Z"
+          },
+          {
+            id: "server-assistant-A-old",
+            chatId: "chat-A",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "A1",
+            attachments: [],
+            createdAt: "2026-04-25T17:00:05.000Z"
+          }
+        ]
+      });
+      // refreshLatestHistory inside softDetachReconcile fetches: server
+      // has the live user persisted but assistant is still in flight.
+      assistantApiMocks.getChatMessages.mockResolvedValue({
+        nextCursor: null,
+        messages: [
+          {
+            id: "server-user-A-old",
+            chatId: "chat-A",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Q1",
+            attachments: [],
+            createdAt: "2026-04-25T17:00:00.000Z"
+          },
+          {
+            id: "server-assistant-A-old",
+            chatId: "chat-A",
+            assistantId: "assistant-1",
+            author: "assistant",
+            content: "A1",
+            attachments: [],
+            createdAt: "2026-04-25T17:00:05.000Z"
+          },
+          {
+            id: "server-user-A-live",
+            chatId: "chat-A",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "Long Q",
+            attachments: [],
+            createdAt: "2026-04-25T17:10:00.000Z"
+          }
+        ]
+      });
+      // Server's GET /turns/{id} returns running status with no fresh
+      // assistantMessage payload (still in flight). Reattach stream
+      // mock throws so we exercise the status-only path.
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockImplementation(async () => ({
+        clientTurnId: capturedClientTurnId ?? "unknown",
+        status: "running",
+        chat: { id: "chat-A" },
+        userMessage: {
+          id: "server-user-A-live",
+          chatId: "chat-A",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "Long Q",
+          attachments: [],
+          createdAt: "2026-04-25T17:10:00.000Z"
+        },
+        assistantMessage: null,
+        currentActivity: null,
+        runtime: null
+      }));
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementation(async () => {
+        throw new Error("Stream closed before terminal event.");
+      });
+
+      const { result } = renderHook(() => useChat("thread-A"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+      await act(async () => {
+        await result.current.loadHistory("chat-A");
+      });
+      await act(async () => {
+        void result.current.send("Long Q");
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // The send() promise above is fire-and-forget; let the catch
+      // handler run and mark the turn soft-detached.
+      await waitFor(() => {
+        expect(streamCallCount).toBeGreaterThanOrEqual(1);
+      });
+      // Pre-condition: visible state contains older + live pair.
+      const idsBefore = result.current.messages.map((m) => m.id);
+      expect(idsBefore).toContain("server-user-A-old");
+      expect(idsBefore).toContain("server-assistant-A-old");
+      expect(idsBefore).toContain("server-user-A-live");
+
+      // Drive the soft-detach reconcile loop manually by yielding a few
+      // microtasks so refreshLatestHistory + refreshTurnStatus run.
+      await act(async () => {
+        for (let i = 0; i < 5; i += 1) {
+          await Promise.resolve();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      });
+
+      // POST-FIX: visible state STILL contains older history AND live
+      // pair after applyTurnStatusState running fired. PRE-FIX: it
+      // would have collapsed to [server-user-A-live, liveAssistant].
+      const idsAfter = result.current.messages.map((m) => m.id);
+      expect(idsAfter).toContain("server-user-A-old");
+      expect(idsAfter).toContain("server-assistant-A-old");
+      expect(idsAfter).toContain("server-user-A-live");
+      const liveAssistant = result.current.messages.find(
+        (m) => m.role === "assistant" && m.status === "streaming"
+      );
+      expect(liveAssistant).toBeDefined();
+    });
   });
 });

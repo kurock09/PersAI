@@ -773,7 +773,27 @@ export function useChat(threadKey: string): UseChatReturn {
     [cacheThreadHistorySnapshot, clearSoftDetachReconcileTimer, markStreaming]
   );
   if (prevThreadKeyRef.current !== threadKey) {
+    const outgoingThreadKey = prevThreadKeyRef.current;
     prevThreadKeyRef.current = threadKey;
+    // Sync the OUTGOING thread's live snapshot.messages with what the
+    // user was actually looking at. The snapshot is initialised by
+    // `send()` with only `[liveUser, liveAssistant]` and never grows
+    // to include older history on its own — only `loadHistory`'s
+    // cached/API merge or my swap-back restore writes the full window
+    // back into it. If the user sends in chat A and immediately swaps
+    // away BEFORE the post-render `loadHistory` for A finishes
+    // hydrating snapshot.A, the snapshot loses sight of older history
+    // visible on A. Persist the visible state into snapshot.A here so
+    // a later swap-back restores the full window.
+    if (outgoingThreadKey !== threadKey) {
+      const outgoingSnapshot = activeTurnSnapshotsRef.current.get(outgoingThreadKey);
+      if (outgoingSnapshot !== undefined && messages.length > outgoingSnapshot.messages.length) {
+        activeTurnSnapshotsRef.current.set(outgoingThreadKey, {
+          ...outgoingSnapshot,
+          messages: mergeChatMessagesById(messages, outgoingSnapshot.messages)
+        });
+      }
+    }
     const pendingForThread = pendingSendsByThreadRef.current.get(threadKey) ?? null;
     const cachedHistorySnapshot = cachedThreadHistorySnapshotsRef.current.get(threadKey);
     const liveSnapshot =
@@ -781,7 +801,42 @@ export function useChat(threadKey: string): UseChatReturn {
         ? activeTurnSnapshotsRef.current.get(threadKey)
         : undefined;
     const restoredSnapshot = liveSnapshot ?? cachedHistorySnapshot;
-    setMessages(restoredSnapshot?.messages ?? []);
+    // RESTORE the FULL visible state, not just the snapshot's window. When a
+    // live turn is in flight, `liveSnapshot.messages` may only contain the
+    // live user/assistant pair (the snapshot is created with the live pair
+    // by `send()` and only grows to include older history after a
+    // post-restore `loadHistory` merge has run). If we set visible to JUST
+    // the live pair, the older history above the live turn briefly
+    // disappears between this synchronous reset and the post-render
+    // `loadHistory` merge, and any earlier intermediate state (e.g. a
+    // `applyTurnStatusState` running refresh, a soft-detach reattach, or a
+    // failed loadHistory) leaves the user staring at "my own bubble is
+    // gone, only the assistant streams". Pre-merge cached history with the
+    // live snapshot here so the visible state is correct immediately on
+    // thread switch and never flickers down to a 2-message window.
+    const restoredMessages = (() => {
+      if (liveSnapshot === undefined) {
+        return restoredSnapshot?.messages ?? [];
+      }
+      const liveUserId = liveSnapshot.liveUserMessageId;
+      const liveAssistantId = liveSnapshot.liveAssistantMessageId;
+      const liveTurnIds = new Set<string>(
+        [liveUserId, liveAssistantId].filter((value): value is string => typeof value === "string")
+      );
+      const cachedBase = cachedHistorySnapshot?.messages ?? [];
+      const cachedIds = new Set(cachedBase.map((message) => message.id));
+      const liveTurnMessages = liveSnapshot.messages.filter(
+        (message) => !cachedIds.has(message.id) || liveTurnIds.has(message.id)
+      );
+      return mergeChatMessagesById(cachedBase, liveTurnMessages);
+    })();
+    setMessages(restoredMessages);
+    if (liveSnapshot !== undefined && restoredMessages !== liveSnapshot.messages) {
+      activeTurnSnapshotsRef.current.set(threadKey, {
+        ...liveSnapshot,
+        messages: restoredMessages
+      });
+    }
     setActivities([]);
     setLiveActivitiesByMessageId(liveSnapshot?.liveActivitiesByMessageId ?? {});
     setShadowRoutingLabelsByMessageId(liveSnapshot?.shadowRoutingLabelsByMessageId ?? {});
@@ -1075,8 +1130,78 @@ export function useChat(threadKey: string): UseChatReturn {
                   isError: currentActivity.isError
                 })
               };
-        const nextMessages =
-          userMessage === null ? [liveAssistantMessage] : [userMessage, liveAssistantMessage];
+        // PRESERVE EXISTING THREAD HISTORY when applying a running-status
+        // refresh. The previous implementation replaced
+        // `snapshot.messages` and the visible state with just
+        // `[userMessage, liveAssistantMessage]`, which discarded all the
+        // older committed history above the live turn. That manifested as
+        // "the user bubble disappears after a chat swap" / "everything
+        // above the live answer is gone after focus/visibility resume",
+        // because the focus / soft-detach / reattach paths all funnel
+        // through here.
+        //
+        // The correct behavior: keep the existing visible/snapshot
+        // messages, replace the live-turn user/assistant slots in place
+        // (matched by their ids), and only append fresh slots if they
+        // are not yet present.
+        const previousLiveUserId = existingSnapshot?.liveUserMessageId ?? null;
+        const previousLiveAssistantId = existingSnapshot?.liveAssistantMessageId ?? null;
+        const reconcileWithLiveTurn = (prev: ChatMessage[]): ChatMessage[] => {
+          const userIdsToReplace = new Set<string>(
+            [previousLiveUserId, userMessage?.id ?? null].filter(
+              (value): value is string => typeof value === "string"
+            )
+          );
+          const assistantIdsToReplace = new Set<string>(
+            [previousLiveAssistantId, liveAssistantMessage.id].filter(
+              (value): value is string => typeof value === "string"
+            )
+          );
+          let userInjected = userMessage === null;
+          let assistantInjected = false;
+          const next: ChatMessage[] = [];
+          for (const message of prev) {
+            if (userMessage !== null && userIdsToReplace.has(message.id)) {
+              if (!userInjected) {
+                next.push(userMessage);
+                userInjected = true;
+              }
+              continue;
+            }
+            if (assistantIdsToReplace.has(message.id)) {
+              if (!assistantInjected) {
+                next.push(liveAssistantMessage);
+                assistantInjected = true;
+              }
+              continue;
+            }
+            next.push(message);
+          }
+          if (userMessage !== null && !userInjected) {
+            next.push(userMessage);
+          }
+          if (!assistantInjected) {
+            next.push(liveAssistantMessage);
+          }
+          return next;
+        };
+        // Pick the LONGEST known base — `existingSnapshot?.messages`
+        // is just the live pair right after `send()` (the snapshot is
+        // initialised with only `[liveUser, liveAssistant]` and only
+        // grows to include older history after a `loadHistory` cached
+        // merge has updated it), while the visible `messages` already
+        // contains the full older-history + live-pair window. Merging
+        // both by id ensures we never collapse the visible window down
+        // to 2 messages on a focus / reattach refresh.
+        const visibleBase = currentThreadKeyRef.current === targetThreadKey ? messages : [];
+        const snapshotBase = existingSnapshot?.messages ?? [];
+        const baseMessages =
+          visibleBase.length === 0
+            ? snapshotBase
+            : snapshotBase.length === 0
+              ? visibleBase
+              : mergeChatMessagesById(visibleBase, snapshotBase);
+        const nextMessages = reconcileWithLiveTurn(baseMessages);
         activeTurnSnapshotsRef.current.set(targetThreadKey, {
           clientTurnId,
           messages: nextMessages,
@@ -1089,7 +1214,7 @@ export function useChat(threadKey: string): UseChatReturn {
         });
         markStreaming(targetThreadKey, true);
         if (currentThreadKeyRef.current === targetThreadKey) {
-          setMessages(nextMessages);
+          setMessages(reconcileWithLiveTurn);
           setLiveActivitiesByMessageId(nextLiveActivities);
           setShadowRoutingLabelsByMessageId(existingSnapshot?.shadowRoutingLabelsByMessageId ?? {});
           if (status.chat?.id) {

@@ -1,5 +1,65 @@
 # SESSION-HANDOFF
 
+## 2026-04-30 (Web stream continuity — pt 2: thread-restore window collapse) — `applyTurnStatusState` running branch + thread-switch synchronous restore no longer shrink visible state down to `[user, liveAssistant]`; older committed history above the live turn now survives a focus / soft-detach reattach AND a chat A→B→A→B→A double-swap (`apps/web`; focused vitest + full web vitest + repo lint/format/typecheck green)
+
+### Why this session
+
+Founder reported live-repro after the previous round of stream-continuity fixes landed and deployed: on a chat A→B→A swap, the stream itself continued, but the user's own bubble (the question that prompted the long answer) disappeared from the chat. On a SECOND A→B→A swap while the long stream was still in flight, the stream content vanished entirely and a phantom `Думаю...` (empty streaming assistant) appeared. The previous fix (live-id scoping) did not cover this path — tests passed but live behaviour did not.
+
+### Diagnosis (additional root causes, not symptoms)
+
+Two more places in `apps/web/app/app/_components/use-chat.ts` collapsed the visible thread state down to a 2-message window `[liveUserMessage, liveAssistantMessage]` and dropped all older committed history above the live turn:
+
+1. `applyTurnStatusState` running branch was always rebuilding `nextMessages = userMessage === null ? [liveAssistantMessage] : [userMessage, liveAssistantMessage]` and writing that into both `snapshot.messages` and the visible state. Every path that funnels through the running-status apply (focus / `pageshow` / `visibilitychange` resume → `refreshOnResume` → `softDetachReconcile` → `startTurnReattach`, and `startStoredActiveTurnRestore`) therefore wiped older history above the live turn the first time it fired.
+2. The synchronous `prevThreadKeyRef`-driven thread-restore at the top of `useChat` set `setMessages(restoredSnapshot.messages)` from the `liveSnapshot` only. While a long stream is in flight, `liveSnapshot.messages` is just `[liveUser, liveAssistant]` (the snapshot is created with that pair by `send()` and only grows to include older history AFTER a post-restore `loadHistory` cached merge has run). The synchronous restore therefore briefly showed only the 2-message live window before the post-render `loadHistory` could merge in cached older history. If anything else mutated state in that window (a focused running-status apply, a stale soft-detach reattach, or a no-op `loadHistory` that never refreshed because the cache was missing), the user was left staring at a chat where their own bubble + older history were gone until reload.
+
+### What changed
+
+- `apps/web/app/app/_components/use-chat.ts`:
+  - Rewrote the `applyTurnStatusState` "running" branch to PRESERVE the existing `snapshot.messages` / visible state. It now finds the live user / live assistant slots by `liveUserMessageId` / `liveAssistantMessageId` (and the previous live ids on the snapshot, for the optimistic→server id remap), replaces them in place with the fresh authoritative values, and only appends them at the tail when they are not yet present. Older committed history above the live turn is no longer wiped on a focus refresh / soft-detach reattach.
+  - Replaced the synchronous `prevThreadKeyRef` thread-restore with a pre-merged restore: when `liveSnapshot` exists, the restored visible state is `mergeChatMessagesById(cachedHistory.messages, liveTurnSlice)`, where `liveTurnSlice` is the live snapshot filtered to entries that are NOT already in cached history OR ARE the live turn ids. The snapshot's own `messages` is also resynced to that merged value so subsequent `applyThreadMessages` deltas / `loadHistory` reconciles operate on the full visible window from the very first frame after a thread switch — no 2-message flicker, no race window.
+
+### Regression tests added
+
+In `apps/web/app/app/_components/use-chat.test.tsx` (`stream continuity regression suite (live-id scoping)`):
+
+- `switch A → B → A while streaming preserves OLDER committed history above the live turn (no 2-message flash)` — pins the synchronous-restore fix; verifies that the FULL state (older + live pair) is present immediately after swap-back, before AND after the page-effect `loadHistory` merges.
+- `double swap A→B→A→B→A while streaming preserves older history AND the live assistant content (no 'Думаю...' regression)` — pins the founder's exact second-swap repro: at most one streaming assistant in entries, older + live pair preserved through both swap cycles.
+- `soft-detach reattach (running status) PRESERVES older committed history above the live turn` — pins the `applyTurnStatusState` running-branch fix by simulating a passive SSE disconnect after `onStarted`, which routes through `softDetachReconcile` → `startTurnReattach` → `applyTurnStatusState` running.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx` — 56 / 56 pass.
+- `corepack pnpm --filter @persai/web exec vitest run` — 206 / 206 pass.
+- `corepack pnpm -r --if-present run lint` — green.
+- `corepack pnpm run format:check` — green.
+- `corepack pnpm --filter @persai/web run typecheck` — green.
+- `corepack pnpm --filter @persai/api run typecheck` — green.
+
+### Files touched
+
+- `apps/web/app/app/_components/use-chat.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+### Risks / residuals
+
+- The pre-merge restore relies on `cachedThreadHistorySnapshotsRef` being populated with the older history before the user sends. For a brand-new chat where the user sends immediately and never let the page-effect `loadHistory` complete, there is no older history to merge — but in that case there is also no older history to "lose", so the visible state correctly equals the live pair.
+- `applyTurnStatusState` "running" now reads `existingSnapshot?.messages` (or, if missing and we are on the target thread, the visible `messages`) as the base. If neither is populated (genuine no-snapshot first-time reattach for a brand-new in-progress turn the client never saw), we still produce `[userMessage, liveAssistantMessage]` — same shape as before, no regression.
+- Live verification by founder still needed for the two reported repros (single A→B→A swap and double A→B→A→B→A swap during a long stream).
+
+### Next recommended step
+
+Founder live-validates the two reported repros against the deployed dev cluster:
+
+1. Open Chat A with at least one prior question/answer. Send a long question. Switch to Chat B mid-stream. Switch back. Verify own bubble + older history + the streaming long answer are all visible.
+2. From the same in-flight stream, swap A→B→A again. Verify nothing collapses; no `Думаю...` placeholder above the streaming long answer.
+
+If the live repro still shows a regression, check GKE logs for `web_stream_timing` / `web_turn_attempt_running` / `client-aborted` to confirm whether the server actually disconnected the stream or whether the client merged a stale projection.
+
+---
+
 ## 2026-04-30 (Web stream continuity — id-set pollution fix) — live turn now tracks scoped `liveUserMessageId` / `liveAssistantMessageId` instead of the polluted snapshot.messages id-set; reattach SSE flushes its trailing block; phantom `Думаю...` placeholders deduped (`apps/web`; focused vitest + repo lint/format/typecheck green)
 
 ### Why this session
