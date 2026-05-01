@@ -173,6 +173,35 @@ describe("ChatInput", () => {
     expect(textarea).toHaveFocus();
   });
 
+  it("restores focus to the desktop composer after sending with Enter", () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      rafCallbacks.push(callback);
+      return 1;
+    });
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const textarea = screen.getByPlaceholderText("placeholder");
+    fireEvent.change(textarea, {
+      target: { value: "hello from enter" }
+    });
+    textarea.focus();
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    textarea.blur();
+    rafCallbacks[0]?.(0);
+
+    expect(onSend).toHaveBeenCalledWith("hello from enter", undefined, undefined);
+    expect(textarea).toHaveFocus();
+  });
+
   it("returns focus after send on hybrid desktop touch devices", async () => {
     enableHybridDesktopTouchDevice();
     const onSend = vi.fn();

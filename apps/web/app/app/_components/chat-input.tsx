@@ -46,6 +46,19 @@ function shouldRestoreComposerFocusAfterSend(): boolean {
   return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 }
 
+function restoreComposerFocusAfterSend(el: HTMLTextAreaElement): void {
+  el.focus();
+  const restore = () => {
+    if (!el.isConnected || el.disabled) return;
+    el.focus();
+  };
+  if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(restore);
+    return;
+  }
+  window.setTimeout(restore, 0);
+}
+
 function fileIcon(mime: string) {
   if (mime.startsWith("image/")) return null;
   if (mime.startsWith("audio/")) return <Music className="h-5 w-5 text-text-subtle" />;
@@ -225,7 +238,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (!isTouchDevice || shouldRestoreComposerFocusAfterSend()) {
-      el.focus();
+      restoreComposerFocusAfterSend(el);
     }
   }, [addToKnowledgeBase, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
 

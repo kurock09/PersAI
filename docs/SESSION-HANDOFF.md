@@ -1,5 +1,55 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Desktop composer Enter focus restore) — fixed desktop web composer focus not returning after sending with Enter by restoring focus again on the next animation frame (`apps/web`; `chat-input.test.tsx` 10/10 green)
+
+### Why this session
+
+Founder noticed that on web desktop, after sending a chat message with Enter, the cursor did not reliably return to the input field.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-input.tsx`:
+  - Replaced single immediate `textarea.focus()` after send with `restoreComposerFocusAfterSend()`.
+  - The helper focuses immediately and once again on the next animation frame, which covers Enter/keydown + render timing without popping mobile keyboards because it still only runs on desktop-like input environments.
+- `apps/web/app/app/_components/chat-input.test.tsx`:
+  - Added regression coverage for sending with Enter and restoring focus after a simulated post-keydown blur.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx` — 10 / 10 passed.
+- `corepack pnpm run format:check` — passed.
+- `ReadLints` on touched files — clean.
+
+### Next recommended step
+
+Deploy and verify on desktop web: type message, press Enter, composer caret should remain ready for the next message while the assistant streams.
+
+---
+
+## 2026-05-01 (Assistant response list indentation polish) — adjusted assistant markdown list rendering so bullets, numbers, nested lists, and checklist items no longer sit flush against the left edge of response blocks (`apps/web`; focused chat-message/chat-area tests 13/13 green)
+
+### Why this session
+
+Founder noticed the structured assistant response UI made lists look too close to the left edge, especially in the new polished answer blocks.
+
+### What changed
+
+- `apps/web/app/app/_components/chat-message.tsx`:
+  - Increased markdown `ul` / `ol` indentation from `pl-5` to `pl-7`.
+  - Added slight per-item padding and muted marker color so bullets/numbers/checklists sit more calmly inside the text column.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-area.test.tsx` — 13 / 13 passed.
+- `corepack pnpm run format:check` — passed after formatting `chat-message.tsx`.
+- `ReadLints` on touched files — clean.
+
+### Next recommended step
+
+Deploy alongside the chat continuity build and visually recheck nested lists/checklists in dark and light themes.
+
+---
+
 ## 2026-05-01 (Web chat focus-return completed-history terminal cleanup) — live Chrome/GKE repro after `c96f4483` showed A→B→A fixed but focus-switch still left a stale `local-assistant-*` streaming cursor beside the committed server assistant; fixed authoritative-history terminal reconciliation to remove the local streaming bubble even when the final server assistant was already present in visible state (`apps/web`; `use-chat.test.tsx` 64/64 green)
 
 ### Why this session

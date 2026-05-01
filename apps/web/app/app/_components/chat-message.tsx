@@ -528,12 +528,18 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
     </p>
   ),
   ul: ({ children, ...props }: React.ComponentPropsWithoutRef<"ul">) => (
-    <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0" {...props}>
+    <ul
+      className="mb-3 list-disc space-y-1 pl-7 marker:text-text-subtle last:mb-0 [&>li]:pl-1"
+      {...props}
+    >
       {children}
     </ul>
   ),
   ol: ({ children, ...props }: React.ComponentPropsWithoutRef<"ol">) => (
-    <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0" {...props}>
+    <ol
+      className="mb-3 list-decimal space-y-1 pl-7 marker:text-text-subtle last:mb-0 [&>li]:pl-1"
+      {...props}
+    >
       {children}
     </ol>
   ),
