@@ -199,6 +199,29 @@ function hasQuotaGovernedFlag(items: unknown, key: string): boolean {
   });
 }
 
+function readEnabledSkillLimitFromLimitsPermissions(value: unknown): number | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const typed = item as Record<string, unknown>;
+    if (
+      typed.key === "enabled_skills_limit" ||
+      typed.key === "max_enabled_skills" ||
+      typed.key === "skill_assignments_limit"
+    ) {
+      const limit = toNullablePositiveInt(typed.value) ?? toNullablePositiveInt(typed.limit);
+      if (limit !== null) {
+        return limit;
+      }
+    }
+  }
+  return null;
+}
+
 function normalizePlanToolDisplayName(toolCode: string, displayName: string): string {
   if (toolCode === "files") {
     return "Files";
@@ -504,6 +527,10 @@ export class ManageAdminPlansService {
       parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
         ? parseObject(parsed.quotaLimits, "quotaLimits")
         : {};
+    const skillPolicyRaw =
+      parsed.skillPolicy !== undefined && parsed.skillPolicy !== null
+        ? parseObject(parsed.skillPolicy, "skillPolicy")
+        : {};
     const contextPolicy =
       parsed.contextPolicy === undefined || parsed.contextPolicy === null
         ? createDefaultPlanContextHydrationPolicy()
@@ -558,6 +585,9 @@ export class ManageAdminPlansService {
           quotaLimitsRaw.knowledgeStorageBytesLimit
         ),
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
+      },
+      skillPolicy: {
+        maxEnabledSkills: toNullablePositiveInt(skillPolicyRaw.maxEnabledSkills)
       },
       contextPolicy,
       retrievalPolicy,
@@ -683,6 +713,9 @@ export class ManageAdminPlansService {
         commercialTag: input.metadata.commercialTag,
         notes: input.metadata.notes,
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
+        ...(input.skillPolicy.maxEnabledSkills !== null
+          ? { skillPolicy: { maxEnabledSkills: input.skillPolicy.maxEnabledSkills } }
+          : {}),
         contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
         retrievalPolicy: input.retrievalPolicy,
         sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
@@ -741,7 +774,15 @@ export class ManageAdminPlansService {
           { key: "video", allowed: input.entitlements.mediaClasses.video },
           { key: "file", allowed: input.entitlements.mediaClasses.file }
         ],
-        limitsPermissions: []
+        limitsPermissions:
+          input.skillPolicy.maxEnabledSkills === null
+            ? []
+            : [
+                {
+                  key: "enabled_skills_limit",
+                  value: input.skillPolicy.maxEnabledSkills
+                }
+              ]
       },
       toolActivationOverrides: this.toCanonicalToolActivationOverrides(input).map((ta) => ({
         toolCode: ta.toolCode,
@@ -825,6 +866,12 @@ export class ManageAdminPlansService {
       !Array.isArray(billingHints.quotaAccounting)
         ? (billingHints.quotaAccounting as Record<string, unknown>)
         : {};
+    const skillPolicyRaw =
+      billingHints.skillPolicy !== null &&
+      typeof billingHints.skillPolicy === "object" &&
+      !Array.isArray(billingHints.skillPolicy)
+        ? (billingHints.skillPolicy as Record<string, unknown>)
+        : {};
     const entitlement = plan.entitlementModel;
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
@@ -875,6 +922,11 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(
           quotaAccountingRaw.workspaceStorageBytesLimit
         )
+      },
+      skillPolicy: {
+        maxEnabledSkills:
+          toNullablePositiveInt(skillPolicyRaw.maxEnabledSkills) ??
+          readEnabledSkillLimitFromLimitsPermissions(entitlement?.limitsPermissions)
       },
       contextPolicy,
       retrievalPolicy,

@@ -1187,7 +1187,6 @@ export class MaterializeAssistantPublishedVersionService {
           userId: params.assistant.userId,
           status: "active",
           skill: {
-            workspaceId: params.assistant.workspaceId,
             status: "active"
           }
         },

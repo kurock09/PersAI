@@ -24,7 +24,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 
 const INDEXING_JOB_POLL_INTERVAL_MS = 10_000;
 const INDEXING_JOB_BATCH_SIZE = 4;
-const INDEXING_JOB_CLAIM_TTL_MS = 5 * 60 * 1000;
+const INDEXING_JOB_CLAIM_TTL_MS = 30 * 60 * 1000;
 const INDEXING_JOB_RETRY_BASE_DELAY_MS = 30_000;
 const INDEXING_JOB_RETRY_MAX_DELAY_MS = 30 * 60 * 1000;
 const LAST_ERROR_MAX_CHARS = 1_000;
@@ -68,7 +68,9 @@ class KnowledgeIndexingJobExecutionError extends Error {
   constructor(
     public readonly code: string,
     message: string,
-    public readonly retryable: boolean
+    public readonly retryable: boolean,
+    public readonly provider: KnowledgeProcessingProviderTrace | null = null,
+    public readonly quality: KnowledgeExtractionQuality | null = null
   ) {
     super(message);
   }
@@ -760,8 +762,8 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       await this.clearSourceChunks(job).catch(() => undefined);
       await this.updateSourceTerminalState(job, {
         status: "failed",
-        provider: null,
-        quality: null,
+        provider: normalized.provider,
+        quality: normalized.quality,
         errorCode: normalized.code,
         errorMessage: normalized.message
       }).catch(() => undefined);
@@ -773,6 +775,11 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         },
         data: {
           status: "failed",
+          selectedProviderKey: normalized.provider?.providerKey ?? null,
+          extractionQuality: toNullableJson(normalized.quality),
+          resultPayload: {
+            provider: normalized.provider
+          } as Prisma.InputJsonValue,
           lastErrorCode: normalized.code.slice(0, 128),
           lastErrorMessage: truncateLastError(normalized.message),
           retryAfterAt: null,
@@ -846,7 +853,13 @@ function normalizeJobError(error: unknown): KnowledgeIndexingJobExecutionError {
     return error;
   }
   if (error instanceof KnowledgeIndexingError) {
-    return new KnowledgeIndexingJobExecutionError(error.code, error.message, false);
+    return new KnowledgeIndexingJobExecutionError(
+      error.code,
+      error.message,
+      false,
+      error.provider,
+      error.quality
+    );
   }
   return new KnowledgeIndexingJobExecutionError("indexing_failed", toSafeErrorMessage(error), true);
 }

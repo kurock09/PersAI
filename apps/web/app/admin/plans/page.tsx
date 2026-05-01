@@ -73,6 +73,7 @@ export type PlanDraft = {
   mediaStorageMb: string;
   knowledgeStorageMb: string;
   workspaceStorageMb: string;
+  maxEnabledSkills: string;
   retrievalDefaultMaxResults: string;
   retrievalHardMaxResults: string;
   retrievalLexicalCandidateLimit: string;
@@ -141,6 +142,7 @@ type NumericDraftField =
   | "mediaStorageMb"
   | "knowledgeStorageMb"
   | "workspaceStorageMb"
+  | "maxEnabledSkills"
   | "retrievalDefaultMaxResults"
   | "retrievalHardMaxResults"
   | "retrievalLexicalCandidateLimit"
@@ -382,6 +384,7 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
   { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
+  { field: "maxEnabledSkills", label: "Max enabled Skills", min: 1, allowBlank: true },
   { field: "retrievalDefaultMaxResults", label: "Default results", min: 1 },
   { field: "retrievalHardMaxResults", label: "Hard max results", min: 1 },
   { field: "retrievalLexicalCandidateLimit", label: "Lexical candidate pool", min: 1 },
@@ -522,6 +525,7 @@ function emptyDraft(): PlanDraft {
     mediaStorageMb: "",
     knowledgeStorageMb: "",
     workspaceStorageMb: "",
+    maxEnabledSkills: "",
     retrievalDefaultMaxResults: "5",
     retrievalHardMaxResults: "8",
     retrievalLexicalCandidateLimit: "60",
@@ -603,6 +607,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       plan.quotaLimits?.workspaceStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
+    maxEnabledSkills: plan.skillPolicy?.maxEnabledSkills?.toString() ?? "",
     retrievalDefaultMaxResults: String(plan.retrievalPolicy.defaultMaxResults),
     retrievalHardMaxResults: String(plan.retrievalPolicy.maxMaxResults),
     retrievalLexicalCandidateLimit: String(plan.retrievalPolicy.lexicalCandidateLimit),
@@ -704,6 +709,11 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     min: 1,
     allowBlank: true
   });
+  const maxEnabledSkills = parseStrictIntegerDraft(draft.maxEnabledSkills, {
+    label: "Max enabled Skills",
+    min: 1,
+    allowBlank: true
+  });
   const sharedCompactionSummaryBudgetTokens = parseStrictIntegerDraft(
     draft.sharedCompactionSummaryBudgetTokens,
     {
@@ -742,6 +752,9 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
       knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
       workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
+    },
+    skillPolicy: {
+      maxEnabledSkills
     },
     retrievalPolicy: {
       defaultMaxResults: parseStrictIntegerDraft(draft.retrievalDefaultMaxResults, {
@@ -1818,6 +1831,25 @@ function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.knowledgeStorageMb} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Maximum professional Skills a user can enable for one assistant on this plan. Blank = unlimited.">
+                    Max enabled Skills
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.maxEnabledSkills}
+                    onChange={(e) => onPatch({ maxEnabledSkills: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.maxEnabledSkills
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.maxEnabledSkills} />
               </div>
             </SubPanel>
 
@@ -2529,6 +2561,7 @@ function PlanCardReadOnly({
         <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-border/50 px-3 py-1.5 text-[10px]">
           <KV label="Channels">{channels.join(", ")}</KV>
           <KV label="Tools">{toolClasses.join(", ")}</KV>
+          <KV label="Skills">{plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}</KV>
           <KV label="Context">{plan.contextPolicy.preset}</KV>
           <span className="text-text-subtle">|</span>
           <ToolActivationsInline activations={[...planManaged, ...platformManaged]} />
@@ -2588,6 +2621,7 @@ function PlanCardReadOnly({
                       ? `${String(Math.round(plan.quotaLimits.knowledgeStorageBytesLimit / 1048576))} MB`
                       : "default"}
                   </div>
+                  <div>Max enabled Skills: {plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}</div>
                 </div>
               </Sec>
               <Sec label="AI model slots">

@@ -12,7 +12,6 @@ type MockAssignment = Record<string, unknown> & {
   status: string;
 };
 type SkillFindManyWhere = {
-  workspaceId: string;
   id?: { in: string[] };
 };
 type AssignmentUpsertArgs = {
@@ -65,7 +64,8 @@ function createHarness() {
   const skills = new Map<string, MockSkill>([
     ["skill-1", createSkill("skill-1")],
     ["skill-2", createSkill("skill-2")],
-    ["skill-archived", createSkill("skill-archived", "archived")]
+    ["skill-archived", createSkill("skill-archived", "archived")],
+    ["global-skill", { ...createSkill("global-skill"), workspaceId: "other-ws" }]
   ]);
   const assignments = new Map<string, MockAssignment>();
   let nextAssignment = 1;
@@ -115,9 +115,7 @@ function createHarness() {
     },
     skill: {
       findMany: async ({ where }: { where: SkillFindManyWhere }) => {
-        const rows = [...skills.values()].filter(
-          (skill) => skill.workspaceId === where.workspaceId
-        );
+        const rows = [...skills.values()];
         if (where.id?.in) {
           return rows
             .filter((skill) => where.id.in.includes(skill.id))
@@ -174,6 +172,7 @@ async function run(): Promise<void> {
   const initial = await harness.service.list("user-1");
   assert.equal(initial.limit, 1);
   assert.equal(initial.assignedSkillIds.length, 0);
+  assert.ok(initial.skills.some((item) => item.skill.id === "global-skill"));
 
   await assert.rejects(
     () => harness.service.replaceAssignments("user-1", ["skill-1", "skill-2"]),
@@ -190,6 +189,9 @@ async function run(): Promise<void> {
   const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");
   assert.equal(skill2?.selectable, false);
   assert.equal(skill2?.disabledReason, "skill_limit_reached");
+
+  const globalAssigned = await harness.service.replaceAssignments("user-1", ["global-skill"]);
+  assert.deepEqual(globalAssigned.assignedSkillIds, ["global-skill"]);
 
   const cleared = await harness.service.replaceAssignments("user-1", []);
   assert.deepEqual(cleared.assignedSkillIds, []);

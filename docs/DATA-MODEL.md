@@ -55,7 +55,7 @@ Current active knowledge/retrieval persistence includes:
 
 - assistant-scoped uploaded knowledge sources plus indexed assistant chunk rows
 - workspace-scoped global knowledge sources plus indexed global chunk rows
-- first-class workspace-scoped `Skill`, `SkillDocument`, and `AssistantSkillAssignment` rows for ADR-079 professional Skills
+- first-class platform-catalog `Skill` / `SkillDocument` rows plus assistant-scoped `AssistantSkillAssignment` rows for ADR-079 professional Skills; `Skill.workspaceId` is creation/audit provenance, not selection visibility
 - `KnowledgeIndexingJob` rows for pending source processing, including `skill_document` sources
 - `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary
 - workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
@@ -63,7 +63,7 @@ Current active knowledge/retrieval persistence includes:
 
 ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_source`, `global_knowledge_source`, and `skill_document`. Upload/reindex writes source metadata and a pending `KnowledgeIndexingJob`; the API worker claims jobs with token/expiry fields, records attempt/retry/failure state, processes normalized source content, persists source provider/processor/quality/error state, writes legacy chunk rows, and replaces pgvector rows through `KnowledgeVectorChunk` when embeddings are available. `needs_review` is an indexing quality state and does not imply ADR-080 lifecycle governance.
 
-Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. The materializer reads `AssistantSkillAssignment` rows plus active `Skill` instruction cards, applies the effective enabled-Skills limit, and writes the resulting bounded `Enabled Skills` block into the materialized runtime bundle through Prompt Constructor. Disabled, archived, draft, plan-disabled, and over-limit Skills are omitted. Skill assignment changes and assigned Skill edits/archive mark affected assistant materialization dirty so the block is refreshed before runtime use.
+Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. The materializer reads `AssistantSkillAssignment` rows plus active platform-catalog `Skill` instruction cards, applies the effective enabled-Skills limit, and writes the resulting bounded `Enabled Skills` block into the materialized runtime bundle through Prompt Constructor. Disabled, archived, draft, plan-disabled, and over-limit Skills are omitted. Skill assignment changes and assigned Skill edits/archive mark affected assistant materialization dirty so the block is refreshed before runtime use.
 
 Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, and up to two tags) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
 

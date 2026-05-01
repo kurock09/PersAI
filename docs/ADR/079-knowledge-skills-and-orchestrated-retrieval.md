@@ -88,6 +88,8 @@ A Skill is a first-class admin-created professional capability, for example "Acc
 
 A Skill is not a prompt preset, not a tool, and not a legacy `GlobalKnowledgeSource.scope=skill` row.
 
+Skills are a platform-wide admin catalog in the first version, not tenant/workspace-local product truth. Any `active` admin-created Skill is available for every user's assistant to select, subject to plan limits and the user's explicit assignment choice. Workspace ids on backing rows are ownership/audit provenance for the admin who created the Skill and must not hide active Skills from other assistants.
+
 The first version uses:
 
 - `Skill`
@@ -121,7 +123,7 @@ Skills have status:
 - `active`
 - `archived`
 
-Only `active` Skills are visible for user selection.
+Only `active` Skills are visible for user selection across the platform catalog.
 
 Archived Skills:
 
@@ -208,7 +210,7 @@ The assistant card itself does not need a Skill summary. Skills live in Settings
 
 The number of enabled Skills is plan-controlled.
 
-Admin sets the allowed number of Skills per plan.
+Admin sets the allowed number of Skills per plan in the plan editor (`Max enabled Skills`). A blank value means unlimited.
 
 The user UI shows a counter such as:
 

@@ -1,5 +1,93 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (ADR-079 Assistant Settings Skills polish) — collapsed duplicate cards into one compact premium selector (`apps/web`, `docs`; web checks green)
+
+### What changed
+
+- Removed the duplicate outer Skills intro card from Assistant Settings.
+- Made `AssistantSkillsManager` render a single compact header:
+  - `Профессиональные Skills`
+  - simple count like `1 из X`
+  - short helper copy only.
+- Removed the positive “within plan” pill from the normal state; only saving/over-limit state remains visible when needed.
+- Sorted selected Skills first, then inactive Skills by localized name.
+- Changed Skill cards to a two-column grid inside a small vertical scroll area so only the first row is visible and the rest are behind the scrollbar.
+
+### Verification
+
+- `ReadLints` on changed web/message files
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Deploy and visually check Assistant Settings -> Skills on desktop and narrow mobile widths.
+
+---
+
+## 2026-05-01 (ADR-079 native document processor adapters) — fixed PDF indexing path to use Mistral/LlamaParse, not chat PDF fallback (`apps/api`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated the founder PDF upload failure in `persai-dev` through live DB and GKE logs.
+- Found the real architecture mismatch:
+  - ADR-079 requires provider-backed document processing through Mistral OCR / LlamaParse.
+  - Current indexing code only had policy/key storage plus a local processor.
+  - The local processor called `MediaPreprocessorService` with visual fallback enabled, which routed PDFs through the older provider-gateway/OpenAI chat PDF attachment path.
+- Corrected `KnowledgeDocumentProcessorService`:
+  - reads persisted `/admin/tools` document-processing policy from `platform_runtime_provider_settings.document_processing_policy`;
+  - reads encrypted document-processing keys through `PlatformRuntimeProviderSecretStoreService`;
+  - routes complex documents to Mistral OCR by default;
+  - escalates poor/empty extraction to LlamaParse when auto fallback is enabled and configured;
+  - keeps explicit/simple local parsing local and no longer enables media visual fallback from the knowledge indexing path.
+- Increased indexing job claim TTL from 5 minutes to 30 minutes so long-running provider-backed document parsing is not reclaimed as stale by another API pod while still in progress.
+- Preserved provider/quality trace on terminal empty-extraction failures, so failed source/job rows can show `processorProviderKey` / `selectedProviderKey` instead of losing context as `null`.
+- Added focused regression coverage for provider-backed PDF routing and local-only processing.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-document-processor.service.test.ts`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm run format:check`
+- `ReadLints` on changed API files
+
+### Next recommended step
+
+Deploy this API fix, reindex `AND-T1D-MNT.pdf`, and verify the Skill document records `processorProviderKey=mistral` or `llamaparse` with non-empty chunks. If a provider rejects the file, the next bug should now be a real Mistral/LlamaParse error, not the old OpenAI/provider-gateway path.
+
+---
+
+## 2026-05-01 (ADR-079 platform Skills visibility + plan-limit UI) — fixed multi-user Skill catalog behavior (`apps/api`, `apps/web`, `packages/contracts`, `docs`; focused tests/typechecks green)
+
+### What changed
+
+- Corrected ADR-079 Skill visibility for multi-user PersAI:
+  - `/assistant/skills` now lists active admin-created Skills as a platform catalog instead of filtering by the assistant workspace.
+  - `PUT /assistant/skills` now validates selected active Skills globally while still creating assistant-scoped assignments.
+  - prompt materialization now reads active assigned Skills without hiding them by creator workspace.
+  - runtime orchestrated retrieval still validates selected Skills against active assistant assignments and active/non-archived Skills.
+- Added first-class plan control for enabled Skills:
+  - API plan state/input now includes `skillPolicy.maxEnabledSkills`.
+  - persisted plan hints write `billingProviderHints.skillPolicy.maxEnabledSkills` and compatible `limitsPermissions` key `enabled_skills_limit`.
+  - Admin Plans UI exposes `Max enabled Skills`; blank means unlimited.
+- Made Assistant Settings Skill cards more compact and calmer.
+- Updated ADR-079 and data-model docs: `Skill.workspaceId` is creation/audit provenance, not product visibility.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on changed API/web files
+
+### Next recommended step
+
+Deploy this fix, then validate as founder: create one active admin Skill, open a different user's assistant Settings, confirm the Skill appears, enable it, publish/reapply if needed, and send a domain-relevant turn to verify enabled Skill behavior.
+
+---
+
 ## 2026-05-01 (ADR-079 deploy-readiness audit fixes) — closed auth/API/runtime/web blockers after Step 12 audit (`apps/api`, `apps/runtime`, `apps/web`, `docs`; full tests/lint/format/typechecks green)
 
 ### What changed

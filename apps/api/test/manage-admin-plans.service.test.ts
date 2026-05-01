@@ -82,6 +82,9 @@ async function run(): Promise<void> {
       tokenBudgetLimit: 1000,
       knowledgeStorageBytesLimit: 4096
     },
+    skillPolicy: {
+      maxEnabledSkills: 2
+    },
     contextPolicy,
     primaryModelKey: null,
     imageGenerateModelKey: "gpt-image-2",
@@ -132,6 +135,9 @@ async function run(): Promise<void> {
     tokenBudgetLimit: 1000,
     knowledgeStorageBytesLimit: 4096
   });
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, {
+    maxEnabledSkills: 2
+  });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).contextPolicy, {
     schema: "persai.planContextHydration.v1",
     ...contextPolicy
@@ -146,6 +152,7 @@ async function run(): Promise<void> {
         videoGenerateFallbackModelKey: string | null;
         contextPolicy: { preset: string };
         quotaLimits: { knowledgeStorageBytesLimit: number | null };
+        skillPolicy: { maxEnabledSkills: number | null };
       };
     }
   ).toAdminPlanState({
@@ -169,6 +176,7 @@ async function run(): Promise<void> {
   assert.equal(state.videoGenerateFallbackModelKey, "sora-2");
   assert.equal(state.contextPolicy.preset, "balanced");
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
+  assert.equal(state.skillPolicy.maxEnabledSkills, 2);
   const normalizedState = (
     service as unknown as {
       toAdminPlanState(plan: AssistantPlanCatalog): {

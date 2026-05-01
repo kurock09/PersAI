@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { AlertTriangle, CheckCircle2, GraduationCap, Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import type { AssistantSkillCatalogItemState, AssistantSkillsState } from "../assistant-api-client";
@@ -104,10 +104,28 @@ export function AssistantSkillsManager({
 }: AssistantSkillsManagerProps) {
   const t = useTranslations("skills");
   const locale = useLocale();
-  const sortedSkills = useMemo(() => state?.skills ?? [], [state?.skills]);
+  const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
+  const sortedSkills = useMemo(() => {
+    const skills = state?.skills ?? [];
+    return [...skills].sort((left, right) => {
+      const leftSelected = selectedSkillIdSet.has(left.skill.id);
+      const rightSelected = selectedSkillIdSet.has(right.skill.id);
+      if (leftSelected !== rightSelected) {
+        return leftSelected ? -1 : 1;
+      }
+      return resolveLocalizedText(left.skill.name, locale, "").localeCompare(
+        resolveLocalizedText(right.skill.name, locale, ""),
+        locale
+      );
+    });
+  }, [locale, selectedSkillIdSet, state?.skills]);
   const enabledCount = getEnabledSkillCount(selectedSkillIds);
   const limit = state?.limit ?? null;
   const overLimit = isSkillSelectionOverLimit(selectedSkillIds, limit);
+  const countLabel =
+    limit === null
+      ? t("compactCounterUnlimited", { count: enabledCount })
+      : t("compactCounterLimited", { count: enabledCount, limit });
 
   if (loading) {
     return (
@@ -128,112 +146,111 @@ export function AssistantSkillsManager({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-surface p-4">
-        <div>
-          <p className="text-sm font-semibold text-text">
-            {limit === null
-              ? t("counterUnlimited", { count: enabledCount })
-              : t("counterLimited", { count: enabledCount, limit })}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-text-muted">
-            {mode === "setup" ? t("setupHelp") : t("settingsHelp")}
-          </p>
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-border/70 bg-surface/70 p-4 shadow-[0_18px_44px_rgba(0,0,0,0.16)]">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-text">{t("title")}</p>
+            <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-muted">
+              {mode === "setup" ? t("setupHelp") : t("settingsHelp")}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                overLimit ? "text-warning" : "text-text"
+              )}
+            >
+              {countLabel}
+            </p>
+            {saving ? (
+              <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium text-accent">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("saving")}
+              </span>
+            ) : overLimit ? (
+              <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium text-warning">
+                <AlertTriangle className="h-3 w-3" />
+                {t("overLimit")}
+              </span>
+            ) : null}
+          </div>
         </div>
-        {saving ? (
-          <span className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-            <Loader2 className="h-3 w-3 animate-spin" />
-            {t("saving")}
-          </span>
-        ) : (
-          <span
-            className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
-              overLimit
-                ? "border-warning/30 bg-warning/10 text-warning"
-                : "border-success/25 bg-success/10 text-success"
-            )}
-          >
-            {overLimit ? (
-              <AlertTriangle className="h-3 w-3" />
-            ) : (
-              <CheckCircle2 className="h-3 w-3" />
-            )}
-            {overLimit ? t("overLimit") : t("withinLimit")}
-          </span>
-        )}
       </div>
 
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
-      <div className="grid gap-3 md:grid-cols-2">
-        {sortedSkills.map((item) => {
-          const checked = selectedSkillIds.includes(item.skill.id);
-          const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
-          const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
-          const readiness = summarizeSkillReadiness(item);
-          return (
-            <label
-              key={item.skill.id}
-              className={cn(
-                "group flex cursor-pointer gap-3 rounded-2xl border p-4 text-left transition-all",
-                checked
-                  ? "border-accent/70 bg-accent/10 shadow-[0_0_24px_var(--accent-glow)]"
-                  : "border-border bg-surface hover:border-border-strong hover:bg-surface-hover",
-                cardDisabled && "cursor-not-allowed opacity-65"
-              )}
-            >
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 shrink-0 accent-accent"
-                checked={checked}
-                disabled={cardDisabled}
-                onChange={(event) =>
-                  onChange(
-                    toggleSkillSelection(selectedSkillIds, item.skill.id, event.target.checked)
-                  )
-                }
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-text">
+      <div className="max-h-[8.75rem] overflow-y-auto pr-1">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {sortedSkills.map((item) => {
+            const checked = selectedSkillIds.includes(item.skill.id);
+            const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
+            const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
+            const readiness = summarizeSkillReadiness(item);
+            return (
+              <label
+                key={item.skill.id}
+                className={cn(
+                  "group flex min-h-[8rem] cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all",
+                  checked
+                    ? "border-accent/55 bg-accent/8 shadow-[0_0_18px_var(--accent-glow)]"
+                    : "border-border/80 bg-surface/70 hover:border-border-strong hover:bg-surface-hover",
+                  cardDisabled && "cursor-not-allowed opacity-65"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+                  checked={checked}
+                  disabled={cardDisabled}
+                  onChange={(event) =>
+                    onChange(
+                      toggleSkillSelection(selectedSkillIds, item.skill.id, event.target.checked)
+                    )
+                  }
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
                       {item.skill.iconEmoji ? `${item.skill.iconEmoji} ` : ""}
                       {resolveLocalizedText(item.skill.name, locale, "Untitled Skill")}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-text-muted">
-                      {resolveLocalizedText(item.skill.description, locale, "") ||
-                        item.skill.category}
-                    </p>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        readiness === "ready" && "bg-success/10 text-success",
+                        readiness === "processing" && "bg-accent/10 text-accent",
+                        readiness === "needs_review" && "bg-warning/10 text-warning",
+                        readiness === "failed" && "bg-destructive/10 text-destructive",
+                        readiness === "empty" && "bg-surface-raised text-text-subtle"
+                      )}
+                    >
+                      {t(`readiness.${readiness}`)}
+                    </span>
                   </div>
-                  <GraduationCap className="h-4 w-4 shrink-0 text-text-subtle" />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-medium uppercase tracking-wide">
-                  <span className="rounded-full bg-surface-raised px-2 py-0.5 text-text-subtle">
-                    {item.skill.category}
-                  </span>
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5",
-                      readiness === "ready" && "bg-success/10 text-success",
-                      readiness === "processing" && "bg-accent/10 text-accent",
-                      readiness === "needs_review" && "bg-warning/10 text-warning",
-                      readiness === "failed" && "bg-destructive/10 text-destructive",
-                      readiness === "empty" && "bg-surface-raised text-text-subtle"
-                    )}
-                  >
-                    {t(`readiness.${readiness}`)}
-                  </span>
-                </div>
-                {disabledReason ? (
-                  <p className="mt-3 text-[11px] leading-relaxed text-text-subtle">
-                    {t(`disabledReason.${disabledReason}`)}
+                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-text-muted">
+                    {resolveLocalizedText(item.skill.description, locale, "") ||
+                      item.skill.category}
                   </p>
-                ) : null}
-              </div>
-            </label>
-          );
-        })}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                    <span>{item.skill.category}</span>
+                    {item.skill.tags.slice(0, 2).map((tag) => (
+                      <span key={tag} className="text-text-subtle/70">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  {disabledReason ? (
+                    <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
+                      {t(`disabledReason.${disabledReason}`)}
+                    </p>
+                  ) : null}
+                </div>
+              </label>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

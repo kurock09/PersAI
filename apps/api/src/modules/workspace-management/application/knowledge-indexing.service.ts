@@ -13,7 +13,9 @@ import type {
 export class KnowledgeIndexingError extends Error {
   constructor(
     public readonly code: string,
-    message: string
+    message: string,
+    public readonly provider: KnowledgeProcessingProviderTrace | null = null,
+    public readonly quality: KnowledgeExtractionQuality | null = null
   ) {
     super(message);
   }
@@ -85,7 +87,9 @@ export class KnowledgeIndexingService {
     if (extractedText.length === 0) {
       throw new KnowledgeIndexingError(
         "text_extract_unavailable",
-        "No searchable text could be extracted from the knowledge source."
+        "No searchable text could be extracted from the knowledge source.",
+        processed.provider,
+        processed.quality
       );
     }
 
@@ -93,7 +97,9 @@ export class KnowledgeIndexingService {
     if (chunks.length === 0) {
       throw new KnowledgeIndexingError(
         "empty_text_extract",
-        "The knowledge source did not produce any indexable text chunks."
+        "The knowledge source did not produce any indexable text chunks.",
+        processed.provider,
+        processed.quality
       );
     }
     const embeddingModelKey = params.embeddingModelKey?.trim() || null;

@@ -33,7 +33,6 @@ export class ManageAssistantSkillsService {
     const [skills, assignments] = await Promise.all([
       this.prisma.skill.findMany({
         where: {
-          workspaceId: assistant.workspaceId,
           OR: [
             { status: "active" },
             {
@@ -90,7 +89,6 @@ export class ManageAssistantSkillsService {
     }
     const skills = await this.prisma.skill.findMany({
       where: {
-        workspaceId: assistant.workspaceId,
         id: { in: skillIds }
       },
       select: {

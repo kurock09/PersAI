@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { KnowledgeIndexingJobWorkerService } from "../src/modules/workspace-management/application/knowledge-indexing-job-worker.service";
+import { KnowledgeIndexingError } from "../src/modules/workspace-management/application/knowledge-indexing.service";
 
 type Row = Record<string, unknown> & { id: string };
 
@@ -323,6 +324,28 @@ async function runFailureRetryAndExhaustion(): Promise<void> {
   assert.equal(exhaustedHarness.jobs.get("job-1")?.status, "failed");
   assert.equal(exhaustedHarness.source()?.status, "failed");
   assert.equal(exhaustedHarness.source()?.lastErrorCode, "indexing_failed");
+
+  const providerFailureHarness = createHarness({
+    indexingFailure: new KnowledgeIndexingError(
+      "text_extract_unavailable",
+      "No searchable text could be extracted.",
+      {
+        providerKey: "mistral",
+        processorMode: "default_provider",
+        attemptedProviderKeys: ["mistral", "llamaparse"]
+      },
+      {
+        status: "poor",
+        score: 0,
+        reasonCodes: ["empty_text_extract"],
+        textChars: 0
+      }
+    ),
+    maxAttempts: 1
+  });
+  await providerFailureHarness.service.processDueIndexingJobsBatch(1);
+  assert.equal(providerFailureHarness.jobs.get("job-1")?.selectedProviderKey, "mistral");
+  assert.equal(providerFailureHarness.source()?.processorProviderKey, "mistral");
 }
 
 async function runNeedsReviewGate(): Promise<void> {

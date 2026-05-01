@@ -72,6 +72,8 @@ export default function AdminToolsPage() {
   const [ttsPrimaryProviderInput, setTtsPrimaryProviderInput] = useState<string | null>(null);
   const [documentProcessingPolicyInput, setDocumentProcessingPolicyInput] =
     useState<DocumentProcessingPolicyState | null>(null);
+  const [documentProcessingThresholdInput, setDocumentProcessingThresholdInput] =
+    useState<string>("0.65");
   const [documentProcessingKeyInputs, setDocumentProcessingKeyInputs] = useState<
     Partial<Record<"mistral" | "llamaparse", string>>
   >({});
@@ -98,6 +100,7 @@ export default function AdminToolsPage() {
       const settings = docData.settings ?? docData;
       setDocumentProcessingState(settings);
       setDocumentProcessingPolicyInput(settings.policy);
+      setDocumentProcessingThresholdInput(String(settings.policy.needsReviewThreshold));
     } catch (e) {
       setFeedback(e instanceof Error ? e.message : "Failed to load.");
     } finally {
@@ -192,6 +195,27 @@ export default function AdminToolsPage() {
     setSavingDocumentProcessing(true);
     setDocumentProcessingFeedback(null);
     try {
+      const needsReviewThreshold = parseDecimalInput(documentProcessingThresholdInput);
+      if (needsReviewThreshold === null || needsReviewThreshold < 0 || needsReviewThreshold > 1) {
+        throw new Error("Needs-review threshold must be a number between 0 and 1.");
+      }
+      if (
+        documentProcessingPolicyInput.defaultProvider ===
+        documentProcessingPolicyInput.highQualityFallbackProvider
+      ) {
+        throw new Error("Default provider and high-quality fallback must differ.");
+      }
+      for (const providerKey of requiredRemoteDocumentProviders(documentProcessingPolicyInput)) {
+        const provider = documentProcessingState?.providers.find(
+          (item) => item.providerKey === providerKey
+        );
+        const incomingKey = documentProcessingKeyInputs[providerKey]?.trim() ?? "";
+        if (!provider?.configured && incomingKey.length === 0) {
+          throw new Error(
+            `${providerLabel(providerKey)} API key is required for the selected policy.`
+          );
+        }
+      }
       const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
         method: "POST",
         headers: {
@@ -202,7 +226,9 @@ export default function AdminToolsPage() {
       });
       if (!challengeRes.ok) {
         const err = await challengeRes.json().catch(() => ({}));
-        throw new Error(err.message ?? `Step-up challenge failed: ${challengeRes.status}`);
+        throw new Error(
+          readErrorMessage(err) ?? `Step-up challenge failed: ${challengeRes.status}`
+        );
       }
       const challengeData = await challengeRes.json();
       const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
@@ -222,13 +248,16 @@ export default function AdminToolsPage() {
           "x-persai-step-up-token": stepUpToken
         },
         body: JSON.stringify({
-          policy: documentProcessingPolicyInput,
+          policy: {
+            ...documentProcessingPolicyInput,
+            needsReviewThreshold
+          },
           providerKeys
         })
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.message ?? `Save failed: ${res.status}`);
+        throw new Error(readErrorMessage(err) ?? `Save failed: ${res.status}`);
       }
       setDocumentProcessingFeedback("Document processing settings saved.");
       setDocumentProcessingKeyInputs({});
@@ -237,7 +266,14 @@ export default function AdminToolsPage() {
       setDocumentProcessingFeedback(e instanceof Error ? e.message : "Save failed.");
     }
     setSavingDocumentProcessing(false);
-  }, [documentProcessingKeyInputs, documentProcessingPolicyInput, getToken, load]);
+  }, [
+    documentProcessingKeyInputs,
+    documentProcessingPolicyInput,
+    documentProcessingState?.providers,
+    documentProcessingThresholdInput,
+    getToken,
+    load
+  ]);
 
   const handleTestDocumentProvider = useCallback(
     async (providerKey: DocumentProcessingProviderKey) => {
@@ -263,7 +299,7 @@ export default function AdminToolsPage() {
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.message ?? `Connection test failed: ${res.status}`);
+          throw new Error(readErrorMessage(err) ?? `Connection test failed: ${res.status}`);
         }
         const data = await res.json();
         const result = data.result;
@@ -286,6 +322,14 @@ export default function AdminToolsPage() {
 
   const updateDocumentPolicy = (patch: Partial<DocumentProcessingPolicyState>) => {
     setDocumentProcessingPolicyInput((prev) => (prev === null ? prev : { ...prev, ...patch }));
+  };
+
+  const updateDocumentThresholdInput = (value: string) => {
+    setDocumentProcessingThresholdInput(value);
+    const next = parseDecimalInput(value);
+    if (next !== null && next >= 0 && next <= 1) {
+      updateDocumentPolicy({ needsReviewThreshold: next });
+    }
   };
 
   if (loading) {
@@ -395,16 +439,10 @@ export default function AdminToolsPage() {
                   Needs-review threshold
                 </span>
                 <input
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={documentProcessingPolicyInput.needsReviewThreshold}
-                  onChange={(e) =>
-                    updateDocumentPolicy({
-                      needsReviewThreshold: Number(e.target.value)
-                    })
-                  }
+                  type="text"
+                  inputMode="decimal"
+                  value={documentProcessingThresholdInput}
+                  onChange={(e) => updateDocumentThresholdInput(e.target.value)}
                   className="w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text outline-none focus:border-border-strong"
                 />
               </label>
@@ -597,4 +635,44 @@ export default function AdminToolsPage() {
 function providerLabel(providerKey: DocumentProcessingProviderKey): string {
   if (providerKey === "local") return "Local parser";
   return providerKey === "mistral" ? "Mistral OCR" : "LlamaParse";
+}
+
+function requiredRemoteDocumentProviders(
+  policy: DocumentProcessingPolicyState
+): Array<"mistral" | "llamaparse"> {
+  const providers = new Set<"mistral" | "llamaparse">();
+  if (policy.defaultProvider === "mistral" || policy.defaultProvider === "llamaparse") {
+    providers.add(policy.defaultProvider);
+  }
+  if (
+    policy.highQualityFallbackProvider === "mistral" ||
+    policy.highQualityFallbackProvider === "llamaparse"
+  ) {
+    providers.add(policy.highQualityFallbackProvider);
+  }
+  return [...providers];
+}
+
+function parseDecimalInput(value: string): number | null {
+  const normalized = value.trim().replace(",", ".");
+  if (normalized.length === 0) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readErrorMessage(value: unknown): string | null {
+  if (value !== null && typeof value === "object") {
+    const row = value as Record<string, unknown>;
+    if (typeof row.message === "string" && row.message.trim().length > 0) {
+      return row.message;
+    }
+    const nested = row.error;
+    if (nested !== null && typeof nested === "object") {
+      const message = (nested as Record<string, unknown>).message;
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message;
+      }
+    }
+  }
+  return null;
 }

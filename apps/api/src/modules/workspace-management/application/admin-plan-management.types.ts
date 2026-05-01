@@ -101,6 +101,9 @@ export type AdminPlanInput = {
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
+  skillPolicy: {
+    maxEnabledSkills: number | null;
+  };
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
   sandboxPolicy: AdminPlanSandboxPolicy;
@@ -147,6 +150,9 @@ export type AdminPlanState = {
     mediaStorageBytesLimit: number | null;
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
+  };
+  skillPolicy: {
+    maxEnabledSkills: number | null;
   };
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;

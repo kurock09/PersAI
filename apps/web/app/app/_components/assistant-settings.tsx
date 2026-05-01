@@ -1698,10 +1698,6 @@ export function AssistantSettings({
         open={openSection === "skills"}
         onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
       >
-        <div className="mb-4 rounded-2xl border border-border/70 bg-surface p-4">
-          <p className="text-sm font-medium text-text">{t("skillsTitle")}</p>
-          <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("skillsDescription")}</p>
-        </div>
         <AssistantSkillsManager
           state={skillsState}
           selectedSkillIds={selectedSkillIds}

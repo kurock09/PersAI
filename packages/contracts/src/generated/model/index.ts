@@ -81,6 +81,7 @@ export * from "./adminPlanMetadata";
 export * from "./adminPlanQuotaLimits";
 export * from "./adminPlanRetrievalPolicy";
 export * from "./adminPlanSandboxPolicy";
+export * from "./adminPlanSkillPolicy";
 export * from "./adminPlanState";
 export * from "./adminPlanStateRuntimeTierDefault";
 export * from "./adminPlanStateStatus";
