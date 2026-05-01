@@ -66,6 +66,7 @@ export default function AdminToolsPage() {
     null
   );
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [documentProcessingFeedback, setDocumentProcessingFeedback] = useState<string | null>(null);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [providerInputs, setProviderInputs] = useState<Record<string, string>>({});
   const [ttsPrimaryProviderInput, setTtsPrimaryProviderInput] = useState<string | null>(null);
@@ -184,9 +185,12 @@ export default function AdminToolsPage() {
 
   const handleSaveDocumentProcessing = useCallback(async () => {
     const token = await getToken();
-    if (!token || !documentProcessingPolicyInput) return;
+    if (!token || !documentProcessingPolicyInput) {
+      setDocumentProcessingFeedback("Session expired. Please sign in again.");
+      return;
+    }
     setSavingDocumentProcessing(true);
-    setFeedback(null);
+    setDocumentProcessingFeedback(null);
     try {
       const challengeRes = await fetch("/api/v1/admin/step-up/challenge", {
         method: "POST",
@@ -196,7 +200,10 @@ export default function AdminToolsPage() {
         },
         body: JSON.stringify({ action: "admin.document_processing_settings.update" })
       });
-      if (!challengeRes.ok) throw new Error("Step-up challenge failed.");
+      if (!challengeRes.ok) {
+        const err = await challengeRes.json().catch(() => ({}));
+        throw new Error(err.message ?? `Step-up challenge failed: ${challengeRes.status}`);
+      }
       const challengeData = await challengeRes.json();
       const stepUpToken = challengeData.challenge?.token ?? challengeData.token;
 
@@ -223,11 +230,11 @@ export default function AdminToolsPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.message ?? `Save failed: ${res.status}`);
       }
-      setFeedback("Document processing settings saved.");
+      setDocumentProcessingFeedback("Document processing settings saved.");
       setDocumentProcessingKeyInputs({});
       await load();
     } catch (e) {
-      setFeedback(e instanceof Error ? e.message : "Save failed.");
+      setDocumentProcessingFeedback(e instanceof Error ? e.message : "Save failed.");
     }
     setSavingDocumentProcessing(false);
   }, [documentProcessingKeyInputs, documentProcessingPolicyInput, getToken, load]);
@@ -235,17 +242,24 @@ export default function AdminToolsPage() {
   const handleTestDocumentProvider = useCallback(
     async (providerKey: DocumentProcessingProviderKey) => {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        setDocumentProcessingFeedback("Session expired. Please sign in again.");
+        return;
+      }
       setTestingProvider(providerKey);
-      setFeedback(null);
+      setDocumentProcessingFeedback(null);
       try {
+        const providerKeyCandidate =
+          providerKey === "mistral" || providerKey === "llamaparse"
+            ? documentProcessingKeyInputs[providerKey]?.trim() || null
+            : null;
         const res = await fetch("/api/v1/admin/tools/document-processing/test-connection", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ providerKey })
+          body: JSON.stringify({ providerKey, providerKeyCandidate })
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -253,13 +267,13 @@ export default function AdminToolsPage() {
         }
         const data = await res.json();
         const result = data.result;
-        setFeedback(`${providerLabel(providerKey)}: ${result.message}`);
+        setDocumentProcessingFeedback(`${providerLabel(providerKey)}: ${result.message}`);
       } catch (e) {
-        setFeedback(e instanceof Error ? e.message : "Connection test failed.");
+        setDocumentProcessingFeedback(e instanceof Error ? e.message : "Connection test failed.");
       }
       setTestingProvider(null);
     },
-    [getToken]
+    [documentProcessingKeyInputs, getToken]
   );
 
   const updateKeyInput = (credentialKey: string, value: string) => {
@@ -468,6 +482,9 @@ export default function AdminToolsPage() {
               )}
               Save document processing
             </button>
+            {documentProcessingFeedback && (
+              <p className="mt-2 text-xs text-text-muted">{documentProcessingFeedback}</p>
+            )}
           </section>
         )}
 

@@ -28,19 +28,27 @@ async function run(): Promise<void> {
     } as never
   );
 
-  const response = await controller.createStepUpChallenge(
-    {
-      requestId: "req-1",
-      resolvedAppUser: { id: "user-1" }
-    } as never,
-    { action: "admin.plan.delete" }
-  );
+  const req = {
+    requestId: "req-1",
+    resolvedAppUser: { id: "user-1" }
+  } as never;
+  const response = await controller.createStepUpChallenge(req, { action: "admin.plan.delete" });
 
   assert.equal(issuedActions[0], "admin.plan.delete");
   assert.equal(response.challenge.action, "admin.plan.delete");
   assert.equal(response.challenge.token, "step-up-token");
   assert.equal(auditEvents[0]?.eventCode, "admin.step_up_challenge_issued");
   assert.equal((auditEvents[0]?.details as Record<string, unknown>).action, "admin.plan.delete");
+
+  const documentProcessingResponse = await controller.createStepUpChallenge(req, {
+    action: "admin.document_processing_settings.update"
+  });
+
+  assert.equal(issuedActions[1], "admin.document_processing_settings.update");
+  assert.equal(
+    documentProcessingResponse.challenge.action,
+    "admin.document_processing_settings.update"
+  );
 }
 
 run().catch((error) => {

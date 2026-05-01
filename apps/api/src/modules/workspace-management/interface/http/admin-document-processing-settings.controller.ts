@@ -60,7 +60,8 @@ export class AdminDocumentProcessingSettingsController {
     const input = this.manageAdminDocumentProcessingSettingsService.parseTestConnectionInput(body);
     const result = await this.manageAdminDocumentProcessingSettingsService.testConnection(
       userId,
-      input.providerKey
+      input.providerKey,
+      input.providerKeyCandidate
     );
     return {
       requestId: req.requestId ?? null,

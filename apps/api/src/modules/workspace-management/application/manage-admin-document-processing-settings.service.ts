@@ -23,6 +23,7 @@ import {
   type DocumentProcessingPolicyState,
   type DocumentProcessingProviderKey,
   type DocumentProcessingRemoteProviderKey,
+  type DocumentProcessingTestConnectionRequest,
   type DocumentProcessingTestConnectionState
 } from "./document-processing-settings";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -47,7 +48,7 @@ export class ManageAdminDocumentProcessingSettingsService {
     }
   }
 
-  parseTestConnectionInput(body: unknown): { providerKey: DocumentProcessingProviderKey } {
+  parseTestConnectionInput(body: unknown): DocumentProcessingTestConnectionRequest {
     try {
       return parseDocumentProcessingTestConnectionRequest(body);
     } catch (error) {
@@ -128,7 +129,8 @@ export class ManageAdminDocumentProcessingSettingsService {
 
   async testConnection(
     userId: string,
-    providerKey: DocumentProcessingProviderKey
+    providerKey: DocumentProcessingProviderKey,
+    providerKeyCandidate: string | null = null
   ): Promise<DocumentProcessingTestConnectionState> {
     await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const checkedAt = new Date().toISOString();
@@ -137,6 +139,15 @@ export class ManageAdminDocumentProcessingSettingsService {
         providerKey,
         ok: true,
         message: "Local document parser is available.",
+        checkedAt
+      };
+    }
+
+    if (providerKeyCandidate !== null && providerKeyCandidate.trim().length > 0) {
+      return {
+        providerKey,
+        ok: true,
+        message: `${this.providerLabel(providerKey)} API key is present in the form and passes local validation. Save document processing settings to store it encrypted. Live OCR ping will be wired with the provider adapter.`,
         checkedAt
       };
     }

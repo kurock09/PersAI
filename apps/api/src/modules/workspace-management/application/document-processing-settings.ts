@@ -49,6 +49,11 @@ export type AdminDocumentProcessingSettingsRequest = {
   providerKeys: Partial<Record<DocumentProcessingRemoteProviderKey, string>>;
 };
 
+export type DocumentProcessingTestConnectionRequest = {
+  providerKey: DocumentProcessingProviderKey;
+  providerKeyCandidate: string | null;
+};
+
 export type DocumentProcessingTestConnectionState = {
   providerKey: DocumentProcessingProviderKey;
   ok: boolean;
@@ -77,25 +82,33 @@ export function parseAdminDocumentProcessingSettingsRequest(
     if (trimmed.length === 0) {
       continue;
     }
-    if (trimmed.length > MAX_PROVIDER_KEY_LENGTH) {
-      throw new Error(
-        `providerKeys.${providerKey} must be at most ${String(MAX_PROVIDER_KEY_LENGTH)} characters.`
-      );
-    }
-    if (containsControlCharacters(trimmed)) {
-      throw new Error(`providerKeys.${providerKey} contains invalid control characters.`);
-    }
-    providerKeys[providerKey] = trimmed;
+    providerKeys[providerKey] = parseProviderSecretValue(trimmed, `providerKeys.${providerKey}`);
   }
   return { policy, providerKeys };
 }
 
-export function parseDocumentProcessingTestConnectionRequest(body: unknown): {
-  providerKey: DocumentProcessingProviderKey;
-} {
+export function parseDocumentProcessingTestConnectionRequest(
+  body: unknown
+): DocumentProcessingTestConnectionRequest {
   const row = asObject(body, "Request body");
+  const providerKey = parseProviderKey(row.providerKey, "providerKey");
+  const rawCandidate = row.providerKeyCandidate ?? row.apiKey;
+  let providerKeyCandidate: string | null = null;
+  if (rawCandidate !== undefined && rawCandidate !== null) {
+    if (typeof rawCandidate !== "string") {
+      throw new Error("providerKeyCandidate must be a string when provided.");
+    }
+    const trimmed = rawCandidate.trim();
+    if (trimmed.length > 0) {
+      if (providerKey === "local") {
+        throw new Error("providerKeyCandidate is only supported for remote providers.");
+      }
+      providerKeyCandidate = parseProviderSecretValue(trimmed, "providerKeyCandidate");
+    }
+  }
   return {
-    providerKey: parseProviderKey(row.providerKey, "providerKey")
+    providerKey,
+    providerKeyCandidate
   };
 }
 
@@ -225,6 +238,16 @@ function parseProviderKey(value: unknown, path: string): DocumentProcessingProvi
     return value;
   }
   throw new Error(`${path} must be one of: local, mistral, llamaparse.`);
+}
+
+function parseProviderSecretValue(value: string, path: string): string {
+  if (value.length > MAX_PROVIDER_KEY_LENGTH) {
+    throw new Error(`${path} must be at most ${String(MAX_PROVIDER_KEY_LENGTH)} characters.`);
+  }
+  if (containsControlCharacters(value)) {
+    throw new Error(`${path} contains invalid control characters.`);
+  }
+  return value;
 }
 
 function parseBoolean(value: unknown, path: string): boolean {

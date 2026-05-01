@@ -157,6 +157,14 @@ async function run(): Promise<void> {
   const localConnection = await harness.service.testConnection("admin-1", "local");
   assert.equal(localConnection.ok, true);
 
+  const candidateConnection = await harness.service.testConnection(
+    "admin-1",
+    "mistral",
+    "candidate-key"
+  );
+  assert.equal(candidateConnection.ok, true);
+  assert.match(candidateConnection.message, /present in the form/);
+
   const mistralConnection = await harness.service.testConnection("admin-1", "mistral");
   assert.equal(mistralConnection.ok, true);
   assert.match(mistralConnection.message, /decryptable/);
