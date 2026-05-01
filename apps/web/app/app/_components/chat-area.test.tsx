@@ -25,6 +25,7 @@ vi.mock("./app-shell", () => ({
 vi.mock("./chat-message", () => ({
   ChatMessageBubble: (props: {
     message: ChatMessage;
+    preResponseStatus?: "thinking" | "working";
     onAssistantAction?: (text: string) => void;
     onDoNotRemember?: (messageId: string) => void;
   }) => {
@@ -219,6 +220,41 @@ describe("ChatArea", () => {
 
     expect(screen.getByText("voiceTranscriptionEmptyTitle")).toBeInTheDocument();
     expect(screen.getByText("voiceTranscriptionEmptyGuidance")).toBeInTheDocument();
+  });
+
+  it("does not show assistant thinking while the previous user message is still sending", () => {
+    const userMessage: ChatMessage = {
+      id: "local-user-1",
+      role: "user",
+      content: "Hello",
+      status: "sending"
+    };
+    const assistantMessage: ChatMessage = {
+      id: "local-assistant-1",
+      role: "assistant",
+      content: "",
+      status: "streaming"
+    };
+    const baseChat = createChat("", { isStreaming: true });
+
+    render(
+      <ChatArea
+        chat={{
+          ...baseChat,
+          entries: [
+            { kind: "message", message: userMessage },
+            { kind: "message", message: assistantMessage }
+          ],
+          messages: [userMessage, assistantMessage],
+          pendingSendStatus: "sending"
+        }}
+      />
+    );
+
+    const assistantProps = chatMessageBubbleMock.mock.calls.find(
+      ([props]) => props.message.id === "local-assistant-1"
+    )?.[0];
+    expect(assistantProps?.preResponseStatus).toBeUndefined();
   });
 
   it("renders the chat title as quiet single-line context", () => {

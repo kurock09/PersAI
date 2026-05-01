@@ -485,12 +485,12 @@ export default function AdminSkillsPage() {
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[360px_1fr]">
-        <div className="rounded-xl border border-border/70 bg-surface">
+      <div className="grid items-stretch gap-3 lg:grid-cols-[360px_1fr]">
+        <div className="flex min-h-0 flex-col rounded-xl border border-border/70 bg-surface">
           <div className="flex items-center justify-between gap-2 border-b border-border/70 p-3">
             <div>
               <h2 className="text-xs font-semibold text-text">Skills catalog</h2>
-              <p className="text-[11px] text-text-muted">No demo Skills are seeded.</p>
+              <p className="text-[11px] text-text-muted">Admin-curated platform catalog.</p>
             </div>
             <button
               type="button"
@@ -505,7 +505,7 @@ export default function AdminSkillsPage() {
               )}
             </button>
           </div>
-          <div className="max-h-[680px] space-y-2 overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
             {loading ? (
               <div className="flex items-center gap-2 text-xs text-text-muted">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -203,10 +203,41 @@
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
   }
+
+  select {
+    color-scheme: dark;
+  }
+
+  select option,
+  select optgroup {
+    background-color: var(--surface);
+    color: var(--text);
+  }
+
+  select option:checked {
+    background-color: color-mix(in srgb, var(--accent) 24%, var(--surface) 76%);
+    color: var(--text);
+  }
+
   :root.light *,
   :root.light *::before,
   :root.light *::after {
     scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+  }
+
+  :root.light select {
+    color-scheme: light;
+  }
+
+  :root.light select option,
+  :root.light select optgroup {
+    background-color: var(--surface-raised);
+    color: var(--text);
+  }
+
+  :root.light select option:checked {
+    background-color: color-mix(in srgb, var(--accent) 18%, var(--surface-raised) 82%);
+    color: var(--text);
   }
 }
 ::-webkit-scrollbar {

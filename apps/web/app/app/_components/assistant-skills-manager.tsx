@@ -21,6 +21,8 @@ type AssistantSkillsManagerProps = {
 
 type SkillReadiness = "ready" | "processing" | "needs_review" | "failed" | "empty";
 
+const SKILL_GROUP_ORDER = ["personal", "work", "engineering", "education"] as const;
+
 const SKILL_GROUP_LABELS: Record<string, { en: string; ru: string }> = {
   work: { en: "Work", ru: "Работа" },
   engineering: { en: "Engineering", ru: "Профессии / Engineering" },
@@ -56,6 +58,35 @@ export function resolveSkillGroupLabel(category: string, locale: string): string
     return category;
   }
   return resolveLocalizedText(group, locale, category);
+}
+
+export function getSkillGroupRank(category: string): number {
+  const normalized = category.trim().toLowerCase();
+  const index = SKILL_GROUP_ORDER.indexOf(normalized as (typeof SKILL_GROUP_ORDER)[number]);
+  return index >= 0 ? index : SKILL_GROUP_ORDER.length;
+}
+
+export function orderSkillCatalogItems(
+  items: AssistantSkillCatalogItemState[],
+  selectedSkillIds: Set<string>,
+  locale: string
+): AssistantSkillCatalogItemState[] {
+  return [...items].sort((left, right) => {
+    const groupRankDelta =
+      getSkillGroupRank(left.skill.category) - getSkillGroupRank(right.skill.category);
+    if (groupRankDelta !== 0) {
+      return groupRankDelta;
+    }
+    const leftSelected = selectedSkillIds.has(left.skill.id);
+    const rightSelected = selectedSkillIds.has(right.skill.id);
+    if (leftSelected !== rightSelected) {
+      return leftSelected ? -1 : 1;
+    }
+    return resolveLocalizedText(left.skill.name, locale, "").localeCompare(
+      resolveLocalizedText(right.skill.name, locale, ""),
+      locale
+    );
+  });
 }
 
 export function summarizeSkillReadiness(item: AssistantSkillCatalogItemState): SkillReadiness {
@@ -119,26 +150,16 @@ export function AssistantSkillsManager({
   mode = "settings",
   disabled = false,
   collapsible = false,
-  initialVisibleCount = 2
+  initialVisibleCount = 4
 }: AssistantSkillsManagerProps) {
   const t = useTranslations("skills");
   const locale = useLocale();
   const [expanded, setExpanded] = useState(false);
   const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
-  const sortedSkills = useMemo(() => {
-    const skills = state?.skills ?? [];
-    return [...skills].sort((left, right) => {
-      const leftSelected = selectedSkillIdSet.has(left.skill.id);
-      const rightSelected = selectedSkillIdSet.has(right.skill.id);
-      if (leftSelected !== rightSelected) {
-        return leftSelected ? -1 : 1;
-      }
-      return resolveLocalizedText(left.skill.name, locale, "").localeCompare(
-        resolveLocalizedText(right.skill.name, locale, ""),
-        locale
-      );
-    });
-  }, [locale, selectedSkillIdSet, state?.skills]);
+  const sortedSkills = useMemo(
+    () => orderSkillCatalogItems(state?.skills ?? [], selectedSkillIdSet, locale),
+    [locale, selectedSkillIdSet, state?.skills]
+  );
   const enabledCount = getEnabledSkillCount(selectedSkillIds);
   const limit = state?.limit ?? null;
   const overLimit = isSkillSelectionOverLimit(selectedSkillIds, limit);
@@ -149,6 +170,7 @@ export function AssistantSkillsManager({
   const visibleSkills =
     collapsible && !expanded ? sortedSkills.slice(0, initialVisibleCount) : sortedSkills;
   const hiddenSkillCount = Math.max(0, sortedSkills.length - visibleSkills.length);
+  const visibleGroups = useMemo(() => groupSkillCatalogItems(visibleSkills), [visibleSkills]);
 
   if (loading) {
     return (
@@ -169,16 +191,16 @@ export function AssistantSkillsManager({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="max-w-full space-y-3 overflow-x-hidden">
       <div className="rounded-2xl border border-border/70 bg-surface/70 p-4 shadow-[0_18px_44px_rgba(0,0,0,0.16)]">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-text">{t("title")}</p>
             <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-muted">
               {mode === "setup" ? t("setupHelp") : t("settingsHelp")}
             </p>
           </div>
-          <div className="shrink-0 text-right">
+          <div className="shrink-0 sm:text-right">
             <p
               className={cn(
                 "text-sm font-semibold tabular-nums",
@@ -204,75 +226,101 @@ export function AssistantSkillsManager({
 
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
-      <div className={collapsible ? "" : "max-h-[8.75rem] overflow-y-auto pr-1"}>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {visibleSkills.map((item) => {
-            const checked = selectedSkillIds.includes(item.skill.id);
-            const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
-            const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
-            const readiness = summarizeSkillReadiness(item);
-            return (
-              <label
-                key={item.skill.id}
+      <div
+        className={
+          collapsible
+            ? "max-w-full overflow-x-hidden"
+            : "max-h-[8.75rem] max-w-full overflow-y-auto overflow-x-hidden pr-1"
+        }
+      >
+        <div className="max-w-full space-y-3">
+          {visibleGroups.map((group) => (
+            <div key={group.category} className="max-w-full space-y-2.5 overflow-hidden">
+              <p className="break-words text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+                {resolveSkillGroupLabel(group.category, locale)}
+              </p>
+              <div
                 className={cn(
-                  "group flex min-h-[8rem] cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-left transition-all",
-                  checked
-                    ? "border-accent/55 bg-accent/8 shadow-[0_0_18px_var(--accent-glow)]"
-                    : "border-border/80 bg-surface/70 hover:border-border-strong hover:bg-surface-hover",
-                  cardDisabled && "cursor-not-allowed opacity-65"
+                  "grid min-w-0 max-w-full gap-2.5",
+                  mode === "setup" ? "md:grid-cols-2" : "2xl:grid-cols-2"
                 )}
               >
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
-                  checked={checked}
-                  disabled={cardDisabled}
-                  onChange={(event) =>
-                    onChange(
-                      toggleSkillSelection(selectedSkillIds, item.skill.id, event.target.checked)
-                    )
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-text">
-                      {item.skill.iconEmoji ? `${item.skill.iconEmoji} ` : ""}
-                      {resolveLocalizedText(item.skill.name, locale, "Untitled Skill")}
-                    </p>
-                    <span
+                {group.items.map((item) => {
+                  const checked = selectedSkillIds.includes(item.skill.id);
+                  const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
+                  const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
+                  const readiness = summarizeSkillReadiness(item);
+                  return (
+                    <label
+                      key={item.skill.id}
                       className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                        readiness === "ready" && "bg-success/10 text-success",
-                        readiness === "processing" && "bg-accent/10 text-accent",
-                        readiness === "needs_review" && "bg-warning/10 text-warning",
-                        readiness === "failed" && "bg-destructive/10 text-destructive",
-                        readiness === "empty" && "bg-surface-raised text-text-subtle"
+                        "group flex min-h-[8.5rem] min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3.5 text-left transition-all",
+                        checked
+                          ? "border-accent/60 bg-accent/10 shadow-[0_0_18px_var(--accent-glow)]"
+                          : "border-border/75 bg-surface/75 hover:border-border-strong hover:bg-surface-hover",
+                        cardDisabled && "cursor-not-allowed opacity-65"
                       )}
                     >
-                      {t(`readiness.${readiness}`)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-text-muted">
-                    {resolveLocalizedText(item.skill.description, locale, "") ||
-                      item.skill.category}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                    <span>{resolveSkillGroupLabel(item.skill.category, locale)}</span>
-                    {item.skill.tags.slice(0, 2).map((tag) => (
-                      <span key={tag} className="text-text-subtle/70">
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  {disabledReason ? (
-                    <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
-                      {t(`disabledReason.${disabledReason}`)}
-                    </p>
-                  ) : null}
-                </div>
-              </label>
-            );
-          })}
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 shrink-0 accent-accent"
+                        checked={checked}
+                        disabled={cardDisabled}
+                        onChange={(event) =>
+                          onChange(
+                            toggleSkillSelection(
+                              selectedSkillIds,
+                              item.skill.id,
+                              event.target.checked
+                            )
+                          )
+                        }
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="min-w-0">
+                          <p className="break-words text-sm font-semibold leading-snug text-text">
+                            {item.skill.iconEmoji ? `${item.skill.iconEmoji} ` : ""}
+                            {resolveLocalizedText(item.skill.name, locale, "Untitled Skill")}
+                          </p>
+                        </div>
+                        <p className="mt-1 line-clamp-2 break-words text-xs leading-relaxed text-text-muted">
+                          {resolveLocalizedText(item.skill.description, locale, "") ||
+                            item.skill.category}
+                        </p>
+                        <div className="mt-2 flex max-w-full flex-wrap items-center gap-1.5 overflow-hidden">
+                          <span
+                            className={cn(
+                              "max-w-full break-words rounded-full px-2 py-0.5 text-[10px] font-medium leading-4",
+                              readiness === "ready" && "bg-success/10 text-success",
+                              readiness === "processing" && "bg-accent/10 text-accent",
+                              readiness === "needs_review" && "bg-warning/10 text-warning",
+                              readiness === "failed" && "bg-destructive/10 text-destructive",
+                              readiness === "empty" && "bg-background text-text-subtle"
+                            )}
+                          >
+                            {t(`readiness.${readiness}`)}
+                          </span>
+                          {item.skill.tags.slice(0, 2).map((tag) => (
+                            <span
+                              key={tag}
+                              className="max-w-full break-words rounded-full bg-background px-2 py-0.5 text-[10px] font-medium leading-4 text-text-subtle"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                        {disabledReason ? (
+                          <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
+                            {t(`disabledReason.${disabledReason}`)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -295,6 +343,22 @@ export function AssistantSkillsManager({
       ) : null}
     </div>
   );
+}
+
+function groupSkillCatalogItems(
+  items: AssistantSkillCatalogItemState[]
+): Array<{ category: string; items: AssistantSkillCatalogItemState[] }> {
+  const groups: Array<{ category: string; items: AssistantSkillCatalogItemState[] }> = [];
+  for (const item of items) {
+    const category = item.skill.category;
+    const group = groups.find((candidate) => candidate.category === category);
+    if (group === undefined) {
+      groups.push({ category, items: [item] });
+    } else {
+      group.items.push(item);
+    }
+  }
+  return groups;
 }
 
 function resolveLocalizedText(

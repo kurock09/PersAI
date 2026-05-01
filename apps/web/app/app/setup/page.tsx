@@ -1021,7 +1021,7 @@ export default function SetupWizardPage() {
                         mode="setup"
                         disabled={creating}
                         collapsible
-                        initialVisibleCount={2}
+                        initialVisibleCount={4}
                       />
                     </div>
                   ) : null}

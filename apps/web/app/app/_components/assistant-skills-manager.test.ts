@@ -3,7 +3,9 @@ import type { AssistantSkillCatalogItemState } from "../assistant-api-client";
 import {
   getEnabledSkillCount,
   getSkillDisabledReason,
+  getSkillGroupRank,
   isSkillSelectionOverLimit,
+  orderSkillCatalogItems,
   resolveSkillDescription,
   resolveSkillDisplayName,
   resolveSkillGroupLabel,
@@ -52,6 +54,35 @@ describe("assistant Skills manager helpers", () => {
     expect(resolveSkillDescription(item, "en-US")).toBe("Legal support");
     expect(resolveSkillGroupLabel("engineering", "ru-RU")).toBe("Профессии / Engineering");
     expect(resolveSkillGroupLabel("legal", "en-US")).toBe("legal");
+    expect(getSkillGroupRank("personal")).toBeLessThan(getSkillGroupRank("work"));
+  });
+
+  it("orders Skills by product group before name", () => {
+    const work = createItem({
+      skill: { ...createItem().skill, id: "work", name: { en: "Career" }, category: "work" }
+    });
+    const personal = createItem({
+      skill: {
+        ...createItem().skill,
+        id: "personal",
+        name: { en: "Dietitian" },
+        category: "personal"
+      }
+    });
+    const engineering = createItem({
+      skill: {
+        ...createItem().skill,
+        id: "engineering",
+        name: { en: "Engineer" },
+        category: "engineering"
+      }
+    });
+
+    expect(
+      orderSkillCatalogItems([engineering, work, personal], new Set(), "en").map(
+        (item) => item.skill.id
+      )
+    ).toEqual(["personal", "work", "engineering"]);
   });
 
   it("counts and toggles selections without duplicates", () => {

@@ -854,14 +854,11 @@ export function useChat(threadKey: string): UseChatReturn {
    * Per-thread synchronous re-entrancy guard for `send()` / `sendWelcome()`.
    *
    * The `isStreaming` / `pendingSendStatusRef` guards inside `send()` are checked
-   * BEFORE `await getToken()`. Between that check and the synchronous
-   * `markStreaming(true)` + `setThreadPendingSend(..., "sending")` calls below
-   * (lines ~1825 / ~1850) there is at least one microtask suspend during which
-   * a *second* synchronous `send()` invocation — e.g. the user pressing Enter
-   * twice between two key events, or the composer's `Stop` flipping back to
-   * `Send` plus an immediate Enter — also passes both guards (React state for
-   * `isStreaming` has not flipped yet, the pending-slot ref is still null) and
-   * starts a *parallel* second turn.
+   * before the optimistic slot is claimed. A second synchronous `send()`
+   * invocation — e.g. the user pressing Enter twice between two key events, or
+   * the composer's `Stop` flipping back to `Send` plus an immediate Enter —
+   * can otherwise pass both guards while React state has not flipped yet and
+   * the pending-slot ref is still null.
    *
    * Both turns then race: each calls `setMessages([...prev, userMsg, asst])`
    * appending its own optimistic pair, each calls
@@ -2044,25 +2041,16 @@ export function useChat(threadKey: string): UseChatReturn {
         return;
       /* Capture the thread key at send time so every subsequent */ /* markStreaming / abort-map mutation in this turn targets the *originating* */ /* thread, even if the user navigates away mid-stream. */ const sendThreadKey =
         threadKey;
-      /* Synchronous re-entrancy guard. Between the `isStreaming` /            */
-      /* `pendingSendStatusRef` checks above and the synchronous               */
-      /* `markStreaming(true)` + `setThreadPendingSend(..., "sending")`        */
-      /* claim-block below (after `await getToken()`) there is a microtask     */
-      /* window in which a second call to `send()` for the same thread also    */
-      /* passes both guards, races to its own optimistic pair, and clobbers    */
-      /* this turn's snapshot. See `sendInPreflightByThreadRef` doc above.     */
+      /* Synchronous re-entrancy guard. It stays set until the optimistic      */
+      /* `[user, assistant]` pair and pending slot are claimed, so another     */
+      /* same-thread send cannot race through before React renders the new     */
+      /* `isStreaming` / pending state. See `sendInPreflightByThreadRef`.      */
       if (sendInPreflightByThreadRef.current.has(sendThreadKey)) return;
       sendInPreflightByThreadRef.current.add(sendThreadKey);
       const releasePreflight = () => {
         sendInPreflightByThreadRef.current.delete(sendThreadKey);
       };
       const compactionBeforeTurn = compaction;
-      const token = await getToken({ skipCache: true });
-      if (token === null) {
-        setIssue(toWebChatUxIssue(t("sessionExpired")));
-        releasePreflight();
-        return;
-      }
       const pendingFiles = files ?? [];
       const clientTurnId = options?.clientTurnId ?? createClientTurnId();
       const clientAttachmentIds =
@@ -2194,6 +2182,24 @@ export function useChat(threadKey: string): UseChatReturn {
       /* thread will be blocked by `pendingSendStatusRef.current !== null` in */
       /* its top-of-function guards, so we can release the preflight gate.   */
       releasePreflight();
+      let token: string;
+      try {
+        const freshToken = await getToken({ skipCache: true });
+        if (freshToken === null) {
+          setIssue(toWebChatUxIssue(t("sessionExpired")));
+          sendFailedCleanup(true);
+          markStreaming(sendThreadKey, false);
+          releaseAbortController();
+          return;
+        }
+        token = freshToken;
+      } catch (error) {
+        setIssue(toWebChatUxIssue(error));
+        sendFailedCleanup(true);
+        markStreaming(sendThreadKey, false);
+        releaseAbortController();
+        return;
+      }
       if (pendingFiles.length > 0) {
         try {
           for (let i = 0; i < pendingFiles.length; i++) {
@@ -2969,7 +2975,7 @@ export function useChat(threadKey: string): UseChatReturn {
             surfaceThreadKey: WELCOME_THREAD_KEY,
             message: "",
             clientTurnId,
-            title: locale === "ru" ? "�Ԧ-�-T��- ���-���-���-�-�-T�T�" : "Welcome",
+            title: locale === "ru" ? "Добро пожаловать" : "Welcome",
             welcomeTurn: true,
             welcomeLocale: locale
           },

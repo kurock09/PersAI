@@ -56,19 +56,22 @@ class FakeProviderGatewayClientService {
   }
 }
 
-function createBundle(routerPolicyOverride?: {
-  enabled?: boolean;
-  mode?: "shadow" | "active";
-  classifierFailureFallbackMode?: "normal" | "premium" | "reasoning";
-  clarifyOnMissingContext?: boolean;
-  precheckRuleOverrides?: {
-    continueTerms: string[];
-    retrievalTerms: string[];
-    reasoningTerms: string[];
-    premiumTerms: string[];
-    toolTerms: string[];
-  } | null;
-}) {
+function createBundle(
+  routerPolicyOverride?: {
+    enabled?: boolean;
+    mode?: "shadow" | "active";
+    classifierFailureFallbackMode?: "normal" | "premium" | "reasoning";
+    clarifyOnMissingContext?: boolean;
+    precheckRuleOverrides?: {
+      continueTerms: string[];
+      retrievalTerms: string[];
+      reasoningTerms: string[];
+      premiumTerms: string[];
+      toolTerms: string[];
+    } | null;
+  },
+  includeSkills = true
+) {
   return compileAssistantRuntimeBundle({
     metadata: {
       assistantId: "assistant-1",
@@ -211,24 +214,26 @@ function createBundle(routerPolicyOverride?: {
       welcome: "# Welcome"
     },
     skills: {
-      enabled: [
-        {
-          id: "skill-accounting",
-          name: "Accountant",
-          description: "Accounting and tax support",
-          category: "finance",
-          tags: ["tax", "books"],
-          routingExamples: ["Explain quarterly tax categories", "Compare bookkeeping options"]
-        },
-        {
-          id: "skill-legal",
-          name: "Lawyer",
-          description: "Legal drafting support",
-          category: "law",
-          tags: ["contracts", "risk"],
-          routingExamples: ["Draft a contract clause", "Review legal risk"]
-        }
-      ]
+      enabled: includeSkills
+        ? [
+            {
+              id: "skill-accounting",
+              name: "Accountant",
+              description: "Accounting and tax support",
+              category: "finance",
+              tags: ["tax", "books"],
+              routingExamples: ["Explain quarterly tax categories", "Compare bookkeeping options"]
+            },
+            {
+              id: "skill-legal",
+              name: "Lawyer",
+              description: "Legal drafting support",
+              category: "law",
+              tags: ["contracts", "risk"],
+              routingExamples: ["Draft a contract clause", "Review legal risk"]
+            }
+          ]
+        : []
     }
   }).bundle;
 }
@@ -307,15 +312,18 @@ async function run(): Promise<void> {
   assert.equal(providerGatewayClient.calls.length, 0);
 
   const premiumDecision = await service.decide({
-    bundle: createBundle({
-      precheckRuleOverrides: {
-        continueTerms: [],
-        retrievalTerms: [],
-        reasoningTerms: [],
-        premiumTerms: ["cover letter"],
-        toolTerms: []
-      }
-    }),
+    bundle: createBundle(
+      {
+        precheckRuleOverrides: {
+          continueTerms: [],
+          retrievalTerms: [],
+          reasoningTerms: [],
+          premiumTerms: ["cover letter"],
+          toolTerms: []
+        }
+      },
+      false
+    ),
     request: createRequest("Draft a polished cover letter for this role."),
     projectedTools
   });
@@ -345,6 +353,23 @@ async function run(): Promise<void> {
     /routingExamples=explain quarterly tax categories/
   );
 
+  const semanticSkillDecision = await service.decide({
+    bundle: createBundle(),
+    request: createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
+    projectedTools
+  });
+  assert.equal(semanticSkillDecision.source, "classifier");
+  assert.deepEqual(semanticSkillDecision.retrievalPlan, {
+    useSkills: true,
+    selectedSkillIds: ["skill-accounting"],
+    useUserKnowledge: true,
+    useProductKnowledge: false,
+    useWeb: false,
+    confidence: "high",
+    reasonCode: "classifier_skill_plan"
+  });
+  assert.equal(providerGatewayClient.calls.length, 2);
+
   const ambiguousDecision = await service.decide({
     bundle: createBundle(),
     request: createRequest(
@@ -363,19 +388,19 @@ async function run(): Promise<void> {
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
-  assert.equal(providerGatewayClient.calls.length, 2);
-  assert.equal(providerGatewayClient.calls[1]?.requestMetadata?.classification, "turn_routing");
-  assert.equal(providerGatewayClient.calls[1]?.outputSchema?.name, "turn_route_decision");
+  assert.equal(providerGatewayClient.calls.length, 3);
+  assert.equal(providerGatewayClient.calls[2]?.requestMetadata?.classification, "turn_routing");
+  assert.equal(providerGatewayClient.calls[2]?.outputSchema?.name, "turn_route_decision");
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
     /Recent conversation tail/
   );
   assert.match(
-    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
     /Current user message:/
   );
   assert.match(
-    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
     /Enabled Skills summary: id=skill-accounting/
   );
   assert.doesNotMatch(

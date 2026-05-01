@@ -1,5 +1,131 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Welcome chat Russian title encoding) — fixed mojibake first-chat title on setup/recreate (`apps/web`, `docs`; focused check green)
+
+### What changed
+
+- Checked the Capacitor recreate welcome-chat path after founder report that only the chat title was broken while the welcome message body was normal.
+- Confirmed the issue was client-side in `useChat.sendWelcome()`: the Russian `title` payload literal was already mojibake before the stream request reached the API.
+- Replaced the broken literal with `Добро пожаловать`.
+- Added focused `use-chat` coverage proving Russian welcome turns send the correct title.
+
+### Verification
+
+- `ReadLints` on changed web files
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+
+### Next recommended step
+
+Deploy this web fix and rerun assistant recreate in the Capacitor app with Russian locale; the first welcome chat title should display as `Добро пожаловать`.
+
+---
+
+## 2026-05-01 (ADR-079 semantic Skill routing precheck gap) — fixed enabled Skills being bypassed by deterministic precheck (`apps/runtime`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated founder GKE repro where enabled `Диетолог` still did not trigger Skill retrieval after the previous routing correction.
+- Live DB truth was correct:
+  - assistant `275e2382-cb4e-41d8-98da-fe04d4569f55` has active `Диетолог` assignment;
+  - Skill document `AND-T1D-MNT.pdf` is `ready` with `58` chunks;
+  - latest runtime bundle includes enabled `Диетолог` with `routingExamples`.
+- Live logs / persisted attempts showed the actual failure:
+  - no `/api/v1/internal/runtime/knowledge/orchestrate` call around the relevant turns;
+  - recent turns finalized as `turnRouting.source=precheck`;
+  - `reasonCode` was `simple_turn` or `reasoning_request`;
+  - `retrievalPlan.useSkills=false`, `selectedSkillIds=[]`.
+- Root cause: the previous fix only deferred to the classifier when old `retrievalTerms` matched. Semantic Skill questions without explicit "find in docs" wording, or questions caught by the deterministic reasoning branch, still bypassed the classifier.
+- Runtime precheck now returns a low-confidence `skill_routing_classifier_candidate` decision whenever enabled Skills exist, immediately after continue-turn handling and before retrieval/reasoning/premium/tool/simple deterministic branches can finalize the route.
+- Added a regression for a short Russian diabetes/nutrition question without retrieval keywords. It now goes to the classifier and receives a Skill retrieval plan.
+
+### Verification
+
+- `ReadLints` on changed runtime files
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Deploy this runtime fix, then rerun the founder `Диетолог` live prompt. Expected evidence: `turnRouting.source=classifier`, `retrievalPlan.useSkills=true`, selected `Диетолог` Skill id, API `/internal/runtime/knowledge/orchestrate` call, and Skill retrieval activity before the answer.
+
+---
+
+## 2026-05-01 (Web/Capacitor text send optimistic UX regression) — restored immediate outgoing bubble and delayed `thinking` until send acceptance (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated founder-reported Capacitor text-send regression after recent ADR-079 work:
+  - outgoing text did not appear immediately on weak network;
+  - assistant placeholder showed `thinking` while the send spinner was still active.
+- Root cause was client-side, not Skill/runtime routing:
+  - `useChat.send()` waited for `getToken({ skipCache: true })` before claiming the optimistic local turn;
+  - `ChatArea` rendered any empty streaming assistant placeholder as `thinking` even when the preceding user bubble was still `sending`.
+- Kept fresh-token protection for the actual stream request, but moved local optimistic turn creation before the token refresh.
+- Added token-refresh failure cleanup so the already-rendered local bubble becomes a failed pending send instead of disappearing.
+- Suppressed assistant pre-response `thinking` while the immediately preceding user message is still `sending` or `reconciling`.
+- Added focused regression coverage for both behaviors.
+
+### Verification
+
+- `ReadLints` on changed web files
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-area.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Deploy this web fix to dev, then smoke in the Android Capacitor app under throttled/weak network: send a plain text message and verify the user bubble appears immediately, the send spinner owns the pre-acceptance state, and `thinking` appears only after the send is accepted.
+
+---
+
+## 2026-05-01 (ADR-079 base Skill catalog seed and grouped selector) — populated live base Skills and made user selectors group-first (`apps/api`, `apps/web`, `docs`; checks green)
+
+### What changed
+
+- Added repeatable `apps/api/prisma/seed-base-skills.ts`.
+- Seed content includes 26 active, admin-curated base Skills:
+  - `personal`: 10
+  - `work`: 10
+  - `engineering`: 6
+- Each seeded Skill has:
+  - localized EN/RU name and description;
+  - concise instruction card body;
+  - guardrails;
+  - tags;
+  - 4 routing examples for semantic Skill selection.
+- The seed resolves the existing Skill workspace/actor from DB state and updates existing Skills by localized name, so reruns refresh the catalog instead of duplicating `Dietitian/Диетолог`.
+- Live GKE dev DB was populated from the running API pod:
+  - `seeded=26`
+  - `created=25`
+  - `updated=1`
+  - active group counts: `personal=10`, `work=10`, `engineering=6`
+  - first active rows by display order are `Диетолог`, `Фитнес-тренер`, `Сон и восстановление`, `Психологическое благополучие`.
+- Updated `AssistantSkillsManager` ordering and rendering:
+  - group rank is `personal` -> `work` -> `engineering` -> `education` -> unknown;
+  - visible cards are rendered under localized group headers;
+  - selection still floats to the top only inside its group;
+  - setup/recreate and Assistant Settings both use `collapsible` with `initialVisibleCount=4`.
+- Added helper coverage for group ordering and included the new seed script in API lint.
+
+### Verification
+
+- `ReadLints` on changed API/web files
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts app/app/setup/page.test.tsx app/admin/skills/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `kubectl exec -n persai-dev api-6fb8656548-68l77 -c api -- node_modules/.bin/tsx prisma/seed-base-skills.ts`
+- Live DB verification: `26` active Skills, first group `personal`, group counts `personal=10`, `work=10`, `engineering=6`, first visible rows have `4` examples each.
+
+### Next recommended step
+
+Deploy the grouped selector/seed script commit, then run the founder `Диетолог` live smoke after enabling the Skill on an assistant and confirming the Skill document indexing job is `ready`.
+
+---
+
 ## 2026-05-01 (ADR-079 semantic Skill routing correction) — removed keyword-only Skill routing and used admin examples as routing hints (`apps/api`, `apps/runtime`, `packages/runtime-bundle`, `docs`; focused checks green)
 
 ### What changed

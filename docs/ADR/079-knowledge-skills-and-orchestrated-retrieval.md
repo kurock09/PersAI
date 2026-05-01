@@ -750,11 +750,11 @@ Statuses:
 | 10   | completed | Runtime router `retrievalPlan` extension                                                                                                           | Existing `TurnRoutingService` emits additive semantic Skill/user/Product/web `retrievalPlan`; classifier input receives compact enabled Skill summaries only, validates selected Skill ids against enabled Skills, and does not execute retrieval                                                                                                  |
 | 11   | completed | Orchestrated retrieval and source-aware context injection                                                                                          | Runtime/API prepare bounded `Retrieved Knowledge Context` with `skill_reference`, `user_document`, and `product_reference` labels; selected Skills are revalidated server-side, ready Skill documents are searched, existing user/Product retrieval is reused, and the block is injected before the current model turn                              |
 | 12   | completed | Activity copy and observability                                                                                                                    | Runtime emits calm retrieval activity for retrieved Skill/user/Product/web source classes into the existing web activity badge path; API orchestrated retrieval records durable source/latency/result/empty/error observability through `KnowledgeRetrievalObservabilityService` without storing prompts/chunks                                  |
-| 13   | planned   | End-to-end verification and founder validation support                                                                                             | Focused automated tests pass and a concise founder smoke script exists for manual live validation                                                                                                                                                                                                                                                 |
+| 13   | in_progress | End-to-end verification and founder validation support                                                                                             | Focused automated tests pass and a concise founder smoke script exists for manual live validation. Base Skills are now available for founder validation through a repeatable admin-curated seed, but final live smoke still needs the enabled Skill/document-ready path checked.                                                                                                                                                                                                                                                 |
 
 Current next step:
 
-1. Start Step 13: focused automated tests and founder live validation support.
+1. Continue Step 13: deploy the grouped selector/base Skill seed changes, then run founder live smoke for enabled Skill retrieval after confirming the relevant Skill document indexing job is `ready`.
 
 Internal implementation can be staged, but the shipped product should be coherent end-to-end:
 
@@ -812,7 +812,7 @@ This ADR does not add:
 
 - Skill marketplace
 - public Skill catalog
-- seeded demo Skills
+- unreviewed demo Skills; the platform may bootstrap an admin-curated base Skill catalog for founder validation and product onboarding
 - user download/open access to admin Skill documents
 - full audit UI for every Skill edit
 - Skill versioning

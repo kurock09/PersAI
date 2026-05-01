@@ -139,6 +139,46 @@ describe("useChat", () => {
     rafCallbacks.clear();
   });
 
+  it("sends a valid Russian title for the first welcome chat", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "welcome-assistant-1",
+              content: "Привет!"
+            }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("welcome"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.sendWelcome("ru");
+    });
+
+    expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledWith(
+      "token-1",
+      expect.objectContaining({
+        title: "Добро пожаловать",
+        welcomeTurn: true,
+        welcomeLocale: "ru"
+      }),
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+  });
+
   it("flushes buffered assistant text before tool activity is shown", async () => {
     const streamGate: { release: () => void } = {
       release: () => undefined
@@ -2576,10 +2616,9 @@ describe("useChat", () => {
      * at the top of `send()` (and `sendWelcome()`). The second call must
      * return *before* it claims an optimistic slot.
      */
-    it("blocks a second send() that races the first one through `await getToken()` (no double user bubble, no double stream)", async () => {
-      // Make `getToken` block on a controllable promise so we can interleave
-      // a second `send()` exactly inside the microtask window between the
-      // top-of-function guards and the synchronous slot-claim block.
+    it("renders the optimistic bubble before a slow token refresh and blocks a second send", async () => {
+      // Make `getToken` block on a controllable promise so weak mobile network
+      // can be simulated without letting the actual stream start yet.
       let releaseToken: ((value: string) => void) | undefined;
       clerkMocks.getToken.mockImplementationOnce(
         () =>
@@ -2627,20 +2666,22 @@ describe("useChat", () => {
       let firstPromise: Promise<void> | undefined;
       let secondPromise: Promise<void> | undefined;
       await act(async () => {
-        // First call: passes both guards, suspends inside `await getToken()`.
+        // First call claims the optimistic local slot, then suspends inside
+        // `await getToken({ skipCache: true })`.
         firstPromise = result.current.send("first");
-        // Yield ONE microtask so the first call has hit `await getToken()`
-        // (and is now parked) but has NOT yet reached the synchronous
-        // `markStreaming(true)` / `setThreadPendingSend(... "sending")`
-        // claim block — exactly the founder's race window.
+        // Yield one microtask so the first call has hit the token refresh.
         await Promise.resolve();
         secondPromise = result.current.send("second");
         // Let the second call also reach its first await/return point.
         await Promise.resolve();
       });
 
-      // Before any token resolves, neither stream should have been started.
+      // Before token refresh resolves, the user still sees the outgoing bubble
+      // immediately, but no network stream has been issued.
       expect(assistantApiMocks.streamAssistantWebChatTurn).not.toHaveBeenCalled();
+      expect(result.current.messages.filter((m) => m.role === "user")).toHaveLength(1);
+      expect(result.current.messages.find((m) => m.role === "user")?.content).toBe("first");
+      expect(result.current.pendingSendStatus).toBe("sending");
 
       await act(async () => {
         releaseToken?.("token-1");

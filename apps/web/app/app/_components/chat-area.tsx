@@ -445,12 +445,19 @@ export function ChatArea({
               </div>
             )}
             {chat.entries.map((entry, index) => {
+              const previousEntry = chat.entries[index - 1];
               const nextEntry = chat.entries[index + 1];
+              const previousUserIsSending =
+                previousEntry?.kind === "message" &&
+                previousEntry.message.role === "user" &&
+                (previousEntry.message.status === "sending" ||
+                  previousEntry.message.status === "reconciling");
               const preResponseStatus =
                 entry.kind === "message" &&
                 entry.message.role === "assistant" &&
                 entry.message.status === "streaming" &&
-                entry.message.content.trim().length === 0
+                entry.message.content.trim().length === 0 &&
+                !previousUserIsSending
                   ? nextEntry?.kind === "activity" && nextEntry.event.type === "tool_use"
                     ? "working"
                     : "thinking"

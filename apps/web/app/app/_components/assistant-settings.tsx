@@ -1705,6 +1705,8 @@ export function AssistantSettings({
           loading={skillsLoading}
           saving={skillsSaving}
           error={skillsFb?.type === "err" ? skillsFb.text : null}
+          collapsible
+          initialVisibleCount={4}
         />
         {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
       </Section>

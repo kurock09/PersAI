@@ -417,6 +417,22 @@ export class TurnRoutingService {
       });
     }
 
+    if (shouldUseClassifierForSkillRouting) {
+      return this.createDecision({
+        executionMode: input.request.deepMode === true ? "premium" : input.fallbackMode,
+        retrievalHint: retrievalIntent,
+        toolHints: retrievalIntent && availableHints.has("knowledge") ? "knowledge" : "none",
+        confidence: "low",
+        clarifyNeeded: false,
+        fallbackMode: input.fallbackMode,
+        reasonCode: "skill_routing_classifier_candidate",
+        retrievalPlan: this.createEmptyRetrievalPlan("skill_routing_classifier_candidate"),
+        source: "precheck",
+        mode: input.policy.mode,
+        usage: null
+      });
+    }
+
     if (retrievalIntent && !shouldUseClassifierForSkillRouting) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
