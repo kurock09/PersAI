@@ -12,7 +12,7 @@ PersAI is a modular monolith control plane plus three internal execution service
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
-ADR-072 remains the historical migration ADR through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
+ADR-072 remains the historical migration ADR through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`. ADR-081 is the active target-state decision for the unified user Files architecture.
 
 ## Core boundaries
 
@@ -23,6 +23,7 @@ ADR-072 remains the historical migration ADR through the native-path closeout. T
 - assistants, publish/apply lifecycle, and runtime bundle materialization
 - Voice DNA archetype seed/edit flows, prompt-template defaults, and published Voice DNA snapshot materialization
 - canonical chat/message persistence
+- unified user-visible Files over the canonical `AssistantFile` registry
 - assistant/global knowledge indexing, retrieval policy, and admin knowledge governance
 - durable retrieval observability and workspace-scoped operator surfaces for knowledge quality
 - governance, quota, admin, and audit boundaries
@@ -108,6 +109,16 @@ Current active config expectations:
 - `assistant_files` is the canonical persisted assistant-workspace/file authority on the active path
 - runtime knowledge access now publishes the active bounded `hybrid` retrieval contract
 - historical compatibility/migration traces do not define current request-time behavior
+
+## Files truth
+
+ADR-081 defines the active Files target state:
+
+- `AssistantFile` is the canonical durable registry for every user-visible or assistant-reusable file.
+- `fileRef` is the only stable model/product selector for reusable files.
+- chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage path, raw sandbox path, knowledge source id, and retrieval reference id are not primary model-facing file selectors.
+- media storage and sandbox storage are implementation details behind one user Files model.
+- Knowledge remains a separate product plane and is not merged into Files.
 
 ## Historical material
 

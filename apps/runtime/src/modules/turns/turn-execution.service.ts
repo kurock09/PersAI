@@ -2444,17 +2444,36 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution
   ): RuntimeTurnStreamEvent[] {
     const context = execution.retrievedKnowledgeContext;
+    const activeSkillName = this.resolveActiveSkillActivityName(execution, context);
     if (context === null || context.items.length === 0) {
-      return [];
+      if (!execution.routeDecision.retrievalPlan.useSkills || activeSkillName === undefined) {
+        return [];
+      }
+      return [
+        {
+          type: "retrieval_activity",
+          requestId: acceptedTurn.receipt.requestId,
+          sessionId: acceptedTurn.session.sessionId,
+          source: "skill",
+          phase: "start",
+          resultCount: 0,
+          skillName: activeSkillName
+        }
+      ];
     }
     const counts = new Map<RuntimeRetrievalActivitySource, number>();
     for (const item of context.items) {
       const source = this.toRetrievalActivitySource(item.label);
       counts.set(source, (counts.get(source) ?? 0) + 1);
     }
+    if (execution.routeDecision.retrievalPlan.useSkills && activeSkillName !== undefined) {
+      counts.set("skill", counts.get("skill") ?? 0);
+    }
+    if (counts.size === 0) {
+      return [];
+    }
     return [...counts.entries()].map(([source, resultCount]) => {
-      const skillName =
-        source === "skill" ? this.resolveFirstRetrievedSkillName(context) : undefined;
+      const skillName = source === "skill" ? activeSkillName : undefined;
       return {
         type: "retrieval_activity",
         requestId: acceptedTurn.receipt.requestId,
@@ -2465,6 +2484,20 @@ export class TurnExecutionService {
         ...(skillName === undefined ? {} : { skillName })
       };
     });
+  }
+
+  private resolveActiveSkillActivityName(
+    execution: PreparedTurnExecution,
+    context: RuntimeRetrievedKnowledgeContext | null
+  ): string | undefined {
+    const state = execution.routeDecision.autoSkillState;
+    if (state?.status === "active" && state.activeSkillName !== null) {
+      const activeName = state.activeSkillName.trim();
+      if (activeName.length > 0) {
+        return activeName;
+      }
+    }
+    return context === null ? undefined : this.resolveFirstRetrievedSkillName(context);
   }
 
   private resolveFirstRetrievedSkillName(

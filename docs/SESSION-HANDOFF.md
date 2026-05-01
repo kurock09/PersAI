@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-081 unified user Files architecture) — accepted one clean Files product/runtime model (`docs`; no code changes)
+
+### What changed
+
+- Investigated current file architecture after founder concern that users and agents should not need to distinguish sandbox, media storage, chat attachments, generated artifacts, `fileRef`, `attachmentId`, `artifactId`, and `objectKey`.
+- Accepted `docs/ADR/081-unified-user-files-architecture.md` as target-state architecture:
+  - `AssistantFile` is the canonical durable registry for every user-visible or assistant-reusable file;
+  - every upload, generated output, delivered assistant attachment, and sandbox-created file gets a durable `fileRef` immediately when persisted;
+  - `fileRef` is the only stable model/product selector;
+  - `attachmentId`, `artifactId`, `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are not primary model-facing file selectors;
+  - Knowledge remains a separate product plane and is not merged into Files.
+- Updated architecture/API/data-model docs and ADR-078 to make ADR-081 active continuation truth.
+- Explicitly rejected transition/legacy compatibility as target architecture because there are no real users on the partial file contract yet.
+
+### Verification
+
+- Documentation-only slice; format/lint checks pending if this doc change is carried into a code-edit session.
+
+### Next recommended step
+
+Implement ADR-081 directly: make file registration immediate for uploads/generated outputs/delivered attachments/sandbox outputs, remove `artifactId` from the model-facing send path, and expose one assistant Files API/UI over canonical `fileRef`.
+
+---
+
 ## 2026-05-01 (ADR-079 Skill routing optimization) — sticky per-chat auto Skill state with background rechecks (`apps/api`, `apps/runtime`, `apps/web`; focused checks green)
 
 ### What changed

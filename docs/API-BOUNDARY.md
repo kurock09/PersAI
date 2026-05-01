@@ -167,6 +167,14 @@ Current active internal sandbox endpoints are served by `apps/sandbox`:
 
 These are internal runtime-to-sandbox boundaries for isolated `files` / `exec` / `shell` work, not public product APIs.
 
+### Files
+
+ADR-081 defines the active target-state file boundary.
+
+The public/product file surface should expose assistant-scoped Files through canonical `fileRef` handles backed by `AssistantFile`. Chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors.
+
+Sandbox and media delivery may continue to use their internal endpoints and storage paths, but those details must be hidden behind the single Files product/runtime contract. Knowledge remains a separate API/product plane and must not be folded into Files.
+
 ### Provider gateway
 
 Current active internal service endpoints are served by `apps/provider-gateway`:

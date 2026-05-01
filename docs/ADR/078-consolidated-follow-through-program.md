@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-04-29  
-**Relates to:** ADR-072, ADR-073, ADR-074, ADR-075, ADR-076, ADR-077, ADR-079
+**Relates to:** ADR-072, ADR-073, ADR-074, ADR-075, ADR-076, ADR-077, ADR-079, ADR-081
 
 ## Context
 
@@ -67,7 +67,19 @@ Current open themes inside this block:
 - push decision for mobile (`Telegram-only` vs native push)
 - richer mobile camera path only if it becomes a real product ask
 
-### 2. Runtime/tool efficiency follow-through
+### 2. Unified user Files architecture
+
+ADR-081 opens the active product/runtime file architecture block. It supersedes partial selector truth around chat `attachmentId`, turn-local `artifactId`, object-storage `objectKey`, and sandbox paths as model-facing concepts.
+
+Target-state truth:
+
+- `AssistantFile` is the canonical durable registry for every user-visible or assistant-reusable file.
+- every upload, generated artifact, sandbox output, and delivered assistant file receives a durable `fileRef` immediately when persisted.
+- the assistant/model-facing selector is `fileRef`; `attachmentId`, `artifactId`, `objectKey`, storage paths, sandbox absolute paths, knowledge source ids, and retrieval references are not primary model-facing file selectors.
+- Knowledge remains a separate product plane and is not merged into Files.
+- no legacy or transition compatibility mode should be added for the current split.
+
+### 3. Runtime/tool efficiency follow-through
 
 This block carries the still-open Phase 4 follow-through from ADR-074 in strict order:
 
@@ -76,7 +88,7 @@ This block carries the still-open Phase 4 follow-through from ADR-074 in strict 
 
 No other ADR-074 slice remains active here.
 
-### 3. Assistant background-task final verification and cleanup
+### 4. Assistant background-task final verification and cleanup
 
 ADR-077 is architecturally closed, but one small operational follow-through remains:
 
@@ -89,7 +101,7 @@ This block is intentionally narrow:
 
 It is not a reopen of the ADR-077 architecture.
 
-### 4. Long-tail deferred research
+### 5. Long-tail deferred research
 
 These topics stay explicitly later and should only open when there is real product or measurement pressure:
 
@@ -117,6 +129,7 @@ These remain historical records only.
 | ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Knowledge, Skills, document processing, and orchestrated retrieval | planned  | ADR-079 accepted; first-class Skills, provider-backed ingestion, `pgvector`, router `retrievalPlan`, and orchestrated source-aware context            |
 | Mobile shell reliability and rollout                               | planned  | Consolidates remaining ADR-075 and ADR-076 follow-through: offline hardening, measured Slice 7 decision, production rollout, iOS/store/push decisions |
+| Unified user Files architecture                                    | planned  | ADR-081 accepted; one Files product/runtime model, canonical `AssistantFile`, immediate `fileRef`, no model-facing `artifactId`/`objectKey` selectors |
 | Runtime/tool efficiency follow-through                             | planned  | ADR-074 `R2 -> R3` only                                                                                                                               |
 | Assistant background-task final verification/test cleanup          | planned  | Narrow ADR-077 closure hardening only                                                                                                                 |
 | Long-tail deferred research                                        | deferred | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                      |

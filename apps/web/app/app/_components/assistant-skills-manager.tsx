@@ -257,12 +257,11 @@ export function AssistantSkillsManager({
                   const checked = selectedSkillIds.includes(item.skill.id);
                   const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
                   const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
-                  const readiness = summarizeSkillReadiness(item);
                   return (
                     <label
                       key={item.skill.id}
                       className={cn(
-                        "group flex min-h-[8.5rem] min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3.5 text-left transition-all",
+                        "group flex min-h-[6.25rem] min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-2xl border px-3.5 py-3 text-left transition-all",
                         checked
                           ? "border-accent/60 bg-accent/10 shadow-[0_0_18px_var(--accent-glow)]"
                           : "border-border/75 bg-surface/75 hover:border-border-strong hover:bg-surface-hover",
@@ -295,28 +294,6 @@ export function AssistantSkillsManager({
                           {resolveLocalizedText(item.skill.description, locale, "") ||
                             item.skill.category}
                         </p>
-                        <div className="mt-2 flex max-w-full flex-wrap items-center gap-1.5 overflow-hidden">
-                          <span
-                            className={cn(
-                              "max-w-full break-words rounded-full px-2 py-0.5 text-[10px] font-medium leading-4",
-                              readiness === "ready" && "bg-success/10 text-success",
-                              readiness === "processing" && "bg-accent/10 text-accent",
-                              readiness === "needs_review" && "bg-warning/10 text-warning",
-                              readiness === "failed" && "bg-destructive/10 text-destructive",
-                              readiness === "empty" && "bg-background text-text-subtle"
-                            )}
-                          >
-                            {t(`readiness.${readiness}`)}
-                          </span>
-                          {item.skill.tags.slice(0, 2).map((tag) => (
-                            <span
-                              key={tag}
-                              className="max-w-full break-words rounded-full bg-background px-2 py-0.5 text-[10px] font-medium leading-4 text-text-subtle"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
                         {disabledReason ? (
                           <p className="mt-2 text-[11px] leading-relaxed text-text-subtle">
                             {t(`disabledReason.${disabledReason}`)}

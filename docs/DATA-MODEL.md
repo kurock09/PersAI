@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`.
+ADR-072 remains the historical migration record through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`. ADR-081 is the active target-state decision for unified user-visible Files.
 
 ## Control-plane ownership
 
@@ -14,6 +14,7 @@ PersAI is the source of truth for:
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
+- canonical user-visible Files through `assistant_files` and durable `fileRef`
 - assistant/global knowledge source metadata and indexed chunks
 - persisted assistant workspace files through `assistant_files`
 - assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
@@ -48,6 +49,12 @@ Current active Step 20 persistence includes:
 - `sandbox_jobs` for queued/running/completed/blocked sandbox execution telemetry and result state
 
 `SandboxFileRef` is not active current-model truth anymore.
+
+ADR-081 extends the target-state authority of `assistant_files`: every user-visible or assistant-reusable file must be represented by an `AssistantFile` row and a durable `fileRef` immediately when persisted. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
+
+`attachmentId`, `artifactId`, `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are not target-state model-facing file selectors. They may remain internal implementation identifiers where needed, but `fileRef` is the product/runtime handle for Files.
+
+Knowledge sources remain separate from Files. A Knowledge document may link internally to a source file, but Knowledge source ids and retrieval references are not sendable file handles.
 
 ## Knowledge and retrieval state
 

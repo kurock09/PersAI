@@ -2606,6 +2606,90 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  const previousOrchestrateRetrievalOutcome =
+    persaiInternalApiClientService.orchestrateRetrievalOutcome;
+  const previousBundleSkills = bundleRegistry.entry?.parsedBundle.skills;
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
+    items: [],
+    renderedBlock: ""
+  };
+  const emptySkillRetrievalRequest = createRuntimeTurnRequest();
+  emptySkillRetrievalRequest.bundle.bundleHash = request.bundle.bundleHash;
+  emptySkillRetrievalRequest.message.text =
+    "Adults with Type 1 Diabetes explain nutrition principles.";
+  emptySkillRetrievalRequest.skillRoutingContext = {
+    state: {
+      status: "active",
+      activeSkillId: "skill-diet",
+      activeSkillName: "Диетолог",
+      topicSummary: "Type 1 diabetes nutrition",
+      confidence: "high",
+      checkedAtMessageIndex: 3,
+      messageCountSinceCheck: 1
+    },
+    currentUserMessageIndex: 4,
+    recentMessages: []
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    emptySkillRetrievalRequest.bundle.bundleHash;
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: emptySkillRetrievalRequest.message.text
+    }
+  ];
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.skills = {
+      enabled: [
+        {
+          id: "skill-diet",
+          name: "Диетолог",
+          description: "Nutrition coaching.",
+          category: "health",
+          tags: ["nutrition"],
+          routingExamples: ["nutrition for adults with type 1 diabetes"]
+        }
+      ]
+    };
+  }
+  providerGatewayClient.streamEventsQueue.push([
+    {
+      type: "completed",
+      result: {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "streamed skill-aware reply",
+        respondedAt: "2026-04-11T12:00:04.750Z",
+        usage: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          inputTokens: 12,
+          outputTokens: 18,
+          totalTokens: 30
+        },
+        stopReason: "completed",
+        toolCalls: []
+      }
+    }
+  ]);
+  const emptySkillRetrievalStream = await service.streamTurn(emptySkillRetrievalRequest);
+  const emptySkillRetrievalEvents = await collectStreamEvents(emptySkillRetrievalStream);
+  const emptySkillRetrievalActivity = emptySkillRetrievalEvents.find(
+    (event): event is Extract<RuntimeTurnStreamEvent, { type: "retrieval_activity" }> =>
+      event.type === "retrieval_activity" && event.source === "skill"
+  );
+  assert.equal(emptySkillRetrievalActivity?.resultCount, 0);
+  assert.equal(emptySkillRetrievalActivity?.skillName, "Диетолог");
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = previousOrchestrateRetrievalOutcome;
+  if (bundleRegistry.entry !== null) {
+    if (previousBundleSkills === undefined) {
+      delete bundleRegistry.entry.parsedBundle.skills;
+    } else {
+      bundleRegistry.entry.parsedBundle.skills = previousBundleSkills;
+    }
+  }
+
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_search = {
       refKey: "tool_web_search",

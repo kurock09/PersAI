@@ -103,7 +103,7 @@ export class KnowledgeRetrievalHelperService {
       maxOutputTokens: retrievalPolicy.helperMaxOutputTokens,
       outputSchema: KNOWLEDGE_HELPER_OUTPUT_SCHEMA,
       requestMetadata: {
-        classification: "tool_loop_followup",
+        classification: "turn_routing",
         runtimeRequestId: null,
         runtimeSessionId: null,
         toolLoopIteration: null,
