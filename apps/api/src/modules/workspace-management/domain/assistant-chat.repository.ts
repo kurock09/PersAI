@@ -1,5 +1,9 @@
 import type { AssistantChatMessage } from "./assistant-chat-message.entity";
-import type { AssistantChat, AssistantChatSurface } from "./assistant-chat.entity";
+import type {
+  AssistantChat,
+  AssistantChatAutoSkillRoutingState,
+  AssistantChatSurface
+} from "./assistant-chat.entity";
 
 export const ASSISTANT_CHAT_REPOSITORY = Symbol("ASSISTANT_CHAT_REPOSITORY");
 
@@ -37,6 +41,7 @@ export type AssistantChatListMetadata = {
 export type UpdateAssistantChatInput = {
   title?: string | null;
   deepModeEnabled?: boolean;
+  autoSkillRoutingState?: AssistantChatAutoSkillRoutingState | null;
 };
 
 export interface AssistantChatRepository {

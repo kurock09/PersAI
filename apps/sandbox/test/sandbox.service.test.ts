@@ -1289,12 +1289,19 @@ async function run(): Promise<void> {
       }
     );
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
       const sampledRootPid = sampledTreeRoot.pid;
       if (sampledRootPid === undefined) {
         throw new Error("Expected spawned root process to expose a pid");
       }
-      const usage = await processGuardTestAccess.readProcessTreeUsage(sampledRootPid);
+      let usage: Awaited<ReturnType<typeof processGuardTestAccess.readProcessTreeUsage>> = null;
+      const usageDeadline = Date.now() + 3_000;
+      while (Date.now() < usageDeadline) {
+        usage = await processGuardTestAccess.readProcessTreeUsage(sampledRootPid);
+        if (usage !== null && usage.processCount >= 2) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
       assert.ok(usage !== null);
       assert.ok(usage.processCount >= 2);
     } finally {

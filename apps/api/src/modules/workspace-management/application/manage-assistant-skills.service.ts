@@ -232,7 +232,8 @@ function readLimitFromBillingHints(value: unknown): number | null {
   const row = asObject(value);
   const skillPolicy = asObject(row?.skillPolicy ?? null);
   return (
-    asPositiveInteger(skillPolicy?.maxEnabledSkills) ?? asPositiveInteger(row?.maxEnabledSkills)
+    asNonNegativeInteger(skillPolicy?.maxEnabledSkills) ??
+    asNonNegativeInteger(row?.maxEnabledSkills)
   );
 }
 
@@ -247,7 +248,7 @@ function readLimitFromLimitsPermissions(value: unknown): number | null {
       row?.key === "max_enabled_skills" ||
       row?.key === "skill_assignments_limit"
     ) {
-      const limit = asPositiveInteger(row.limit) ?? asPositiveInteger(row.value);
+      const limit = asNonNegativeInteger(row.limit) ?? asNonNegativeInteger(row.value);
       if (limit !== null) {
         return limit;
       }
@@ -262,6 +263,6 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function asPositiveInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+function asNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }

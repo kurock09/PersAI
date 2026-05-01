@@ -32,6 +32,19 @@ function createAttachmentObjectAvailabilityServiceMock() {
   };
 }
 
+function createAutoSkillRoutingStateServiceMock() {
+  return {
+    buildRuntimeContext: async (input: { state?: unknown }) => ({
+      state: input.state ?? null,
+      currentUserMessageIndex: 1,
+      recentMessages: []
+    }),
+    persistFromTurnRouting: async () => undefined,
+    shouldRunBackgroundCheck: () => false,
+    runBackgroundCheck: () => undefined
+  };
+}
+
 describe("SendWebChatTurnService", () => {
   test("replays duplicate clientTurnId without starting a second sync runtime turn", async () => {
     let nativeRuntimeCalls = 0;
@@ -105,7 +118,8 @@ describe("SendWebChatTurnService", () => {
       {} as never,
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -214,7 +228,8 @@ describe("SendWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -321,7 +336,8 @@ describe("SendWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     await service.execute("user-1", {
@@ -448,7 +464,8 @@ describe("SendWebChatTurnService", () => {
         }
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const result = await service.execute("user-1", {
@@ -582,7 +599,8 @@ describe("SendWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const result = await service.execute("user-1", {

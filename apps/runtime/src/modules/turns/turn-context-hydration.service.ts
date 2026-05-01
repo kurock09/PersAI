@@ -65,6 +65,7 @@ type CanonicalChatMessageRow = {
   id: string;
   author: "user" | "assistant" | "system";
   content: string;
+  createdAt: Date | null;
   attachments: CanonicalChatAttachmentRow[];
 };
 
@@ -515,7 +516,9 @@ export class TurnContextHydrationService {
     const now = Date.now();
     const idleMs = idleHours * 60 * 60 * 1000;
     const cooldownMs = cooldownHours * 60 * 60 * 1000;
-    const idleElapsedMs = now - chatRowMeta.lastMessageAt.getTime();
+    const previousUserMessageAt =
+      this.resolvePreviousUserMessageAt(storedMessages, input) ?? chatRowMeta.lastMessageAt;
+    const idleElapsedMs = now - previousUserMessageAt.getTime();
     if (idleElapsedMs < idleMs) {
       return { shouldFire: false, subTrigger: null };
     }
@@ -524,6 +527,30 @@ export class TurnContextHydrationService {
       return { shouldFire: false, subTrigger: null };
     }
     return { shouldFire: true, subTrigger: "long_idle" };
+  }
+
+  private resolvePreviousUserMessageAt(
+    storedMessages: CanonicalChatMessageRow[] | null,
+    input: RuntimeTurnRequest
+  ): Date | null {
+    if (storedMessages === null) {
+      return null;
+    }
+    for (let index = storedMessages.length - 1; index >= 0; index--) {
+      const message = storedMessages[index];
+      if (
+        message === undefined ||
+        message.id === input.idempotencyKey ||
+        message.author !== "user" ||
+        !this.isHydratableCanonicalMessage(message)
+      ) {
+        continue;
+      }
+      if (message.createdAt instanceof Date) {
+        return message.createdAt;
+      }
+    }
+    return null;
   }
 
   // ADR-074 Slice M3.2 — fire-and-forget bookkeeping bump. Failures are
@@ -789,6 +816,7 @@ export class TurnContextHydrationService {
         id: true,
         author: true,
         content: true,
+        createdAt: true,
         attachments: {
           where: {
             processingStatus: "ready"
@@ -812,6 +840,7 @@ export class TurnContextHydrationService {
       id: message.id,
       author: message.author,
       content: message.content,
+      createdAt: message.createdAt instanceof Date ? message.createdAt : null,
       attachments: message.attachments.map((attachment) => ({
         id: attachment.id,
         attachmentType: attachment.attachmentType,

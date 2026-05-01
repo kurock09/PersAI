@@ -186,6 +186,7 @@ class FakeRuntimeStatePrismaService {
     id: string;
     author: "user" | "assistant" | "system";
     content: string;
+    createdAt?: Date | null;
     attachments: Array<{
       id: string;
       attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
@@ -1329,6 +1330,52 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
     assert.equal(markCall.assistantChatId, "chat-existing-idle");
     assert.equal(markCall.requestId, "request-m32");
     assert.ok(typeof markCall.firedAt === "string" && markCall.firedAt.length > 0);
+  }
+
+  // Scenario M3.2-A2 — the API may already have persisted the current inbound
+  // user message and advanced `assistant_chats.lastMessageAt` before runtime
+  // hydration begins. Long-idle must compare against the previous user message,
+  // excluding the current `idempotencyKey`, or the trigger is always suppressed.
+  {
+    const harness = buildHarness();
+    const now = Date.now();
+    harness.prisma.chat = {
+      id: "chat-existing-current-already-persisted",
+      lastMessageAt: new Date(now),
+      lastCrossSessionCarryOverAt: null
+    };
+    harness.prisma.messages = [
+      {
+        id: "earlier-1",
+        author: "user",
+        content: "the previous user turn from a few hours ago",
+        createdAt: new Date(now - 5 * 60 * 60 * 1000),
+        attachments: []
+      },
+      {
+        id: "earlier-2",
+        author: "assistant",
+        content: "the previous assistant reply",
+        createdAt: new Date(now - 5 * 60 * 60 * 1000 + 30_000),
+        attachments: []
+      },
+      {
+        id: "message-current-m32",
+        author: "user",
+        content: "hi again — coming back after a long break",
+        createdAt: new Date(now),
+        attachments: []
+      }
+    ];
+    harness.persaiInternalApiClient.carryOverOutcome = nonEmptyCarryOver();
+    await harness.service.buildMessages(buildExistingThreadRequest(), createRuntimeBundle());
+    assert.equal(
+      harness.persaiInternalApiClient.carryOverInputs.length,
+      1,
+      "current-message lastMessageAt must not suppress the long-idle sub-trigger"
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(harness.persaiInternalApiClient.markFiredInputs.length, 1);
   }
 
   // Scenario M3.2-B — existing thread + idle ≥ idleHours + last fire WITHIN

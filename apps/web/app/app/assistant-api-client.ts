@@ -277,6 +277,7 @@ export interface AssistantWebChatStreamHandlers {
     source: "skill" | "user" | "product" | "web";
     phase: "start";
     resultCount: number;
+    skillName?: string | null;
   }) => void;
   onCompaction?: (payload: {
     phase: "start" | "end";

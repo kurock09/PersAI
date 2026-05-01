@@ -44,7 +44,9 @@ import {
   StreamNativeWebChatTurnService,
   type StreamNativeWebChatTurnInput
 } from "./stream-native-web-chat-turn.service";
+import { SendNativeWebChatTurnService } from "./send-native-web-chat-turn.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 import {
   createCadenceWatchdog,
   DEFAULT_CADENCE_THRESHOLDS,
@@ -160,6 +162,7 @@ export class StreamWebChatTurnService {
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly streamNativeWebChatTurnService: StreamNativeWebChatTurnService,
+    private readonly sendNativeWebChatTurnService: SendNativeWebChatTurnService,
     private readonly prepareAssistantInboundTurnService: PrepareAssistantInboundTurnService,
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
@@ -167,6 +170,7 @@ export class StreamWebChatTurnService {
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
+    private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -246,6 +250,7 @@ export class StreamWebChatTurnService {
         source: "skill" | "user" | "product" | "web";
         phase: "start";
         resultCount: number;
+        skillName?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
       /**
@@ -290,6 +295,11 @@ export class StreamWebChatTurnService {
       ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
       : prepared.userMessage.content;
     const currentTimeIso = new Date().toISOString();
+    const skillRoutingContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
+      chatId: prepared.chat.id,
+      currentUserMessageId: prepared.userMessage.id,
+      state: prepared.chat.autoSkillRoutingState
+    });
     const nativeTurnInput = this.buildNativeStreamTurnInput({
       assistantId: prepared.assistantId,
       publishedVersionId: prepared.publishedVersionId,
@@ -302,6 +312,7 @@ export class StreamWebChatTurnService {
       attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
+      skillRoutingContext,
       deepMode: prepared.chat.deepModeEnabled,
       ...(prepared.quotaDegradeModelOverride
         ? {
@@ -564,6 +575,16 @@ export class StreamWebChatTurnService {
         );
         trace.stage("replay_completed");
       }
+      await this.autoSkillRoutingStateService.persistFromTurnRouting({
+        chatId: prepared.chat.id,
+        turnRouting
+      });
+      if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(skillRoutingContext)) {
+        this.autoSkillRoutingStateService.runBackgroundCheck({
+          chatId: prepared.chat.id,
+          execute: () => this.sendNativeWebChatTurnService.checkSkillRouting(nativeTurnInput)
+        });
+      }
       const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
       if (refreshedChat === null) {
         throw new NotFoundException("Chat does not exist for this assistant.");
@@ -596,6 +617,7 @@ export class StreamWebChatTurnService {
             surfaceThreadKey: refreshedChat.surfaceThreadKey,
             title: refreshedChat.title,
             deepModeEnabled: refreshedChat.deepModeEnabled,
+            autoSkillRoutingState: refreshedChat.autoSkillRoutingState,
             archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
             lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
             createdAt: refreshedChat.createdAt.toISOString(),
@@ -684,6 +706,7 @@ export class StreamWebChatTurnService {
     attachments: StreamNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
+    skillRoutingContext?: StreamNativeWebChatTurnInput["skillRoutingContext"];
     deepMode?: StreamNativeWebChatTurnInput["deepMode"];
     modelRoleOverride?: StreamNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
@@ -701,6 +724,9 @@ export class StreamWebChatTurnService {
       attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
+      ...(input.skillRoutingContext === undefined
+        ? {}
+        : { skillRoutingContext: input.skillRoutingContext }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -761,6 +787,7 @@ export class StreamWebChatTurnService {
         source: "skill" | "user" | "product" | "web";
         phase: "start";
         resultCount: number;
+        skillName?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
     };
@@ -912,7 +939,8 @@ export class StreamWebChatTurnService {
           input.callbacks.onActivity?.({
             source: chunk.activitySource,
             phase: chunk.activityPhase,
-            resultCount: Math.max(0, chunk.activityResultCount ?? 0)
+            resultCount: Math.max(0, chunk.activityResultCount ?? 0),
+            ...(chunk.activitySkillName === undefined ? {} : { skillName: chunk.activitySkillName })
           });
         }
 
@@ -1147,6 +1175,7 @@ export class StreamWebChatTurnService {
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
         deepModeEnabled: chat.deepModeEnabled,
+        autoSkillRoutingState: chat.autoSkillRoutingState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -1267,6 +1296,7 @@ export class StreamWebChatTurnService {
           surfaceThreadKey: refreshedChat.surfaceThreadKey,
           title: refreshedChat.title,
           deepModeEnabled: refreshedChat.deepModeEnabled,
+          autoSkillRoutingState: refreshedChat.autoSkillRoutingState,
           archivedAt: refreshedChat.archivedAt?.toISOString() ?? null,
           lastMessageAt: refreshedChat.lastMessageAt?.toISOString() ?? null,
           createdAt: refreshedChat.createdAt.toISOString(),

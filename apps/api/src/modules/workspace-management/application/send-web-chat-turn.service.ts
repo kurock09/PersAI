@@ -34,6 +34,7 @@ import {
   type SendNativeWebChatTurnInput
 } from "./send-native-web-chat-turn.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
+import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -139,6 +140,7 @@ export class SendWebChatTurnService {
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
+    private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -248,6 +250,11 @@ export class SendWebChatTurnService {
         ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, request.welcomeLocale)
         : prepared.userMessage.content;
       const currentTimeIso = new Date().toISOString();
+      const skillRoutingContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
+        chatId: prepared.chat.id,
+        currentUserMessageId: prepared.userMessage.id,
+        state: prepared.chat.autoSkillRoutingState
+      });
       const nativeTurnInput = this.buildNativeSyncTurnInput({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
@@ -260,6 +267,7 @@ export class SendWebChatTurnService {
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
+        skillRoutingContext,
         deepMode: prepared.chat.deepModeEnabled,
         ...(prepared.quotaDegradeModelOverride
           ? {
@@ -365,6 +373,16 @@ export class SendWebChatTurnService {
           replayState
         );
         trace.stage("replay_completed");
+      }
+      await this.autoSkillRoutingStateService.persistFromTurnRouting({
+        chatId: prepared.chat.id,
+        turnRouting: runtimeResponse.turnRouting
+      });
+      if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(skillRoutingContext)) {
+        this.autoSkillRoutingStateService.runBackgroundCheck({
+          chatId: prepared.chat.id,
+          execute: () => this.sendNativeWebChatTurnService.checkSkillRouting(nativeTurnInput)
+        });
       }
 
       trace.finish({
@@ -522,6 +540,7 @@ export class SendWebChatTurnService {
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
         deepModeEnabled: chat.deepModeEnabled,
+        autoSkillRoutingState: chat.autoSkillRoutingState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -607,6 +626,7 @@ export class SendWebChatTurnService {
     attachments: SendNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
+    skillRoutingContext?: SendNativeWebChatTurnInput["skillRoutingContext"];
     deepMode?: SendNativeWebChatTurnInput["deepMode"];
     modelRoleOverride?: SendNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
@@ -624,6 +644,9 @@ export class SendWebChatTurnService {
       attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
+      ...(input.skillRoutingContext === undefined
+        ? {}
+        : { skillRoutingContext: input.skillRoutingContext }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}

@@ -5,6 +5,7 @@ import type {
   RuntimeCompactionResult,
   RuntimeSessionResolveInput,
   RuntimeSessionResolveResult,
+  RuntimeSkillRoutingCheckResult,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -47,6 +48,11 @@ export class TurnsController {
   @Post("create")
   createTurn(@Body() body: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
     return this.turnExecutionService.createTurn(body);
+  }
+
+  @Post("skill-routing-check")
+  checkSkillRouting(@Body() body: RuntimeTurnRequest): Promise<RuntimeSkillRoutingCheckResult> {
+    return this.turnExecutionService.checkSkillRouting(body);
   }
 
   @Post("stream")

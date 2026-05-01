@@ -178,6 +178,7 @@ export class PrepareAssistantInboundTurnService {
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
         deepModeEnabled: chat.deepModeEnabled,
+        autoSkillRoutingState: chat.autoSkillRoutingState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),

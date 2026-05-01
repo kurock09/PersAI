@@ -5,7 +5,11 @@ import {
   type AssistantChatMessage as PrismaAssistantChatMessage
 } from "@prisma/client";
 import type { AssistantChatMessage } from "../../domain/assistant-chat-message.entity";
-import type { AssistantChat, AssistantChatSurface } from "../../domain/assistant-chat.entity";
+import type {
+  AssistantChat,
+  AssistantChatAutoSkillRoutingState,
+  AssistantChatSurface
+} from "../../domain/assistant-chat.entity";
 import type {
   AssistantChatListMetadata,
   AssistantChatRepository,
@@ -229,7 +233,15 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       where: { id: chatId },
       data: {
         ...(input.title === undefined ? {} : { title: input.title }),
-        ...(input.deepModeEnabled === undefined ? {} : { deepModeEnabled: input.deepModeEnabled })
+        ...(input.deepModeEnabled === undefined ? {} : { deepModeEnabled: input.deepModeEnabled }),
+        ...(input.autoSkillRoutingState === undefined
+          ? {}
+          : {
+              autoSkillRoutingState:
+                input.autoSkillRoutingState === null
+                  ? Prisma.DbNull
+                  : (input.autoSkillRoutingState as unknown as Prisma.InputJsonValue)
+            })
       }
     });
 
@@ -452,10 +464,51 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       surfaceThreadKey: chat.surfaceThreadKey,
       title: chat.title,
       deepModeEnabled: chat.deepModeEnabled,
+      autoSkillRoutingState: this.parseAutoSkillRoutingState(chat.autoSkillRoutingState),
       archivedAt: chat.archivedAt,
       lastMessageAt: chat.lastMessageAt,
       createdAt: chat.createdAt,
       updatedAt: chat.updatedAt
+    };
+  }
+
+  private parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRoutingState | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const status = row.status === "active" || row.status === "inactive" ? row.status : null;
+    const activeSkillId = typeof row.activeSkillId === "string" ? row.activeSkillId : null;
+    const activeSkillName = typeof row.activeSkillName === "string" ? row.activeSkillName : null;
+    const topicSummary = typeof row.topicSummary === "string" ? row.topicSummary : null;
+    const confidence =
+      row.confidence === "high" || row.confidence === "medium" || row.confidence === "low"
+        ? row.confidence
+        : null;
+    const checkedAtMessageIndex =
+      typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
+        ? row.checkedAtMessageIndex
+        : null;
+    const messageCountSinceCheck =
+      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
+        ? row.messageCountSinceCheck
+        : null;
+    if (
+      status === null ||
+      confidence === null ||
+      checkedAtMessageIndex === null ||
+      messageCountSinceCheck === null
+    ) {
+      return null;
+    }
+    return {
+      status,
+      activeSkillId: status === "active" ? activeSkillId : null,
+      activeSkillName: status === "active" ? activeSkillName : null,
+      topicSummary,
+      confidence,
+      checkedAtMessageIndex,
+      messageCountSinceCheck
     };
   }
 

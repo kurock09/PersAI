@@ -3,6 +3,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeAttachmentRef,
+  RuntimeSkillRoutingCheckResult,
+  RuntimeSkillRoutingContext,
   RuntimeTurnRequest,
   RuntimeTurnResult
 } from "@persai/runtime-contract";
@@ -38,6 +40,7 @@ export interface SendNativeWebChatTurnInput {
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
+  skillRoutingContext?: RuntimeSkillRoutingContext;
 }
 
 interface JsonResponse {
@@ -120,7 +123,10 @@ export class SendNativeWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
+      ...(input.skillRoutingContext === undefined
+        ? {}
+        : { skillRoutingContext: input.skillRoutingContext })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
@@ -155,6 +161,97 @@ export class SendNativeWebChatTurnService {
         ? {}
         : { autoCompaction: response.body.autoCompaction }),
       ...(response.body.trace === undefined ? {} : { runtimeTrace: response.body.trace })
+    };
+  }
+
+  async checkSkillRouting(
+    input: SendNativeWebChatTurnInput
+  ): Promise<RuntimeSkillRoutingCheckResult> {
+    const request = await this.buildRuntimeTurnRequest(input);
+    const config = loadApiConfig(process.env);
+    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
+    if (!baseUrl) {
+      throw new AssistantRuntimeError("runtime_unreachable", "Native runtime base URL is missing.");
+    }
+    const response = await this.postJson(
+      new URL("/api/v1/turns/skill-routing-check", baseUrl).toString(),
+      request,
+      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      this.throwForFailedResponse(response);
+    }
+    if (!this.isRuntimeSkillRoutingCheckResult(response.body)) {
+      throw new AssistantRuntimeError(
+        "invalid_response",
+        "Native runtime returned an invalid Skill routing check response."
+      );
+    }
+    return response.body;
+  }
+
+  private async buildRuntimeTurnRequest(
+    input: SendNativeWebChatTurnInput
+  ): Promise<RuntimeTurnRequest> {
+    const materializedSpec =
+      await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
+        input.publishedVersionId
+      );
+    if (materializedSpec === null) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Native runtime materialized spec is missing for the current published version."
+      );
+    }
+    if (materializedSpec.assistantId !== input.assistantId) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Native runtime materialized spec assistant identity does not match the prepared turn."
+      );
+    }
+    const bundleHash = materializedSpec.runtimeBundleHash?.trim() ?? "";
+    if (!bundleHash) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Native runtime bundle hash is missing for the current published version."
+      );
+    }
+    return {
+      requestId: randomUUID(),
+      idempotencyKey: input.userMessageId,
+      runtimeTier: input.runtimeTier,
+      bundle: {
+        bundleId: materializedSpec.id,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        publishedVersionId: input.publishedVersionId,
+        bundleHash,
+        compiledAt: materializedSpec.createdAt.toISOString()
+      },
+      conversation: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        channel: "web",
+        externalThreadKey: input.surfaceThreadKey,
+        externalUserKey: input.userId,
+        mode: "direct"
+      },
+      message: {
+        text: input.userMessage,
+        attachments: input.attachments,
+        locale: null,
+        timezone: input.userTimezone ?? null,
+        receivedAt: input.currentTimeIso ?? new Date().toISOString()
+      },
+      ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
+      ...(input.modelRoleOverride === undefined
+        ? {}
+        : { modelRoleOverride: input.modelRoleOverride }),
+      ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
+      ...(input.skillRoutingContext === undefined
+        ? {}
+        : { skillRoutingContext: input.skillRoutingContext })
     };
   }
 
@@ -271,6 +368,16 @@ export class SendNativeWebChatTurnService {
       (row.turnRouting === undefined ||
         row.turnRouting === null ||
         this.isRuntimeTurnRoutingSnapshot(row.turnRouting))
+    );
+  }
+
+  private isRuntimeSkillRoutingCheckResult(
+    value: unknown
+  ): value is RuntimeSkillRoutingCheckResult {
+    const row = this.asObject(value);
+    return (
+      typeof row?.requestId === "string" &&
+      (row.turnRouting === null || this.isRuntimeTurnRoutingSnapshot(row.turnRouting))
     );
   }
 

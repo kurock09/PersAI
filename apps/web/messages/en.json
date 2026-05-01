@@ -363,6 +363,7 @@
     "overLimit": "Over plan limit",
     "setupHelp": "Enable or disable professional Skills for this assistant.",
     "settingsHelp": "Enable or disable professional Skills for this assistant.",
+    "planUnavailableHint": "Skills are available on another plan. You can review the catalog, but Skills cannot be enabled on your current plan.",
     "readiness": {
       "ready": "Ready",
       "processing": "Indexing",

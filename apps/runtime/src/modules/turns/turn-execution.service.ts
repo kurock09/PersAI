@@ -46,6 +46,7 @@ import {
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
   type RuntimeTextDeltaSource,
+  type RuntimeSkillRoutingCheckResult,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
   type RuntimeTurnRoutingSnapshot,
@@ -375,6 +376,44 @@ export class TurnExecutionService {
         );
       }
     }
+  }
+
+  async checkSkillRouting(input: RuntimeTurnRequest): Promise<RuntimeSkillRoutingCheckResult> {
+    this.assertSupportedTurnRequest(input, "checkSkillRouting");
+    let bundleEntry = this.resolveBundleEntry(input.bundle);
+    if (bundleEntry === null || !this.bundleEntryMatchesRequest(bundleEntry, input.bundle)) {
+      const warmed = await this.runtimeBundleAutoRefreshService.ensureRequestedBundle({
+        bundle: input.bundle,
+        runtimeTier: input.runtimeTier
+      });
+      if (warmed) {
+        bundleEntry = this.resolveBundleEntry(input.bundle);
+      }
+    }
+    if (bundleEntry === null) {
+      throw new ServiceUnavailableException(
+        `Runtime bundle "${input.bundle.bundleId}" is not warmed.`
+      );
+    }
+    const projectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
+      allowModelToolExposure: false
+    });
+    const request =
+      input.skillRoutingContext === undefined
+        ? input
+        : {
+            ...input,
+            skillRoutingContext: { ...input.skillRoutingContext, forceCheck: true }
+          };
+    const routeDecision = await this.turnRoutingService.decide({
+      bundle: bundleEntry.parsedBundle,
+      request,
+      projectedTools
+    });
+    return {
+      requestId: input.requestId,
+      turnRouting: this.toRuntimeTurnRoutingSnapshot(routeDecision)
+    };
   }
 
   private async executeAcceptedTurn(
@@ -1093,7 +1132,8 @@ export class TurnExecutionService {
       mode: routeDecision.mode,
       executionMode: routeDecision.executionMode,
       source,
-      retrievalPlan: routeDecision.retrievalPlan
+      retrievalPlan: routeDecision.retrievalPlan,
+      autoSkillState: routeDecision.autoSkillState
     };
   }
 
@@ -1441,7 +1481,8 @@ export class TurnExecutionService {
       },
       source: "default",
       mode: "shadow",
-      usage: null
+      usage: null,
+      autoSkillState: input.skillRoutingContext?.state ?? null
     };
     if (input.modelRoleOverride !== undefined) {
       return {
@@ -1510,7 +1551,7 @@ export class TurnExecutionService {
 
   private assertSupportedTurnRequest(
     input: RuntimeTurnRequest,
-    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun"
+    operation: "createTurn" | "streamTurn" | "createBackgroundTaskToolRun" | "checkSkillRouting"
   ): void {
     if (input.message.text.trim().length === 0) {
       throw new BadRequestException(
@@ -2411,14 +2452,30 @@ export class TurnExecutionService {
       const source = this.toRetrievalActivitySource(item.label);
       counts.set(source, (counts.get(source) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([source, resultCount]) => ({
-      type: "retrieval_activity",
-      requestId: acceptedTurn.receipt.requestId,
-      sessionId: acceptedTurn.session.sessionId,
-      source,
-      phase: "start",
-      resultCount
-    }));
+    return [...counts.entries()].map(([source, resultCount]) => {
+      const skillName =
+        source === "skill" ? this.resolveFirstRetrievedSkillName(context) : undefined;
+      return {
+        type: "retrieval_activity",
+        requestId: acceptedTurn.receipt.requestId,
+        sessionId: acceptedTurn.session.sessionId,
+        source,
+        phase: "start",
+        resultCount,
+        ...(skillName === undefined ? {} : { skillName })
+      };
+    });
+  }
+
+  private resolveFirstRetrievedSkillName(
+    context: RuntimeRetrievedKnowledgeContext
+  ): string | undefined {
+    const item = context.items.find((row) => row.label === "skill_reference") ?? null;
+    const title = item?.title?.trim();
+    if (!title) {
+      return undefined;
+    }
+    return title.split(" / ")[0]?.trim() || undefined;
   }
 
   private toRetrievalActivitySource(

@@ -34,6 +34,27 @@ function createAttachmentObjectAvailabilityServiceMock() {
   };
 }
 
+function createSendNativeWebChatTurnServiceMock() {
+  return {
+    checkSkillRouting: async () => {
+      throw new Error("background skill routing should not run in this test");
+    }
+  };
+}
+
+function createAutoSkillRoutingStateServiceMock() {
+  return {
+    buildRuntimeContext: async (input: { state?: unknown }) => ({
+      state: input.state ?? null,
+      currentUserMessageIndex: 1,
+      recentMessages: []
+    }),
+    persistFromTurnRouting: async () => undefined,
+    shouldRunBackgroundCheck: () => false,
+    runBackgroundCheck: () => undefined
+  };
+}
+
 function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
   result: T;
   captured: string;
@@ -159,6 +180,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -195,7 +217,8 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -336,6 +359,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -362,7 +386,8 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -495,6 +520,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -517,7 +543,8 @@ describe("StreamWebChatTurnService", () => {
         })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -647,6 +674,7 @@ describe("StreamWebChatTurnService", () => {
           yield { type: "done", respondedAt: "2026-04-05T12:00:01.000Z" };
         }
       } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called in this test");
@@ -669,7 +697,8 @@ describe("StreamWebChatTurnService", () => {
         deliver: async () => ({ attachments: [] })
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -775,6 +804,7 @@ describe("StreamWebChatTurnService", () => {
           throw new Error("native runtime stream should not be used for replay");
         }
       } as never,
+      createSendNativeWebChatTurnServiceMock() as never,
       {
         execute: async () => {
           throw new Error("prepare should not be called for replay");
@@ -789,7 +819,8 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
-      createAttachmentObjectAvailabilityServiceMock() as never
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createAutoSkillRoutingStateServiceMock() as never
     );
 
     const preparation = await service.prepare("user-1", {
@@ -927,6 +958,7 @@ function buildToolStreamingServiceForTraceTest(options: {
         };
       }
     } as never,
+    createSendNativeWebChatTurnServiceMock() as never,
     {
       execute: async () => {
         throw new Error("prepare should not be called in this test");
@@ -947,7 +979,8 @@ function buildToolStreamingServiceForTraceTest(options: {
       deliver: async () => ({ attachments: [] })
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
-    createAttachmentObjectAvailabilityServiceMock() as never
+    createAttachmentObjectAvailabilityServiceMock() as never,
+    createAutoSkillRoutingStateServiceMock() as never
   );
 }
 

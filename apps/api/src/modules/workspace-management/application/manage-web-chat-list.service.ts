@@ -8,6 +8,7 @@ import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
 } from "../domain/assistant-chat.repository";
+import type { AssistantChatAutoSkillRoutingState } from "../domain/assistant-chat.entity";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -52,6 +53,7 @@ function toChatState(chat: {
   surfaceThreadKey: string;
   title: string | null;
   deepModeEnabled: boolean;
+  autoSkillRoutingState: AssistantChatAutoSkillRoutingState | null;
   archivedAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
@@ -64,6 +66,7 @@ function toChatState(chat: {
     surfaceThreadKey: chat.surfaceThreadKey,
     title: chat.title,
     deepModeEnabled: chat.deepModeEnabled,
+    autoSkillRoutingState: chat.autoSkillRoutingState,
     archivedAt: chat.archivedAt?.toISOString() ?? null,
     lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
     createdAt: chat.createdAt.toISOString(),

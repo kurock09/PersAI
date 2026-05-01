@@ -177,6 +177,48 @@ async function run(): Promise<void> {
   assert.equal(state.contextPolicy.preset, "balanced");
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
   assert.equal(state.skillPolicy.maxEnabledSkills, 2);
+
+  const zeroSkillLimitParsed = service.parseUpdateInput({
+    ...parsed,
+    skillPolicy: {
+      maxEnabledSkills: 0
+    }
+  });
+  const zeroSkillLimitWriteInput = (
+    service as unknown as {
+      toWriteInput(input: typeof zeroSkillLimitParsed): { billingProviderHints: unknown };
+    }
+  ).toWriteInput(zeroSkillLimitParsed);
+  assert.deepEqual(
+    (zeroSkillLimitWriteInput.billingProviderHints as Record<string, unknown>).skillPolicy,
+    {
+      maxEnabledSkills: 0
+    }
+  );
+  assert.equal(
+    (
+      service as unknown as {
+        toAdminPlanState(plan: AssistantPlanCatalog): {
+          skillPolicy: { maxEnabledSkills: number | null };
+        };
+      }
+    ).toAdminPlanState({
+      id: "plan-zero-skills",
+      code: "zero-skills",
+      displayName: "Zero Skills",
+      description: null,
+      status: "active",
+      billingProviderHints: zeroSkillLimitWriteInput.billingProviderHints,
+      entitlementModel: null,
+      toolActivations: [],
+      isDefaultFirstRegistrationPlan: false,
+      isTrialPlan: false,
+      trialDurationDays: null,
+      createdAt: new Date("2026-04-14T12:00:00.000Z"),
+      updatedAt: new Date("2026-04-14T12:00:00.000Z")
+    }).skillPolicy.maxEnabledSkills,
+    0
+  );
   const normalizedState = (
     service as unknown as {
       toAdminPlanState(plan: AssistantPlanCatalog): {

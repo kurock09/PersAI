@@ -1,0 +1,142 @@
+import assert from "node:assert/strict";
+import type {
+  ProviderGatewayTextGenerateRequest,
+  RuntimeBackgroundTaskEvaluationRequest,
+  RuntimeTurnRequest,
+  RuntimeTurnResult
+} from "@persai/runtime-contract";
+import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import { RuntimeBackgroundTaskEvaluationService } from "../src/modules/turns/runtime-background-task-evaluation.service";
+import type { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
+
+class FakeTurnExecutionService {
+  requests: RuntimeTurnRequest[] = [];
+
+  async createBackgroundTaskToolRun(request: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
+    this.requests.push(request);
+    return {
+      requestId: request.requestId,
+      sessionId: "background-task-session-1",
+      assistantText: "Evidence report.",
+      artifacts: [],
+      respondedAt: "2026-05-01T20:00:00.000Z",
+      usage: null,
+      toolInvocations: []
+    };
+  }
+}
+
+class FakeProviderGatewayClientService {
+  requests: ProviderGatewayTextGenerateRequest[] = [];
+
+  async generateText(request: ProviderGatewayTextGenerateRequest) {
+    this.requests.push(request);
+    return {
+      text: JSON.stringify({
+        decision: "no_push",
+        pushText: null,
+        rationale: "Not enough evidence.",
+        confidence: "medium"
+      }),
+      usage: null
+    };
+  }
+}
+
+function createRuntimeBundleDocument(): string {
+  return JSON.stringify({
+    metadata: {
+      assistantId: "11111111-1111-4111-8111-111111111111",
+      workspaceId: "22222222-2222-4222-8222-222222222222",
+      publishedVersionId: "33333333-3333-4333-8333-333333333333"
+    },
+    persona: {
+      displayName: "PersAI"
+    },
+    userContext: {
+      locale: "en",
+      timezone: "UTC"
+    },
+    runtime: {
+      runtimeProviderRouting: {
+        primaryPath: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          active: true
+        }
+      }
+    },
+    promptConstructor: {
+      ordinary: {
+        systemPrompt: "Answer as PersAI.",
+        sections: {
+          heartbeat: "Stay concise."
+        }
+      }
+    }
+  });
+}
+
+function createEvaluationRequest(): RuntimeBackgroundTaskEvaluationRequest {
+  const longIdleReengagementTaskId =
+    "idle_reengagement:" +
+    "11111111-1111-4111-8111-111111111111:" +
+    "44444444-4444-4444-8444-444444444444:" +
+    "2026-05-01T18:22:45.123Z";
+
+  return {
+    assistantId: "11111111-1111-4111-8111-111111111111",
+    workspaceId: "22222222-2222-4222-8222-222222222222",
+    runtimeTier: "paid_shared_restricted",
+    runtimeBundleDocument: createRuntimeBundleDocument(),
+    task: {
+      id: longIdleReengagementTaskId,
+      title: "Idle reengagement",
+      brief: "Decide whether to reengage the idle user.",
+      scheduleJson: { kind: "idle_reengagement" },
+      pushPolicyJson: null,
+      scheduledRunAt: "2026-05-01T20:00:00.000Z",
+      runCount: 0,
+      lastRunStatus: null,
+      lastRunAt: null
+    }
+  };
+}
+
+export async function runRuntimeBackgroundTaskEvaluationServiceTest(): Promise<void> {
+  const turnExecution = new FakeTurnExecutionService();
+  const providerGateway = new FakeProviderGatewayClientService();
+  const service = new RuntimeBackgroundTaskEvaluationService(
+    providerGateway as unknown as ProviderGatewayClientService,
+    turnExecution as unknown as TurnExecutionService
+  );
+
+  const input = createEvaluationRequest();
+  const result = await service.evaluate(input);
+
+  assert.equal(result.decision, "no_push");
+  assert.equal(turnExecution.requests.length, 1);
+  const toolRunRequest = turnExecution.requests[0]!;
+  assert.equal(toolRunRequest.requestId, toolRunRequest.idempotencyKey);
+  assert.equal(
+    toolRunRequest.requestId.length <= 128,
+    true,
+    "background-task requestId must fit runtime_turn_receipts.request_id"
+  );
+  assert.equal(
+    toolRunRequest.idempotencyKey.length <= 128,
+    true,
+    "background-task idempotencyKey must fit runtime_turn_receipts.idempotency_key"
+  );
+  assert.match(toolRunRequest.requestId, /^background-task-tool-run:[0-9a-f]{40}$/);
+  assert.equal(
+    toolRunRequest.requestId.includes(input.task.id),
+    false,
+    "the long task id must not be embedded directly in receipt keys"
+  );
+  assert.equal(providerGateway.requests.length, 1);
+  const providerRequest = providerGateway.requests[0];
+  assert.ok(providerRequest !== undefined);
+  assert.ok(providerRequest.requestMetadata !== undefined);
+  assert.equal(providerRequest.requestMetadata.runtimeRequestId, toolRunRequest.requestId);
+}

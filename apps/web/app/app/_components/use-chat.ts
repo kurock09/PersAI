@@ -338,6 +338,7 @@ function buildRetrievalLiveActivity(params: {
   assistantMessageId: string;
   source: "skill" | "user" | "product" | "web";
   resultCount: number;
+  skillName?: string | null;
 }): LiveActivityEvent {
   const labelBySource = {
     skill: "retrieval_skill_started",
@@ -345,10 +346,12 @@ function buildRetrievalLiveActivity(params: {
     product: "retrieval_product_started",
     web: "retrieval_web_started"
   } satisfies Record<"skill" | "user" | "product" | "web", string>;
+  const detail = params.source === "skill" && params.skillName ? params.skillName : null;
   return {
     id: `activity-live-retrieval-${Date.now()}-${params.source}`,
     type: "info",
     label: labelBySource[params.source],
+    ...(detail === null ? {} : { detail }),
     afterMessageId: params.assistantMessageId,
     emphasis: params.resultCount > 0 ? "strong" : "default",
     source: "retrieval"
@@ -1722,7 +1725,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               }));
             },
-            onActivity: ({ source, resultCount }) => {
+            onActivity: ({ source, resultCount, skillName }) => {
               const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
               const assistantMessageId =
                 snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
@@ -1734,7 +1737,8 @@ export function useChat(threadKey: string): UseChatReturn {
                 [assistantMessageId]: buildRetrievalLiveActivity({
                   assistantMessageId,
                   source,
-                  resultCount
+                  resultCount,
+                  ...(skillName === undefined ? {} : { skillName })
                 })
               }));
             },
@@ -2450,14 +2454,15 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               }));
             },
-            onActivity: ({ source, resultCount }) => {
+            onActivity: ({ source, resultCount, skillName }) => {
               flushBufferedAssistantState(true);
               applyThreadLiveActivities(sendThreadKey, (prev) => ({
                 ...prev,
                 [assistantMsgId]: buildRetrievalLiveActivity({
                   assistantMessageId: assistantMsgId,
                   source,
-                  resultCount
+                  resultCount,
+                  ...(skillName === undefined ? {} : { skillName })
                 })
               }));
             },

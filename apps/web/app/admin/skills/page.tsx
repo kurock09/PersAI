@@ -485,8 +485,8 @@ export default function AdminSkillsPage() {
         </div>
       )}
 
-      <div className="grid items-stretch gap-3 lg:grid-cols-[360px_1fr]">
-        <div className="flex min-h-0 flex-col rounded-xl border border-border/70 bg-surface">
+      <div className="grid items-start gap-3 lg:grid-cols-[360px_1fr]">
+        <div className="flex max-h-[70vh] min-h-[28rem] w-full min-w-0 flex-col rounded-xl border border-border/70 bg-surface lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)]">
           <div className="flex items-center justify-between gap-2 border-b border-border/70 p-3">
             <div>
               <h2 className="text-xs font-semibold text-text">Skills catalog</h2>

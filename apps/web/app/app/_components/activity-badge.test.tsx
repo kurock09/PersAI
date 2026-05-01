@@ -76,4 +76,21 @@ describe("ActivityBadge", () => {
     expect(screen.getByText("activityRetrievalSkillStart")).toBeInTheDocument();
     expect(screen.queryByText("retrieval_skill_started")).toBeNull();
   });
+
+  it("shows quiet Skill activity detail when present", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-5",
+          type: "info",
+          label: "retrieval_skill_started",
+          detail: "Диетолог",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getAllByText("activityRetrievalSkillStart").length).toBeGreaterThan(0);
+    expect(screen.getByText("Диетолог")).toBeInTheDocument();
+  });
 });

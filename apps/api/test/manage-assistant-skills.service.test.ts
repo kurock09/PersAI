@@ -49,7 +49,7 @@ function createSkill(id: string, status: "draft" | "active" | "archived" = "acti
   };
 }
 
-function createHarness() {
+function createHarness(options: { maxEnabledSkills?: number } = {}) {
   const now = new Date("2026-05-01T12:00:00.000Z");
   const assistant = {
     id: "assistant-1",
@@ -136,7 +136,7 @@ function createHarness() {
       findUnique: async () => ({
         billingProviderHints: {
           skillPolicy: {
-            maxEnabledSkills: 1
+            maxEnabledSkills: options.maxEnabledSkills ?? 1
           }
         },
         entitlement: {
@@ -197,6 +197,18 @@ async function run(): Promise<void> {
   assert.deepEqual(cleared.assignedSkillIds, []);
   assert.equal([...harness.assignments.values()][0]?.status, "disabled");
   assert.ok(harness.assistant.configDirtyAt instanceof Date);
+
+  const zeroLimitHarness = createHarness({ maxEnabledSkills: 0 });
+  const zeroLimitState = await zeroLimitHarness.service.list("user-1");
+  assert.equal(zeroLimitState.limit, 0);
+  assert.equal(
+    zeroLimitState.skills.find((item) => item.skill.id === "skill-1")?.disabledReason,
+    "skill_limit_reached"
+  );
+  await assert.rejects(
+    () => zeroLimitHarness.service.replaceAssignments("user-1", ["skill-1"]),
+    BadRequestException
+  );
 }
 
 void run();

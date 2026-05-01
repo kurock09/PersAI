@@ -167,7 +167,16 @@ Choose the cheapest execution mode that should still preserve answer quality.
 
 Set \`retrievalHint=true\` when the system should likely retrieve assistant knowledge or prior stored facts before answering.
 Use \`retrievalPlan\` to choose whether enabled Skills, user knowledge, Product knowledge, or web grounding should be considered by the later retrieval layer.
-Select only Skill ids from the provided enabled Skills summary, normally 1-3. Do not infer Skills from keywords alone.
+
+Retrieval plan rules:
+- Set \`useSkills=true\` only when one or more enabled Skills are semantically relevant to the user's task. Use the Skill name, description, tags, category, and routing examples as meaning hints. Select only Skill ids from the provided enabled Skills summary, normally 1-3.
+- Do not infer Skills from keywords alone. Generic words like "document", "knowledge", "source", "PDF", or "search" are not enough to select a Skill unless the user's actual intent matches that Skill.
+- Set \`useUserKnowledge=true\` when the answer may need the user's own uploaded documents, prior stored facts, personal/workspace memory, or chat history.
+- Set \`useProductKnowledge=true\` only for PersAI product, pricing, plan, policy, support, or platform-reference questions.
+- Set \`useWeb=true\` only when current external facts, public web pages, live availability, recent news, or non-PersAI external verification are needed.
+- Multiple retrieval sources may be true when the question genuinely needs comparison or grounding across them.
+- If no retrieval source is meaningfully needed, keep every retrieval source false even when enabled Skills exist.
+
 Set \`toolHints\` only as hints when browser, web, knowledge, or media tools are likely needed.
 Do not execute tools. Do not answer the user. Return only the requested structured result.`,
 

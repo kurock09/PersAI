@@ -1,5 +1,160 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (ADR-079 Skill routing optimization) — sticky per-chat auto Skill state with background rechecks (`apps/api`, `apps/runtime`, `apps/web`; focused checks green)
+
+### What changed
+
+- Implemented the founder-approved auto-flow only; manual/lock Skill mode remains out of scope.
+- Added persisted per-chat `autoSkillRoutingState` on `assistant_chats`:
+  - `activeSkillId` / `activeSkillName`;
+  - `topicSummary`;
+  - `confidence`;
+  - `checkedAtMessageIndex`;
+  - `messageCountSinceCheck`.
+- API now builds a bounded Skill routing context from the current chat:
+  - current user-message index is based on `createdAt`, not UUID ordering;
+  - recent routing context is capped to the latest 10 user/assistant messages.
+- Runtime router behavior changed:
+  - if no enabled Skills exist, routing remains the simple existing path;
+  - if an active auto Skill exists, normal follow-up turns reuse it without a routing LLM call;
+  - high-signal grounded turns and forced background checks still use the router classifier;
+  - classifier drift results can clear or replace the active Skill state.
+- API now schedules fire-and-forget background Skill checks for startup messages 1/2/3 and then every 5 user messages after an active state has aged.
+- Fixed a race found during this slice: background checks now start only after the main turn's routing state is persisted, so the main stream cannot overwrite a freshly persisted background Skill choice.
+- Runtime/API gained a `skill-routing-check` path for background checks, and web activity badges can show quiet Skill detail such as `Диетолог`.
+
+### Verification
+
+- `ReadLints` on changed Skill routing/API/web files
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Commit/push if the diff is approved, deploy, then repeat the founder `Диетолог` live smoke. Expected evidence: early turns do not block on routing unless high-signal, later same-topic turns show `sticky_skill_reuse`, Skill retrieval uses the persisted active Skill, and a background drift check can clear the Skill on a changed topic.
+
+---
+
+## 2026-05-01 (Runtime background tasks + ADR-074 long-idle continuity) — fixed idle reengagement 500s and current-message idle suppression (`apps/runtime`, `docs`; runtime checks green)
+
+### What changed
+
+- Fixed the idle reengagement notification-policy failure seen in GKE logs:
+  - API scheduler was finding due candidates;
+  - runtime background-task evaluation failed before evaluator/push decision;
+  - root cause was `runtime_turn_receipts.request_id` / `idempotency_key` `VARCHAR(128)` overflow because synthetic background-task keys embedded the full idle dedupe key.
+- Replaced background-task synthetic turn `requestId` / `idempotencyKey` with a deterministic short SHA-256-derived key over assistant/workspace/task/scheduled-run identity.
+- Kept the full task id in the task payload/prompt, so evaluator semantics and dedupe source truth are unchanged.
+- Fixed ADR-074 long-idle cross-session carry-over:
+  - the runtime now loads canonical message `createdAt`;
+  - the long-idle trigger excludes the current inbound message via `idempotencyKey`;
+  - idle elapsed time is computed from the previous hydratable user message, falling back to chat-row metadata only when previous message timestamps are unavailable.
+- Added regressions for both:
+  - long idle reengagement-style background-task ids stay within DB receipt limits;
+  - long-idle carry-over still fires when `assistant_chats.lastMessageAt` was already advanced to the current message.
+
+### Verification
+
+- `ReadLints` on changed runtime files
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Next recommended step
+
+Deploy runtime, then rerun the 1h `idle_reengagement` policy and a same-thread >4h idle message. Expected live evidence: no runtime receipt length error, background-task evaluator reaches push/no_push/complete, and ADR-074 continuity block is eligible on the first post-idle message when non-empty carry-over data exists.
+
+---
+
+## 2026-05-01 (ADR-079 zero-Skills plan persistence) — `Max enabled Skills = 0` is valid (`apps/api`, `apps/web`; focused checks green)
+
+### What changed
+
+- Investigated founder report that setting Skills limit to `0` in Admin Plans produced an error.
+- Fixed web Admin Plans validation:
+  - `NUMERIC_DRAFT_RULES` now allows `maxEnabledSkills` minimum `0`;
+  - `draftToPayload()` now parses `Max enabled Skills` with `min: 0`;
+  - the input already had `min={0}`, so the hidden submit validation was the UI-side blocker.
+- Fixed API plan parsing and readback:
+  - `skillPolicy.maxEnabledSkills` now uses non-negative integer parsing instead of positive-only parsing;
+  - `limitsPermissions` fallback for `enabled_skills_limit` also preserves `0`;
+  - plan state reconstruction returns `0` instead of `null`.
+- Fixed downstream enforcement:
+  - `ManageAssistantSkillsService` reads `0` as a real plan limit, so users cannot enable any Skills;
+  - `MaterializeAssistantPublishedVersionService` reads `0` as a real limit, so published runtime materialization will not accidentally fall back to the default Skill limit.
+- Added regressions for Admin Plans zero persistence, Assistant Skills zero-limit enforcement, and web payload validation.
+
+### Verification
+
+- `ReadLints` on changed API/web files
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/app/_components/assistant-skills-manager.test.ts`
+
+### Next recommended step
+
+Run API/Web typechecks and format check before commit/deploy, then smoke Admin Plans by saving `Max enabled Skills = 0` and opening the user's Skills tab.
+
+---
+
+## 2026-05-01 (ADR-079 plan-zero Skills selector state) — catalog visible but enabling blocked (`apps/web`; focused check green)
+
+### What changed
+
+- Updated `AssistantSkillsManager` so `state.limit === 0` is treated as a dedicated plan-unavailable state.
+- The Skills catalog stays visible instead of becoming empty or hidden.
+- In collapsible contexts, the selector shows the full catalog immediately while Skills are unavailable on the current plan.
+- Skill checkboxes remain disabled through the existing `skill_limit_reached` path, so users cannot enable new Skills on a zero-Skills plan.
+- Added localized RU/EN helper copy under the selector intro explaining that Skills require another tariff/plan.
+- Added a focused helper regression for the `limit=0` disabled reason.
+
+### Verification
+
+- `ReadLints` on changed web files
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts`
+
+### Next recommended step
+
+Run the normal final verification gate before commit/deploy, then smoke the Skills tab under a plan with `maxEnabledSkills=0`: all Skills should be visible, unchecked Skills disabled, and the plan hint shown.
+
+---
+
+## 2026-05-01 (ADR-079 router classifier default prompt strengthening) — clarified retrieval-plan source rules (`apps/api`, live dev DB; API checks green)
+
+### What changed
+
+- Strengthened the default `router_classifier` prompt in `apps/api/prisma/bootstrap-preset-data.ts`.
+- Added explicit retrieval-plan rules:
+  - choose Skills semantically from Skill name, description, tags, category, and routing examples;
+  - do not select Skills from generic words like `document`, `knowledge`, `source`, `PDF`, or `search`;
+  - choose user knowledge for user-owned documents, prior stored facts, personal/workspace memory, or chat history;
+  - choose Product knowledge only for PersAI product/pricing/plan/policy/support/platform-reference questions;
+  - choose web only for current external facts, public web pages, live availability, recent news, or non-PersAI external verification;
+  - allow multiple retrieval sources only when the question genuinely needs them;
+  - keep all retrieval sources false when no grounding is meaningfully needed, even if Skills are enabled.
+- Synced the live dev DB `router_classifier` prompt directly through the API pod and bumped global config generation:
+  - prompt length: `2112`
+  - `hasRules=true`
+  - `platform_config_generations.generation=609`
+
+### Verification
+
+- `ReadLints` on `apps/api/prisma/bootstrap-preset-data.ts`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+After the runtime fix deploy finishes, reapply/publish the assistant if needed so the strengthened router prompt is included in the materialized runtime bundle, then rerun the `Диетолог` live smoke.
+
+---
+
 ## 2026-05-01 (Welcome chat Russian title encoding) — fixed mojibake first-chat title on setup/recreate (`apps/web`, `docs`; focused check green)
 
 ### What changed
@@ -8307,4 +8462,3 @@ A fourth, smaller pacing issue surfaced once turns started succeeding: the dev `
 ### Next recommended step
 
 1. Roll out the new `sandbox` workload to `persai-dev`, confirm `runtime -> sandbox` readiness in-cluster, and then execute one real web smoke where the assistant creates a tiny file and delivers it back to the user through `send_media_to_user`.
-

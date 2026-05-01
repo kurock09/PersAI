@@ -98,6 +98,15 @@ export interface AssistantRuntimeTurnRoutingSnapshot {
     confidence: "low" | "medium" | "high";
     reasonCode: string;
   };
+  autoSkillState?: {
+    status: "inactive" | "active";
+    activeSkillId: string | null;
+    activeSkillName: string | null;
+    topicSummary: string | null;
+    confidence: "low" | "medium" | "high";
+    checkedAtMessageIndex: number;
+    messageCountSinceCheck: number;
+  } | null;
 }
 
 export interface AssistantRuntimeWebChatTurnResult {
@@ -150,6 +159,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   activitySource?: "skill" | "user" | "product" | "web";
   activityPhase?: "start";
   activityResultCount?: number;
+  activitySkillName?: string | null;
   runtimeTrace?: {
     scope: string;
     status: string;

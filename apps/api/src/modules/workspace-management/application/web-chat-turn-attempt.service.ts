@@ -11,6 +11,7 @@ import type {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
+import type { AssistantChatAutoSkillRoutingState } from "../domain/assistant-chat.entity";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -35,6 +36,45 @@ export type WebChatTurnCurrentActivityState = AssistantWebChatTurnCurrentActivit
 export type WebTurnClaimResult = "claimed" | "duplicate_handled" | "duplicate_inflight";
 
 const TERMINAL_STATUSES = new Set<WebChatTurnAttemptStatus>(["completed", "failed", "interrupted"]);
+
+function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRoutingState | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  const status = row.status === "active" || row.status === "inactive" ? row.status : null;
+  const confidence =
+    row.confidence === "high" || row.confidence === "medium" || row.confidence === "low"
+      ? row.confidence
+      : null;
+  const checkedAtMessageIndex =
+    typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
+      ? row.checkedAtMessageIndex
+      : null;
+  const messageCountSinceCheck =
+    typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
+      ? row.messageCountSinceCheck
+      : null;
+  if (
+    status === null ||
+    confidence === null ||
+    checkedAtMessageIndex === null ||
+    messageCountSinceCheck === null
+  ) {
+    return null;
+  }
+  return {
+    status,
+    activeSkillId:
+      status === "active" && typeof row.activeSkillId === "string" ? row.activeSkillId : null,
+    activeSkillName:
+      status === "active" && typeof row.activeSkillName === "string" ? row.activeSkillName : null,
+    topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
+    confidence,
+    checkedAtMessageIndex,
+    messageCountSinceCheck
+  };
+}
 
 function toAttachmentState(input: {
   id: string;
@@ -484,6 +524,7 @@ export class WebChatTurnAttemptService {
               surfaceThreadKey: chat.surfaceThreadKey,
               title: chat.title,
               deepModeEnabled: chat.deepModeEnabled,
+              autoSkillRoutingState: parseAutoSkillRoutingState(chat.autoSkillRoutingState),
               archivedAt: chat.archivedAt?.toISOString() ?? null,
               lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
               createdAt: chat.createdAt.toISOString(),

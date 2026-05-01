@@ -123,6 +123,7 @@ import { ManageAssistantAvatarService } from "./application/manage-assistant-ava
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
 import { OrchestrateRuntimeRetrievalService } from "./application/orchestrate-runtime-retrieval.service";
+import { AutoSkillRoutingStateService } from "./application/auto-skill-routing-state.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
 import { CloseMostSimilarOpenLoopService } from "./application/close-most-similar-open-loop.service";
@@ -359,6 +360,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
     OrchestrateRuntimeRetrievalService,
+    AutoSkillRoutingStateService,
     WriteAssistantMemoryService,
     HydrateMemoryForTurnService,
     CloseMostSimilarOpenLoopService,

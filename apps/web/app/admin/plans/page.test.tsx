@@ -36,6 +36,9 @@ function createPlanState(): AdminPlanState {
       knowledgeStorageBytesLimit: 128 * 1024 * 1024,
       workspaceStorageBytesLimit: null
     },
+    skillPolicy: {
+      maxEnabledSkills: 2
+    },
     retrievalPolicy: {
       defaultMaxResults: 5,
       maxMaxResults: 8,
@@ -139,6 +142,9 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).videoGenerateModelKey).toBe("sora-2-pro");
     expect(draftToPayload(draft).videoGenerateFallbackModelKey).toBe("sora-2");
     expect(draftToPayload(draft).quotaLimits?.knowledgeStorageBytesLimit).toBe(128 * 1024 * 1024);
+    expect(draftToPayload({ ...draft, maxEnabledSkills: "0" }).skillPolicy?.maxEnabledSkills).toBe(
+      0
+    );
     expect(draftToPayload(draft).premiumModelKey).toBe("gpt-5.4");
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");

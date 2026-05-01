@@ -384,7 +384,7 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
   { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
-  { field: "maxEnabledSkills", label: "Max enabled Skills", min: 1, allowBlank: true },
+  { field: "maxEnabledSkills", label: "Max enabled Skills", min: 0, allowBlank: true },
   { field: "retrievalDefaultMaxResults", label: "Default results", min: 1 },
   { field: "retrievalHardMaxResults", label: "Hard max results", min: 1 },
   { field: "retrievalLexicalCandidateLimit", label: "Lexical candidate pool", min: 1 },
@@ -711,7 +711,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   });
   const maxEnabledSkills = parseStrictIntegerDraft(draft.maxEnabledSkills, {
     label: "Max enabled Skills",
-    min: 1,
+    min: 0,
     allowBlank: true
   });
   const sharedCompactionSummaryBudgetTokens = parseStrictIntegerDraft(

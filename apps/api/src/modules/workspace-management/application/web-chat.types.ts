@@ -9,6 +9,15 @@ export interface AssistantWebChatState {
   surfaceThreadKey: string;
   title: string | null;
   deepModeEnabled: boolean;
+  autoSkillRoutingState: {
+    status: "inactive" | "active";
+    activeSkillId: string | null;
+    activeSkillName: string | null;
+    topicSummary: string | null;
+    confidence: "low" | "medium" | "high";
+    checkedAtMessageIndex: number;
+    messageCountSinceCheck: number;
+  } | null;
   archivedAt: string | null;
   lastMessageAt: string | null;
   createdAt: string;

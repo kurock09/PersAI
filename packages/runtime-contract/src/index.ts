@@ -334,6 +334,30 @@ export interface RuntimeRetrievalPlan {
   reasonCode: string;
 }
 
+export type RuntimeAutoSkillRoutingConfidence = "low" | "medium" | "high";
+
+export interface RuntimeAutoSkillRoutingState {
+  status: "inactive" | "active";
+  activeSkillId: string | null;
+  activeSkillName: string | null;
+  topicSummary: string | null;
+  confidence: RuntimeAutoSkillRoutingConfidence;
+  checkedAtMessageIndex: number;
+  messageCountSinceCheck: number;
+}
+
+export interface RuntimeSkillRoutingRecentMessage {
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface RuntimeSkillRoutingContext {
+  state: RuntimeAutoSkillRoutingState | null;
+  currentUserMessageIndex: number;
+  recentMessages: RuntimeSkillRoutingRecentMessage[];
+  forceCheck?: boolean;
+}
+
 export type RuntimeRetrievedKnowledgeSourceLabel =
   | "skill_reference"
   | "user_document"
@@ -364,6 +388,7 @@ export interface RuntimeRetrievalActivityEvent {
   source: RuntimeRetrievalActivitySource;
   phase: "start";
   resultCount: number;
+  skillName?: string | null;
 }
 
 export interface RuntimeToolPolicy {
@@ -1520,6 +1545,7 @@ export interface RuntimeTurnRequest {
   modelRoleOverride?: PersaiRuntimeModelRole;
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
+  skillRoutingContext?: RuntimeSkillRoutingContext;
 }
 
 export interface RuntimeTurnRoutingSnapshot {
@@ -1527,6 +1553,7 @@ export interface RuntimeTurnRoutingSnapshot {
   executionMode: "normal" | "premium" | "reasoning";
   source: "precheck" | "llm" | "fallback";
   retrievalPlan?: RuntimeRetrievalPlan;
+  autoSkillState?: RuntimeAutoSkillRoutingState | null;
 }
 
 export interface RuntimeTurnToolInvocation {
@@ -1548,6 +1575,11 @@ export interface RuntimeTurnResult {
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   toolInvocations?: RuntimeTurnToolInvocation[];
+}
+
+export interface RuntimeSkillRoutingCheckResult {
+  requestId: string;
+  turnRouting: RuntimeTurnRoutingSnapshot | null;
 }
 
 export interface RuntimeTurnAutoCompactionState {

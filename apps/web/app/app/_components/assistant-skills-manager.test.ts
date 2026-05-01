@@ -95,6 +95,7 @@ describe("assistant Skills manager helpers", () => {
     const item = createItem({ skill: { ...createItem().skill, id: "skill-2" } });
 
     expect(isSkillSelectionOverLimit(["skill-1", "skill-2"], 1)).toBe(true);
+    expect(getSkillDisabledReason(item, [], 0)).toBe("skill_limit_reached");
     expect(getSkillDisabledReason(item, ["skill-1"], 1)).toBe("skill_limit_reached");
     expect(getSkillDisabledReason(createItem(), ["skill-1"], 1)).toBeNull();
   });

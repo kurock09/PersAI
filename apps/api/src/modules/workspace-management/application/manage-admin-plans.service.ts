@@ -124,6 +124,16 @@ function toNullablePositiveInt(value: unknown): number | null {
   return null;
 }
 
+function toNullableNonNegativeInt(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  return null;
+}
+
 function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     throw new BadRequestException(`${fieldName} must be an integer greater than 0.`);
@@ -213,7 +223,7 @@ function readEnabledSkillLimitFromLimitsPermissions(value: unknown): number | nu
       typed.key === "max_enabled_skills" ||
       typed.key === "skill_assignments_limit"
     ) {
-      const limit = toNullablePositiveInt(typed.value) ?? toNullablePositiveInt(typed.limit);
+      const limit = toNullableNonNegativeInt(typed.value) ?? toNullableNonNegativeInt(typed.limit);
       if (limit !== null) {
         return limit;
       }
@@ -587,7 +597,7 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
       },
       skillPolicy: {
-        maxEnabledSkills: toNullablePositiveInt(skillPolicyRaw.maxEnabledSkills)
+        maxEnabledSkills: toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills)
       },
       contextPolicy,
       retrievalPolicy,
@@ -925,7 +935,7 @@ export class ManageAdminPlansService {
       },
       skillPolicy: {
         maxEnabledSkills:
-          toNullablePositiveInt(skillPolicyRaw.maxEnabledSkills) ??
+          toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills) ??
           readEnabledSkillLimitFromLimitsPermissions(entitlement?.limitsPermissions)
       },
       contextPolicy,

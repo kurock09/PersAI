@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { BadGatewayException, BadRequestException, Injectable } from "@nestjs/common";
 import {
   hashAssistantRuntimeBundleDocument,
@@ -18,6 +19,7 @@ type NativeManagedProvider = "openai" | "anthropic";
 type ProviderSelection = { provider: NativeManagedProvider; model: string };
 
 const EVALUATION_MAX_OUTPUT_TOKENS = 700;
+const BACKGROUND_TASK_RUN_KEY_PREFIX = "background-task-tool-run";
 
 @Injectable()
 export class RuntimeBackgroundTaskEvaluationService {
@@ -58,7 +60,7 @@ export class RuntimeBackgroundTaskEvaluationService {
     bundle: AssistantRuntimeBundle
   ): RuntimeTurnRequest {
     const bundleHash = hashAssistantRuntimeBundleDocument(input.runtimeBundleDocument);
-    const scheduledKey = this.safeKey(input.task.scheduledRunAt);
+    const toolRunKey = this.buildBackgroundTaskRunKey(input);
     const prompt = [
       "You are running a PersAI background task outside the visible user chat.",
       "Use the available tools when needed to gather facts, search knowledge/chat/memory, browse the web, run generation tools, or create artifacts requested by the task.",
@@ -82,8 +84,8 @@ export class RuntimeBackgroundTaskEvaluationService {
     ].join("\n");
 
     return {
-      requestId: `background-task-tool-run:${input.task.id}:${scheduledKey}`,
-      idempotencyKey: `background-task-tool-run:${input.task.id}:${scheduledKey}`,
+      requestId: toolRunKey,
+      idempotencyKey: toolRunKey,
       runtimeTier: input.runtimeTier,
       bundle: {
         assistantId: input.assistantId,
@@ -185,7 +187,7 @@ export class RuntimeBackgroundTaskEvaluationService {
       },
       requestMetadata: {
         runtimeSessionId: null,
-        runtimeRequestId: `background-task:${input.task.id}:${input.task.scheduledRunAt}`,
+        runtimeRequestId: this.buildBackgroundTaskRunKey(input),
         toolLoopIteration: null,
         compactionToolCode: null,
         classification: "background_task_evaluation"
@@ -324,7 +326,18 @@ export class RuntimeBackgroundTaskEvaluationService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private safeKey(value: string): string {
-    return value.replace(/[^a-zA-Z0-9_.:-]/g, "_");
+  private buildBackgroundTaskRunKey(input: RuntimeBackgroundTaskEvaluationRequest): string {
+    const digest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          taskId: input.task.id,
+          scheduledRunAt: input.task.scheduledRunAt
+        })
+      )
+      .digest("hex")
+      .slice(0, 40);
+    return `${BACKGROUND_TASK_RUN_KEY_PREFIX}:${digest}`;
   }
 }

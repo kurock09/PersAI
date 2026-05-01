@@ -163,12 +163,15 @@ export function AssistantSkillsManager({
   const enabledCount = getEnabledSkillCount(selectedSkillIds);
   const limit = state?.limit ?? null;
   const overLimit = isSkillSelectionOverLimit(selectedSkillIds, limit);
+  const skillsUnavailableByPlan = limit === 0;
   const countLabel =
     limit === null
       ? t("compactCounterUnlimited", { count: enabledCount })
       : t("compactCounterLimited", { count: enabledCount, limit });
   const visibleSkills =
-    collapsible && !expanded ? sortedSkills.slice(0, initialVisibleCount) : sortedSkills;
+    collapsible && !expanded && !skillsUnavailableByPlan
+      ? sortedSkills.slice(0, initialVisibleCount)
+      : sortedSkills;
   const hiddenSkillCount = Math.max(0, sortedSkills.length - visibleSkills.length);
   const visibleGroups = useMemo(() => groupSkillCatalogItems(visibleSkills), [visibleSkills]);
 
@@ -199,6 +202,11 @@ export function AssistantSkillsManager({
             <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-muted">
               {mode === "setup" ? t("setupHelp") : t("settingsHelp")}
             </p>
+            {skillsUnavailableByPlan ? (
+              <p className="mt-2 max-w-xl rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-warning">
+                {t("planUnavailableHint")}
+              </p>
+            ) : null}
           </div>
           <div className="shrink-0 sm:text-right">
             <p
