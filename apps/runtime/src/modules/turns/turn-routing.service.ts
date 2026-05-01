@@ -395,6 +395,11 @@ export class TurnRoutingService {
       DEFAULT_TOOL_TERMS,
       input.policy.precheckRuleOverrides?.toolTerms
     );
+    const precheckSkillIds = this.resolveEnabledSkillSummaries(input.bundle)
+      .map((skill) => skill.id)
+      .slice(0, 3);
+    const shouldUseClassifierForSkillRouting = precheckSkillIds.length > 0;
+    const retrievalIntent = this.matchesAny(lowerText, retrievalTerms);
 
     if (this.isContinueTurn(lowerText, continueTerms)) {
       return this.createDecision({
@@ -412,7 +417,7 @@ export class TurnRoutingService {
       });
     }
 
-    if (this.matchesAny(lowerText, retrievalTerms)) {
+    if (retrievalIntent && !shouldUseClassifierForSkillRouting) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: true,
@@ -476,7 +481,9 @@ export class TurnRoutingService {
       availableHints,
       toolTerms
     });
-    if (hintedTool !== "none") {
+    const shouldDeferKnowledgeToolToClassifier =
+      hintedTool === "knowledge" && shouldUseClassifierForSkillRouting;
+    if (hintedTool !== "none" && !shouldDeferKnowledgeToolToClassifier) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: hintedTool === "knowledge",
@@ -498,7 +505,12 @@ export class TurnRoutingService {
       });
     }
 
-    if (normalizedText.length <= 140 && !normalizedText.includes("\n")) {
+    if (
+      normalizedText.length <= 140 &&
+      !normalizedText.includes("\n") &&
+      !(shouldUseClassifierForSkillRouting && retrievalIntent) &&
+      !shouldDeferKnowledgeToolToClassifier
+    ) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: false,
@@ -711,7 +723,10 @@ export class TurnRoutingService {
           `name=${skill.name}`,
           skill.description === null ? null : `description=${skill.description}`,
           `category=${skill.category}`,
-          tags.length === 0 ? null : `tags=${tags}`
+          tags.length === 0 ? null : `tags=${tags}`,
+          skill.routingExamples.length === 0
+            ? null
+            : `routingExamples=${skill.routingExamples.slice(0, 2).join(" | ")}`
         ]
           .filter((part): part is string => part !== null)
           .join("; ");
@@ -940,6 +955,7 @@ export class TurnRoutingService {
     description: string | null;
     category: string;
     tags: string[];
+    routingExamples: string[];
   }> {
     const skills =
       bundle.skills !== undefined &&
@@ -955,7 +971,8 @@ export class TurnRoutingService {
         name: this.asNonEmptyString(skill.name),
         description: this.asNonEmptyString(skill.description),
         category: this.asNonEmptyString(skill.category),
-        tags: this.asStringArray(skill.tags)
+        tags: this.asStringArray(skill.tags),
+        routingExamples: this.asStringArray(skill.routingExamples).slice(0, 2)
       }))
       .filter(
         (
@@ -966,6 +983,7 @@ export class TurnRoutingService {
           description: string | null;
           category: string;
           tags: string[];
+          routingExamples: string[];
         } => skill.id !== null && skill.name !== null && skill.category !== null
       );
   }

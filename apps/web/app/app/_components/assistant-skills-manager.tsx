@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -15,9 +15,18 @@ type AssistantSkillsManagerProps = {
   error?: string | null;
   mode?: "setup" | "settings";
   disabled?: boolean;
+  collapsible?: boolean;
+  initialVisibleCount?: number;
 };
 
 type SkillReadiness = "ready" | "processing" | "needs_review" | "failed" | "empty";
+
+const SKILL_GROUP_LABELS: Record<string, { en: string; ru: string }> = {
+  work: { en: "Work", ru: "Работа" },
+  engineering: { en: "Engineering", ru: "Профессии / Engineering" },
+  personal: { en: "Personal", ru: "Личное" },
+  education: { en: "Education", ru: "Образование" }
+};
 
 export function getEnabledSkillCount(skillIds: string[]): number {
   return new Set(skillIds).size;
@@ -39,6 +48,14 @@ export function resolveSkillDescription(
   locale: string
 ): string {
   return resolveLocalizedText(item.skill.description, locale, "");
+}
+
+export function resolveSkillGroupLabel(category: string, locale: string): string {
+  const group = SKILL_GROUP_LABELS[category.trim().toLowerCase()];
+  if (group === undefined) {
+    return category;
+  }
+  return resolveLocalizedText(group, locale, category);
 }
 
 export function summarizeSkillReadiness(item: AssistantSkillCatalogItemState): SkillReadiness {
@@ -100,10 +117,13 @@ export function AssistantSkillsManager({
   saving = false,
   error = null,
   mode = "settings",
-  disabled = false
+  disabled = false,
+  collapsible = false,
+  initialVisibleCount = 2
 }: AssistantSkillsManagerProps) {
   const t = useTranslations("skills");
   const locale = useLocale();
+  const [expanded, setExpanded] = useState(false);
   const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
   const sortedSkills = useMemo(() => {
     const skills = state?.skills ?? [];
@@ -126,6 +146,9 @@ export function AssistantSkillsManager({
     limit === null
       ? t("compactCounterUnlimited", { count: enabledCount })
       : t("compactCounterLimited", { count: enabledCount, limit });
+  const visibleSkills =
+    collapsible && !expanded ? sortedSkills.slice(0, initialVisibleCount) : sortedSkills;
+  const hiddenSkillCount = Math.max(0, sortedSkills.length - visibleSkills.length);
 
   if (loading) {
     return (
@@ -181,9 +204,9 @@ export function AssistantSkillsManager({
 
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
-      <div className="max-h-[8.75rem] overflow-y-auto pr-1">
+      <div className={collapsible ? "" : "max-h-[8.75rem] overflow-y-auto pr-1"}>
         <div className="grid gap-2 sm:grid-cols-2">
-          {sortedSkills.map((item) => {
+          {visibleSkills.map((item) => {
             const checked = selectedSkillIds.includes(item.skill.id);
             const disabledReason = getSkillDisabledReason(item, selectedSkillIds, limit);
             const cardDisabled = disabled || saving || (!checked && disabledReason !== null);
@@ -234,7 +257,7 @@ export function AssistantSkillsManager({
                       item.skill.category}
                   </p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-text-subtle">
-                    <span>{item.skill.category}</span>
+                    <span>{resolveSkillGroupLabel(item.skill.category, locale)}</span>
                     {item.skill.tags.slice(0, 2).map((tag) => (
                       <span key={tag} className="text-text-subtle/70">
                         {tag}
@@ -252,6 +275,24 @@ export function AssistantSkillsManager({
           })}
         </div>
       </div>
+
+      {collapsible && hiddenSkillCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="w-full rounded-xl border border-border/70 bg-surface/60 px-4 py-2 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
+        >
+          {t("showAll", { count: hiddenSkillCount })}
+        </button>
+      ) : collapsible && expanded && sortedSkills.length > initialVisibleCount ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="w-full rounded-xl border border-border/70 bg-surface/60 px-4 py-2 text-xs font-medium text-text-muted transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-text"
+        >
+          {t("showLess")}
+        </button>
+      ) : null}
     </div>
   );
 }

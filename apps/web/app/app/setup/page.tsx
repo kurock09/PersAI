@@ -533,6 +533,16 @@ export default function SetupWizardPage() {
   }, [persistDraftForPreview, resolveSetupToken, t]);
 
   useEffect(() => {
+    if (step !== 2) {
+      return;
+    }
+    if (skillsState !== null || skillsLoading) {
+      return;
+    }
+    void loadSkills();
+  }, [loadSkills, skillsLoading, skillsState, step]);
+
+  useEffect(() => {
     if (step !== 3) {
       autoPreviewStepRef.current = null;
       return;
@@ -540,8 +550,7 @@ export default function SetupWizardPage() {
     if (autoPreviewStepRef.current === step) return;
     autoPreviewStepRef.current = step;
     void loadRuntimePreview();
-    void loadSkills();
-  }, [loadRuntimePreview, loadSkills, step]);
+  }, [loadRuntimePreview, step]);
 
   const handleCreate = useCallback(async () => {
     setCreating(true);
@@ -1000,6 +1009,22 @@ export default function SetupWizardPage() {
                       </p>
                     </div>
                   </div>
+
+                  {skillsState !== null || skillsLoading || skillsError !== null ? (
+                    <div className="mt-6 rounded-[28px] border border-border bg-surface/70 p-4 text-left sm:p-5">
+                      <AssistantSkillsManager
+                        state={skillsState}
+                        selectedSkillIds={selectedSkillIds}
+                        onChange={setSelectedSkillIds}
+                        loading={skillsLoading}
+                        error={skillsError}
+                        mode="setup"
+                        disabled={creating}
+                        collapsible
+                        initialVisibleCount={2}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </StepContainer>
             )}
@@ -1052,26 +1077,6 @@ export default function SetupWizardPage() {
                     {t("identity", { gender: assistantGender })}
                   </p>
                 )}
-
-                {skillsState !== null || skillsLoading || skillsError !== null ? (
-                  <div className="mt-6 w-full max-w-3xl text-left">
-                    <div className="mb-3">
-                      <p className="text-sm font-semibold text-text">{t("skillsTitle")}</p>
-                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
-                        {t("skillsSubtitle")}
-                      </p>
-                    </div>
-                    <AssistantSkillsManager
-                      state={skillsState}
-                      selectedSkillIds={selectedSkillIds}
-                      onChange={setSelectedSkillIds}
-                      loading={skillsLoading}
-                      error={skillsError}
-                      mode="setup"
-                      disabled={creating}
-                    />
-                  </div>
-                ) : null}
 
                 <button
                   type="button"

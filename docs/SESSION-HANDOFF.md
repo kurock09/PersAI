@@ -1,5 +1,77 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (ADR-079 semantic Skill routing correction) — removed keyword-only Skill routing and used admin examples as routing hints (`apps/api`, `apps/runtime`, `packages/runtime-bundle`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated founder live dialog where an assistant with enabled `Диетолог` Skill answered:
+  - `Источник не найден...`
+  - then the UI showed `Поиск в знаниях завершён` after the answer had already started.
+- GKE/runtime logs showed the turn ran as:
+  - `main_turn` first
+  - then `tool_loop_followup`
+  - no `/api/v1/internal/runtime/knowledge/orchestrate` request for the suspected turn window
+- Root cause: router precheck for explicit knowledge/PDF prompts only set user/Product knowledge retrieval, not enabled Skill retrieval. The model then tried the old low-level `knowledge_search(source=document)` tool path during the loop, which does not represent Skill document retrieval and happens too late for the first answer.
+- Removed the keyword-only hotfix that expanded hard-coded retrieval terms and auto-selected all enabled Skills.
+- Preserved ADR-079's semantic router contract:
+  - deterministic precheck remains a coarse general routing layer only;
+  - if enabled Skills exist and a knowledge/tool intent would otherwise be handled by precheck, the runtime defers to the semantic classifier;
+  - the classifier chooses `selectedSkillIds` by meaning.
+- Added compact admin-authored Skill examples to the runtime bundle as `routingExamples`.
+- Included those examples in the router classifier's enabled Skill summary, without sending Skill documents or full instruction cards.
+- Added a regression proving a knowledge phrase with enabled Skills goes through classifier and that Skill examples are present as routing hints.
+
+### Verification
+
+- `ReadLints` on changed runtime/API/bundle files
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enabled-skills-prompt-materialization.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime-bundle run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Deploy the corrected API/runtime bundle path, retry the founder `Диетолог` prompt, and verify the first answer is preceded by Skill retrieval activity and uses the injected Skill document context when indexed chunks exist.
+
+---
+
+## 2026-05-01 (ADR-079 setup Skills placement and Skill groups UI) — moved setup Skill selection earlier and added admin group selector (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Moved setup/recreate Skill selection from final preview into the previous personalization step.
+- Reused the compact Professional Skills selector there with:
+  - selected Skills sorted first;
+  - two visible cards by default;
+  - an explicit expand/collapse control for the full list;
+  - no nested scroll area in setup.
+- Added localized group labels for user-facing Skill cards.
+- Changed Admin Skills create/edit from free-text `Category` to a `Group` select backed by the existing `Skill.category` field:
+  - `work` — Работа
+  - `engineering` — Профессии / Engineering
+  - `personal` — Личное
+  - `education` — Образование
+- Updated docs to state that `Skill.category` is currently the Skill group key and that assistant assignment uses active platform-catalog Skills.
+
+### Verification
+
+- `ReadLints` on changed web/message files
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts app/app/setup/page.test.tsx app/admin/skills/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run lint`
+
+### Next recommended step
+
+Visually validate setup/recreate and `/admin/skills`, then move to approved base Skill content population only after founder confirms the initial catalog list.
+
+---
+
 ## 2026-05-01 (ADR-079 Assistant Settings Skills polish) — collapsed duplicate cards into one compact premium selector (`apps/web`, `docs`; web checks green)
 
 ### What changed

@@ -55,7 +55,7 @@ Current active knowledge/retrieval persistence includes:
 
 - assistant-scoped uploaded knowledge sources plus indexed assistant chunk rows
 - workspace-scoped global knowledge sources plus indexed global chunk rows
-- first-class platform-catalog `Skill` / `SkillDocument` rows plus assistant-scoped `AssistantSkillAssignment` rows for ADR-079 professional Skills; `Skill.workspaceId` is creation/audit provenance, not selection visibility
+- first-class platform-catalog `Skill` / `SkillDocument` rows plus assistant-scoped `AssistantSkillAssignment` rows for ADR-079 professional Skills; `Skill.workspaceId` is creation/audit provenance, not selection visibility, and `Skill.category` currently stores the admin-selected Skill group key
 - `KnowledgeIndexingJob` rows for pending source processing, including `skill_document` sources
 - `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary
 - workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
@@ -65,7 +65,7 @@ ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_sou
 
 Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. The materializer reads `AssistantSkillAssignment` rows plus active platform-catalog `Skill` instruction cards, applies the effective enabled-Skills limit, and writes the resulting bounded `Enabled Skills` block into the materialized runtime bundle through Prompt Constructor. Disabled, archived, draft, plan-disabled, and over-limit Skills are omitted. Skill assignment changes and assigned Skill edits/archive mark affected assistant materialization dirty so the block is refreshed before runtime use.
 
-Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, and up to two tags) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
+Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, up to two tags, and up to two instruction-card examples as semantic routing hints) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
 
 Orchestrated retrieval context is transient runtime turn state. ADR-079 does not add a persisted retrieval-plan table: the API validates the per-turn plan, reads existing `SkillDocumentChunk`, assistant knowledge, memory/chat, and Product/preset/subscription sources, then returns a bounded source-aware context block to the runtime. Skill references are derived from ready `SkillDocument`/`SkillDocumentChunk` rows for currently active assistant Skill assignments. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks.
 

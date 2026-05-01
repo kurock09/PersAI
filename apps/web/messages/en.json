@@ -355,6 +355,8 @@
     "emptyBody": "When an admin publishes Skills, they will appear here for you to enable.",
     "compactCounterLimited": "{count} of {limit}",
     "compactCounterUnlimited": "{count} of ∞",
+    "showAll": "Show {count} more",
+    "showLess": "Show less",
     "counterLimited": "{count} of {limit} Skills enabled",
     "counterUnlimited": "{count} Skills enabled",
     "withinLimit": "Within plan",

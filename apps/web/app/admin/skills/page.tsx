@@ -58,6 +58,13 @@ type DocumentUploadDraft = {
   description: string;
 };
 
+const SKILL_GROUP_OPTIONS = [
+  { value: "work", label: "Работа" },
+  { value: "engineering", label: "Профессии / Engineering" },
+  { value: "personal", label: "Личное" },
+  { value: "education", label: "Образование" }
+] as const;
+
 const EMPTY_SKILL_DRAFT: SkillDraft = {
   id: null,
   status: "draft",
@@ -65,7 +72,7 @@ const EMPTY_SKILL_DRAFT: SkillDraft = {
   nameRu: "",
   descriptionEn: "",
   descriptionRu: "",
-  category: "",
+  category: "work",
   tagsText: "",
   instructionTitle: "Professional guidance",
   instructionBody:
@@ -631,15 +638,20 @@ export default function AdminSkillsPage() {
                   placeholder="Помощь с бухгалтерией и налогами"
                 />
               </Field>
-              <Field label="Category" error={validationErrors.category}>
-                <input
+              <Field label="Group" error={validationErrors.category}>
+                <select
                   value={draft.category}
                   onChange={(event) =>
                     setDraft((prev) => ({ ...prev, category: event.target.value }))
                   }
                   className={FIELD_CLASS}
-                  placeholder="finance"
-                />
+                >
+                  {SKILL_GROUP_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Tags">
                 <input

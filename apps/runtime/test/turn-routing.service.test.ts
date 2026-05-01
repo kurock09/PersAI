@@ -217,14 +217,16 @@ function createBundle(routerPolicyOverride?: {
           name: "Accountant",
           description: "Accounting and tax support",
           category: "finance",
-          tags: ["tax", "books"]
+          tags: ["tax", "books"],
+          routingExamples: ["Explain quarterly tax categories", "Compare bookkeeping options"]
         },
         {
           id: "skill-legal",
           name: "Lawyer",
           description: "Legal drafting support",
           category: "law",
-          tags: ["contracts", "risk"]
+          tags: ["contracts", "risk"],
+          routingExamples: ["Draft a contract clause", "Review legal risk"]
         }
       ]
     }
@@ -322,6 +324,27 @@ async function run(): Promise<void> {
   assert.equal(premiumDecision.reasonCode, "premium_writing");
   assert.equal(providerGatewayClient.calls.length, 0);
 
+  const skillRetrievalTermDecision = await service.decide({
+    bundle: createBundle(),
+    request: createRequest("найди в документах правила по квартальным налоговым категориям"),
+    projectedTools
+  });
+  assert.equal(skillRetrievalTermDecision.source, "classifier");
+  assert.deepEqual(skillRetrievalTermDecision.retrievalPlan, {
+    useSkills: true,
+    selectedSkillIds: ["skill-accounting"],
+    useUserKnowledge: true,
+    useProductKnowledge: false,
+    useWeb: false,
+    confidence: "high",
+    reasonCode: "classifier_skill_plan"
+  });
+  assert.equal(providerGatewayClient.calls.length, 1);
+  assert.match(
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    /routingExamples=explain quarterly tax categories/
+  );
+
   const ambiguousDecision = await service.decide({
     bundle: createBundle(),
     request: createRequest(
@@ -340,23 +363,23 @@ async function run(): Promise<void> {
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
-  assert.equal(providerGatewayClient.calls.length, 1);
-  assert.equal(providerGatewayClient.calls[0]?.requestMetadata?.classification, "turn_routing");
-  assert.equal(providerGatewayClient.calls[0]?.outputSchema?.name, "turn_route_decision");
+  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls[1]?.requestMetadata?.classification, "turn_routing");
+  assert.equal(providerGatewayClient.calls[1]?.outputSchema?.name, "turn_route_decision");
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
     /Recent conversation tail/
   );
   assert.match(
-    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
     /Current user message:/
   );
   assert.match(
-    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
     /Enabled Skills summary: id=skill-accounting/
   );
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[1]?.messages[0]?.content ?? ""),
     /Use accounting knowledge carefully/
   );
 }

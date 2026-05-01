@@ -37,7 +37,7 @@ function createSkill(): AdminSkillState {
     status: "active",
     name: { en: "Accountant", ru: "Бухгалтер" },
     description: { en: "Accounting support" },
-    category: "finance",
+    category: "work",
     tags: ["tax", "books"],
     instructionCard: {
       title: "Accounting mode",
@@ -65,7 +65,7 @@ describe("admin skills page helpers", () => {
     expect(draftToSkillPayload(draft)).toMatchObject({
       name: { en: "Accountant", ru: "Бухгалтер" },
       description: { en: "Accounting support" },
-      category: "finance",
+      category: "work",
       tags: ["tax", "books"],
       instructionCard: {
         title: "Accounting mode",
@@ -81,9 +81,9 @@ describe("admin skills page helpers", () => {
     const draft = skillToDraft(null);
     expect(validateSkillDraft(draft)).toMatchObject({
       name: expect.stringContaining("name"),
-      description: expect.stringContaining("description"),
-      category: expect.stringContaining("required")
+      description: expect.stringContaining("description")
     });
+    expect(draft.category).toBe("work");
 
     const tooLong = {
       ...draft,

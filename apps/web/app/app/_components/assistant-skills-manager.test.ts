@@ -6,6 +6,7 @@ import {
   isSkillSelectionOverLimit,
   resolveSkillDescription,
   resolveSkillDisplayName,
+  resolveSkillGroupLabel,
   summarizeSkillReadiness,
   toggleSkillSelection
 } from "./assistant-skills-manager";
@@ -49,6 +50,8 @@ describe("assistant Skills manager helpers", () => {
 
     expect(resolveSkillDisplayName(item, "ru-RU")).toBe("Юридический");
     expect(resolveSkillDescription(item, "en-US")).toBe("Legal support");
+    expect(resolveSkillGroupLabel("engineering", "ru-RU")).toBe("Профессии / Engineering");
+    expect(resolveSkillGroupLabel("legal", "en-US")).toBe("legal");
   });
 
   it("counts and toggles selections without duplicates", () => {

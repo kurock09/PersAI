@@ -702,7 +702,8 @@ export class MaterializeAssistantPublishedVersionService {
           name: card.name,
           description: card.description,
           category: card.category,
-          tags: card.tags.slice(0, 2)
+          tags: card.tags.slice(0, 2),
+          routingExamples: card.examples.slice(0, 2)
         }))
       },
       promptDocuments: {

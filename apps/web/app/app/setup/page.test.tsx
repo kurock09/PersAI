@@ -441,11 +441,11 @@ describe("SetupWizardPage", () => {
   it("loads runtime preview from persisted draft and publishes with uploaded avatar", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-avatar")
       .mockResolvedValueOnce("token-final-patch")
       .mockResolvedValueOnce("token-skills")
@@ -468,6 +468,7 @@ describe("SetupWizardPage", () => {
     });
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    fireEvent.click(await screen.findByText("Legal drafting"));
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -503,7 +504,6 @@ describe("SetupWizardPage", () => {
     );
     expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledWith(expect.any(String));
 
-    fireEvent.click(await screen.findByText("Legal drafting"));
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
@@ -540,11 +540,11 @@ describe("SetupWizardPage", () => {
   it("publishes from the persisted preview draft without repeating setup writes", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
 
@@ -596,10 +596,10 @@ describe("SetupWizardPage", () => {
   it("recovers an existing draft explicitly without retrying assistant creation", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeRecoverableAssistantState());
@@ -638,10 +638,10 @@ describe("SetupWizardPage", () => {
   it("uses an explicit recreate path after reset without relying on a 409 fallback", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
+      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());

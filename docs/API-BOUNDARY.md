@@ -111,7 +111,8 @@ Current admin Skill routes are served by `apps/api`:
 
 Active boundary rules:
 
-- Skills are workspace-scoped admin-managed capabilities, not admin global knowledge `scope=skill`
+- Skills are an admin-managed platform catalog, not admin global knowledge `scope=skill`; `Skill.workspaceId` is creation/audit provenance
+- `Skill.category` is the current group key shown in admin/user UI (`work`, `engineering`, `personal`, `education`)
 - delete archives a Skill and disables active assignments rather than hard-deleting the product concept
 - Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
 - `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
@@ -126,7 +127,7 @@ Current assistant Skill routes are served by `apps/api`:
 Active boundary rules:
 
 - only the user can replace enabled Skill assignments for their assistant
-- assignment accepts active Skills in the assistant workspace only
+- assignment accepts active platform-catalog Skills only
 - configured plan limits cap enabled Skill count
 - the web setup/recreate flow and `Assistant Settings -> Skills` are the current user-facing clients for these routes
 - enabling Skills now changes prompt materialization through the Prompt Constructor-managed `Enabled Skills` block and contributes compact summaries to the runtime router's `retrievalPlan`; orchestrated retrieval/context injection and calm source-aware activity are active on the runtime web path

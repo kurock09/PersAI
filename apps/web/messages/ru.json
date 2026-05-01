@@ -355,6 +355,8 @@
     "emptyBody": "Когда админ опубликует Skills, они появятся здесь и их можно будет включить.",
     "compactCounterLimited": "{count} из {limit}",
     "compactCounterUnlimited": "{count} из ∞",
+    "showAll": "Показать ещё {count}",
+    "showLess": "Скрыть",
     "counterLimited": "Включено {count} из {limit} навыков",
     "counterUnlimited": "Включено навыков: {count}",
     "withinLimit": "В рамках тарифа",
