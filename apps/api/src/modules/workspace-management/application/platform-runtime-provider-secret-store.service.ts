@@ -7,6 +7,10 @@ import {
   type PlatformRuntimeProviderKeyMetadata
 } from "./platform-runtime-provider-settings";
 import { TOOL_CREDENTIAL_IDS } from "./tool-credential-settings";
+import {
+  DOCUMENT_PROCESSING_PROVIDER_SECRET_IDS,
+  DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS
+} from "./document-processing-settings";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const AES_ALGORITHM = "aes-256-gcm";
@@ -18,6 +22,12 @@ for (const [provider, secretId] of Object.entries(PERSAI_RUNTIME_PROVIDER_SECRET
 }
 for (const [credentialKey, secretId] of Object.entries(TOOL_CREDENTIAL_IDS)) {
   PROVIDER_KEY_BY_SECRET_ID[secretId] = credentialKey;
+}
+for (const [providerKey, secretId] of Object.entries(DOCUMENT_PROCESSING_PROVIDER_SECRET_IDS)) {
+  PROVIDER_KEY_BY_SECRET_ID[secretId] =
+    DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS[
+      providerKey as keyof typeof DOCUMENT_PROCESSING_PROVIDER_SECRET_KEYS
+    ];
 }
 
 @Injectable()

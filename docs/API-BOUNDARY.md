@@ -16,6 +16,8 @@ Primary public API surface:
 - admin routes under `/api/v1/admin/*`
 - Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
+- admin Skill routes under `/api/v1/admin/skills*`
+- admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin runtime-provider settings expose both the legacy chat-model alias `availableModelsByProvider` and the capability-aware `availableModelCatalogByProvider` (`chat`, `image`, `video` per provider). Plan admin payloads may select `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`; media model keys are validated against the runtime-provider catalog during plan writes and materialized into runtime tool credential refs with optional fallback chains.
 - single-batch web bootstrap: `GET /api/v1/app/bootstrap` — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
 - Telegram webhook under `/telegram-webhook/*`
@@ -56,6 +58,7 @@ Primary public API surface:
 ### Assistant knowledge
 
 - assistant-owned uploaded knowledge stays under `/api/v1/assistant/knowledge-sources/*`
+- upload/reindex returns quickly with `processing` status by creating a DB-backed indexing job; the API indexing worker owns extraction/chunking/embedding/vector writes and terminal `ready` / `failed` / `needs_review` state
 - request-time `knowledge_search` / `knowledge_fetch` execute through the native runtime knowledge contract
 - current active runtime contract publishes `ragMode: "hybrid"` with bounded reference-first fetch semantics
 
@@ -63,18 +66,70 @@ Primary public API surface:
 
 Current admin knowledge routes are served by `apps/api`:
 
-- `GET /api/v1/admin/knowledge-sources?scope=product|skill`
+- `GET /api/v1/admin/knowledge-sources?scope=product`
 - `GET /api/v1/admin/knowledge-sources/observability`
-- `GET /api/v1/admin/knowledge-sources/connectors?scope=product|skill`
+- `GET /api/v1/admin/knowledge-sources/connectors?scope=product`
 - `POST /api/v1/admin/knowledge-sources/:scope`
 - `DELETE /api/v1/admin/knowledge-sources/:sourceId`
 - `POST /api/v1/admin/knowledge-sources/:sourceId/reindex`
+- `GET /api/v1/admin/knowledge-indexing/jobs`
+- `GET /api/v1/assistant/knowledge-indexing/jobs`
 
 Active boundary rules:
 
 - admin global-knowledge writes are workspace-scoped and require explicit admin authorization
 - workspace knowledge-storage quota is enforced for admin global-knowledge uploads/deletes
+- upload/reindex creates DB-backed indexing jobs for Product sources; processing is source-agnostic and shares the ADR-079 worker path with assistant knowledge and Skill documents
 - retrieval observability is a durable API surface, not a process-local debug cache
+
+### Admin document processing
+
+Current admin document-processing settings routes are served by `apps/api`:
+
+- `GET /api/v1/admin/tools/document-processing`
+- `PUT /api/v1/admin/tools/document-processing`
+- `POST /api/v1/admin/tools/document-processing/test-connection`
+
+Active boundary rules:
+
+- admins configure provider policy under `/admin/tools`, not per upload
+- Mistral OCR and LlamaParse keys use PersAI-managed encrypted provider-secret storage
+- test connection currently verifies local parser availability or remote key decryptability; live OCR/provider pings belong with provider adapter execution
+
+### Admin Skills
+
+Current admin Skill routes are served by `apps/api`:
+
+- `GET /api/v1/admin/skills`
+- `POST /api/v1/admin/skills`
+- `GET /api/v1/admin/skills/:skillId`
+- `PATCH /api/v1/admin/skills/:skillId`
+- `DELETE /api/v1/admin/skills/:skillId`
+- `POST /api/v1/admin/skills/:skillId/documents`
+- `DELETE /api/v1/admin/skills/:skillId/documents/:documentId`
+- `POST /api/v1/admin/skills/:skillId/documents/:documentId/reindex`
+
+Active boundary rules:
+
+- Skills are workspace-scoped admin-managed capabilities, not admin global knowledge `scope=skill`
+- delete archives a Skill and disables active assignments rather than hard-deleting the product concept
+- Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
+- `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
+
+### Assistant Skills
+
+Current assistant Skill routes are served by `apps/api`:
+
+- `GET /api/v1/assistant/skills`
+- `PUT /api/v1/assistant/skills`
+
+Active boundary rules:
+
+- only the user can replace enabled Skill assignments for their assistant
+- assignment accepts active Skills in the assistant workspace only
+- configured plan limits cap enabled Skill count
+- the web setup/recreate flow and `Assistant Settings -> Skills` are the current user-facing clients for these routes
+- enabling Skills now changes prompt materialization through the Prompt Constructor-managed `Enabled Skills` block and contributes compact summaries to the runtime router's `retrievalPlan`; orchestrated retrieval/context injection and calm source-aware activity are active on the runtime web path
 
 ### Internal runtime
 
@@ -86,6 +141,10 @@ Current active internal service endpoints are served by `apps/runtime`:
 - `POST /api/v1/turns/stream`
 
 These are internal runtime-service boundaries, not a public legacy gateway surface.
+
+Runtime turn results may include compact `turnRouting.retrievalPlan` diagnostics. On the active runtime path, the router plan feeds the internal API retrieval boundary when Skill, user, Product, or web grounding is requested.
+
+ADR-079 Steps 11-12 add an internal runtime-to-API retrieval execution boundary: `POST /api/v1/internal/runtime/knowledge/orchestrate`. The runtime sends the current query and validated router plan, and the API returns a bounded source-aware `Retrieved Knowledge Context` block for executable Skill/user/Product sources. The API owns source policy, Skill assignment revalidation, ready-document enforcement, context shaping, and durable source-level retrieval observability. Web grounding is not fabricated by orchestration; `useWeb` is recorded honestly when not executed and real web work remains on the `web_search` / `web_fetch` tool path. Runtime web streams may emit compact retrieval activity events for source classes that actually contributed context; users do not see the internal plan. This endpoint is internal only and does not expose old admin `scope=skill` or a public `skill` knowledge-search source.
 
 ### Internal runtime → API back-channel
 

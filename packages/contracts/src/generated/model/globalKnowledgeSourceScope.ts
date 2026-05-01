@@ -10,6 +10,5 @@ export type GlobalKnowledgeSourceScope =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const GlobalKnowledgeSourceScope = {
-  product: "product",
-  skill: "skill"
+  product: "product"
 } as const;

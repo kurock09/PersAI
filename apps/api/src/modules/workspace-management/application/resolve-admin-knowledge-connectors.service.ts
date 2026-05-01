@@ -34,7 +34,7 @@ export class ResolveAdminKnowledgeConnectorsService {
         scope: params.scope,
         notes: [
           "OAuth and background sync scheduler are intentionally deferred in this slice.",
-          "Recommended for product docs, shared folders, and team-managed skill packs."
+          "Recommended for product docs and shared folders. Skill documents are managed through /admin/skills."
         ]
       }),
       this.buildConnector({
@@ -64,7 +64,7 @@ export class ResolveAdminKnowledgeConnectorsService {
     scope: GlobalKnowledgeSourceScope;
     notes: string[];
   }): AdminKnowledgeConnectorState {
-    const scopeLabel = params.scope === "product" ? "Product KB" : "Skill library";
+    const scopeLabel = "Product KB";
     return {
       kind: params.kind,
       label: params.label,
@@ -74,7 +74,7 @@ export class ResolveAdminKnowledgeConnectorsService {
       syncMode: "pull_snapshot_then_index",
       storageTarget: "persai_owned_object_storage",
       indexingTarget: "knowledge_indexing_service",
-      supportsScopes: ["product", "skill"],
+      supportsScopes: ["product"],
       pipeline: [
         `Admin binds a ${params.label} folder or file selection to ${scopeLabel}.`,
         "Connector downloads the remote snapshot into PersAI-owned object storage.",

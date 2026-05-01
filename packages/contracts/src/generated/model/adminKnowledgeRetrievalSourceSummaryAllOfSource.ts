@@ -12,8 +12,11 @@ export type AdminKnowledgeRetrievalSourceSummaryAllOfSource =
 export const AdminKnowledgeRetrievalSourceSummaryAllOfSource = {
   document: "document",
   global: "global",
+  product: "product",
+  skill: "skill",
   memory: "memory",
   chat: "chat",
   preset: "preset",
-  subscription: "subscription"
+  subscription: "subscription",
+  web: "web"
 } as const;

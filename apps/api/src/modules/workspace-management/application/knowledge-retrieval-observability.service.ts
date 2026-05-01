@@ -10,10 +10,13 @@ const MAX_RECENT_EVENTS = 40;
 export type KnowledgeRetrievalTrackedSource =
   | "document"
   | "global"
+  | "product"
+  | "skill"
   | "memory"
   | "chat"
   | "preset"
-  | "subscription";
+  | "subscription"
+  | "web";
 export type KnowledgeRetrievalMode = "lexical" | "hybrid";
 export type KnowledgeRetrievalOutcome = "success" | "empty" | "error";
 export type KnowledgeRetrievalEventKind = "search" | "fetch";

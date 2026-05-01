@@ -121,6 +121,15 @@ type RuntimeTransportMeta = {
     mode: "shadow" | "active";
     executionMode: "normal" | "premium" | "reasoning";
     source: "precheck" | "llm" | "fallback";
+    retrievalPlan?: {
+      useSkills: boolean;
+      selectedSkillIds: string[];
+      useUserKnowledge: boolean;
+      useProductKnowledge: boolean;
+      useWeb: boolean;
+      confidence: "low" | "medium" | "high";
+      reasonCode: string;
+    };
   } | null;
 };
 export interface ChatSendOptions {
@@ -129,7 +138,7 @@ export interface ChatSendOptions {
   clientTurnId?: string | undefined;
   clientAttachmentIds?: string[] | undefined;
 }
-type LiveActivitySource = "tool" | "compaction" | "runtime";
+type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval";
 type LiveActivityEvent = ActivityEvent & { source: LiveActivitySource };
 type ActiveTurnSnapshot = {
   clientTurnId: string;
@@ -323,6 +332,26 @@ function buildCompactionLiveActivity(params: {
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
     source: "compaction"
+  };
+}
+function buildRetrievalLiveActivity(params: {
+  assistantMessageId: string;
+  source: "skill" | "user" | "product" | "web";
+  resultCount: number;
+}): LiveActivityEvent {
+  const labelBySource = {
+    skill: "retrieval_skill_started",
+    user: "retrieval_user_started",
+    product: "retrieval_product_started",
+    web: "retrieval_web_started"
+  } satisfies Record<"skill" | "user" | "product" | "web", string>;
+  return {
+    id: `activity-live-retrieval-${Date.now()}-${params.source}`,
+    type: "info",
+    label: labelBySource[params.source],
+    afterMessageId: params.assistantMessageId,
+    emphasis: params.resultCount > 0 ? "strong" : "default",
+    source: "retrieval"
   };
 }
 function buildRuntimeLiveActivity(params: {
@@ -1184,7 +1213,7 @@ export function useChat(threadKey: string): UseChatReturn {
       targetChatId: string,
       options?: { baselineCompaction?: ChatCompactionState | null | undefined }
     ) => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return;
       try {
         const next = await getChatCompactionState(token, targetChatId);
@@ -1212,7 +1241,7 @@ export function useChat(threadKey: string): UseChatReturn {
       targetChatId: string,
       options?: { clearIssueOnReconcile?: boolean; targetThreadKey?: string | undefined }
     ): Promise<boolean> => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return false;
       const targetThreadKey = options?.targetThreadKey ?? currentThreadKeyRef.current;
       let reconciledOptimisticTurn = false;
@@ -1622,7 +1651,7 @@ export function useChat(threadKey: string): UseChatReturn {
       targetThreadKey: string,
       clientTurnId: string
     ): Promise<"running" | "terminal" | "unknown"> => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return "unknown";
       try {
         const status = await getAssistantWebChatTurnStatus(token, clientTurnId);
@@ -1638,7 +1667,7 @@ export function useChat(threadKey: string): UseChatReturn {
       targetThreadKey: string,
       clientTurnId: string
     ): Promise<"running" | "terminal" | "unknown"> => {
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (!token) return "unknown";
       const controller = new AbortController();
       let latestResult: "running" | "terminal" | "unknown" = "unknown";
@@ -1693,6 +1722,22 @@ export function useChat(threadKey: string): UseChatReturn {
                   toolName,
                   phase,
                   isError
+                })
+              }));
+            },
+            onActivity: ({ source, resultCount }) => {
+              const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+              const assistantMessageId =
+                snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
+              if (assistantMessageId === null) {
+                return;
+              }
+              applyThreadLiveActivities(targetThreadKey, (prev) => ({
+                ...prev,
+                [assistantMessageId]: buildRetrievalLiveActivity({
+                  assistantMessageId,
+                  source,
+                  resultCount
                 })
               }));
             },
@@ -2012,7 +2057,7 @@ export function useChat(threadKey: string): UseChatReturn {
         sendInPreflightByThreadRef.current.delete(sendThreadKey);
       };
       const compactionBeforeTurn = compaction;
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (token === null) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
         releasePreflight();
@@ -2396,6 +2441,17 @@ export function useChat(threadKey: string): UseChatReturn {
                   toolName,
                   phase,
                   isError
+                })
+              }));
+            },
+            onActivity: ({ source, resultCount }) => {
+              flushBufferedAssistantState(true);
+              applyThreadLiveActivities(sendThreadKey, (prev) => ({
+                ...prev,
+                [assistantMsgId]: buildRetrievalLiveActivity({
+                  assistantMessageId: assistantMsgId,
+                  source,
+                  resultCount
                 })
               }));
             },
@@ -2818,7 +2874,7 @@ export function useChat(threadKey: string): UseChatReturn {
       const releasePreflight = () => {
         sendInPreflightByThreadRef.current.delete(sendThreadKey);
       };
-      const token = await getToken();
+      const token = await getToken({ skipCache: true });
       if (token === null) {
         setIssue(toWebChatUxIssue(t("sessionExpired")));
         releasePreflight();
@@ -3118,7 +3174,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const retryPendingSend = useCallback(async () => {
     const pending = pendingSendRef.current;
     if (pending === null) return;
-    const token = await getToken();
+    const token = await getToken({ skipCache: true });
     if (token === null) {
       setIssue(toWebChatUxIssue(t("sessionExpired")));
       return;

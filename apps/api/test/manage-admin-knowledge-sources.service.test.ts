@@ -6,15 +6,18 @@ type SourceRow = {
   id: string;
   workspaceId: string;
   createdByUserId: string;
-  scope: "product" | "skill";
+  scope: "product";
   displayName: string | null;
   originalFilename: string;
   mimeType: string;
   sizeBytes: bigint;
   storagePath: string;
-  status: "processing" | "ready" | "failed";
+  status: "processing" | "ready" | "failed" | "needs_review";
   currentVersion: number;
   chunkCount: number;
+  processorProviderKey: string | null;
+  processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality: Record<string, unknown> | null;
   lastIndexedAt: Date | null;
   lastReindexRequestedAt: Date | null;
   lastErrorCode: string | null;
@@ -27,6 +30,7 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
   const sources = new Map<string, SourceRow>();
   const deletedObjectKeys: string[] = [];
   const releasedBytes: bigint[] = [];
+  const jobs: Array<{ sourceType: string; sourceId: string; sourceVersion: number }> = [];
   let nextId = 1;
 
   const prisma = {
@@ -52,8 +56,11 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
         const row: SourceRow = {
           id: `global-source-${nextId++}`,
           ...data,
-          currentVersion: 0,
+          currentVersion: data.currentVersion ?? 1,
           chunkCount: 0,
+          processorProviderKey: null,
+          processorMode: null,
+          processingQuality: null,
           lastIndexedAt: null,
           lastReindexRequestedAt: null,
           lastErrorCode: null,
@@ -117,6 +124,13 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
         };
         globalKnowledgeSource: {
           update: (args: { where: { id: string }; data: Partial<SourceRow> }) => Promise<SourceRow>;
+          delete: (args: { where: { id: string } }) => Promise<SourceRow>;
+        };
+        knowledgeVectorChunk: {
+          deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
+        };
+        knowledgeIndexingJob: {
+          deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
         };
       }) => Promise<void>
     ) =>
@@ -126,7 +140,14 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
           createMany: async () => undefined
         },
         globalKnowledgeSource: {
-          update: async ({ where, data }) => prisma.globalKnowledgeSource.update({ where, data })
+          update: async ({ where, data }) => prisma.globalKnowledgeSource.update({ where, data }),
+          delete: async ({ where }) => prisma.globalKnowledgeSource.delete({ where })
+        },
+        knowledgeVectorChunk: {
+          deleteMany: async () => undefined
+        },
+        knowledgeIndexingJob: {
+          deleteMany: async () => undefined
         }
       })
   };
@@ -170,16 +191,13 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
       }
     } as never,
     {
-      buildIndexedChunks: async () => [
-        {
-          chunkIndex: 0,
-          locator: "p1",
-          content: "PersAI global knowledge chunk",
-          embeddingModelKey: null,
-          embeddingVector: null,
-          embeddingGeneratedAt: null
-        }
-      ]
+      enqueueSourceJob: async (input: {
+        sourceType: string;
+        sourceId: string;
+        sourceVersion: number;
+      }) => {
+        jobs.push(input);
+      }
     } as never,
     {
       checkWorkspaceKnowledgeStorageQuota: async () => ({
@@ -238,7 +256,8 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
     service,
     sources,
     deletedObjectKeys,
-    releasedBytes
+    releasedBytes,
+    jobs
   };
 }
 
@@ -255,8 +274,16 @@ async function runUploadAndDeleteHappyPath(): Promise<void> {
     }
   });
 
-  assert.equal(uploaded.status, "ready");
+  assert.equal(uploaded.status, "processing");
   assert.equal(harness.sources.size, 1);
+  assert.deepEqual(harness.jobs[0], {
+    workspaceId: "ws-1",
+    requestedByUserId: "admin-1",
+    sourceType: "global_knowledge_source",
+    sourceId: uploaded.id,
+    sourceVersion: 1,
+    processorMode: "auto"
+  });
 
   await harness.service.delete("admin-1", uploaded.id);
   assert.equal(harness.sources.size, 0);
@@ -285,12 +312,12 @@ async function runQuotaFailures(): Promise<void> {
     () =>
       cappedHarness.service.upload({
         userId: "admin-1",
-        scope: "skill",
-        displayName: "Skill KB",
+        scope: "product",
+        displayName: "Product KB",
         file: {
-          buffer: Buffer.from("skill"),
+          buffer: Buffer.from("product"),
           mimetype: "text/plain",
-          originalname: "skill.txt"
+          originalname: "product.txt"
         }
       }),
     ConflictException

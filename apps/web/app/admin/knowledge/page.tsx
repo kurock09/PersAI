@@ -40,15 +40,9 @@ function formatWhen(value: string | null): string {
   });
 }
 
-const SCOPE_OPTIONS = [
-  { value: "product", label: "Product KB" },
-  { value: "skill", label: "Skill library" }
-] as const;
-
 export default function AdminKnowledgePage() {
   const { getToken } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [scope, setScope] = useState<"product" | "skill">("product");
   const [sources, setSources] = useState<AdminKnowledgeSourceState[]>([]);
   const [observability, setObservability] = useState<AdminKnowledgeObservabilityState | null>(null);
   const [connectors, setConnectors] = useState<AdminKnowledgeConnectorState[]>([]);
@@ -60,6 +54,7 @@ export default function AdminKnowledgePage() {
   const load = useCallback(async () => {
     const token = await getToken();
     if (!token) {
+      setFeedback("Session expired. Please sign in again.");
       setLoading(false);
       return;
     }
@@ -67,9 +62,9 @@ export default function AdminKnowledgePage() {
     setFeedback(null);
     try {
       const [nextSources, nextObservability, nextConnectors] = await Promise.all([
-        getAdminKnowledgeSources(token, scope),
+        getAdminKnowledgeSources(token, "product"),
         getAdminKnowledgeObservability(token),
-        getAdminKnowledgeConnectors(token, scope)
+        getAdminKnowledgeConnectors(token, "product")
       ]);
       setSources(nextSources);
       setObservability(nextObservability);
@@ -78,7 +73,7 @@ export default function AdminKnowledgePage() {
       setFeedback(error instanceof Error ? error.message : "Failed to load knowledge sources.");
     }
     setLoading(false);
-  }, [getToken, scope]);
+  }, [getToken]);
 
   useEffect(() => {
     void load();
@@ -110,7 +105,7 @@ export default function AdminKnowledgePage() {
       setFeedback(null);
       try {
         for (const file of selected) {
-          await uploadAdminKnowledgeSource(token, scope, file);
+          await uploadAdminKnowledgeSource(token, "product", file);
         }
         await load();
       } catch (error) {
@@ -118,7 +113,7 @@ export default function AdminKnowledgePage() {
       }
       setUploading(false);
     },
-    [getToken, load, scope]
+    [getToken, load]
   );
 
   const handleDelete = useCallback(
@@ -167,7 +162,7 @@ export default function AdminKnowledgePage() {
           <div>
             <h1 className="text-sm font-bold tracking-tight text-text">Knowledge</h1>
             <p className="text-xs text-text-muted">
-              Admin-owned PersAI knowledge libraries for product docs and reusable skill entities.
+              Admin-owned PersAI Product KB, connectors, and retrieval observability.
             </p>
           </div>
         </div>
@@ -182,7 +177,7 @@ export default function AdminKnowledgePage() {
           ) : (
             <Upload className="h-3.5 w-3.5" />
           )}
-          Upload to {scope === "product" ? "Product KB" : "Skill library"}
+          Upload to Product KB
         </button>
         <input
           ref={fileInputRef}
@@ -197,20 +192,10 @@ export default function AdminKnowledgePage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-surface p-3 text-xs text-text-muted">
-        {SCOPE_OPTIONS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => setScope(option.value)}
-            className={`rounded-lg px-3 py-1.5 transition-colors ${
-              scope === option.value
-                ? "bg-accent/10 text-accent"
-                : "bg-background text-text-muted hover:text-text"
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
+        <span className="rounded-lg bg-accent/10 px-3 py-1.5 text-accent">Product KB</span>
+        <span className="text-[11px]">
+          Professional Skill documents are managed under Admin &gt; Skills.
+        </span>
         <span className="ml-auto">{sources.length} files</span>
         <span>{formatBytes(totalBytes)}</span>
       </div>
@@ -337,8 +322,8 @@ export default function AdminKnowledgePage() {
         <div className="rounded-xl border border-border/70 bg-surface p-4">
           <h2 className="text-sm font-semibold text-text">External connectors</h2>
           <p className="mt-1 text-xs text-text-muted">
-            Planned sync adapters for {scope === "product" ? "Product KB" : "Skill library"}. They
-            always land inside PersAI storage before indexing.
+            Planned sync adapters for Product KB. They always land inside PersAI storage before
+            indexing.
           </p>
           <div className="mt-4 space-y-3">
             {connectors.map((connector) => (
@@ -396,7 +381,7 @@ export default function AdminKnowledgePage() {
                     </p>
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                       <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
-                        {source.scope === "product" ? "product" : "skill"}
+                        product
                       </span>
                       <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
                         {source.status}

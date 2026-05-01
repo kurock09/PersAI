@@ -113,6 +113,11 @@ const ACTIVITY_LABEL_KEYS: Record<string, string> = {
   tts_finished: "activityVoiceDone",
   summarize_context_started: "activityContextStart",
   summarize_context_finished: "activityContextDone",
+  retrieval_skill_started: "activityRetrievalSkillStart",
+  retrieval_user_started: "activityRetrievalUserStart",
+  retrieval_product_started: "activityRetrievalProductStart",
+  retrieval_web_started: "activityRetrievalWebStart",
+  fallback_mode_active: "activityQuotaFallback",
   response_generated: "activityResponseDone"
 };
 

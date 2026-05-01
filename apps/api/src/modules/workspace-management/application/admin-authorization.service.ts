@@ -10,6 +10,7 @@ export type DangerousAdminActionCode =
   | "admin.plan.update"
   | "admin.plan.delete"
   | "admin.runtime_provider_settings.update"
+  | "admin.document_processing_settings.update"
   | "admin.tool_credentials.update"
   | "admin.rollout.apply"
   | "admin.rollout.rollback"
@@ -56,7 +57,10 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
   if (action === "admin.rollout.apply" || action === "admin.rollout.rollback") {
     return ["ops_admin", "super_admin"];
   }
-  if (action === "admin.runtime_provider_settings.update") {
+  if (
+    action === "admin.runtime_provider_settings.update" ||
+    action === "admin.document_processing_settings.update"
+  ) {
     return ["ops_admin", "super_admin"];
   }
   if (action === "admin.tool_credentials.update") {

@@ -62,6 +62,9 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/knowledge-sources/:sourceId/reindex",
         method: RequestMethod.POST
       },
+      { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
+      { path: "api/v1/assistant/skills", method: RequestMethod.GET },
+      { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
       { path: "api/v1/assistant/chats/web", method: RequestMethod.GET },
       { path: "api/v1/assistant/chats/web/:chatId/messages", method: RequestMethod.GET },
       { path: "api/v1/assistant/chats/web/:chatId/compaction", method: RequestMethod.GET },
@@ -173,6 +176,27 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
       { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
       { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },
+      { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
+      { path: "api/v1/admin/skills", method: RequestMethod.GET },
+      { path: "api/v1/admin/skills", method: RequestMethod.POST },
+      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
+      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
+      { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
+      {
+        path: "api/v1/admin/skills/:skillId/documents/:documentId",
+        method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
+        method: RequestMethod.POST
+      },
+      { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
+      { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
+      {
+        path: "api/v1/admin/tools/document-processing/test-connection",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/runtime/force-reapply-all", method: RequestMethod.POST },
       {
         path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",

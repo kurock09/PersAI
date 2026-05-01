@@ -12,8 +12,11 @@ export type AdminKnowledgeRetrievalRecentSearchSource =
 export const AdminKnowledgeRetrievalRecentSearchSource = {
   document: "document",
   global: "global",
+  product: "product",
+  skill: "skill",
   memory: "memory",
   chat: "chat",
   preset: "preset",
-  subscription: "subscription"
+  subscription: "subscription",
+  web: "web"
 } as const;

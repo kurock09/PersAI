@@ -130,6 +130,38 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     }),
     true
   );
+  for (const route of [
+    { path: "api/v1/admin/skills", method: RequestMethod.GET },
+    { path: "api/v1/admin/skills", method: RequestMethod.POST },
+    { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
+    { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
+    { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
+    { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
+    {
+      path: "api/v1/admin/skills/:skillId/documents/:documentId",
+      method: RequestMethod.DELETE
+    },
+    {
+      path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
+      method: RequestMethod.POST
+    },
+    { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },
+    { path: "api/v1/admin/tools/document-processing", method: RequestMethod.PUT },
+    {
+      path: "api/v1/admin/tools/document-processing/test-connection",
+      method: RequestMethod.POST
+    },
+    { path: "api/v1/assistant/skills", method: RequestMethod.GET },
+    { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
+    { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
+    { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET }
+  ]) {
+    assert.equal(
+      hasRoute(consumer.routes, route),
+      true,
+      `${RequestMethod[route.method]} /${route.path} must be guarded by ClerkAuthMiddleware`
+    );
+  }
   // ADR-074 Memory Center "Session expired" — real root cause: this route
   // was added to AssistantController without a matching middleware
   // registration here, so requests reached the controller with

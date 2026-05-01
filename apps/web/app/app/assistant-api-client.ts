@@ -3,9 +3,16 @@ import {
   type AdminNotificationChannelState,
   type AdminRuntimeProviderSettingsRequest,
   type AdminRuntimeProviderSettingsState,
+  type AssistantSkillCatalogItemState,
+  type AdminSkillState,
+  type AdminSkillUpsertRequest,
+  type GetAssistantSkillsResponse,
   type IdleReengagementNotificationPolicyState,
+  type KnowledgeIndexingJobState,
   type PlatformRolloutState,
+  type PutAssistantSkillAssignmentsRequest,
   type PostAdminPlatformRolloutRequest,
+  type SkillDocumentState,
   type PatchAdminNotificationWebhookChannelRequest,
   type PatchAdminIdleReengagementNotificationPolicyRequest,
   type AdminPlanCreateRequest,
@@ -75,11 +82,13 @@ import {
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
+  getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
   patchAdminNotificationWebhookChannel as patchAdminNotificationWebhookChannelContract,
   patchAdminIdleReengagementNotificationPolicy as patchAdminIdleReengagementNotificationPolicyContract,
   postAdminAbuseControlsUnblock as postAdminAbuseControlsUnblockContract,
+  putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
@@ -211,6 +220,14 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "activity";
+      data: {
+        source: "skill" | "user" | "product" | "web";
+        phase: "start";
+        resultCount: number;
+      };
+    }
+  | {
       event: "compaction";
       data: { phase: "start" | "end"; completed: boolean; willRetry: boolean };
     }
@@ -255,6 +272,11 @@ export interface AssistantWebChatStreamHandlers {
     toolName: string;
     toolCallId: string;
     isError: boolean;
+  }) => void;
+  onActivity?: (payload: {
+    source: "skill" | "user" | "product" | "web";
+    phase: "start";
+    resultCount: number;
   }) => void;
   onCompaction?: (payload: {
     phase: "start" | "end";
@@ -802,6 +824,26 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "activity") {
+    if (
+      (body.source !== "skill" &&
+        body.source !== "user" &&
+        body.source !== "product" &&
+        body.source !== "web") ||
+      body.phase !== "start" ||
+      typeof body.resultCount !== "number"
+    ) {
+      return null;
+    }
+    return {
+      event: "activity",
+      data: {
+        source: body.source,
+        phase: body.phase,
+        resultCount: Math.max(0, body.resultCount)
+      }
+    };
+  }
   if (eventName === "runtime_done") {
     if (typeof body.respondedAt !== "string") {
       return null;
@@ -977,6 +1019,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onDelta?.(streamEvent.data);
     } else if (streamEvent.event === "tool") {
       handlers.onTool?.(streamEvent.data);
+    } else if (streamEvent.event === "activity") {
+      handlers.onActivity?.(streamEvent.data);
     } else if (streamEvent.event === "compaction") {
       handlers.onCompaction?.(streamEvent.data);
     } else if (streamEvent.event === "runtime_done") {
@@ -1092,6 +1136,7 @@ export async function reattachAssistantWebChatTurnStream(
     if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
     else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
     else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
+    else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
     else if (streamEvent.event === "compaction") handlers.onCompaction?.(streamEvent.data);
     else if (streamEvent.event === "runtime_done") handlers.onRuntimeDone?.(streamEvent.data);
     else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);
@@ -2868,7 +2913,7 @@ export type UploadedKnowledgeSource = {
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
-  status: "processing" | "ready" | "failed";
+  status: "processing" | "ready" | "failed" | "needs_review";
   currentVersion: number;
   chunkCount: number;
   lastIndexedAt: string | null;
@@ -2889,12 +2934,12 @@ export type AssistantKnowledgeSourceListState = {
 
 export type AdminKnowledgeSourceState = {
   id: string;
-  scope: "product" | "skill";
+  scope: "product";
   displayName: string | null;
   originalFilename: string;
   mimeType: string;
   sizeBytes: number;
-  status: "processing" | "ready" | "failed";
+  status: "processing" | "ready" | "failed" | "needs_review";
   currentVersion: number;
   chunkCount: number;
   lastIndexedAt: string | null;
@@ -2969,11 +3014,11 @@ export type AdminKnowledgeConnectorState = {
   label: string;
   status: "planned";
   authMode: "oauth_deferred";
-  targetScope: "product" | "skill";
+  targetScope: "product";
   syncMode: "pull_snapshot_then_index";
   storageTarget: "persai_owned_object_storage";
   indexingTarget: "knowledge_indexing_service";
-  supportsScopes: Array<"product" | "skill">;
+  supportsScopes: Array<"product">;
   pipeline: string[];
   notes: string[];
 };
@@ -3105,12 +3150,6 @@ export async function uploadAssistantKnowledgeSource(
   if (!data.source) {
     throw new Error("Knowledge source upload returned an unexpected response.");
   }
-  if (data.source.status !== "ready") {
-    throw new ApiStructuredError(
-      data.source.lastErrorMessage ?? "Knowledge source indexing did not complete.",
-      data.source.lastErrorCode ?? "knowledge_source_not_ready"
-    );
-  }
   return data.source;
 }
 
@@ -3169,7 +3208,7 @@ export async function reindexAssistantKnowledgeSource(
 
 export async function getAdminKnowledgeSources(
   token: string,
-  scope: "product" | "skill"
+  scope: "product"
 ): Promise<AdminKnowledgeSourceState[]> {
   const base = getApiBaseUrl();
   const res = await fetch(`${base}/admin/knowledge-sources?scope=${encodeURIComponent(scope)}`, {
@@ -3233,7 +3272,7 @@ export async function getAdminKnowledgeObservability(
 
 export async function getAdminKnowledgeConnectors(
   token: string,
-  scope: "product" | "skill"
+  scope: "product"
 ): Promise<AdminKnowledgeConnectorState[]> {
   const base = getApiBaseUrl();
   const res = await fetch(
@@ -3251,7 +3290,7 @@ export async function getAdminKnowledgeConnectors(
 
 export async function uploadAdminKnowledgeSource(
   token: string,
-  scope: "product" | "skill",
+  scope: "product",
   file: File,
   options?: { displayName?: string | null | undefined }
 ): Promise<AdminKnowledgeSourceState> {
@@ -3308,6 +3347,199 @@ export async function reindexAdminKnowledgeSource(
     throw new Error("Admin knowledge source reindex returned an unexpected response.");
   }
   return data.source;
+}
+
+export type {
+  AssistantSkillCatalogItemState,
+  AdminSkillState,
+  AdminSkillUpsertRequest,
+  GetAssistantSkillsResponse as AssistantSkillsState,
+  KnowledgeIndexingJobState,
+  SkillDocumentState
+};
+
+export async function getAssistantSkills(token: string): Promise<GetAssistantSkillsResponse> {
+  const response = await getAssistantSkillsContract({
+    headers: getAuthHeaders(token)
+  });
+  if (
+    !isSuccessStatus(response.status) ||
+    typeof response.data !== "object" ||
+    response.data === null ||
+    !("skills" in response.data) ||
+    !("assignedSkillIds" in response.data)
+  ) {
+    throw new Error("Unexpected non-success response for GET /assistant/skills.");
+  }
+  return response.data;
+}
+
+export async function updateAssistantSkillAssignments(
+  token: string,
+  payload: PutAssistantSkillAssignmentsRequest
+): Promise<GetAssistantSkillsResponse> {
+  const response = await putAssistantSkillAssignmentsContract(payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (
+    !isSuccessStatus(response.status) ||
+    typeof response.data !== "object" ||
+    response.data === null ||
+    !("skills" in response.data) ||
+    !("assignedSkillIds" in response.data)
+  ) {
+    throw new Error("Unexpected non-success response for PUT /assistant/skills.");
+  }
+  return response.data;
+}
+
+export async function getAdminSkills(token: string): Promise<AdminSkillState[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load admin Skills."));
+  }
+  const data = (await res.json()) as { skills?: AdminSkillState[] };
+  return data.skills ?? [];
+}
+
+export async function createAdminSkill(
+  token: string,
+  payload: AdminSkillUpsertRequest
+): Promise<AdminSkillState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to create Skill."));
+  }
+  const data = (await res.json()) as { skill?: AdminSkillState };
+  if (!data.skill) {
+    throw new Error("Skill create returned an unexpected response.");
+  }
+  return data.skill;
+}
+
+export async function updateAdminSkill(
+  token: string,
+  skillId: string,
+  payload: AdminSkillUpsertRequest
+): Promise<AdminSkillState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to update Skill."));
+  }
+  const data = (await res.json()) as { skill?: AdminSkillState };
+  if (!data.skill) {
+    throw new Error("Skill update returned an unexpected response.");
+  }
+  return data.skill;
+}
+
+export async function archiveAdminSkill(token: string, skillId: string): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills/${encodeURIComponent(skillId)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to archive Skill."));
+  }
+}
+
+export async function uploadAdminSkillDocument(
+  token: string,
+  skillId: string,
+  file: File,
+  options?: { displayName?: string | null; description?: string | null }
+): Promise<{ document: SkillDocumentState; indexingJob: KnowledgeIndexingJobState }> {
+  const base = getApiBaseUrl();
+  const formData = new FormData();
+  const displayName = options?.displayName?.trim();
+  const description = options?.description?.trim();
+  if (displayName) {
+    formData.append("displayName", displayName);
+  }
+  if (description) {
+    formData.append("description", description);
+  }
+  formData.append("file", file);
+  const res = await fetch(`${base}/admin/skills/${encodeURIComponent(skillId)}/documents`, {
+    method: "POST",
+    headers: getAuthHeaders(token),
+    body: formData
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to upload Skill document."));
+  }
+  const data = (await res.json()) as {
+    document?: SkillDocumentState;
+    indexingJob?: KnowledgeIndexingJobState;
+  };
+  if (!data.document || !data.indexingJob) {
+    throw new Error("Skill document upload returned an unexpected response.");
+  }
+  return { document: data.document, indexingJob: data.indexingJob };
+}
+
+export async function deleteAdminSkillDocument(
+  token: string,
+  skillId: string,
+  documentId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/skills/${encodeURIComponent(skillId)}/documents/${encodeURIComponent(documentId)}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete Skill document."));
+  }
+}
+
+export async function reindexAdminSkillDocument(
+  token: string,
+  skillId: string,
+  documentId: string
+): Promise<{ document: SkillDocumentState; indexingJob: KnowledgeIndexingJobState }> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/skills/${encodeURIComponent(skillId)}/documents/${encodeURIComponent(documentId)}/reindex`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to reindex Skill document."));
+  }
+  const data = (await res.json()) as {
+    document?: SkillDocumentState;
+    indexingJob?: KnowledgeIndexingJobState;
+  };
+  if (!data.document || !data.indexingJob) {
+    throw new Error("Skill document reindex returned an unexpected response.");
+  }
+  return { document: data.document, indexingJob: data.indexingJob };
 }
 
 export async function postAdminForceReapplyAll(token: string): Promise<ForceReapplyAllSummary> {

@@ -13,9 +13,12 @@ type SourceRow = {
   mimeType: string;
   sizeBytes: bigint;
   storagePath: string;
-  status: "processing" | "ready" | "failed";
+  status: "processing" | "ready" | "failed" | "needs_review";
   currentVersion: number;
   chunkCount: number;
+  processorProviderKey: string | null;
+  processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback" | null;
+  processingQuality: Record<string, unknown> | null;
   lastIndexedAt: Date | null;
   lastReindexRequestedAt: Date | null;
   lastErrorCode: string | null;
@@ -33,13 +36,8 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
   const sources = new Map<string, SourceRow>();
   const storedObjects = new Map<string, Buffer>();
   const deletedObjects: string[] = [];
-  const createdChunks: Array<{ knowledgeSourceId: string; content: string }> = [];
+  const jobs: Array<{ sourceType: string; sourceId: string; sourceVersion: number }> = [];
   const releasedBytes: bigint[] = [];
-  const processCalls: Array<{
-    mimeType: string;
-    originalFilename: string;
-    embeddingModelKey: string | null;
-  }> = [];
   let quotaUsed = BigInt(0);
   let nextSourceId = 1;
 
@@ -68,8 +66,11 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
         const row: SourceRow = {
           id: `source-${nextSourceId++}`,
           ...data,
-          currentVersion: 0,
+          currentVersion: data.currentVersion ?? 1,
           chunkCount: 0,
+          processorProviderKey: null,
+          processorMode: null,
+          processingQuality: null,
           lastIndexedAt: null,
           lastReindexRequestedAt: null,
           lastErrorCode: null,
@@ -135,46 +136,37 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
       callback: (tx: {
         assistantKnowledgeSourceChunk: {
           deleteMany: (args: { where: { knowledgeSourceId: string } }) => Promise<void>;
-          createMany: (args: {
-            data: Array<{
-              knowledgeSourceId: string;
-              assistantId: string;
-              workspaceId: string;
-              sourceVersion: number;
-              chunkIndex: number;
-              locator: string | null;
-              content: string;
-              embeddingModelKey: string | null;
-              embeddingVector: unknown;
-              embeddingGeneratedAt: Date | null;
-            }>;
-          }) => Promise<void>;
+          createMany: (args: { data: Array<Record<string, unknown>> }) => Promise<void>;
         };
         assistantKnowledgeSource: {
           update: (args: { where: { id: string }; data: Partial<SourceRow> }) => Promise<SourceRow>;
+          delete: (args: { where: { id: string } }) => Promise<SourceRow>;
+        };
+        knowledgeVectorChunk: {
+          deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
+        };
+        knowledgeIndexingJob: {
+          deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
         };
       }) => Promise<void>
     ) =>
       callback({
         assistantKnowledgeSourceChunk: {
           deleteMany: async ({ where }) => {
-            for (let idx = createdChunks.length - 1; idx >= 0; idx -= 1) {
-              if (createdChunks[idx]?.knowledgeSourceId === where.knowledgeSourceId) {
-                createdChunks.splice(idx, 1);
-              }
-            }
+            void where;
           },
-          createMany: async ({ data }) => {
-            createdChunks.push(
-              ...data.map((item) => ({
-                knowledgeSourceId: item.knowledgeSourceId,
-                content: item.content
-              }))
-            );
-          }
+          createMany: async () => undefined
         },
         assistantKnowledgeSource: {
-          update: async ({ where, data }) => prisma.assistantKnowledgeSource.update({ where, data })
+          update: async ({ where, data }) =>
+            prisma.assistantKnowledgeSource.update({ where, data }),
+          delete: async ({ where }) => prisma.assistantKnowledgeSource.delete({ where })
+        },
+        knowledgeVectorChunk: {
+          deleteMany: async () => undefined
+        },
+        knowledgeIndexingJob: {
+          deleteMany: async () => undefined
         }
       })
   };
@@ -265,31 +257,13 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
       }
     } as never,
     {
-      buildIndexedChunks: async ({
-        mimeType,
-        originalFilename,
-        embeddingModelKey
-      }: {
-        buffer: Buffer;
-        mimeType: string;
-        originalFilename: string;
-        embeddingModelKey: string | null;
+      enqueueSourceJob: async (input: {
+        sourceType: string;
+        sourceId: string;
+        sourceVersion: number;
       }) => {
-        processCalls.push({ mimeType, originalFilename, embeddingModelKey });
-        return [
-          {
-            chunkIndex: 0,
-            locator: null,
-            content: "PersAI knowledge sources keep durable workspace facts searchable.",
-            embeddingModelKey,
-            embeddingVector: null,
-            embeddingGeneratedAt: null
-          }
-        ];
+        jobs.push(input);
       }
-    } as never,
-    {
-      resolveAssistantEmbeddingModelKey: async () => "text-embedding-3-small"
     } as never
   );
 
@@ -298,9 +272,8 @@ function createHarness(options?: { cappedUpload?: boolean; failCreate?: boolean 
     sources,
     storedObjects,
     deletedObjects,
-    createdChunks,
     releasedBytes,
-    processCalls
+    jobs
   };
 }
 
@@ -318,11 +291,18 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
     file
   });
 
-  assert.equal(uploaded.status, "ready");
+  assert.equal(uploaded.status, "processing");
   assert.equal(uploaded.currentVersion, 1);
-  assert.ok(uploaded.chunkCount >= 1);
-  assert.equal(harness.createdChunks.length, uploaded.chunkCount);
-  assert.equal(harness.processCalls[0]?.embeddingModelKey, "text-embedding-3-small");
+  assert.equal(uploaded.chunkCount, 0);
+  assert.deepEqual(harness.jobs[0], {
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    requestedByUserId: "user-1",
+    sourceType: "assistant_knowledge_source",
+    sourceId: uploaded.id,
+    sourceVersion: 1,
+    processorMode: "auto"
+  });
 
   const listed = await harness.service.list("user-1");
   assert.equal(listed.sources.length, 1);
@@ -334,9 +314,9 @@ async function runUploadListGetAndReindexHappyPath(): Promise<void> {
   assert.equal(fetched.displayName, "Product Notes");
 
   const reindexed = await harness.service.reindex("user-1", uploaded.id);
-  assert.equal(reindexed.status, "ready");
+  assert.equal(reindexed.status, "processing");
   assert.equal(reindexed.currentVersion, 2);
-  assert.equal(harness.processCalls[1]?.embeddingModelKey, "text-embedding-3-small");
+  assert.equal(harness.jobs[1]?.sourceVersion, 2);
 
   await harness.service.delete("user-1", uploaded.id);
   assert.equal(harness.sources.size, 0);
@@ -395,7 +375,7 @@ async function runUploadCreateFailureRollsBackStorageAndQuota(): Promise<void> {
   assert.deepEqual(harness.releasedBytes, [BigInt(sizeBytes)]);
 }
 
-async function runReindexMissingObjectMarksSourceFailed(): Promise<void> {
+async function runReindexDoesNotDownloadImmediately(): Promise<void> {
   const harness = createHarness();
   const uploaded = await harness.service.upload({
     userId: "user-1",
@@ -414,18 +394,18 @@ async function runReindexMissingObjectMarksSourceFailed(): Promise<void> {
   }
   harness.storedObjects.delete(row.storagePath);
 
-  const failed = await harness.service.reindex("user-1", uploaded.id);
-  assert.equal(failed.status, "failed");
-  assert.equal(failed.lastErrorCode, "stored_file_missing");
-  assert.ok(failed.lastReindexRequestedAt !== null);
-  assert.equal(failed.currentVersion, 1);
+  const queued = await harness.service.reindex("user-1", uploaded.id);
+  assert.equal(queued.status, "processing");
+  assert.equal(queued.lastErrorCode, null);
+  assert.ok(queued.lastReindexRequestedAt !== null);
+  assert.equal(queued.currentVersion, 2);
 }
 
 async function main(): Promise<void> {
   await runUploadListGetAndReindexHappyPath();
   await runUploadRollsBackOnQuotaCap();
   await runUploadCreateFailureRollsBackStorageAndQuota();
-  await runReindexMissingObjectMarksSourceFailed();
+  await runReindexDoesNotDownloadImmediately();
 }
 
 void main();

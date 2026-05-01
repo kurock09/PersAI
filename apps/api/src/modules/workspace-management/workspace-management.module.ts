@@ -14,16 +14,21 @@ import { AdminOverviewDashboardController } from "./interface/http/admin-overvie
 import { AdminNotificationsController } from "./interface/http/admin-notifications.controller";
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
+import { AdminDocumentProcessingSettingsController } from "./interface/http/admin-document-processing-settings.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
 import { AdminPersonaArchetypesController } from "./interface/http/admin-persona-archetypes.controller";
 import { AdminToolMetadataController } from "./interface/http/admin-tool-metadata.controller";
 import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledge-sources.controller";
+import { AdminSkillsController } from "./interface/http/admin-skills.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
+import { AssistantSkillsController } from "./interface/http/assistant-skills.controller";
+import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
 import { InternalRuntimeConfigGenerationController } from "./interface/http/internal-runtime-config-generation.controller";
 import { InternalRuntimeKnowledgeController } from "./interface/http/internal-runtime-knowledge.controller";
+import { InternalRuntimeOrchestratedRetrievalController } from "./interface/http/internal-runtime-orchestrated-retrieval.controller";
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
@@ -69,14 +74,23 @@ import { ManageAdminNotificationChannelsService } from "./application/manage-adm
 import { DeliverAdminSystemNotificationService } from "./application/deliver-admin-system-notification.service";
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
+import { ManageAdminDocumentProcessingSettingsService } from "./application/manage-admin-document-processing-settings.service";
 import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
+import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
+import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
+import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
 import { KnowledgeIndexingService } from "./application/knowledge-indexing.service";
+import { KnowledgeIndexingJobWorkerService } from "./application/knowledge-indexing-job-worker.service";
 import { KnowledgeModelPolicyService } from "./application/knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./application/knowledge-retrieval-observability.service";
 import { KnowledgeRetrievalHelperService } from "./application/knowledge-retrieval-helper.service";
+import {
+  KNOWLEDGE_VECTOR_INDEX,
+  PostgresPgvectorKnowledgeIndex
+} from "./application/knowledge-vector-index";
 import { PlatformRuntimeProviderSecretStoreService } from "./application/platform-runtime-provider-secret-store.service";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./application/resolve-platform-runtime-provider-settings.service";
 import { EnforceAbuseRateLimitService } from "./application/enforce-abuse-rate-limit.service";
@@ -104,9 +118,11 @@ import { CancelAssistantTaskRegistryItemService } from "./application/cancel-ass
 import { GetAssistantAppBootstrapService } from "./application/get-assistant-app-bootstrap.service";
 import { GetAssistantByUserIdService } from "./application/get-assistant-by-user-id.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
+import { ManageAssistantSkillsService } from "./application/manage-assistant-skills.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
+import { OrchestrateRuntimeRetrievalService } from "./application/orchestrate-runtime-retrieval.service";
 import { WriteAssistantMemoryService } from "./application/write-assistant-memory.service";
 import { HydrateMemoryForTurnService } from "./application/hydrate-memory-for-turn.service";
 import { CloseMostSimilarOpenLoopService } from "./application/close-most-similar-open-loop.service";
@@ -242,15 +258,20 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminNotificationsController,
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
+    AdminDocumentProcessingSettingsController,
     AdminToolCredentialsController,
     AdminToolMetadataController,
     AdminPromptTemplatesController,
     AdminPersonaArchetypesController,
     AdminKnowledgeSourcesController,
+    AdminSkillsController,
+    KnowledgeIndexingJobsController,
+    AssistantSkillsController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
     InternalRuntimeKnowledgeController,
+    InternalRuntimeOrchestratedRetrievalController,
     InternalRuntimeMemoryController,
     InternalRuntimeMemoryHydrationController,
     InternalRuntimeMemoryCloseMostSimilarController,
@@ -289,11 +310,16 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     DeliverAdminSystemNotificationService,
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
+    ManageAdminDocumentProcessingSettingsService,
     ManageAdminToolCredentialsService,
     ManageAdminToolPromptMetadataService,
     ManageAdminKnowledgeSourcesService,
+    ManageAdminSkillsService,
+    ListKnowledgeIndexingJobsService,
+    KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,
+    KnowledgeIndexingJobWorkerService,
     KnowledgeModelPolicyService,
     KnowledgeRetrievalObservabilityService,
     KnowledgeRetrievalHelperService,
@@ -329,8 +355,10 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     GetAssistantByUserIdService,
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
+    ManageAssistantSkillsService,
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
+    OrchestrateRuntimeRetrievalService,
     WriteAssistantMemoryService,
     HydrateMemoryForTurnService,
     CloseMostSimilarOpenLoopService,
@@ -496,7 +524,12 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ForceReapplyAllService,
     SyncNativeRuntimeBundleService,
     SyncProviderGatewayWarmupService,
-    CompilePromptConstructorService
+    CompilePromptConstructorService,
+    PostgresPgvectorKnowledgeIndex,
+    {
+      provide: KNOWLEDGE_VECTOR_INDEX,
+      useExisting: PostgresPgvectorKnowledgeIndex
+    }
   ],
   exports: [
     GetAssistantByUserIdService,

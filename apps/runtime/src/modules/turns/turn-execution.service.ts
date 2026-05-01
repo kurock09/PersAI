@@ -51,6 +51,8 @@ import {
   type RuntimeTurnRoutingSnapshot,
   type RuntimeTurnToolInvocation,
   type RuntimeTurnStreamEvent,
+  type RuntimeRetrievedKnowledgeContext,
+  type RuntimeRetrievalActivitySource,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
   type RuntimeUsageAccounting,
@@ -117,6 +119,7 @@ type PreparedTurnExecution = {
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
+  retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null;
   preludeUsageEntries: RuntimeUsageAccountingEntry[];
   // ADR-074 Slice T1: rendered presence developer-tail block, computed once
   // per `prepareTurnExecution`. `null` when the bundle has no presence
@@ -466,6 +469,17 @@ export class TurnExecutionService {
       projectedTools
     );
     options?.trace?.stage("prepare.execution_plan_ready");
+    const retrievedKnowledgeContext = await this.resolveRetrievedKnowledgeContext({
+      bundle: bundleEntry.parsedBundle,
+      input,
+      routeDecision: executionPlan.routeDecision,
+      projectedTools
+    });
+    options?.trace?.stage("prepare.retrieval_context_ready");
+    const messagesWithRetrievalContext = this.injectRetrievedKnowledgeContext(
+      hydratedMessages,
+      retrievedKnowledgeContext
+    );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
@@ -475,7 +489,7 @@ export class TurnExecutionService {
     const providerRequest = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
-      hydratedMessages,
+      messagesWithRetrievalContext,
       projectedTools,
       input.deepMode === true,
       executionPlan.routeDecision,
@@ -490,6 +504,7 @@ export class TurnExecutionService {
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
+      retrievedKnowledgeContext,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest,
       presenceBlock
@@ -508,6 +523,67 @@ export class TurnExecutionService {
       publishedVersionId: bundle.publishedVersionId,
       bundleHash: bundle.bundleHash
     });
+  }
+
+  private async resolveRetrievedKnowledgeContext(input: {
+    bundle: AssistantRuntimeBundle;
+    input: RuntimeTurnRequest;
+    routeDecision: TurnRouteDecision;
+    projectedTools: RuntimeNativeToolProjection;
+  }): Promise<RuntimeRetrievedKnowledgeContext | null> {
+    if (input.routeDecision.mode !== "active") {
+      return null;
+    }
+    const plan = input.routeDecision.retrievalPlan;
+    if (!plan.useSkills && !plan.useUserKnowledge && !plan.useProductKnowledge && !plan.useWeb) {
+      return null;
+    }
+    const availableToolNames = new Set(input.projectedTools.tools.map((tool) => tool.name));
+    if (
+      (plan.useUserKnowledge || plan.useProductKnowledge || plan.useSkills) &&
+      !availableToolNames.has("knowledge_search")
+    ) {
+      return null;
+    }
+    try {
+      const context = await this.persaiInternalApiClientService.orchestrateRetrieval({
+        assistantId: input.bundle.metadata.assistantId,
+        query: input.input.message.text,
+        locale: input.input.message.locale ?? input.bundle.userContext.locale,
+        retrievalPlan: plan
+      });
+      return context.renderedBlock === null || context.items.length === 0 ? null : context;
+    } catch (error) {
+      this.logger.warn(
+        `Orchestrated retrieval failed for assistant ${input.bundle.metadata.assistantId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return null;
+    }
+  }
+
+  private injectRetrievedKnowledgeContext(
+    messages: ProviderGatewayTextMessage[],
+    context: RuntimeRetrievedKnowledgeContext | null
+  ): ProviderGatewayTextMessage[] {
+    const block = this.normalizeOptionalText(context?.renderedBlock ?? null);
+    if (block === null) {
+      return messages;
+    }
+    const insertionIndex = messages.findIndex((message) => message.role === "user");
+    const contextMessage: ProviderGatewayTextMessage = {
+      role: "assistant",
+      content: block
+    };
+    if (insertionIndex === -1) {
+      return [contextMessage, ...messages];
+    }
+    return [
+      ...messages.slice(0, insertionIndex),
+      contextMessage,
+      ...messages.slice(insertionIndex)
+    ];
   }
 
   private bundleEntryMatchesRequest(
@@ -542,6 +618,9 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId
     };
     trace?.stage("stream.started_emitted");
+    for (const event of this.createRetrievalActivityStreamEvents(acceptedTurn, execution)) {
+      yield event;
+    }
 
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
@@ -1013,7 +1092,8 @@ export class TurnExecutionService {
     return {
       mode: routeDecision.mode,
       executionMode: routeDecision.executionMode,
-      source
+      source,
+      retrievalPlan: routeDecision.retrievalPlan
     };
   }
 
@@ -1109,7 +1189,7 @@ export class TurnExecutionService {
       bundle,
       provider: providerSelection.provider,
       family: deepModeEnabled ? "deep_chat" : "ordinary_chat",
-      messages,
+      messages: messages.filter((message) => !this.isRetrievedKnowledgeContextMessage(message)),
       deepModeEnabled,
       projectedTools
     });
@@ -1141,6 +1221,14 @@ export class TurnExecutionService {
     // guidance, presence) is moved to `developerInstructions` so provider prompt caching stays
     // hot across turns for the same assistant + bundle.
     return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
+  }
+
+  private isRetrievedKnowledgeContextMessage(message: ProviderGatewayTextMessage): boolean {
+    return (
+      message.role === "assistant" &&
+      typeof message.content === "string" &&
+      message.content.startsWith("# Retrieved Knowledge Context\n")
+    );
   }
 
   private buildDeveloperInstructions(
@@ -1188,6 +1276,20 @@ export class TurnExecutionService {
         : null,
       routeDecision.retrievalHint && availableToolNames.includes("knowledge_search")
         ? "Assistant knowledge retrieval is likely needed before answering. Prefer knowledge_search first, then knowledge_fetch only for the exact excerpt you need."
+        : null,
+      routeDecision.retrievalPlan.useSkills
+        ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. Prefer the injected Retrieved Knowledge Context when present.`
+        : null,
+      routeDecision.retrievalPlan.useUserKnowledge &&
+      availableToolNames.includes("knowledge_search")
+        ? "Retrieval plan says user-owned knowledge may be relevant."
+        : null,
+      routeDecision.retrievalPlan.useProductKnowledge &&
+      availableToolNames.includes("knowledge_search")
+        ? "Retrieval plan says PersAI product/reference knowledge may be relevant."
+        : null,
+      routeDecision.retrievalPlan.useWeb && availableToolNames.includes("web_search")
+        ? "Retrieval plan says web freshness or external verification may be relevant."
         : null,
       routeDecision.toolHints === "web" && availableToolNames.includes("web_search")
         ? "Fresh external information is likely needed. Prefer web_search before answering when recent facts or links matter."
@@ -1328,6 +1430,15 @@ export class TurnExecutionService {
       clarifyNeeded: false,
       fallbackMode: input.deepMode === true ? "premium" : "normal",
       reasonCode: input.deepMode === true ? "deep_mode_default" : "default_normal",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: false,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "low",
+        reasonCode: input.deepMode === true ? "deep_mode_default" : "default_normal"
+      },
       source: "default",
       mode: "shadow",
       usage: null
@@ -2287,6 +2398,44 @@ export class TurnExecutionService {
     };
   }
 
+  private createRetrievalActivityStreamEvents(
+    acceptedTurn: AcceptedRuntimeTurn,
+    execution: PreparedTurnExecution
+  ): RuntimeTurnStreamEvent[] {
+    const context = execution.retrievedKnowledgeContext;
+    if (context === null || context.items.length === 0) {
+      return [];
+    }
+    const counts = new Map<RuntimeRetrievalActivitySource, number>();
+    for (const item of context.items) {
+      const source = this.toRetrievalActivitySource(item.label);
+      counts.set(source, (counts.get(source) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([source, resultCount]) => ({
+      type: "retrieval_activity",
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId,
+      source,
+      phase: "start",
+      resultCount
+    }));
+  }
+
+  private toRetrievalActivitySource(
+    label: RuntimeRetrievedKnowledgeContext["items"][number]["label"]
+  ): RuntimeRetrievalActivitySource {
+    switch (label) {
+      case "skill_reference":
+        return "skill";
+      case "product_reference":
+        return "product";
+      case "web_reference":
+        return "web";
+      case "user_document":
+        return "user";
+    }
+  }
+
   /**
    * ADR-074 Slice L1: build a per-turn `ToolBudgetPolicy` from the routing
    * decision's resolved execution mode plus per-assistant overrides sourced
@@ -2551,7 +2700,14 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution,
     input: RuntimeTurnRequest
   ): Promise<ProviderGatewayTextGenerateRequest> {
-    const messages = await this.turnContextHydrationService.buildMessages(input, execution.bundle);
+    const hydratedMessages = await this.turnContextHydrationService.buildMessages(
+      input,
+      execution.bundle
+    );
+    const messages = this.injectRetrievedKnowledgeContext(
+      hydratedMessages,
+      execution.retrievedKnowledgeContext
+    );
     // ADR-074 Slice T1: presence is per-turn but, because durable compaction
     // can land mid-turn and trigger a context refresh, we also re-render the
     // presence block here so the developer-tail keeps a fresh local time and

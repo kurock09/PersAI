@@ -294,6 +294,13 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
         crossSessionCarryOverCooldownHours: 12
       },
       knowledgeAccess: KNOWLEDGE_ACCESS_CONFIG,
+      routerPolicy: {
+        enabled: true,
+        mode: "active",
+        classifierFailureFallbackMode: "normal",
+        clarifyOnMissingContext: true,
+        precheckRuleOverrides: null
+      },
       workerTools: WORKER_TOOLS_CONFIG,
       browser: BROWSER_CONFIG,
       sharedCompaction: {
@@ -600,6 +607,7 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
           soul: "# COMPILED SECTION\nOnly trust compiled prompt constructor output.",
           user: "# USER\nBe mindful of user context.",
           identity: "# IDENTITY\nYou are PersAI.",
+          enabledSkills: "",
           tools:
             "# TOOL RUNTIME\nsummarize_context\ncompact_context\nquota_status\nknowledge_search\nknowledge_fetch",
           agents: "",
@@ -1137,6 +1145,22 @@ class FakePersaiInternalApiClientService {
   reminderTaskListError: Error | null = null;
   reminderTaskControlError: Error | null = null;
   memoryWriteError: Error | null = null;
+  orchestrateRetrievalCalls: Array<Record<string, unknown>> = [];
+  orchestrateRetrievalOutcome = {
+    items: [
+      {
+        label: "user_document" as const,
+        referenceId: "memory:memory-1",
+        title: "Memory write: preference",
+        locator: null,
+        content: "User prefers concise answers.",
+        score: 10,
+        metadata: { source: "memory" }
+      }
+    ],
+    renderedBlock:
+      "# Retrieved Knowledge Context\nUse this bounded source-aware context as grounding.\n\n## 1. user_document\nReference: memory:memory-1\nTitle: Memory write: preference\n\nUser prefers concise answers."
+  };
   reminderTaskItems: Array<{
     id: string;
     title: string;
@@ -1240,6 +1264,11 @@ class FakePersaiInternalApiClientService {
       throw this.memoryWriteError;
     }
     return this.memoryWriteOutcome;
+  }
+
+  async orchestrateRetrieval(input: Record<string, unknown>) {
+    this.orchestrateRetrievalCalls.push(input);
+    return this.orchestrateRetrievalOutcome;
   }
 
   enqueueBackgroundCompactionCalls: Array<Record<string, unknown>> = [];
@@ -1902,6 +1931,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(completed.usageAccounting?.entries.length, 1);
   assert.equal(completed.usageAccounting?.entries[0]?.stepType, "main_turn");
   assert.equal(completed.usageAccounting?.entries[0]?.modelRole, "normal_reply");
+  assert.deepEqual(completed.turnRouting?.retrievalPlan, {
+    useSkills: false,
+    selectedSkillIds: [],
+    useUserKnowledge: false,
+    useProductKnowledge: false,
+    useWeb: false,
+    confidence: "low",
+    reasonCode: "simple_turn"
+  });
   assert.equal(providerGatewayClient.calls.length, 1);
   assert.equal(providerGatewayClient.calls[0]?.provider, "openai");
   assert.equal(providerGatewayClient.calls[0]?.model, "gpt-5.4");
@@ -2171,7 +2209,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         confidence: "high",
         clarifyNeeded: false,
         fallbackMode: "normal",
-        reasonCode: "reasoning_request"
+        reasonCode: "reasoning_request",
+        retrievalPlan: {
+          useSkills: false,
+          selectedSkillIds: [],
+          useUserKnowledge: false,
+          useProductKnowledge: false,
+          useWeb: false,
+          confidence: "low",
+          reasonCode: "reasoning_request"
+        }
       }),
       respondedAt: "2026-04-11T12:00:02.900Z",
       usage: {
@@ -2309,7 +2356,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
         confidence: "high",
         clarifyNeeded: false,
         fallbackMode: "premium",
-        reasonCode: "reasoning_request"
+        reasonCode: "reasoning_request",
+        retrievalPlan: {
+          useSkills: false,
+          selectedSkillIds: [],
+          useUserKnowledge: false,
+          useProductKnowledge: false,
+          useWeb: false,
+          confidence: "low",
+          reasonCode: "reasoning_request"
+        }
       }),
       respondedAt: "2026-04-11T12:00:03.050Z",
       usage: {
@@ -2494,6 +2550,15 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.tools?.map((tool) => tool.name) ?? [];
   assert.equal(retrievalHintToolNames.includes("knowledge_search"), true);
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
+  assert.equal(persaiInternalApiClientService.orchestrateRetrievalCalls.length, 1);
+  assert.match(
+    String(providerGatewayClient.calls[retrievalHintPlannerOffset]?.messages[0]?.content ?? ""),
+    /# Retrieved Knowledge Context/
+  );
+  assert.match(
+    String(providerGatewayClient.calls[retrievalHintPlannerOffset]?.messages[1]?.content ?? ""),
+    /look in memory/
+  );
   // ADR-074 P1: retrieval routing hint travels via `developerInstructions`, not the cached prefix.
   assert.match(
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.developerInstructions ?? "",
@@ -2503,6 +2568,41 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.systemPrompt ?? "",
     /Assistant knowledge retrieval is likely needed before answering/
   );
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    retrievalHintRequest.bundle.bundleHash;
+  providerGatewayClient.streamEventsQueue.push([
+    {
+      type: "completed",
+      result: {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "streamed retrieval-aware reply",
+        respondedAt: "2026-04-11T12:00:03.750Z",
+        usage: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          inputTokens: 12,
+          outputTokens: 18,
+          totalTokens: 30
+        },
+        stopReason: "completed",
+        toolCalls: []
+      }
+    }
+  ]);
+  const retrievalActivityStream = await service.streamTurn(retrievalHintRequest);
+  const retrievalActivityEvents = await collectStreamEvents(retrievalActivityStream);
+  assert.deepEqual(
+    retrievalActivityEvents.map((event) => event.type),
+    ["started", "retrieval_activity", "completed"]
+  );
+  const retrievalActivityEvent = retrievalActivityEvents.find(
+    (event): event is Extract<RuntimeTurnStreamEvent, { type: "retrieval_activity" }> =>
+      event.type === "retrieval_activity"
+  );
+  assert.equal(retrievalActivityEvent?.source, "user");
+  assert.equal(retrievalActivityEvent?.resultCount, 1);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -3340,32 +3440,38 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     }
   ];
   const completedBeforeStream = turnFinalizationService.completed.length;
+  const streamCallOffset = providerGatewayClient.streamCalls.length;
   const stream = await service.streamTurn(request);
   const streamEvents = await collectStreamEvents(stream);
   assert.deepEqual(
     streamEvents.map((event) => event.type),
     ["started", "text_delta", "completed"]
   );
-  assert.equal(providerGatewayClient.streamCalls.length, 1);
+  assert.equal(providerGatewayClient.streamCalls.length, streamCallOffset + 1);
   assert.deepEqual(
-    providerGatewayClient.streamCalls[0]?.messages,
+    providerGatewayClient.streamCalls[streamCallOffset]?.messages,
     turnContextHydrationService.messages
   );
-  assert.deepEqual(providerGatewayClient.streamCalls[0]?.requestMetadata, {
+  assert.deepEqual(providerGatewayClient.streamCalls[streamCallOffset]?.requestMetadata, {
     classification: "main_turn",
     runtimeRequestId: "request-1",
     runtimeSessionId: "session-1",
     toolLoopIteration: 0,
     compactionToolCode: null
   });
-  assert.equal(providerGatewayClient.streamCalls[0]?.promptCache?.retention, "in_memory");
+  assert.equal(
+    providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.retention,
+    "in_memory"
+  );
   assert.match(
-    providerGatewayClient.streamCalls[0]?.promptCache?.key ?? "",
+    providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.key ?? "",
     /^ps1:oc:[a-f0-9]{32}:b\d{2}$/
   );
-  assert.ok((providerGatewayClient.streamCalls[0]?.promptCache?.key?.length ?? 0) <= 64);
+  assert.ok(
+    (providerGatewayClient.streamCalls[streamCallOffset]?.promptCache?.key?.length ?? 0) <= 64
+  );
   assert.deepEqual(
-    providerGatewayClient.streamCalls[0]?.tools?.map((tool) => tool.name),
+    providerGatewayClient.streamCalls[streamCallOffset]?.tools?.map((tool) => tool.name),
     [
       "summarize_context",
       "compact_context",
@@ -3378,12 +3484,21 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ]
   );
   assert.match(
-    providerGatewayClient.streamCalls[0]?.systemPrompt ?? "",
+    providerGatewayClient.streamCalls[streamCallOffset]?.systemPrompt ?? "",
     /Only trust compiled prompt constructor output/
   );
-  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /summarize_context/);
-  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /compact_context/);
-  assert.match(providerGatewayClient.streamCalls[0]?.systemPrompt ?? "", /quota_status/);
+  assert.match(
+    providerGatewayClient.streamCalls[streamCallOffset]?.systemPrompt ?? "",
+    /summarize_context/
+  );
+  assert.match(
+    providerGatewayClient.streamCalls[streamCallOffset]?.systemPrompt ?? "",
+    /compact_context/
+  );
+  assert.match(
+    providerGatewayClient.streamCalls[streamCallOffset]?.systemPrompt ?? "",
+    /quota_status/
+  );
   assert.equal(turnFinalizationService.completed.length, completedBeforeStream + 1);
   const completedEvent = streamEvents[2];
   assert.equal(completedEvent?.type, "completed");

@@ -1264,6 +1264,9 @@ export class AssistantController {
         onTool: ({ phase, toolName, toolCallId, isError }) => {
           sendSse("tool", { phase, toolName, toolCallId, isError });
         },
+        onActivity: ({ source, phase, resultCount }) => {
+          sendSse("activity", { source, phase, resultCount });
+        },
         onDone: (respondedAt) => {
           sendSse("runtime_done", { respondedAt });
         },

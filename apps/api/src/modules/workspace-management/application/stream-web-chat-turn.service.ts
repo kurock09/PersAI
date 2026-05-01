@@ -242,6 +242,11 @@ export class StreamWebChatTurnService {
         toolCallId: string;
         isError: boolean;
       }) => void;
+      onActivity?: (payload: {
+        source: "skill" | "user" | "product" | "web";
+        phase: "start";
+        resultCount: number;
+      }) => void;
       onDone: (respondedAt: string) => void;
       /**
        * Fired when the cadence watchdog has detected a stalled stream and we are
@@ -752,6 +757,11 @@ export class StreamWebChatTurnService {
         toolCallId: string;
         isError: boolean;
       }) => void;
+      onActivity?: (payload: {
+        source: "skill" | "user" | "product" | "web";
+        phase: "start";
+        resultCount: number;
+      }) => void;
       onDone: (respondedAt: string) => void;
     };
     trace: OverviewLatencyTraceHandle;
@@ -888,6 +898,22 @@ export class StreamWebChatTurnService {
         if (chunk.type === "media" && Array.isArray(chunk.media)) {
           watchdog.recordActivity();
           collectedMedia.push(...chunk.media);
+        }
+
+        if (
+          chunk.type === "activity" &&
+          (chunk.activitySource === "skill" ||
+            chunk.activitySource === "user" ||
+            chunk.activitySource === "product" ||
+            chunk.activitySource === "web") &&
+          chunk.activityPhase === "start"
+        ) {
+          watchdog.recordActivity();
+          input.callbacks.onActivity?.({
+            source: chunk.activitySource,
+            phase: chunk.activityPhase,
+            resultCount: Math.max(0, chunk.activityResultCount ?? 0)
+          });
         }
 
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {

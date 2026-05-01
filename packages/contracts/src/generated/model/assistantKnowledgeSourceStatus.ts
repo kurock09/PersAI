@@ -12,5 +12,6 @@ export type AssistantKnowledgeSourceStatus =
 export const AssistantKnowledgeSourceStatus = {
   processing: "processing",
   ready: "ready",
-  failed: "failed"
+  failed: "failed",
+  needs_review: "needs_review"
 } as const;

@@ -283,7 +283,24 @@ export class SendNativeWebChatTurnService {
       (row.executionMode === "normal" ||
         row.executionMode === "premium" ||
         row.executionMode === "reasoning") &&
-      (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
+      (row.source === "precheck" || row.source === "llm" || row.source === "fallback") &&
+      (row.retrievalPlan === undefined ||
+        row.retrievalPlan === null ||
+        this.isRuntimeRetrievalPlan(row.retrievalPlan))
+    );
+  }
+
+  private isRuntimeRetrievalPlan(value: unknown): boolean {
+    const row = this.asObject(value);
+    return (
+      typeof row?.useSkills === "boolean" &&
+      Array.isArray(row.selectedSkillIds) &&
+      row.selectedSkillIds.every((item) => typeof item === "string") &&
+      typeof row.useUserKnowledge === "boolean" &&
+      typeof row.useProductKnowledge === "boolean" &&
+      typeof row.useWeb === "boolean" &&
+      (row.confidence === "low" || row.confidence === "medium" || row.confidence === "high") &&
+      typeof row.reasonCode === "string"
     );
   }
 }

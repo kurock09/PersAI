@@ -30,13 +30,23 @@ export class PersaiKnowledgeObjectStorageService {
   }
 
   buildGlobalKnowledgeSourceObjectKey(input: {
-    scope: "product" | "skill";
+    scope: "product";
     extension: string | null;
     originalFilename: string | null;
   }): string {
     const ext = this.normalizeExtension(input.extension);
     const safeFilename = this.normalizeFilename(input.originalFilename, ext);
     return `${this.getObjectPrefix()}/global/${input.scope}/${randomUUID()}/${safeFilename}`;
+  }
+
+  buildSkillDocumentObjectKey(input: {
+    skillId: string;
+    extension: string | null;
+    originalFilename: string | null;
+  }): string {
+    const ext = this.normalizeExtension(input.extension);
+    const safeFilename = this.normalizeFilename(input.originalFilename, ext);
+    return `${this.getObjectPrefix()}/skills/${input.skillId}/documents/${randomUUID()}/${safeFilename}`;
   }
 
   buildAssistantPrefix(assistantId: string): string {

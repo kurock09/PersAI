@@ -60,8 +60,23 @@ async function runTemplatedCompile(): Promise<void> {
   const service = new CompilePromptConstructorService();
   const compiled = service.compile({
     ...baseInput(),
+    enabledSkillCards: [
+      {
+        id: "skill-1",
+        name: "Accountant",
+        description: "Accounting support",
+        category: "finance",
+        tags: ["tax", "books"],
+        title: "Accounting mode",
+        body: "Use accounting knowledge carefully.",
+        guardrails: ["No legal guarantees"],
+        examples: ["Explain tax categories"]
+      }
+    ],
     promptTemplates: {
       system: `{{assistant_identity_block}}
+
+{{enabled_skills_block}}
 
 {{tools_block}}
 
@@ -73,6 +88,7 @@ async function runTemplatedCompile(): Promise<void> {
       soul: "# Core Persona\n\n{{instructions_block}}",
       user: "# User Context\n\n{{user_name_line}}",
       identity: "# Identity\n\n{{assistant_name}}",
+      enabled_skills: "{{skill_cards_block}}",
       tools: `Native tool runtime:
 
 Use only the machine-readable tools declared for this turn.
@@ -91,6 +107,8 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
   const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
 
   assert.match(systemPrompt, /Core Persona/);
+  assert.match(systemPrompt, /Enabled Skills/);
+  assert.match(systemPrompt, /Accounting mode/);
   assert.match(systemPrompt, /Native tool runtime/);
   assert.match(systemPrompt, /Governance/);
 

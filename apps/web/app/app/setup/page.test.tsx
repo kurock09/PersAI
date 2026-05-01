@@ -28,9 +28,11 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistant: vi.fn(),
   getAssistantPersonaArchetypes: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
+  getAssistantSkills: vi.fn(),
   postAssistantCreate: vi.fn(),
   patchAssistantDraft: vi.fn(),
   postAssistantSetupPreview: vi.fn(),
+  updateAssistantSkillAssignments: vi.fn(),
   uploadAssistantAvatar: vi.fn(),
   postAssistantPublish: vi.fn()
 }));
@@ -75,9 +77,11 @@ vi.mock("../assistant-api-client", async () => {
     getAssistant: assistantApiMocks.getAssistant,
     getAssistantPersonaArchetypes: assistantApiMocks.getAssistantPersonaArchetypes,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
+    getAssistantSkills: assistantApiMocks.getAssistantSkills,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
     postAssistantSetupPreview: assistantApiMocks.postAssistantSetupPreview,
+    updateAssistantSkillAssignments: assistantApiMocks.updateAssistantSkillAssignments,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
     postAssistantPublish: assistantApiMocks.postAssistantPublish
   };
@@ -317,6 +321,65 @@ function makePersonaArchetypes() {
   ];
 }
 
+function makeAssistantSkillsResponse() {
+  const now = "2026-04-01T10:00:00.000Z";
+  return {
+    requestId: "req-skills",
+    assignedSkillIds: [],
+    limit: 1,
+    skills: [
+      {
+        skill: {
+          id: "skill-1",
+          status: "active" as const,
+          name: { en: "Legal drafting", ru: "Юридические документы" },
+          description: { en: "Draft and review legal text." },
+          category: "legal",
+          tags: ["legal"],
+          instructionCard: {
+            title: "Legal drafting",
+            body: "Use legal drafting sources carefully.",
+            guardrails: [],
+            examples: []
+          },
+          iconEmoji: null,
+          color: null,
+          displayOrder: 10,
+          archivedAt: null,
+          createdAt: now,
+          updatedAt: now,
+          documents: [
+            {
+              id: "doc-1",
+              skillId: "skill-1",
+              displayName: "Policy",
+              description: null,
+              originalFilename: "policy.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1000,
+              status: "ready" as const,
+              currentVersion: 1,
+              chunkCount: 5,
+              processorProviderKey: "local",
+              processorMode: "local" as const,
+              processingQuality: null,
+              lastIndexedAt: now,
+              lastReindexRequestedAt: null,
+              lastErrorCode: null,
+              lastErrorMessage: null,
+              createdAt: now,
+              updatedAt: now
+            }
+          ]
+        },
+        assignment: null,
+        selectable: true,
+        disabledReason: null
+      }
+    ]
+  };
+}
+
 describe("SetupWizardPage", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -329,6 +392,7 @@ describe("SetupWizardPage", () => {
     assistantApiMocks.getAssistant.mockResolvedValue(null);
     assistantApiMocks.getAssistantPersonaArchetypes.mockResolvedValue(makePersonaArchetypes());
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue(makeVoiceSettings());
+    assistantApiMocks.getAssistantSkills.mockResolvedValue(makeAssistantSkillsResponse());
     meApiMocks.getMe.mockResolvedValue(makeMeResponse());
     meApiMocks.postOnboarding.mockResolvedValue(makeMeResponse());
     assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantState());
@@ -341,6 +405,12 @@ describe("SetupWizardPage", () => {
       avatarUrl: "https://example.com/avatar.png"
     });
     assistantApiMocks.postAssistantPublish.mockResolvedValue(makeAssistantState());
+    assistantApiMocks.updateAssistantSkillAssignments.mockImplementation(
+      async (_token, payload) => ({
+        ...makeAssistantSkillsResponse(),
+        assignedSkillIds: payload.skillIds
+      })
+    );
     appDataMocks.reload.mockResolvedValue(undefined);
     appDataMocks.reloadChats.mockResolvedValue(undefined);
   });
@@ -375,8 +445,10 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-load-skills")
       .mockResolvedValueOnce("token-avatar")
       .mockResolvedValueOnce("token-final-patch")
+      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
 
     const { container } = renderWithIntl(<SetupWizardPage />);
@@ -405,13 +477,10 @@ describe("SetupWizardPage", () => {
     await waitFor(() => {
       expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledTimes(1);
     });
-    expect(meApiMocks.postOnboarding).toHaveBeenCalledWith(
-      "token-onboarding-preview",
-      expect.any(Object)
-    );
-    expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledWith("token-create-preview");
+    expect(meApiMocks.postOnboarding).toHaveBeenCalledWith(expect.any(String), expect.any(Object));
+    expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledWith(expect.any(String));
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
-      "token-patch-preview",
+      expect.any(String),
       expect.objectContaining({
         displayName: "Nova",
         instructions: null,
@@ -432,31 +501,37 @@ describe("SetupWizardPage", () => {
         })
       })
     );
-    expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledWith(
-      "token-runtime-preview"
-    );
+    expect(assistantApiMocks.postAssistantSetupPreview).toHaveBeenCalledWith(expect.any(String));
 
+    fireEvent.click(await screen.findByText("Legal drafting"));
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
       expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledTimes(1);
+      expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledTimes(1);
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
     });
     expect(meApiMocks.postOnboarding).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(2);
     expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledWith(
-      "token-avatar",
+      expect.any(String),
       expect.any(File)
     );
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenLastCalledWith(
-      "token-final-patch",
+      expect.any(String),
       expect.objectContaining({
         avatarEmoji: null,
         avatarUrl: "https://example.com/avatar.png"
       })
     );
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        skillIds: ["skill-1"]
+      }
+    );
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String));
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
@@ -469,6 +544,8 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
 
     renderWithIntl(<SetupWizardPage />);
@@ -504,7 +581,13 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-publish");
+    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        skillIds: []
+      }
+    );
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String));
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
@@ -516,6 +599,8 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeRecoverableAssistantState());
 
@@ -540,6 +625,12 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        skillIds: []
+      }
+    );
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
@@ -550,6 +641,8 @@ describe("SetupWizardPage", () => {
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
+      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());
 
@@ -585,6 +678,12 @@ describe("SetupWizardPage", () => {
 
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
+    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
+      expect.any(String),
+      {
+        skillIds: []
+      }
+    );
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });

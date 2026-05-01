@@ -8,9 +8,12 @@ import type {
   AdminAbuseUnblockRequest,
   AdminAssistantOwnershipRecoveryRequest,
   AdminAssistantOwnershipTransferRequest,
+  AdminDocumentProcessingSettingsRequest,
+  AdminDocumentProcessingTestConnectionRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
+  AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
@@ -24,13 +27,17 @@ import type {
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
   DeleteAdminKnowledgeSourceResponse,
+  DeleteAdminSkillDocumentResponse,
+  DeleteAdminSkillResponse,
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
+  GetAdminDocumentProcessingSettingsResponse,
   GetAdminIdleReengagementNotificationPolicyResponse,
   GetAdminKnowledgeConnectorsParams,
   GetAdminKnowledgeConnectorsResponse,
+  GetAdminKnowledgeIndexingJobsParams,
   GetAdminKnowledgeObservabilityResponse,
   GetAdminKnowledgeSourceResponse,
   GetAdminKnowledgeSourcesParams,
@@ -42,6 +49,9 @@ import type {
   GetAdminPlatformRolloutsResponse,
   GetAdminPromptTemplatesResponse,
   GetAdminRuntimeProviderSettingsResponse,
+  GetAdminSkillResponse,
+  GetAdminSkillsParams,
+  GetAdminSkillsResponse,
   GetAdminToolPromptMetadataResponse,
   GetAppBootstrapResponse,
   GetAssistantKnowledgeSourceResponse,
@@ -51,6 +61,7 @@ import type {
   GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
   GetAssistantRuntimePreflightResponse,
+  GetAssistantSkillsResponse,
   GetAssistantTaskItemsResponse,
   GetAssistantTelegramIntegrationResponse,
   GetAssistantWebChatCompactionResponse,
@@ -60,6 +71,7 @@ import type {
   GetAssistantWebChatMessagesResponse,
   GetAssistantWebChatTransportResponse,
   GetAssistantWebChatTurnStatusResponse,
+  GetKnowledgeIndexingJobsResponse,
   GetMeResponse,
   GlobalKnowledgeSourceScope,
   OnboardingRequest,
@@ -73,12 +85,16 @@ import type {
   PatchAdminToolPromptMetadataResponse,
   PostAdminAbuseUnblockResponse,
   PostAdminAssistantOwnershipResponse,
+  PostAdminDocumentProcessingTestConnectionResponse,
   PostAdminKnowledgeSourceUploadBody,
   PostAdminOpsUserPlanOverrideParams,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
   PostAdminPlatformRolloutResponse,
   PostAdminPlatformRolloutRollbackResponse,
+  PostAdminSkillDocumentReindexResponse,
+  PostAdminSkillDocumentUploadBody,
+  PostAdminSkillDocumentUploadResponse,
   PostAdminStepUpChallengeResponse,
   PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
@@ -89,7 +105,9 @@ import type {
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
   PostAssistantWebChatCompactResponse,
+  PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
+  PutAssistantSkillAssignmentsRequest,
   SuccessResponse
 } from "./model";
 
@@ -3270,6 +3288,951 @@ export const postAdminKnowledgeSourceReindex = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary List admin-created professional Skills
+ */
+export type getAdminSkillsResponse200 = {
+  data: GetAdminSkillsResponse;
+  status: 200;
+};
+
+export type getAdminSkillsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSkillsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSkillsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSkillsResponseSuccess = getAdminSkillsResponse200 & {
+  headers: Headers;
+};
+export type getAdminSkillsResponseError = (
+  | getAdminSkillsResponse401
+  | getAdminSkillsResponse403
+  | getAdminSkillsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSkillsResponse = getAdminSkillsResponseSuccess | getAdminSkillsResponseError;
+
+export const getGetAdminSkillsUrl = (params?: GetAdminSkillsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/admin/skills?${stringifiedParams}` : `/admin/skills`;
+};
+
+export const getAdminSkills = async (
+  params?: GetAdminSkillsParams,
+  options?: RequestInit
+): Promise<getAdminSkillsResponse> => {
+  return customFetch<getAdminSkillsResponse>(getGetAdminSkillsUrl(params), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Create an admin-managed professional Skill
+ */
+export type postAdminSkillResponse200 = {
+  data: GetAdminSkillResponse;
+  status: 200;
+};
+
+export type postAdminSkillResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSkillResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSkillResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSkillResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminSkillResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSkillResponseSuccess = postAdminSkillResponse200 & {
+  headers: Headers;
+};
+export type postAdminSkillResponseError = (
+  | postAdminSkillResponse400
+  | postAdminSkillResponse401
+  | postAdminSkillResponse403
+  | postAdminSkillResponse409
+  | postAdminSkillResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillResponse = postAdminSkillResponseSuccess | postAdminSkillResponseError;
+
+export const getPostAdminSkillUrl = () => {
+  return `/admin/skills`;
+};
+
+export const postAdminSkill = async (
+  adminSkillUpsertRequest: AdminSkillUpsertRequest,
+  options?: RequestInit
+): Promise<postAdminSkillResponse> => {
+  return customFetch<postAdminSkillResponse>(getPostAdminSkillUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminSkillUpsertRequest)
+  });
+};
+
+/**
+ * @summary Read one admin-managed Skill with documents
+ */
+export type getAdminSkillResponse200 = {
+  data: GetAdminSkillResponse;
+  status: 200;
+};
+
+export type getAdminSkillResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSkillResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSkillResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSkillResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminSkillResponseSuccess = getAdminSkillResponse200 & {
+  headers: Headers;
+};
+export type getAdminSkillResponseError = (
+  | getAdminSkillResponse401
+  | getAdminSkillResponse403
+  | getAdminSkillResponse404
+  | getAdminSkillResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminSkillResponse = getAdminSkillResponseSuccess | getAdminSkillResponseError;
+
+export const getGetAdminSkillUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}`;
+};
+
+export const getAdminSkill = async (
+  skillId: string,
+  options?: RequestInit
+): Promise<getAdminSkillResponse> => {
+  return customFetch<getAdminSkillResponse>(getGetAdminSkillUrl(skillId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update one admin-managed Skill
+ */
+export type patchAdminSkillResponse200 = {
+  data: GetAdminSkillResponse;
+  status: 200;
+};
+
+export type patchAdminSkillResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminSkillResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchAdminSkillResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchAdminSkillResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminSkillResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAdminSkillResponseSuccess = patchAdminSkillResponse200 & {
+  headers: Headers;
+};
+export type patchAdminSkillResponseError = (
+  | patchAdminSkillResponse400
+  | patchAdminSkillResponse401
+  | patchAdminSkillResponse403
+  | patchAdminSkillResponse404
+  | patchAdminSkillResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchAdminSkillResponse = patchAdminSkillResponseSuccess | patchAdminSkillResponseError;
+
+export const getPatchAdminSkillUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}`;
+};
+
+export const patchAdminSkill = async (
+  skillId: string,
+  adminSkillUpsertRequest: AdminSkillUpsertRequest,
+  options?: RequestInit
+): Promise<patchAdminSkillResponse> => {
+  return customFetch<patchAdminSkillResponse>(getPatchAdminSkillUrl(skillId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminSkillUpsertRequest)
+  });
+};
+
+/**
+ * @summary Archive one admin-managed Skill
+ */
+export type deleteAdminSkillResponse200 = {
+  data: DeleteAdminSkillResponse;
+  status: 200;
+};
+
+export type deleteAdminSkillResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAdminSkillResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type deleteAdminSkillResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminSkillResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAdminSkillResponseSuccess = deleteAdminSkillResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminSkillResponseError = (
+  | deleteAdminSkillResponse401
+  | deleteAdminSkillResponse403
+  | deleteAdminSkillResponse404
+  | deleteAdminSkillResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAdminSkillResponse =
+  | deleteAdminSkillResponseSuccess
+  | deleteAdminSkillResponseError;
+
+export const getDeleteAdminSkillUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}`;
+};
+
+export const deleteAdminSkill = async (
+  skillId: string,
+  options?: RequestInit
+): Promise<deleteAdminSkillResponse> => {
+  return customFetch<deleteAdminSkillResponse>(getDeleteAdminSkillUrl(skillId), {
+    ...options,
+    method: "DELETE"
+  });
+};
+
+/**
+ * @summary Upload a document into one Skill knowledge base
+ */
+export type postAdminSkillDocumentUploadResponse200 = {
+  data: PostAdminSkillDocumentUploadResponse;
+  status: 200;
+};
+
+export type postAdminSkillDocumentUploadResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSkillDocumentUploadResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSkillDocumentUploadResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSkillDocumentUploadResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillDocumentUploadResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminSkillDocumentUploadResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSkillDocumentUploadResponseSuccess =
+  postAdminSkillDocumentUploadResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSkillDocumentUploadResponseError = (
+  | postAdminSkillDocumentUploadResponse400
+  | postAdminSkillDocumentUploadResponse401
+  | postAdminSkillDocumentUploadResponse403
+  | postAdminSkillDocumentUploadResponse404
+  | postAdminSkillDocumentUploadResponse409
+  | postAdminSkillDocumentUploadResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillDocumentUploadResponse =
+  | postAdminSkillDocumentUploadResponseSuccess
+  | postAdminSkillDocumentUploadResponseError;
+
+export const getPostAdminSkillDocumentUploadUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}/documents`;
+};
+
+export const postAdminSkillDocumentUpload = async (
+  skillId: string,
+  postAdminSkillDocumentUploadBody: PostAdminSkillDocumentUploadBody,
+  options?: RequestInit
+): Promise<postAdminSkillDocumentUploadResponse> => {
+  const formData = new FormData();
+  if (
+    postAdminSkillDocumentUploadBody.displayName !== undefined &&
+    postAdminSkillDocumentUploadBody.displayName !== null
+  ) {
+    formData.append(`displayName`, postAdminSkillDocumentUploadBody.displayName);
+  }
+  if (
+    postAdminSkillDocumentUploadBody.description !== undefined &&
+    postAdminSkillDocumentUploadBody.description !== null
+  ) {
+    formData.append(`description`, postAdminSkillDocumentUploadBody.description);
+  }
+  formData.append(`file`, postAdminSkillDocumentUploadBody.file);
+
+  return customFetch<postAdminSkillDocumentUploadResponse>(
+    getPostAdminSkillDocumentUploadUrl(skillId),
+    {
+      ...options,
+      method: "POST",
+      body: formData
+    }
+  );
+};
+
+/**
+ * @summary Delete one Skill document
+ */
+export type deleteAdminSkillDocumentResponse200 = {
+  data: DeleteAdminSkillDocumentResponse;
+  status: 200;
+};
+
+export type deleteAdminSkillDocumentResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAdminSkillDocumentResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type deleteAdminSkillDocumentResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminSkillDocumentResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAdminSkillDocumentResponseSuccess = deleteAdminSkillDocumentResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminSkillDocumentResponseError = (
+  | deleteAdminSkillDocumentResponse401
+  | deleteAdminSkillDocumentResponse403
+  | deleteAdminSkillDocumentResponse404
+  | deleteAdminSkillDocumentResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAdminSkillDocumentResponse =
+  | deleteAdminSkillDocumentResponseSuccess
+  | deleteAdminSkillDocumentResponseError;
+
+export const getDeleteAdminSkillDocumentUrl = (skillId: string, documentId: string) => {
+  return `/admin/skills/${skillId}/documents/${documentId}`;
+};
+
+export const deleteAdminSkillDocument = async (
+  skillId: string,
+  documentId: string,
+  options?: RequestInit
+): Promise<deleteAdminSkillDocumentResponse> => {
+  return customFetch<deleteAdminSkillDocumentResponse>(
+    getDeleteAdminSkillDocumentUrl(skillId, documentId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Enqueue reindexing for one Skill document
+ */
+export type postAdminSkillDocumentReindexResponse200 = {
+  data: PostAdminSkillDocumentReindexResponse;
+  status: 200;
+};
+
+export type postAdminSkillDocumentReindexResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSkillDocumentReindexResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSkillDocumentReindexResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillDocumentReindexResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminSkillDocumentReindexResponseSuccess =
+  postAdminSkillDocumentReindexResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSkillDocumentReindexResponseError = (
+  | postAdminSkillDocumentReindexResponse401
+  | postAdminSkillDocumentReindexResponse403
+  | postAdminSkillDocumentReindexResponse404
+  | postAdminSkillDocumentReindexResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillDocumentReindexResponse =
+  | postAdminSkillDocumentReindexResponseSuccess
+  | postAdminSkillDocumentReindexResponseError;
+
+export const getPostAdminSkillDocumentReindexUrl = (skillId: string, documentId: string) => {
+  return `/admin/skills/${skillId}/documents/${documentId}/reindex`;
+};
+
+export const postAdminSkillDocumentReindex = async (
+  skillId: string,
+  documentId: string,
+  options?: RequestInit
+): Promise<postAdminSkillDocumentReindexResponse> => {
+  return customFetch<postAdminSkillDocumentReindexResponse>(
+    getPostAdminSkillDocumentReindexUrl(skillId, documentId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary List Skills available to and assigned for the current assistant
+ */
+export type getAssistantSkillsResponse200 = {
+  data: GetAssistantSkillsResponse;
+  status: 200;
+};
+
+export type getAssistantSkillsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantSkillsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantSkillsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantSkillsResponseSuccess = getAssistantSkillsResponse200 & {
+  headers: Headers;
+};
+export type getAssistantSkillsResponseError = (
+  | getAssistantSkillsResponse401
+  | getAssistantSkillsResponse404
+  | getAssistantSkillsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantSkillsResponse =
+  | getAssistantSkillsResponseSuccess
+  | getAssistantSkillsResponseError;
+
+export const getGetAssistantSkillsUrl = () => {
+  return `/assistant/skills`;
+};
+
+export const getAssistantSkills = async (
+  options?: RequestInit
+): Promise<getAssistantSkillsResponse> => {
+  return customFetch<getAssistantSkillsResponse>(getGetAssistantSkillsUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Replace user-controlled Skill assignments for the current assistant
+ */
+export type putAssistantSkillAssignmentsResponse200 = {
+  data: GetAssistantSkillsResponse;
+  status: 200;
+};
+
+export type putAssistantSkillAssignmentsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAssistantSkillAssignmentsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAssistantSkillAssignmentsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type putAssistantSkillAssignmentsResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type putAssistantSkillAssignmentsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAssistantSkillAssignmentsResponseSuccess =
+  putAssistantSkillAssignmentsResponse200 & {
+    headers: Headers;
+  };
+export type putAssistantSkillAssignmentsResponseError = (
+  | putAssistantSkillAssignmentsResponse400
+  | putAssistantSkillAssignmentsResponse401
+  | putAssistantSkillAssignmentsResponse404
+  | putAssistantSkillAssignmentsResponse409
+  | putAssistantSkillAssignmentsResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAssistantSkillAssignmentsResponse =
+  | putAssistantSkillAssignmentsResponseSuccess
+  | putAssistantSkillAssignmentsResponseError;
+
+export const getPutAssistantSkillAssignmentsUrl = () => {
+  return `/assistant/skills`;
+};
+
+export const putAssistantSkillAssignments = async (
+  putAssistantSkillAssignmentsRequest: PutAssistantSkillAssignmentsRequest,
+  options?: RequestInit
+): Promise<putAssistantSkillAssignmentsResponse> => {
+  return customFetch<putAssistantSkillAssignmentsResponse>(getPutAssistantSkillAssignmentsUrl(), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(putAssistantSkillAssignmentsRequest)
+  });
+};
+
+/**
+ * @summary List recent knowledge indexing jobs for admin observability
+ */
+export type getAdminKnowledgeIndexingJobsResponse200 = {
+  data: GetKnowledgeIndexingJobsResponse;
+  status: 200;
+};
+
+export type getAdminKnowledgeIndexingJobsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminKnowledgeIndexingJobsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminKnowledgeIndexingJobsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminKnowledgeIndexingJobsResponseSuccess =
+  getAdminKnowledgeIndexingJobsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminKnowledgeIndexingJobsResponseError = (
+  | getAdminKnowledgeIndexingJobsResponse401
+  | getAdminKnowledgeIndexingJobsResponse403
+  | getAdminKnowledgeIndexingJobsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminKnowledgeIndexingJobsResponse =
+  | getAdminKnowledgeIndexingJobsResponseSuccess
+  | getAdminKnowledgeIndexingJobsResponseError;
+
+export const getGetAdminKnowledgeIndexingJobsUrl = (
+  params?: GetAdminKnowledgeIndexingJobsParams
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/knowledge-indexing/jobs?${stringifiedParams}`
+    : `/admin/knowledge-indexing/jobs`;
+};
+
+export const getAdminKnowledgeIndexingJobs = async (
+  params?: GetAdminKnowledgeIndexingJobsParams,
+  options?: RequestInit
+): Promise<getAdminKnowledgeIndexingJobsResponse> => {
+  return customFetch<getAdminKnowledgeIndexingJobsResponse>(
+    getGetAdminKnowledgeIndexingJobsUrl(params),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary List recent user-visible assistant knowledge indexing jobs
+ */
+export type getAssistantKnowledgeIndexingJobsResponse200 = {
+  data: GetKnowledgeIndexingJobsResponse;
+  status: 200;
+};
+
+export type getAssistantKnowledgeIndexingJobsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantKnowledgeIndexingJobsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantKnowledgeIndexingJobsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantKnowledgeIndexingJobsResponseSuccess =
+  getAssistantKnowledgeIndexingJobsResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantKnowledgeIndexingJobsResponseError = (
+  | getAssistantKnowledgeIndexingJobsResponse401
+  | getAssistantKnowledgeIndexingJobsResponse404
+  | getAssistantKnowledgeIndexingJobsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantKnowledgeIndexingJobsResponse =
+  | getAssistantKnowledgeIndexingJobsResponseSuccess
+  | getAssistantKnowledgeIndexingJobsResponseError;
+
+export const getGetAssistantKnowledgeIndexingJobsUrl = () => {
+  return `/assistant/knowledge-indexing/jobs`;
+};
+
+export const getAssistantKnowledgeIndexingJobs = async (
+  options?: RequestInit
+): Promise<getAssistantKnowledgeIndexingJobsResponse> => {
+  return customFetch<getAssistantKnowledgeIndexingJobsResponse>(
+    getGetAssistantKnowledgeIndexingJobsUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Read document-processing provider policy and key status
+ */
+export type getAdminDocumentProcessingSettingsResponse200 = {
+  data: GetAdminDocumentProcessingSettingsResponse;
+  status: 200;
+};
+
+export type getAdminDocumentProcessingSettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminDocumentProcessingSettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminDocumentProcessingSettingsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminDocumentProcessingSettingsResponseSuccess =
+  getAdminDocumentProcessingSettingsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminDocumentProcessingSettingsResponseError = (
+  | getAdminDocumentProcessingSettingsResponse401
+  | getAdminDocumentProcessingSettingsResponse403
+  | getAdminDocumentProcessingSettingsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminDocumentProcessingSettingsResponse =
+  | getAdminDocumentProcessingSettingsResponseSuccess
+  | getAdminDocumentProcessingSettingsResponseError;
+
+export const getGetAdminDocumentProcessingSettingsUrl = () => {
+  return `/admin/tools/document-processing`;
+};
+
+export const getAdminDocumentProcessingSettings = async (
+  options?: RequestInit
+): Promise<getAdminDocumentProcessingSettingsResponse> => {
+  return customFetch<getAdminDocumentProcessingSettingsResponse>(
+    getGetAdminDocumentProcessingSettingsUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update document-processing provider policy and keys
+ */
+export type putAdminDocumentProcessingSettingsResponse200 = {
+  data: PutAdminDocumentProcessingSettingsResponse;
+  status: 200;
+};
+
+export type putAdminDocumentProcessingSettingsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminDocumentProcessingSettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminDocumentProcessingSettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminDocumentProcessingSettingsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminDocumentProcessingSettingsResponseSuccess =
+  putAdminDocumentProcessingSettingsResponse200 & {
+    headers: Headers;
+  };
+export type putAdminDocumentProcessingSettingsResponseError = (
+  | putAdminDocumentProcessingSettingsResponse400
+  | putAdminDocumentProcessingSettingsResponse401
+  | putAdminDocumentProcessingSettingsResponse403
+  | putAdminDocumentProcessingSettingsResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminDocumentProcessingSettingsResponse =
+  | putAdminDocumentProcessingSettingsResponseSuccess
+  | putAdminDocumentProcessingSettingsResponseError;
+
+export const getPutAdminDocumentProcessingSettingsUrl = () => {
+  return `/admin/tools/document-processing`;
+};
+
+export const putAdminDocumentProcessingSettings = async (
+  adminDocumentProcessingSettingsRequest: AdminDocumentProcessingSettingsRequest,
+  options?: RequestInit
+): Promise<putAdminDocumentProcessingSettingsResponse> => {
+  return customFetch<putAdminDocumentProcessingSettingsResponse>(
+    getPutAdminDocumentProcessingSettingsUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminDocumentProcessingSettingsRequest)
+    }
+  );
+};
+
+/**
+ * @summary Test one document-processing provider connection
+ */
+export type postAdminDocumentProcessingTestConnectionResponse200 = {
+  data: PostAdminDocumentProcessingTestConnectionResponse;
+  status: 200;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponseSuccess =
+  postAdminDocumentProcessingTestConnectionResponse200 & {
+    headers: Headers;
+  };
+export type postAdminDocumentProcessingTestConnectionResponseError = (
+  | postAdminDocumentProcessingTestConnectionResponse400
+  | postAdminDocumentProcessingTestConnectionResponse401
+  | postAdminDocumentProcessingTestConnectionResponse403
+  | postAdminDocumentProcessingTestConnectionResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminDocumentProcessingTestConnectionResponse =
+  | postAdminDocumentProcessingTestConnectionResponseSuccess
+  | postAdminDocumentProcessingTestConnectionResponseError;
+
+export const getPostAdminDocumentProcessingTestConnectionUrl = () => {
+  return `/admin/tools/document-processing/test-connection`;
+};
+
+export const postAdminDocumentProcessingTestConnection = async (
+  adminDocumentProcessingTestConnectionRequest: AdminDocumentProcessingTestConnectionRequest,
+  options?: RequestInit
+): Promise<postAdminDocumentProcessingTestConnectionResponse> => {
+  return customFetch<postAdminDocumentProcessingTestConnectionResponse>(
+    getPostAdminDocumentProcessingTestConnectionUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminDocumentProcessingTestConnectionRequest)
     }
   );
 };

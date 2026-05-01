@@ -185,11 +185,52 @@ enum AssistantKnowledgeSourceStatus {
   processing
   ready
   failed
+  needs_review
 }
 
 enum GlobalKnowledgeSourceScope {
   product
-  skill
+}
+
+enum SkillStatus {
+  draft
+  active
+  archived
+}
+
+enum AssistantSkillAssignmentStatus {
+  active
+  disabled
+  archived
+  plan_disabled
+}
+
+enum KnowledgeIndexingJobSourceType {
+  assistant_knowledge_source
+  global_knowledge_source
+  skill_document
+}
+
+enum KnowledgeIndexingJobStatus {
+  pending
+  in_progress
+  completed
+  failed
+  needs_review
+  cancelled
+}
+
+enum KnowledgeIndexingJobProcessorMode {
+  auto
+  local
+  default_provider
+  high_quality_fallback
+}
+
+enum KnowledgeVectorSourceType {
+  assistant_knowledge_source
+  global_knowledge_source
+  skill_document
 }
 
 enum KnowledgeRetrievalEventKind {
@@ -200,10 +241,13 @@ enum KnowledgeRetrievalEventKind {
 enum KnowledgeRetrievalEventSource {
   document
   global
+  product
+  skill
   memory
   chat
   preset
   subscription
+  web
 }
 
 enum KnowledgeRetrievalMode {
@@ -364,6 +408,10 @@ model AppUser {
   platformRolloutItems                   AssistantPlatformRolloutItem[]
   abuseGuardStates                       AssistantAbuseGuardState[]
   createdGlobalKnowledgeSources          GlobalKnowledgeSource[]
+  createdSkills                          Skill[]                             @relation("SkillCreatedByUser")
+  updatedSkills                          Skill[]                             @relation("SkillUpdatedByUser")
+  createdSkillDocuments                  SkillDocument[]                     @relation("SkillDocumentCreatedByUser")
+  requestedKnowledgeIndexingJobs         KnowledgeIndexingJob[]              @relation("KnowledgeIndexingJobRequestedByUser")
   updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
   updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
   updatedWorkspaceNotificationPolicies   WorkspaceNotificationPolicy[]       @relation("WorkspaceNotificationPolicyUpdatedByUser")
@@ -396,6 +444,12 @@ model Workspace {
   knowledgeSourceChunks             AssistantKnowledgeSourceChunk[]
   globalKnowledgeSources            GlobalKnowledgeSource[]
   globalKnowledgeSourceChunks       GlobalKnowledgeSourceChunk[]
+  skills                            Skill[]
+  skillDocuments                    SkillDocument[]
+  skillDocumentChunks               SkillDocumentChunk[]
+  assistantSkillAssignments         AssistantSkillAssignment[]
+  knowledgeIndexingJobs             KnowledgeIndexingJob[]
+  knowledgeVectorChunks             KnowledgeVectorChunk[]
   knowledgeRetrievalEvents          KnowledgeRetrievalEvent[]
   knowledgeRetrievalRollups         KnowledgeRetrievalRollup[]
   runtimeBundleStates               RuntimeBundleState[]
@@ -429,6 +483,7 @@ model WorkspaceMember {
   assistantBackgroundTaskRuns  AssistantBackgroundTaskRun[]
   assistantNotificationOutbox  AssistantNotificationOutbox[]
   assistantKnowledgeSources    AssistantKnowledgeSource[]
+  assistantSkillAssignments    AssistantSkillAssignment[]
   abuseGuardStates             AssistantAbuseGuardState[]
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -486,6 +541,9 @@ model Assistant {
   notificationOutboxItems              AssistantNotificationOutbox[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
+  skillAssignments                     AssistantSkillAssignment[]
+  knowledgeIndexingJobs                KnowledgeIndexingJob[]
+  knowledgeVectorChunks                KnowledgeVectorChunk[]
   channelSurfaceBindings               AssistantChannelSurfaceBinding[]
   auditEvents                          AssistantAuditEvent[]
   platformRolloutItems                 AssistantPlatformRolloutItem[]
@@ -671,6 +729,7 @@ model PlatformRuntimeProviderSettings {
   routerPolicy                    Json                            @default("{}") @map("router_policy") @db.JsonB
   availableModelsByProvider       Json                            @map("available_models_by_provider") @db.JsonB
   availableModelCatalogByProvider Json                            @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
+  documentProcessingPolicy        Json                            @default("{}") @map("document_processing_policy") @db.JsonB
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1526,6 +1585,9 @@ model AssistantKnowledgeSource {
   status                 AssistantKnowledgeSourceStatus
   currentVersion         Int                               @default(1) @map("current_version")
   chunkCount             Int                               @default(0) @map("chunk_count")
+  processorProviderKey   String?                           @map("processor_provider_key") @db.VarChar(64)
+  processorMode          KnowledgeIndexingJobProcessorMode? @map("processor_mode")
+  processingQuality      Json?                             @map("processing_quality") @db.JsonB
   lastIndexedAt          DateTime?                         @map("last_indexed_at") @db.Timestamptz(6)
   lastReindexRequestedAt DateTime?                         @map("last_reindex_requested_at") @db.Timestamptz(6)
   lastErrorCode          String?                           @map("last_error_code") @db.VarChar(64)
@@ -1579,6 +1641,9 @@ model GlobalKnowledgeSource {
   status                 AssistantKnowledgeSourceStatus
   currentVersion         Int                            @default(1) @map("current_version")
   chunkCount             Int                            @default(0) @map("chunk_count")
+  processorProviderKey   String?                        @map("processor_provider_key") @db.VarChar(64)
+  processorMode          KnowledgeIndexingJobProcessorMode? @map("processor_mode")
+  processingQuality      Json?                          @map("processing_quality") @db.JsonB
   lastIndexedAt          DateTime?                      @map("last_indexed_at") @db.Timestamptz(6)
   lastReindexRequestedAt DateTime?                      @map("last_reindex_requested_at") @db.Timestamptz(6)
   lastErrorCode          String?                        @map("last_error_code") @db.VarChar(64)
@@ -1616,6 +1681,186 @@ model GlobalKnowledgeSourceChunk {
   @@index([scope, createdAt(sort: Desc)])
   @@index([workspaceId, scope, createdAt(sort: Desc)])
   @@map("global_knowledge_source_chunks")
+}
+
+model Skill {
+  id              String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String                     @map("workspace_id") @db.Uuid
+  createdByUserId String                     @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?                    @map("updated_by_user_id") @db.Uuid
+  status          SkillStatus                @default(draft)
+  name            Json                       @db.JsonB
+  description     Json                       @db.JsonB
+  category        String                     @db.VarChar(64)
+  tags            Json                       @default("[]") @db.JsonB
+  instructionCard Json                       @map("instruction_card") @db.JsonB
+  iconEmoji       String?                    @map("icon_emoji") @db.VarChar(16)
+  color           String?                    @db.VarChar(32)
+  displayOrder    Int                        @default(100) @map("display_order")
+  archivedAt      DateTime?                  @map("archived_at") @db.Timestamptz(6)
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser   AppUser                    @relation("SkillCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updatedByUser   AppUser?                   @relation("SkillUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  documents       SkillDocument[]
+  documentChunks  SkillDocumentChunk[]
+  assignments     AssistantSkillAssignment[]
+  indexingJobs    KnowledgeIndexingJob[]
+  vectorChunks    KnowledgeVectorChunk[]
+
+  @@index([workspaceId, status, displayOrder])
+  @@index([workspaceId, category, status])
+  @@index([createdByUserId, createdAt(sort: Desc)])
+  @@map("skills")
+}
+
+model SkillDocument {
+  id                     String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  skillId                String                             @map("skill_id") @db.Uuid
+  workspaceId            String                             @map("workspace_id") @db.Uuid
+  createdByUserId        String                             @map("created_by_user_id") @db.Uuid
+  displayName            String?                            @map("display_name") @db.VarChar(255)
+  description            String?                            @db.Text
+  originalFilename       String                             @map("original_filename") @db.VarChar(255)
+  mimeType               String                             @map("mime_type") @db.VarChar(255)
+  sizeBytes              BigInt                             @map("size_bytes")
+  storagePath            String                             @map("storage_path")
+  status                 AssistantKnowledgeSourceStatus     @default(processing)
+  currentVersion         Int                                @default(1) @map("current_version")
+  chunkCount             Int                                @default(0) @map("chunk_count")
+  processorProviderKey   String?                            @map("processor_provider_key") @db.VarChar(64)
+  processorMode          KnowledgeIndexingJobProcessorMode? @map("processor_mode")
+  processingQuality      Json?                              @map("processing_quality") @db.JsonB
+  lastIndexedAt          DateTime?                          @map("last_indexed_at") @db.Timestamptz(6)
+  lastReindexRequestedAt DateTime?                          @map("last_reindex_requested_at") @db.Timestamptz(6)
+  lastErrorCode          String?                            @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage       String?                            @map("last_error_message") @db.Text
+  createdAt              DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  skill                  Skill                              @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace              Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  createdByUser          AppUser                            @relation("SkillDocumentCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chunks                 SkillDocumentChunk[]
+
+  @@index([skillId, status, createdAt(sort: Desc)])
+  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@index([createdByUserId, createdAt(sort: Desc)])
+  @@map("skill_documents")
+}
+
+model SkillDocumentChunk {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  skillDocumentId      String        @map("skill_document_id") @db.Uuid
+  skillId              String        @map("skill_id") @db.Uuid
+  workspaceId          String        @map("workspace_id") @db.Uuid
+  sourceVersion        Int           @map("source_version")
+  chunkIndex           Int           @map("chunk_index")
+  locator              String?       @db.Text
+  content              String        @db.Text
+  embeddingModelKey    String?       @map("embedding_model_key") @db.VarChar(255)
+  embeddingGeneratedAt DateTime?     @map("embedding_generated_at") @db.Timestamptz(6)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  skillDocument        SkillDocument @relation(fields: [skillDocumentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  skill                Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  workspace            Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([skillDocumentId, sourceVersion, chunkIndex])
+  @@index([skillId, createdAt(sort: Desc)])
+  @@index([workspaceId, skillId, createdAt(sort: Desc)])
+  @@map("skill_document_chunks")
+}
+
+model AssistantSkillAssignment {
+  id              String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId     String                         @map("assistant_id") @db.Uuid
+  userId          String                         @map("user_id") @db.Uuid
+  workspaceId     String                         @map("workspace_id") @db.Uuid
+  skillId         String                         @map("skill_id") @db.Uuid
+  status          AssistantSkillAssignmentStatus @default(active)
+  disabledReason  String?                        @map("disabled_reason") @db.VarChar(128)
+  enabledAt       DateTime?                      @map("enabled_at") @db.Timestamptz(6)
+  disabledAt      DateTime?                      @map("disabled_at") @db.Timestamptz(6)
+  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant       Assistant                      @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Cascade, onUpdate: Cascade)
+  workspaceMember WorkspaceMember                @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
+  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skill           Skill                          @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([assistantId, skillId])
+  @@index([assistantId, status, updatedAt(sort: Desc)])
+  @@index([workspaceId, skillId, status])
+  @@map("assistant_skill_assignments")
+}
+
+model KnowledgeIndexingJob {
+  id                      String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId             String                            @map("workspace_id") @db.Uuid
+  assistantId             String?                           @map("assistant_id") @db.Uuid
+  skillId                 String?                           @map("skill_id") @db.Uuid
+  requestedByUserId       String?                           @map("requested_by_user_id") @db.Uuid
+  sourceType              KnowledgeIndexingJobSourceType    @map("source_type")
+  sourceId                String                            @map("source_id") @db.Uuid
+  sourceVersion           Int                               @default(1) @map("source_version")
+  status                  KnowledgeIndexingJobStatus        @default(pending)
+  processorMode           KnowledgeIndexingJobProcessorMode @default(auto) @map("processor_mode")
+  selectedProviderKey     String?                           @map("selected_provider_key") @db.VarChar(64)
+  fallbackProviderKey     String?                           @map("fallback_provider_key") @db.VarChar(64)
+  priority                Int                               @default(100)
+  pendingDedupeKey        String?                           @unique @map("pending_dedupe_key") @db.VarChar(256)
+  attemptCount            Int                               @default(0) @map("attempt_count")
+  maxAttempts             Int                               @default(3) @map("max_attempts")
+  retryAfterAt            DateTime?                         @map("retry_after_at") @db.Timestamptz(6)
+  schedulerClaimToken     String?                           @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimEpoch     Int?                              @map("scheduler_claim_epoch")
+  schedulerClaimedAt      DateTime?                         @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime?                         @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  extractionQuality       Json?                             @map("extraction_quality") @db.JsonB
+  resultPayload           Json?                             @map("result_payload") @db.JsonB
+  lastErrorCode           String?                           @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage        String?                           @map("last_error_message") @db.Text
+  startedAt               DateTime?                         @map("started_at") @db.Timestamptz(6)
+  completedAt             DateTime?                         @map("completed_at") @db.Timestamptz(6)
+  createdAt               DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant               Assistant?                        @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  skill                   Skill?                            @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  requestedByUser         AppUser?                          @relation("KnowledgeIndexingJobRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([status, retryAfterAt, priority, createdAt])
+  @@index([sourceType, sourceId, createdAt(sort: Desc)])
+  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@index([assistantId, status, createdAt(sort: Desc)])
+  @@index([skillId, status, createdAt(sort: Desc)])
+  @@map("knowledge_indexing_jobs")
+}
+
+model KnowledgeVectorChunk {
+  id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId       String                    @map("workspace_id") @db.Uuid
+  assistantId       String?                   @map("assistant_id") @db.Uuid
+  skillId           String?                   @map("skill_id") @db.Uuid
+  sourceType        KnowledgeVectorSourceType @map("source_type")
+  sourceId          String                    @map("source_id") @db.Uuid
+  chunkId           String?                   @map("chunk_id") @db.Uuid
+  sourceVersion     Int                       @map("source_version")
+  chunkIndex        Int                       @map("chunk_index")
+  embeddingModelKey String                    @map("embedding_model_key") @db.VarChar(255)
+  embeddingVector   Unsupported("vector")     @map("embedding_vector")
+  metadata          Json?                     @db.JsonB
+  createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistant         Assistant?                @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  skill             Skill?                    @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([sourceType, sourceId, sourceVersion, chunkIndex, embeddingModelKey])
+  @@index([workspaceId, sourceType, embeddingModelKey])
+  @@index([assistantId, sourceType, embeddingModelKey])
+  @@index([skillId, embeddingModelKey])
+  @@map("knowledge_vector_chunks")
 }
 
 model KnowledgeRetrievalEvent {

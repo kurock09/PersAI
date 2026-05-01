@@ -47,6 +47,8 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 
 {{identity_block}}
 
+{{enabled_skills_block}}
+
 # Response UI Contract
 
 Write assistant replies so the web chat can render them as polished product blocks, not raw markdown logs.
@@ -111,6 +113,8 @@ Greet on birthdays. Respect timezone for scheduling.`,
 {{assistant_avatar_emoji_line}}
 {{assistant_avatar_url_line}}`,
 
+  enabled_skills: `{{skill_cards_block}}`,
+
   agents: `# Memory and Task Governance
 
 ## Memory Policy
@@ -162,6 +166,8 @@ Choose the cheapest execution mode that should still preserve answer quality.
 - \`reasoning\` for debugging, architecture, contracts, trade-offs, science, multi-step analysis, and higher-stakes correctness.
 
 Set \`retrievalHint=true\` when the system should likely retrieve assistant knowledge or prior stored facts before answering.
+Use \`retrievalPlan\` to choose whether enabled Skills, user knowledge, Product knowledge, or web grounding should be considered by the later retrieval layer.
+Select only Skill ids from the provided enabled Skills summary, normally 1-3. Do not infer Skills from keywords alone.
 Set \`toolHints\` only as hints when browser, web, knowledge, or media tools are likely needed.
 Do not execute tools. Do not answer the user. Return only the requested structured result.`,
 

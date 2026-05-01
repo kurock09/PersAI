@@ -60,4 +60,20 @@ describe("ActivityBadge", () => {
     expect(screen.getByText("activityFilesDone")).toBeInTheDocument();
     expect(screen.queryByText("files_finished")).toBeNull();
   });
+
+  it("humanizes retrieval activity labels", () => {
+    render(
+      <ActivityBadge
+        event={{
+          id: "activity-4",
+          type: "info",
+          label: "retrieval_skill_started",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getByText("activityRetrievalSkillStart")).toBeInTheDocument();
+    expect(screen.queryByText("retrieval_skill_started")).toBeNull();
+  });
 });

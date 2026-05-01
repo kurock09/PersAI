@@ -233,6 +233,14 @@ export class StreamNativeWebChatTurnService {
               }
             }
             continue;
+          case "retrieval_activity":
+            yield {
+              type: "activity",
+              activitySource: event.source,
+              activityPhase: event.phase,
+              activityResultCount: event.resultCount
+            };
+            continue;
           case "interrupted": {
             for await (const chunk of yieldArtifacts(event.artifacts ?? [])) {
               yield chunk;
@@ -458,6 +466,20 @@ export class StreamNativeWebChatTurnService {
           typeof row.requestId === "string" &&
           typeof row.sessionId === "string" &&
           this.asObject(row.artifact) !== null
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "retrieval_activity":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          (row.source === "skill" ||
+            row.source === "user" ||
+            row.source === "product" ||
+            row.source === "web") &&
+          row.phase === "start" &&
+          typeof row.resultCount === "number"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

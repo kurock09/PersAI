@@ -324,6 +324,48 @@ export interface RuntimeUsageAccounting {
   entries: RuntimeUsageAccountingEntry[];
 }
 
+export interface RuntimeRetrievalPlan {
+  useSkills: boolean;
+  selectedSkillIds: string[];
+  useUserKnowledge: boolean;
+  useProductKnowledge: boolean;
+  useWeb: boolean;
+  confidence: "low" | "medium" | "high";
+  reasonCode: string;
+}
+
+export type RuntimeRetrievedKnowledgeSourceLabel =
+  | "skill_reference"
+  | "user_document"
+  | "product_reference"
+  | "web_reference";
+
+export interface RuntimeRetrievedKnowledgeContextItem {
+  label: RuntimeRetrievedKnowledgeSourceLabel;
+  referenceId: string;
+  title: string | null;
+  locator: string | null;
+  content: string;
+  score: number | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface RuntimeRetrievedKnowledgeContext {
+  items: RuntimeRetrievedKnowledgeContextItem[];
+  renderedBlock: string | null;
+}
+
+export type RuntimeRetrievalActivitySource = "skill" | "user" | "product" | "web";
+
+export interface RuntimeRetrievalActivityEvent {
+  type: "retrieval_activity";
+  requestId: string;
+  sessionId: string;
+  source: RuntimeRetrievalActivitySource;
+  phase: "start";
+  resultCount: number;
+}
+
 export interface RuntimeToolPolicy {
   toolCode: string;
   displayName: string;
@@ -1484,6 +1526,7 @@ export interface RuntimeTurnRoutingSnapshot {
   mode: "shadow" | "active";
   executionMode: "normal" | "premium" | "reasoning";
   source: "precheck" | "llm" | "fallback";
+  retrievalPlan?: RuntimeRetrievalPlan;
 }
 
 export interface RuntimeTurnToolInvocation {
@@ -1975,6 +2018,7 @@ export type RuntimeTurnStreamEvent =
   | RuntimeStreamStartedEvent
   | RuntimeTextDeltaEvent
   | RuntimeArtifactEvent
+  | RuntimeRetrievalActivityEvent
   | RuntimeToolStartedEvent
   | RuntimeToolFinishedEvent
   | RuntimeCompletedEvent

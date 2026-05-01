@@ -68,6 +68,11 @@ import {
   CompilePromptConstructorService,
   type PromptTemplateMap
 } from "./compile-prompt-constructor.service";
+import {
+  resolveEnabledSkillPromptCards,
+  type EnabledSkillPromptCandidate,
+  type EnabledSkillPromptInstructionCard
+} from "./enabled-skills-prompt-materialization";
 import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
 import {
   modulateVoiceDna,
@@ -563,10 +568,16 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersion,
       userContext.locale
     );
+    const enabledSkillCards = await this.resolveEnabledSkillPromptCards({
+      assistant,
+      effectivePlanCode,
+      locale: userContext.locale
+    });
     const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
       userContext,
       toolPolicies,
+      enabledSkillCards,
       promptTemplates,
       voiceDna
     });
@@ -574,6 +585,7 @@ export class MaterializeAssistantPublishedVersionService {
       soulDocument: compiledPromptConstructor.promptDocuments.soul,
       userDocument: compiledPromptConstructor.promptDocuments.user,
       identityDocument: compiledPromptConstructor.promptDocuments.identity,
+      enabledSkillsDocument: compiledPromptConstructor.promptDocuments.enabledSkills ?? "",
       toolsDocument: compiledPromptConstructor.promptDocuments.tools,
       agentsDocument: compiledPromptConstructor.promptDocuments.agents,
       heartbeatDocument: compiledPromptConstructor.promptDocuments.heartbeat,
@@ -684,10 +696,20 @@ export class MaterializeAssistantPublishedVersionService {
           ownerTelegramChatId: telegramChannel.ownerTelegramChatId
         }
       },
+      skills: {
+        enabled: enabledSkillCards.map((card) => ({
+          id: card.id,
+          name: card.name,
+          description: card.description,
+          category: card.category,
+          tags: card.tags.slice(0, 2)
+        }))
+      },
       promptDocuments: {
         soul: onboardingDocuments.soulDocument,
         user: onboardingDocuments.userDocument,
         identity: onboardingDocuments.identityDocument,
+        enabledSkills: onboardingDocuments.enabledSkillsDocument,
         tools: onboardingDocuments.toolsDocument,
         agents: onboardingDocuments.agentsDocument,
         heartbeat: onboardingDocuments.heartbeatDocument,
@@ -1153,6 +1175,68 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
+  private async resolveEnabledSkillPromptCards(params: {
+    assistant: Assistant;
+    effectivePlanCode: string | null;
+    locale: string;
+  }) {
+    const [assignments, limit] = await Promise.all([
+      this.prisma.assistantSkillAssignment.findMany({
+        where: {
+          assistantId: params.assistant.id,
+          userId: params.assistant.userId,
+          status: "active",
+          skill: {
+            workspaceId: params.assistant.workspaceId,
+            status: "active"
+          }
+        },
+        include: {
+          skill: true
+        }
+      }),
+      this.resolveEnabledSkillLimitForPlan(params.effectivePlanCode)
+    ]);
+    const candidates: EnabledSkillPromptCandidate[] = assignments.map((assignment) => ({
+      id: assignment.skill.id,
+      name: normalizeStringRecord(assignment.skill.name),
+      description: normalizeStringRecord(assignment.skill.description),
+      category: assignment.skill.category,
+      tags: normalizeStringArray(assignment.skill.tags),
+      displayOrder: assignment.skill.displayOrder,
+      status: assignment.skill.status,
+      instructionCard: normalizeInstructionCard(assignment.skill.instructionCard),
+      assignmentStatus: assignment.status,
+      assignmentEnabledAt: assignment.enabledAt
+    }));
+    return resolveEnabledSkillPromptCards({
+      candidates,
+      locale: params.locale,
+      limit
+    });
+  }
+
+  private async resolveEnabledSkillLimitForPlan(planCode: string | null): Promise<number | null> {
+    if (planCode === null) {
+      return null;
+    }
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
+      select: {
+        billingProviderHints: true,
+        entitlement: {
+          select: {
+            limitsPermissions: true
+          }
+        }
+      }
+    });
+    return (
+      readEnabledSkillLimitFromBillingHints(plan?.billingProviderHints ?? null) ??
+      readEnabledSkillLimitFromLimitsPermissions(plan?.entitlement?.limitsPermissions ?? null)
+    );
+  }
+
   private async resolveUserContext(
     userId: string,
     workspaceId: string
@@ -1243,6 +1327,7 @@ export class MaterializeAssistantPublishedVersionService {
       soul: null,
       user: null,
       identity: null,
+      enabled_skills: null,
       agents: null,
       tools: null,
       heartbeat: null,
@@ -1395,4 +1480,74 @@ export class MaterializeAssistantPublishedVersionService {
       auditHook: governance.auditHook
     };
   }
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof text === "string") {
+      result[key.toLowerCase()] = text;
+    }
+  }
+  return result;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function normalizeInstructionCard(value: unknown): EnabledSkillPromptInstructionCard {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { title: "", body: "", guardrails: [], examples: [] };
+  }
+  const row = value as Record<string, unknown>;
+  return {
+    title: typeof row.title === "string" ? row.title : "",
+    body: typeof row.body === "string" ? row.body : "",
+    guardrails: normalizeStringArray(row.guardrails),
+    examples: normalizeStringArray(row.examples)
+  };
+}
+
+function readEnabledSkillLimitFromBillingHints(value: unknown): number | null {
+  const row = asRecord(value);
+  const skillPolicy = asRecord(row?.skillPolicy ?? null);
+  return (
+    asPositiveInteger(skillPolicy?.maxEnabledSkills) ?? asPositiveInteger(row?.maxEnabledSkills)
+  );
+}
+
+function readEnabledSkillLimitFromLimitsPermissions(value: unknown): number | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  for (const item of value) {
+    const row = asRecord(item);
+    if (
+      row?.key === "enabled_skills_limit" ||
+      row?.key === "max_enabled_skills" ||
+      row?.key === "skill_assignments_limit"
+    ) {
+      const limit = asPositiveInteger(row.limit) ?? asPositiveInteger(row.value);
+      if (limit !== null) {
+        return limit;
+      }
+    }
+  }
+  return null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }

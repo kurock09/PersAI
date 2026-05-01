@@ -8,6 +8,10 @@ import { buildAssistantRuntimePromptStablePrefix as toStablePrefix } from "@pers
 import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { normalizeAssistantGender } from "./assistant-gender";
+import {
+  renderEnabledSkillsPromptBlock,
+  type EnabledSkillPromptCard
+} from "./enabled-skills-prompt-materialization";
 import { buildRuntimeToolPoliciesMarkdown } from "./runtime-tool-policy";
 import type { VoiceDnaResolved } from "./voice-dna-modulator";
 
@@ -16,6 +20,7 @@ export interface PromptTemplateMap {
   soul?: string | null;
   user?: string | null;
   identity?: string | null;
+  enabled_skills?: string | null;
   tools?: string | null;
   agents?: string | null;
   heartbeat?: string | null;
@@ -38,6 +43,7 @@ export class CompilePromptConstructorService {
       timezone: string;
     };
     toolPolicies: RuntimeToolPolicy[];
+    enabledSkillCards?: EnabledSkillPromptCard[];
     promptTemplates: PromptTemplateMap;
     /**
      * Resolved Voice DNA (archetype × traits × locale → ready-to-render).
@@ -60,6 +66,10 @@ export class CompilePromptConstructorService {
       identity: this.generateIdentityPrompt(
         params.publishedVersion,
         params.promptTemplates.identity ?? null
+      ),
+      enabledSkills: this.generateEnabledSkillsPrompt(
+        params.enabledSkillCards ?? [],
+        params.promptTemplates.enabled_skills ?? null
       ),
       tools: this.generateToolsPrompt(params.toolPolicies, params.promptTemplates.tools ?? null),
       agents: this.generateAgentsPrompt(params.promptTemplates.agents ?? null),
@@ -96,6 +106,7 @@ export class CompilePromptConstructorService {
       soul: promptDocuments.soul,
       user: promptDocuments.user,
       identity: promptDocuments.identity,
+      enabledSkills: promptDocuments.enabledSkills ?? "",
       tools: promptDocuments.tools,
       agents: promptDocuments.agents,
       // ADR-074 P1: heartbeat lives outside the cached system prefix; the runtime renders it into
@@ -317,6 +328,22 @@ export class CompilePromptConstructorService {
     return lines.join("\n");
   }
 
+  private generateEnabledSkillsPrompt(
+    cards: EnabledSkillPromptCard[],
+    template: string | null
+  ): string {
+    const skillCardsBlock = renderEnabledSkillsPromptBlock(cards);
+    if (skillCardsBlock.length === 0) {
+      return "";
+    }
+    if (template) {
+      return this.interpolateTemplate(template, {
+        skill_cards_block: skillCardsBlock
+      });
+    }
+    return skillCardsBlock;
+  }
+
   private generateToolsPrompt(toolPolicies: RuntimeToolPolicy[], template: string | null): string {
     // ADR-074 P1: native provider tool definitions already carry full descriptions; we no longer
     // duplicate them as a markdown catalog inside the cached system prompt. If a custom template
@@ -371,6 +398,7 @@ export class CompilePromptConstructorService {
         soul_block: ordinarySections.soul,
         user_block: ordinarySections.user,
         identity_block: ordinarySections.identity,
+        enabled_skills_block: ordinarySections.enabledSkills,
         route_control_block: null,
         tools_block: ordinarySections.tools,
         agents_block: ordinarySections.agents,
@@ -387,6 +415,7 @@ export class CompilePromptConstructorService {
       this.normalizeOptionalText(ordinarySections.soul),
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),
+      this.normalizeOptionalText(ordinarySections.enabledSkills),
       this.normalizeOptionalText(ordinarySections.tools),
       this.normalizeOptionalText(ordinarySections.agents)
     ]

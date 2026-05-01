@@ -2,7 +2,7 @@
 
 **Status:** Accepted  
 **Date:** 2026-04-29  
-**Relates to:** ADR-072, ADR-073, ADR-074, ADR-075, ADR-076, ADR-077
+**Relates to:** ADR-072, ADR-073, ADR-074, ADR-075, ADR-076, ADR-077, ADR-079
 
 ## Context
 
@@ -26,6 +26,29 @@ ADR-078 keeps only genuinely open work. Already landed or founder-verified work 
 - `ADR-072 Step 15a` native web/channel voice output is **cancelled**, not deferred.
 
 ## Ordered workstack
+
+### 0. Knowledge, Skills, document processing, and orchestrated retrieval
+
+ADR-079 opens a new product/architecture block for the knowledge plane. It supersedes the old admin `scope=skill` concept as product truth and defines first-class Skills, provider-backed document processing, `pgvector` search behind an abstraction, router-owned retrieval planning, and orchestrated source-aware retrieval context.
+
+This block should be executed as one coherent product architecture, not as visible partial UX:
+
+- admin Skills with instruction cards and Skill documents
+- user-controlled Skill assignment in setup/recreate and Assistant Settings
+- document-processing provider settings under `/admin/tools`
+- DB-backed indexing jobs and quality gates
+- `pgvector` vector search through a `KnowledgeVectorIndex` abstraction
+- Prompt Constructor support for the `Enabled Skills` block
+- runtime router `retrievalPlan` extension
+- orchestrated retrieval that prepares bounded `Retrieved Knowledge Context`
+- calm user activity for Skill/user/Product/web retrieval
+
+Current guidance:
+
+- do not preserve the old `GlobalKnowledgeSource.scope=skill` as active product truth
+- do not add keyword-only Skill triggers
+- do not add seed/demo Skills
+- keep `knowledge_search` / `knowledge_fetch` as low-level tools while adding orchestration
 
 ### 1. Mobile shell reliability and rollout
 
@@ -90,12 +113,13 @@ These remain historical records only.
 
 ## Execution ledger
 
-| Program item | Status | Notes |
-| --- | --- | --- |
-| Mobile shell reliability and rollout | planned | Consolidates remaining ADR-075 and ADR-076 follow-through: offline hardening, measured Slice 7 decision, production rollout, iOS/store/push decisions |
-| Runtime/tool efficiency follow-through | planned | ADR-074 `R2 -> R3` only |
-| Assistant background-task final verification/test cleanup | planned | Narrow ADR-077 closure hardening only |
-| Long-tail deferred research | deferred | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence |
+| Program item                                                       | Status   | Notes                                                                                                                                                 |
+| ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knowledge, Skills, document processing, and orchestrated retrieval | planned  | ADR-079 accepted; first-class Skills, provider-backed ingestion, `pgvector`, router `retrievalPlan`, and orchestrated source-aware context            |
+| Mobile shell reliability and rollout                               | planned  | Consolidates remaining ADR-075 and ADR-076 follow-through: offline hardening, measured Slice 7 decision, production rollout, iOS/store/push decisions |
+| Runtime/tool efficiency follow-through                             | planned  | ADR-074 `R2 -> R3` only                                                                                                                               |
+| Assistant background-task final verification/test cleanup          | planned  | Narrow ADR-077 closure hardening only                                                                                                                 |
+| Long-tail deferred research                                        | deferred | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                      |
 
 ## Consequences
 

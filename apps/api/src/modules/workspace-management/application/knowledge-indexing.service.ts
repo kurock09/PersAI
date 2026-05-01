@@ -1,7 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { chunkKnowledgeText, type KnowledgeChunkDraft } from "./assistant-knowledge-chunking";
-import { MediaPreprocessorService } from "./media/media-preprocessor.service";
+import { KnowledgeDocumentProcessorService } from "./knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
+import type {
+  KnowledgeDocumentContent,
+  KnowledgeDocumentProcessorMode,
+  KnowledgeExtractionQuality,
+  KnowledgeProcessingProviderTrace,
+  NormalizedKnowledgeSource
+} from "./knowledge-processing.types";
 
 export class KnowledgeIndexingError extends Error {
   constructor(
@@ -16,12 +23,15 @@ export type IndexedKnowledgeChunkDraft = KnowledgeChunkDraft & {
   embeddingModelKey: string | null;
   embeddingVector: number[] | null;
   embeddingGeneratedAt: Date | null;
+  metadata: Record<string, unknown> | null;
+  provider: KnowledgeProcessingProviderTrace | null;
+  quality: KnowledgeExtractionQuality | null;
 };
 
 @Injectable()
 export class KnowledgeIndexingService {
   constructor(
-    private readonly mediaPreprocessorService: MediaPreprocessorService,
+    private readonly knowledgeDocumentProcessorService: KnowledgeDocumentProcessorService,
     private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService
   ) {}
 
@@ -31,11 +41,61 @@ export class KnowledgeIndexingService {
     originalFilename: string;
     embeddingModelKey?: string | null;
   }): Promise<IndexedKnowledgeChunkDraft[]> {
-    const chunks = await this.extractChunks(
-      params.buffer,
-      params.mimeType,
-      params.originalFilename
+    const request: {
+      source: NormalizedKnowledgeSource;
+      content: KnowledgeDocumentContent;
+      processorMode: KnowledgeDocumentProcessorMode;
+      embeddingModelKey?: string | null;
+    } = {
+      source: buildUploadCompatibilitySource(params),
+      content: {
+        kind: "bytes",
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        originalFilename: params.originalFilename,
+        sizeBytes: params.buffer.length
+      },
+      processorMode: "local"
+    };
+    if (params.embeddingModelKey !== undefined) {
+      request.embeddingModelKey = params.embeddingModelKey;
+    }
+    return this.buildIndexedChunksForSource(request);
+  }
+
+  async buildIndexedChunksForSource(params: {
+    source: NormalizedKnowledgeSource;
+    content: KnowledgeDocumentContent;
+    processorMode?: KnowledgeDocumentProcessorMode;
+    embeddingModelKey?: string | null;
+  }): Promise<IndexedKnowledgeChunkDraft[]> {
+    const processingInput = {
+      source: params.source,
+      content: params.content
+    };
+    const processed = await this.knowledgeDocumentProcessorService.process(
+      params.processorMode === undefined
+        ? processingInput
+        : {
+            ...processingInput,
+            requestedMode: params.processorMode
+          }
     );
+    const extractedText = processed.normalizedText.trim();
+    if (extractedText.length === 0) {
+      throw new KnowledgeIndexingError(
+        "text_extract_unavailable",
+        "No searchable text could be extracted from the knowledge source."
+      );
+    }
+
+    const chunks = chunkKnowledgeText(extractedText);
+    if (chunks.length === 0) {
+      throw new KnowledgeIndexingError(
+        "empty_text_extract",
+        "The knowledge source did not produce any indexable text chunks."
+      );
+    }
     const embeddingModelKey = params.embeddingModelKey?.trim() || null;
     const embeddings = await this.knowledgeEmbeddingService.generateEmbeddings({
       modelKey: embeddingModelKey,
@@ -47,37 +107,30 @@ export class KnowledgeIndexingService {
       ...chunk,
       embeddingModelKey: embeddings[index] === null ? null : embeddingModelKey,
       embeddingVector: embeddings[index] ?? null,
-      embeddingGeneratedAt: embeddings[index] === null ? null : generatedAt
+      embeddingGeneratedAt: embeddings[index] === null ? null : generatedAt,
+      metadata: processed.metadata ?? null,
+      provider: processed.provider,
+      quality: processed.quality
     }));
   }
+}
 
-  private async extractChunks(
-    buffer: Buffer,
-    mimeType: string,
-    originalFilename: string
-  ): Promise<KnowledgeChunkDraft[]> {
-    const preprocessed = await this.mediaPreprocessorService.process(
-      buffer,
-      mimeType,
-      originalFilename,
-      { enableDocumentVisualFallback: true }
-    );
-    const extractedText = preprocessed.textExtract?.trim() ?? null;
-    if (extractedText === null || extractedText.length === 0) {
-      throw new KnowledgeIndexingError(
-        "text_extract_unavailable",
-        "No searchable text could be extracted from the uploaded file."
-      );
-    }
-
-    const chunks = chunkKnowledgeText(extractedText);
-    if (chunks.length === 0) {
-      throw new KnowledgeIndexingError(
-        "empty_text_extract",
-        "The uploaded file did not produce any indexable text chunks."
-      );
-    }
-
-    return chunks;
-  }
+function buildUploadCompatibilitySource(params: {
+  mimeType: string;
+  originalFilename: string;
+}): NormalizedKnowledgeSource {
+  return {
+    sourceType: "assistant_knowledge_source",
+    sourceId: "upload-compatibility-source",
+    sourceVersion: 1,
+    workspaceId: "upload-compatibility-workspace",
+    assistantId: null,
+    skillId: null,
+    provenance: {
+      originKind: "uploaded_file",
+      originalFilename: params.originalFilename,
+      mimeType: params.mimeType
+    },
+    metadata: null
+  };
 }

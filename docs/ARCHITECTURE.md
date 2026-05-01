@@ -60,7 +60,7 @@ ADR-072 remains the historical migration ADR through the native-path closeout. T
 
 1. Browser calls `apps/api`
 2. `apps/api` persists canonical state and forwards request-time execution to `apps/runtime`
-3. `apps/runtime` calls back into `apps/api` over the dedicated internal listener for turn-time data hydration (for example durable memory hydration through `POST /api/v1/internal/runtime/memory/hydrate-for-turn`)
+3. `apps/runtime` calls back into `apps/api` over the dedicated internal listener for turn-time data hydration and retrieval orchestration (for example durable memory hydration through `POST /api/v1/internal/runtime/memory/hydrate-for-turn` and bounded knowledge context through `POST /api/v1/internal/runtime/knowledge/orchestrate`)
 4. `apps/runtime` calls `apps/provider-gateway`
 5. when a turn uses file/process tools, `apps/runtime` also calls `apps/sandbox`
 6. result returns through `apps/api`

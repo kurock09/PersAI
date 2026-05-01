@@ -18,6 +18,7 @@ import {
   Loader2,
   AlertTriangle,
   Upload,
+  GraduationCap,
   SlidersHorizontal,
   ChevronRight
 } from "lucide-react";
@@ -42,6 +43,8 @@ import {
   postAssistantRollback,
   postAssistantReset,
   getAssistantVoiceSettings,
+  getAssistantSkills,
+  updateAssistantSkillAssignments,
   patchAssistantNotificationPreference,
   getAssistantMemoryItems,
   type AssistantVoiceSettingsState,
@@ -62,7 +65,8 @@ import {
   forgetWorkspaceMemoryItem,
   searchWorkspaceMemory,
   uploadAssistantAvatar,
-  type WorkspaceMemoryItem
+  type WorkspaceMemoryItem,
+  type AssistantSkillsState
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
@@ -75,6 +79,7 @@ import {
   type VoiceOption
 } from "./assistant-voice-options";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
+import { AssistantSkillsManager } from "./assistant-skills-manager";
 import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 
 interface AssistantSettingsProps {
@@ -90,6 +95,7 @@ type SettingsSectionId =
   | "character"
   | "quickActions"
   | "knowledge"
+  | "skills"
   | "memory"
   | "tasks"
   | "channels"
@@ -100,6 +106,7 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
   switch (value) {
     case "quickActions":
     case "knowledge":
+    case "skills":
     case "memory":
     case "tasks":
     case "channels":
@@ -547,6 +554,11 @@ export function AssistantSettings({
   const [resetConfirm, setResetConfirm] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
   const [knowledgeManagerOpen, setKnowledgeManagerOpen] = useState(false);
+  const [skillsState, setSkillsState] = useState<AssistantSkillsState | null>(null);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsSaving, setSkillsSaving] = useState(false);
+  const [skillsFb, setSkillsFb] = useState<ActionFeedback>(null);
 
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
@@ -596,6 +608,48 @@ export function AssistantSettings({
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
   }, [initialSection]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (assistant === null) {
+      setSkillsState(null);
+      setSelectedSkillIds([]);
+      setSkillsLoading(false);
+      return;
+    }
+
+    void (async () => {
+      const token = await getToken({ skipCache: true });
+      if (!token || cancelled) {
+        return;
+      }
+      setSkillsLoading(true);
+      setSkillsFb(null);
+      try {
+        const nextState = await getAssistantSkills(token);
+        if (!cancelled) {
+          setSkillsState(nextState);
+          setSelectedSkillIds(nextState.assignedSkillIds);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setSkillsFb({
+            type: "err",
+            text: error instanceof Error ? error.message : t("skillsLoadFailed")
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setSkillsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assistant, getToken, t]);
 
   const primaryVoiceProviderId = voiceSettings?.primaryProviderId ?? null;
   const yandexVoiceOptions = useMemo(
@@ -1042,6 +1096,30 @@ export function AssistantSettings({
     draftVoiceProfile,
     data
   ]);
+
+  const handleSkillsChange = useCallback(
+    async (nextSkillIds: string[]) => {
+      setSelectedSkillIds(nextSkillIds);
+      const token = await getToken({ skipCache: true });
+      if (!token) return;
+      setSkillsSaving(true);
+      setSkillsFb(null);
+      try {
+        const nextState = await updateAssistantSkillAssignments(token, { skillIds: nextSkillIds });
+        setSkillsState(nextState);
+        setSelectedSkillIds(nextState.assignedSkillIds);
+        setSkillsFb({ type: "ok", text: t("skillsSaved") });
+      } catch (error) {
+        setSkillsFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("skillsSaveFailed")
+        });
+      } finally {
+        setSkillsSaving(false);
+      }
+    },
+    [getToken, t]
+  );
 
   const handleRollback = useCallback(async () => {
     const token = await getToken({ skipCache: true });
@@ -1611,6 +1689,28 @@ export function AssistantSettings({
             />
           </div>
         </div>
+      </Section>
+
+      {/* 4. Skills */}
+      <Section
+        icon={<GraduationCap className="h-4 w-4" />}
+        title={t("skills")}
+        open={openSection === "skills"}
+        onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
+      >
+        <div className="mb-4 rounded-2xl border border-border/70 bg-surface p-4">
+          <p className="text-sm font-medium text-text">{t("skillsTitle")}</p>
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">{t("skillsDescription")}</p>
+        </div>
+        <AssistantSkillsManager
+          state={skillsState}
+          selectedSkillIds={selectedSkillIds}
+          onChange={(nextSkillIds) => void handleSkillsChange(nextSkillIds)}
+          loading={skillsLoading}
+          saving={skillsSaving}
+          error={skillsFb?.type === "err" ? skillsFb.text : null}
+        />
+        {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
       </Section>
 
       {/* 4. Memory */}

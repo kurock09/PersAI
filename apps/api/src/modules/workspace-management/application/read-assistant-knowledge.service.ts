@@ -41,7 +41,7 @@ type SearchSourceRow = {
 
 type GlobalSearchSourceRow = {
   globalKnowledgeSourceId: string;
-  scope: "product" | "skill";
+  scope: "product";
   sourceVersion: number;
   chunkIndex: number;
   locator: string | null;
@@ -2473,7 +2473,7 @@ export class ReadAssistantKnowledgeService {
           content: 1.25,
           metadata: 0
         },
-        sourceWeight: row.scope === "product" ? 4 : 2,
+        sourceWeight: 4,
         enableSemanticRerank: true
       });
       if (score <= 0) {
@@ -2562,7 +2562,7 @@ export class ReadAssistantKnowledgeService {
             content: 1.0,
             metadata: 0
           },
-          sourceWeight: row.scope === "product" ? 1.8 : 1.2,
+          sourceWeight: 1.8,
           enableSemanticRerank: false
         });
         const referenceId = buildGlobalUploadedReferenceId({
@@ -3002,7 +3002,7 @@ export class ReadAssistantKnowledgeService {
           "# Current Knowledge Routing Policy",
           `- Assistant plan override: ${assistant.governance?.assistantPlanOverrideCode ?? "none"}`,
           `- Quota plan: ${assistant.governance?.quotaPlanCode ?? "none"}`,
-          "- Global product and skill libraries are PersAI-owned indexed copies, not direct reads from external drives.",
+          "- Global Product knowledge is a PersAI-owned indexed copy, not a direct read from external drives.",
           "- Assistant-private uploaded documents can use hybrid lexical plus vector retrieval when the active plan configures an embedding model.",
           "- Retrieval helper use stays optional and is resolved from the plan retrieval slot."
         ].join("\n"),

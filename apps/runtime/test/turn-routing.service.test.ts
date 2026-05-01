@@ -16,12 +16,21 @@ class FakeProviderGatewayClientService {
     model: "gpt-4.1",
     text: JSON.stringify({
       executionMode: "premium",
-      retrievalHint: false,
-      toolHints: "none",
+      retrievalHint: true,
+      toolHints: "knowledge",
       confidence: "high",
       clarifyNeeded: false,
       fallbackMode: "normal",
-      reasonCode: "classifier_result"
+      reasonCode: "classifier_result",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting", "skill-unknown", "skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "classifier_skill_plan"
+      }
     }),
     respondedAt: "2026-04-18T12:00:00.000Z",
     usage: {
@@ -200,6 +209,24 @@ function createBundle(routerPolicyOverride?: {
       routerClassifier: "You are the hidden PersAI early router.",
       preview: "# Preview",
       welcome: "# Welcome"
+    },
+    skills: {
+      enabled: [
+        {
+          id: "skill-accounting",
+          name: "Accountant",
+          description: "Accounting and tax support",
+          category: "finance",
+          tags: ["tax", "books"]
+        },
+        {
+          id: "skill-legal",
+          name: "Lawyer",
+          description: "Legal drafting support",
+          category: "law",
+          tags: ["contracts", "risk"]
+        }
+      ]
     }
   }).bundle;
 }
@@ -266,6 +293,15 @@ async function run(): Promise<void> {
   });
   assert.equal(continueDecision.executionMode, "normal");
   assert.equal(continueDecision.source, "precheck");
+  assert.deepEqual(continueDecision.retrievalPlan, {
+    useSkills: false,
+    selectedSkillIds: [],
+    useUserKnowledge: false,
+    useProductKnowledge: false,
+    useWeb: false,
+    confidence: "low",
+    reasonCode: "continue_term"
+  });
   assert.equal(providerGatewayClient.calls.length, 0);
 
   const premiumDecision = await service.decide({
@@ -295,6 +331,15 @@ async function run(): Promise<void> {
   });
   assert.equal(ambiguousDecision.executionMode, "premium");
   assert.equal(ambiguousDecision.source, "classifier");
+  assert.deepEqual(ambiguousDecision.retrievalPlan, {
+    useSkills: true,
+    selectedSkillIds: ["skill-accounting"],
+    useUserKnowledge: true,
+    useProductKnowledge: false,
+    useWeb: false,
+    confidence: "high",
+    reasonCode: "classifier_skill_plan"
+  });
   assert.equal(providerGatewayClient.calls.length, 1);
   assert.equal(providerGatewayClient.calls[0]?.requestMetadata?.classification, "turn_routing");
   assert.equal(providerGatewayClient.calls[0]?.outputSchema?.name, "turn_route_decision");
@@ -305,6 +350,14 @@ async function run(): Promise<void> {
   assert.match(
     String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
     /Current user message:/
+  );
+  assert.match(
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    /Enabled Skills summary: id=skill-accounting/
+  );
+  assert.doesNotMatch(
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    /Use accounting knowledge carefully/
   );
 }
 

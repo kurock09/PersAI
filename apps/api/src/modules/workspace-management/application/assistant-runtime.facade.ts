@@ -89,6 +89,15 @@ export interface AssistantRuntimeTurnRoutingSnapshot {
   mode: "shadow" | "active";
   executionMode: "normal" | "premium" | "reasoning";
   source: "precheck" | "llm" | "fallback";
+  retrievalPlan?: {
+    useSkills: boolean;
+    selectedSkillIds: string[];
+    useUserKnowledge: boolean;
+    useProductKnowledge: boolean;
+    useWeb: boolean;
+    confidence: "low" | "medium" | "high";
+    reasonCode: string;
+  };
 }
 
 export interface AssistantRuntimeWebChatTurnResult {
@@ -123,7 +132,7 @@ export interface AssistantRuntimeSetupPreviewTurnResult {
 }
 
 export interface AssistantRuntimeWebChatTurnStreamChunk {
-  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction" | "tool";
+  type: "delta" | "thinking" | "done" | "failed" | "media" | "compaction" | "tool" | "activity";
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
@@ -138,6 +147,9 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolName?: string;
   toolCallId?: string;
   isError?: boolean;
+  activitySource?: "skill" | "user" | "product" | "web";
+  activityPhase?: "start";
+  activityResultCount?: number;
   runtimeTrace?: {
     scope: string;
     status: string;

@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
 import type { GlobalKnowledgeSource as PrismaGlobalKnowledgeSource } from "@prisma/client";
 import type {
   GlobalKnowledgeSourceScope,
@@ -12,7 +11,7 @@ import type {
 } from "./assistant-knowledge-source.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
-import { KnowledgeIndexingError, KnowledgeIndexingService } from "./knowledge-indexing.service";
+import { KnowledgeIndexingJobWorkerService } from "./knowledge-indexing-job-worker.service";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -32,7 +31,7 @@ export class ManageAdminKnowledgeSourcesService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
-    private readonly knowledgeIndexingService: KnowledgeIndexingService,
+    private readonly knowledgeIndexingJobWorkerService: KnowledgeIndexingJobWorkerService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
@@ -52,10 +51,12 @@ export class ManageAdminKnowledgeSourcesService {
   }
 
   parseScope(value: unknown): GlobalKnowledgeSourceScope {
-    if (value === "product" || value === "skill") {
+    if (value === "product") {
       return value;
     }
-    throw new BadRequestException("scope must be either 'product' or 'skill'.");
+    throw new BadRequestException(
+      "scope must be 'product'. Skills are managed through /admin/skills."
+    );
   }
 
   async list(
@@ -122,8 +123,17 @@ export class ManageAdminKnowledgeSourcesService {
           mimeType: validated.effectiveMimeType,
           sizeBytes: BigInt(stored.sizeBytes),
           storagePath: stored.objectKey,
-          status: "processing"
+          status: "processing",
+          currentVersion: 1
         }
+      });
+      await this.knowledgeIndexingJobWorkerService.enqueueSourceJob({
+        workspaceId: access.workspaceId,
+        requestedByUserId: access.userId,
+        sourceType: "global_knowledge_source",
+        sourceId: source.id,
+        sourceVersion: 1,
+        processorMode: "auto"
       });
       const applied =
         await this.trackWorkspaceQuotaUsageService.recordWorkspaceKnowledgeStorageUpload({
@@ -151,13 +161,7 @@ export class ManageAdminKnowledgeSourcesService {
       throw error;
     }
 
-    return this.indexExistingSource({
-      sourceId: source.id,
-      buffer: params.file.buffer,
-      mimeType: source.mimeType,
-      originalFilename: source.originalFilename,
-      nextVersion: 1
-    });
+    return this.toState(source);
   }
 
   async delete(userId: string, sourceId: string): Promise<void> {
@@ -171,8 +175,16 @@ export class ManageAdminKnowledgeSourcesService {
     if (source === null) {
       throw new NotFoundException("Knowledge source not found.");
     }
-    await this.prisma.globalKnowledgeSource.delete({
-      where: { id: source.id }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.knowledgeVectorChunk.deleteMany({
+        where: { sourceType: "global_knowledge_source", sourceId: source.id }
+      });
+      await tx.knowledgeIndexingJob.deleteMany({
+        where: { sourceType: "global_knowledge_source", sourceId: source.id }
+      });
+      await tx.globalKnowledgeSource.delete({
+        where: { id: source.id }
+      });
     });
     await this.knowledgeObjectStorage.deleteObject(source.storagePath);
     await this.trackWorkspaceQuotaUsageService.releaseWorkspaceKnowledgeStorage({
@@ -198,125 +210,26 @@ export class ManageAdminKnowledgeSourcesService {
     if (source === null) {
       throw new NotFoundException("Knowledge source not found.");
     }
-    await this.prisma.globalKnowledgeSource.update({
+    const nextVersion = source.currentVersion + 1;
+    const updated = await this.prisma.globalKnowledgeSource.update({
       where: { id: source.id },
       data: {
         status: "processing",
+        currentVersion: nextVersion,
         lastReindexRequestedAt: new Date(),
         lastErrorCode: null,
         lastErrorMessage: null
       }
     });
-
-    const downloaded = await this.knowledgeObjectStorage.downloadObject(source.storagePath);
-    if (downloaded === null) {
-      return this.markFailedAndReturn(
-        source.id,
-        new KnowledgeIndexingError(
-          "stored_file_missing",
-          "The stored knowledge file could not be found for reindex."
-        )
-      );
-    }
-
-    return this.indexExistingSource({
+    await this.knowledgeIndexingJobWorkerService.enqueueSourceJob({
+      workspaceId: source.workspaceId,
+      requestedByUserId: access.userId,
+      sourceType: "global_knowledge_source",
       sourceId: source.id,
-      buffer: downloaded.buffer,
-      mimeType: source.mimeType,
-      originalFilename: source.originalFilename,
-      nextVersion: source.currentVersion + 1
+      sourceVersion: nextVersion,
+      processorMode: "auto"
     });
-  }
-
-  private async indexExistingSource(params: {
-    sourceId: string;
-    buffer: Buffer;
-    mimeType: string;
-    originalFilename: string;
-    nextVersion: number;
-  }): Promise<GlobalKnowledgeSourceState> {
-    try {
-      const chunks = await this.knowledgeIndexingService.buildIndexedChunks({
-        buffer: params.buffer,
-        mimeType: params.mimeType,
-        originalFilename: params.originalFilename
-      });
-      await this.persistIndexedChunks(params.sourceId, params.nextVersion, chunks);
-      const row = await this.prisma.globalKnowledgeSource.findUniqueOrThrow({
-        where: { id: params.sourceId }
-      });
-      return this.toState(row);
-    } catch (error) {
-      return this.markFailedAndReturn(params.sourceId, error);
-    }
-  }
-
-  private async persistIndexedChunks(
-    sourceId: string,
-    sourceVersion: number,
-    chunks: Awaited<ReturnType<KnowledgeIndexingService["buildIndexedChunks"]>>
-  ): Promise<void> {
-    const source = await this.prisma.globalKnowledgeSource.findUniqueOrThrow({
-      where: { id: sourceId },
-      select: { workspaceId: true, scope: true }
-    });
-    await this.prisma.$transaction(async (tx) => {
-      await tx.globalKnowledgeSourceChunk.deleteMany({
-        where: { globalKnowledgeSourceId: sourceId }
-      });
-      await tx.globalKnowledgeSourceChunk.createMany({
-        data: chunks.map((chunk) => ({
-          globalKnowledgeSourceId: sourceId,
-          workspaceId: source.workspaceId,
-          scope: source.scope,
-          sourceVersion,
-          chunkIndex: chunk.chunkIndex,
-          locator: chunk.locator,
-          content: chunk.content,
-          embeddingModelKey: chunk.embeddingModelKey,
-          embeddingVector:
-            chunk.embeddingVector === null
-              ? Prisma.JsonNull
-              : (chunk.embeddingVector as Prisma.InputJsonValue),
-          embeddingGeneratedAt: chunk.embeddingGeneratedAt
-        }))
-      });
-      await tx.globalKnowledgeSource.update({
-        where: { id: sourceId },
-        data: {
-          status: "ready",
-          currentVersion: sourceVersion,
-          chunkCount: chunks.length,
-          lastIndexedAt: new Date(),
-          lastErrorCode: null,
-          lastErrorMessage: null
-        }
-      });
-    });
-  }
-
-  private async markFailedAndReturn(
-    sourceId: string,
-    error: unknown
-  ): Promise<GlobalKnowledgeSourceState> {
-    const normalized =
-      error instanceof KnowledgeIndexingError
-        ? error
-        : new KnowledgeIndexingError(
-            "indexing_failed",
-            error instanceof Error && error.message.trim().length > 0
-              ? error.message.trim().slice(0, 500)
-              : "Knowledge indexing failed."
-          );
-    const row = await this.prisma.globalKnowledgeSource.update({
-      where: { id: sourceId },
-      data: {
-        status: "failed",
-        lastErrorCode: normalized.code,
-        lastErrorMessage: normalized.message
-      }
-    });
-    return this.toState(row);
+    return this.toState(updated);
   }
 
   private toState(row: PrismaGlobalKnowledgeSource): GlobalKnowledgeSourceState {

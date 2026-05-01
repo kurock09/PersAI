@@ -55,8 +55,19 @@ Current active knowledge/retrieval persistence includes:
 
 - assistant-scoped uploaded knowledge sources plus indexed assistant chunk rows
 - workspace-scoped global knowledge sources plus indexed global chunk rows
+- first-class workspace-scoped `Skill`, `SkillDocument`, and `AssistantSkillAssignment` rows for ADR-079 professional Skills
+- `KnowledgeIndexingJob` rows for pending source processing, including `skill_document` sources
+- `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary
 - workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
 - workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
+
+ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_source`, `global_knowledge_source`, and `skill_document`. Upload/reindex writes source metadata and a pending `KnowledgeIndexingJob`; the API worker claims jobs with token/expiry fields, records attempt/retry/failure state, processes normalized source content, persists source provider/processor/quality/error state, writes legacy chunk rows, and replaces pgvector rows through `KnowledgeVectorChunk` when embeddings are available. `needs_review` is an indexing quality state and does not imply ADR-080 lifecycle governance.
+
+Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. The materializer reads `AssistantSkillAssignment` rows plus active `Skill` instruction cards, applies the effective enabled-Skills limit, and writes the resulting bounded `Enabled Skills` block into the materialized runtime bundle through Prompt Constructor. Disabled, archived, draft, plan-disabled, and over-limit Skills are omitted. Skill assignment changes and assigned Skill edits/archive mark affected assistant materialization dirty so the block is refreshed before runtime use.
+
+Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, and up to two tags) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
+
+Orchestrated retrieval context is transient runtime turn state. ADR-079 does not add a persisted retrieval-plan table: the API validates the per-turn plan, reads existing `SkillDocumentChunk`, assistant knowledge, memory/chat, and Product/preset/subscription sources, then returns a bounded source-aware context block to the runtime. Skill references are derived from ready `SkillDocument`/`SkillDocumentChunk` rows for currently active assistant Skill assignments. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks.
 
 The active retrieval-policy contract is plan-managed rather than hard-coded. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior.
 
@@ -100,6 +111,7 @@ Current active runtime-provider settings persistence includes:
 
 - `platform_runtime_provider_settings.available_models_by_provider` as the legacy chat-model alias used by existing text-routing/provider warmup paths.
 - `platform_runtime_provider_settings.available_model_catalog_by_provider` as the capability-aware provider catalog. Each provider owns `chat`, `image`, and `video` model key lists.
+- `platform_runtime_provider_settings.document_processing_policy` as the admin-owned ADR-079 Document Processing policy for default provider, high-quality fallback provider, local fallback, automatic fallback, and extraction-quality threshold.
 - admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`.
 
 Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
@@ -112,6 +124,8 @@ Current secret wiring is split between:
 - `persai-runtime-secrets`
 
 No active data-model boundary should require `persai-openclaw-secrets`.
+
+Document-processing provider keys for Mistral OCR and LlamaParse use the same encrypted `platform_runtime_provider_secrets` store as other PersAI-managed provider/tool credentials, under dedicated document-processing storage keys. Raw keys are write-only in admin surfaces.
 
 ## Historical traces
 

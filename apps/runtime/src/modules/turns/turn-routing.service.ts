@@ -18,6 +18,17 @@ type ProviderSelection = {
 type RoutingMode = "shadow" | "active";
 type RoutingExecutionMode = "normal" | "premium" | "reasoning";
 type RoutingToolHint = "knowledge" | "web" | "browser" | "media" | "none";
+type RoutingRetrievalPlanConfidence = "low" | "medium" | "high";
+
+export type TurnRetrievalPlan = {
+  useSkills: boolean;
+  selectedSkillIds: string[];
+  useUserKnowledge: boolean;
+  useProductKnowledge: boolean;
+  useWeb: boolean;
+  confidence: RoutingRetrievalPlanConfidence;
+  reasonCode: string;
+};
 
 type RouterPolicy = {
   enabled: boolean;
@@ -41,6 +52,7 @@ export type TurnRouteDecision = {
   clarifyNeeded: boolean;
   fallbackMode: RoutingExecutionMode;
   reasonCode: string;
+  retrievalPlan: TurnRetrievalPlan;
   source: "default" | "precheck" | "classifier" | "fallback";
   mode: RoutingMode;
   usage: RuntimeUsageSnapshot | null;
@@ -59,7 +71,8 @@ const ROUTER_OUTPUT_SCHEMA = {
       "confidence",
       "clarifyNeeded",
       "fallbackMode",
-      "reasonCode"
+      "reasonCode",
+      "retrievalPlan"
     ],
     properties: {
       executionMode: {
@@ -86,12 +99,41 @@ const ROUTER_OUTPUT_SCHEMA = {
       },
       reasonCode: {
         type: "string"
+      },
+      retrievalPlan: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "useSkills",
+          "selectedSkillIds",
+          "useUserKnowledge",
+          "useProductKnowledge",
+          "useWeb",
+          "confidence",
+          "reasonCode"
+        ],
+        properties: {
+          useSkills: { type: "boolean" },
+          selectedSkillIds: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 3
+          },
+          useUserKnowledge: { type: "boolean" },
+          useProductKnowledge: { type: "boolean" },
+          useWeb: { type: "boolean" },
+          confidence: {
+            type: "string",
+            enum: ["low", "medium", "high"]
+          },
+          reasonCode: { type: "string" }
+        }
       }
     }
   }
 } as const;
 
-const ROUTER_MAX_OUTPUT_TOKENS = 180;
+const ROUTER_MAX_OUTPUT_TOKENS = 360;
 const DEFAULT_CONTINUE_TERMS = [
   "ok",
   "okay",
@@ -224,6 +266,7 @@ export class TurnRoutingService {
       clarifyNeeded: false,
       fallbackMode,
       reasonCode: input.request.deepMode === true ? "deep_mode_default" : "default_normal",
+      retrievalPlan: this.createEmptyRetrievalPlan("default_no_retrieval"),
       source: "default",
       mode: policy.mode,
       usage: null
@@ -279,6 +322,7 @@ export class TurnRoutingService {
           clarifyNeeded: false,
           fallbackMode,
           reasonCode: "classifier_invalid_output",
+          retrievalPlan: this.createEmptyRetrievalPlan("classifier_invalid_output"),
           source: "fallback",
           mode: policy.mode,
           usage: result.usage
@@ -286,6 +330,7 @@ export class TurnRoutingService {
       }
       return this.createDecision({
         ...parsed,
+        retrievalPlan: this.sanitizeClassifierRetrievalPlan(parsed.retrievalPlan, input.bundle),
         executionMode: this.coerceExecutionMode(
           parsed.executionMode,
           input.request.deepMode === true
@@ -312,6 +357,7 @@ export class TurnRoutingService {
         clarifyNeeded: precheck.clarifyNeeded,
         fallbackMode,
         reasonCode: "classifier_failure",
+        retrievalPlan: precheck.retrievalPlan,
         source: "fallback",
         mode: policy.mode,
         usage: null
@@ -359,6 +405,7 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: "continue_term",
+        retrievalPlan: this.createEmptyRetrievalPlan("continue_term"),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -374,6 +421,12 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: "knowledge_retrieval",
+        retrievalPlan: this.createRetrievalPlan({
+          useUserKnowledge: availableHints.has("knowledge"),
+          useProductKnowledge: availableHints.has("knowledge"),
+          confidence: "high",
+          reasonCode: "knowledge_retrieval"
+        }),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -396,6 +449,7 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: "reasoning_request",
+        retrievalPlan: this.createEmptyRetrievalPlan("reasoning_request"),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -411,6 +465,7 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: "premium_writing",
+        retrievalPlan: this.createEmptyRetrievalPlan("premium_writing"),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -430,6 +485,13 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: `tool_hint_${hintedTool}`,
+        retrievalPlan: this.createRetrievalPlan({
+          useUserKnowledge: hintedTool === "knowledge",
+          useProductKnowledge: hintedTool === "knowledge",
+          useWeb: hintedTool === "web",
+          confidence: "high",
+          reasonCode: `tool_hint_${hintedTool}`
+        }),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -445,6 +507,7 @@ export class TurnRoutingService {
         clarifyNeeded: false,
         fallbackMode: input.fallbackMode,
         reasonCode: "simple_turn",
+        retrievalPlan: this.createEmptyRetrievalPlan("simple_turn"),
         source: "precheck",
         mode: input.policy.mode,
         usage: null
@@ -459,6 +522,7 @@ export class TurnRoutingService {
       clarifyNeeded: input.policy.clarifyOnMissingContext && normalizedText.length <= 24,
       fallbackMode: input.fallbackMode,
       reasonCode: "ambiguous_turn",
+      retrievalPlan: this.createEmptyRetrievalPlan("ambiguous_turn"),
       source: "precheck",
       mode: input.policy.mode,
       usage: null
@@ -490,6 +554,11 @@ export class TurnRoutingService {
             `Projected tool hints available: ${
               Array.from(this.resolveAvailableToolHints(input.projectedTools)).join(", ") || "none"
             }`,
+            `Enabled Skills summary: ${this.summarizeEnabledSkills(input.bundle)}`,
+            `Available knowledge state: ${this.summarizeKnowledgeState({
+              bundle: input.bundle,
+              projectedTools: input.projectedTools
+            })}`,
             `Fallback mode: ${input.fallbackMode}`,
             "",
             "Current user message:",
@@ -517,6 +586,7 @@ export class TurnRoutingService {
     clarifyNeeded: boolean;
     fallbackMode: RoutingExecutionMode;
     reasonCode: string;
+    retrievalPlan: TurnRetrievalPlan;
   } | null {
     if (text === null || text.trim().length === 0) {
       return null;
@@ -535,6 +605,7 @@ export class TurnRoutingService {
       const retrievalHint = typeof row.retrievalHint === "boolean" ? row.retrievalHint : null;
       const fallbackMode = this.asExecutionMode(row.fallbackMode);
       const reasonCode = this.asNonEmptyString(row.reasonCode);
+      const retrievalPlan = this.asRetrievalPlan(row.retrievalPlan);
       if (
         executionMode === null ||
         toolHints === null ||
@@ -542,7 +613,8 @@ export class TurnRoutingService {
         clarifyNeeded === null ||
         retrievalHint === null ||
         fallbackMode === null ||
-        reasonCode === null
+        reasonCode === null ||
+        retrievalPlan === null
       ) {
         return null;
       }
@@ -553,7 +625,8 @@ export class TurnRoutingService {
         confidence,
         clarifyNeeded,
         fallbackMode,
-        reasonCode
+        reasonCode,
+        retrievalPlan
       };
     } catch {
       return null;
@@ -625,6 +698,53 @@ export class TurnRoutingService {
       .join(", ");
   }
 
+  private summarizeEnabledSkills(bundle: AssistantRuntimeBundle): string {
+    const skills = this.resolveEnabledSkillSummaries(bundle);
+    if (skills.length === 0) {
+      return "none";
+    }
+    return skills
+      .map((skill) => {
+        const tags = skill.tags.slice(0, 2).join(", ");
+        return [
+          `id=${skill.id}`,
+          `name=${skill.name}`,
+          skill.description === null ? null : `description=${skill.description}`,
+          `category=${skill.category}`,
+          tags.length === 0 ? null : `tags=${tags}`
+        ]
+          .filter((part): part is string => part !== null)
+          .join("; ");
+      })
+      .join("\n");
+  }
+
+  private summarizeKnowledgeState(input: {
+    bundle: AssistantRuntimeBundle;
+    projectedTools: RuntimeNativeToolProjection;
+  }): string {
+    const availableHints = this.resolveAvailableToolHints(input.projectedTools);
+    const sourceNames = new Set(
+      input.bundle.runtime.knowledgeAccess.sources.map((row) => row.source)
+    );
+    return [
+      `skills=${this.resolveEnabledSkillSummaries(input.bundle).length > 0 ? "available" : "none"}`,
+      `userKnowledge=${
+        availableHints.has("knowledge") &&
+        (sourceNames.has("document") || sourceNames.has("chat") || sourceNames.has("memory"))
+          ? "available"
+          : "none"
+      }`,
+      `productKnowledge=${
+        availableHints.has("knowledge") &&
+        (sourceNames.has("global") || sourceNames.has("preset") || sourceNames.has("subscription"))
+          ? "available"
+          : "none"
+      }`,
+      `web=${availableHints.has("web") ? "available" : "none"}`
+    ].join("; ");
+  }
+
   private readRouterPolicy(bundle: AssistantRuntimeBundle): RouterPolicy {
     const row =
       bundle.runtime.routerPolicy !== null &&
@@ -658,6 +778,50 @@ export class TurnRoutingService {
 
   private createDecision(input: TurnRouteDecision): TurnRouteDecision {
     return input;
+  }
+
+  private createEmptyRetrievalPlan(reasonCode: string): TurnRetrievalPlan {
+    return this.createRetrievalPlan({ reasonCode });
+  }
+
+  private createRetrievalPlan(input: {
+    useSkills?: boolean;
+    selectedSkillIds?: string[];
+    useUserKnowledge?: boolean;
+    useProductKnowledge?: boolean;
+    useWeb?: boolean;
+    confidence?: RoutingRetrievalPlanConfidence;
+    reasonCode: string;
+  }): TurnRetrievalPlan {
+    return {
+      useSkills: input.useSkills === true,
+      selectedSkillIds: input.selectedSkillIds ?? [],
+      useUserKnowledge: input.useUserKnowledge === true,
+      useProductKnowledge: input.useProductKnowledge === true,
+      useWeb: input.useWeb === true,
+      confidence: input.confidence ?? "low",
+      reasonCode: input.reasonCode
+    };
+  }
+
+  private sanitizeClassifierRetrievalPlan(
+    plan: TurnRetrievalPlan,
+    bundle: AssistantRuntimeBundle
+  ): TurnRetrievalPlan {
+    const enabledSkillIds = new Set(
+      this.resolveEnabledSkillSummaries(bundle).map((skill) => skill.id)
+    );
+    const selectedSkillIds = plan.selectedSkillIds
+      .filter(
+        (skillId, index, list) => enabledSkillIds.has(skillId) && list.indexOf(skillId) === index
+      )
+      .slice(0, 3);
+    return {
+      ...plan,
+      useSkills: plan.useSkills && selectedSkillIds.length > 0,
+      selectedSkillIds,
+      reasonCode: this.asNonEmptyString(plan.reasonCode) ?? "classifier_retrieval_plan"
+    };
   }
 
   private resolveClassifierProviderSelection(
@@ -753,6 +917,88 @@ export class TurnRoutingService {
       .filter((entry, index, list) => entry.length > 0 && list.indexOf(entry) === index);
   }
 
+  private asIdentifierStringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const deduped: string[] = [];
+    for (const entry of value) {
+      if (typeof entry !== "string") {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (trimmed.length > 0 && !deduped.includes(trimmed)) {
+        deduped.push(trimmed);
+      }
+    }
+    return deduped;
+  }
+
+  private resolveEnabledSkillSummaries(bundle: AssistantRuntimeBundle): Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    category: string;
+    tags: string[];
+  }> {
+    const skills =
+      bundle.skills !== undefined &&
+      bundle.skills !== null &&
+      typeof bundle.skills === "object" &&
+      !Array.isArray(bundle.skills) &&
+      Array.isArray(bundle.skills.enabled)
+        ? bundle.skills.enabled
+        : [];
+    return skills
+      .map((skill) => ({
+        id: this.asNonEmptyString(skill.id),
+        name: this.asNonEmptyString(skill.name),
+        description: this.asNonEmptyString(skill.description),
+        category: this.asNonEmptyString(skill.category),
+        tags: this.asStringArray(skill.tags)
+      }))
+      .filter(
+        (
+          skill
+        ): skill is {
+          id: string;
+          name: string;
+          description: string | null;
+          category: string;
+          tags: string[];
+        } => skill.id !== null && skill.name !== null && skill.category !== null
+      );
+  }
+
+  private asRetrievalPlan(value: unknown): TurnRetrievalPlan | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const confidence = this.asRetrievalPlanConfidence(row.confidence);
+    const reasonCode = this.asNonEmptyString(row.reasonCode);
+    if (
+      typeof row.useSkills !== "boolean" ||
+      !Array.isArray(row.selectedSkillIds) ||
+      typeof row.useUserKnowledge !== "boolean" ||
+      typeof row.useProductKnowledge !== "boolean" ||
+      typeof row.useWeb !== "boolean" ||
+      confidence === null ||
+      reasonCode === null
+    ) {
+      return null;
+    }
+    return {
+      useSkills: row.useSkills,
+      selectedSkillIds: this.asIdentifierStringArray(row.selectedSkillIds).slice(0, 3),
+      useUserKnowledge: row.useUserKnowledge,
+      useProductKnowledge: row.useProductKnowledge,
+      useWeb: row.useWeb,
+      confidence,
+      reasonCode
+    };
+  }
+
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
@@ -777,5 +1023,9 @@ export class TurnRoutingService {
       value === "none"
       ? value
       : null;
+  }
+
+  private asRetrievalPlanConfidence(value: unknown): RoutingRetrievalPlanConfidence | null {
+    return value === "low" || value === "medium" || value === "high" ? value : null;
   }
 }

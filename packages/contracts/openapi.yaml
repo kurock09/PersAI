@@ -2218,6 +2218,682 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills:
+    get:
+      operationId: getAdminSkills
+      summary: List admin-created professional Skills
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: "#/components/schemas/SkillStatus"
+      responses:
+        "200":
+          description: Admin Skill catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminSkill
+      summary: Create an admin-managed professional Skill
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSkillUpsertRequest"
+      responses:
+        "200":
+          description: Created Skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Skill conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}:
+    get:
+      operationId: getAdminSkill
+      summary: Read one admin-managed Skill with documents
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchAdminSkill
+      summary: Update one admin-managed Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSkillUpsertRequest"
+      responses:
+        "200":
+          description: Updated Skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminSkill
+      summary: Archive one admin-managed Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAdminSkillResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/documents:
+    post:
+      operationId: postAdminSkillDocumentUpload
+      summary: Upload a document into one Skill knowledge base
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                displayName:
+                  type: string
+                  nullable: true
+                description:
+                  type: string
+                  nullable: true
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Uploaded Skill document and indexing job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillDocumentUploadResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Knowledge storage quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/documents/{documentId}:
+    delete:
+      operationId: deleteAdminSkillDocument
+      summary: Delete one Skill document
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: documentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill document deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAdminSkillDocumentResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/documents/{documentId}/reindex:
+    post:
+      operationId: postAdminSkillDocumentReindex
+      summary: Enqueue reindexing for one Skill document
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: documentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill document indexing job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillDocumentReindexResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/skills:
+    get:
+      operationId: getAssistantSkills
+      summary: List Skills available to and assigned for the current assistant
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Assistant Skill assignment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantSkillsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAssistantSkillAssignments
+      summary: Replace user-controlled Skill assignments for the current assistant
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutAssistantSkillAssignmentsRequest"
+      responses:
+        "200":
+          description: Updated Assistant Skill assignment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantSkillsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Skill is archived or over plan limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-indexing/jobs:
+    get:
+      operationId: getAdminKnowledgeIndexingJobs
+      summary: List recent knowledge indexing jobs for admin observability
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: sourceType
+          required: false
+          schema:
+            $ref: "#/components/schemas/KnowledgeIndexingJobSourceType"
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: "#/components/schemas/KnowledgeIndexingJobStatus"
+      responses:
+        "200":
+          description: Knowledge indexing jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetKnowledgeIndexingJobsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/knowledge-indexing/jobs:
+    get:
+      operationId: getAssistantKnowledgeIndexingJobs
+      summary: List recent user-visible assistant knowledge indexing jobs
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Assistant knowledge indexing jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetKnowledgeIndexingJobsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/document-processing:
+    get:
+      operationId: getAdminDocumentProcessingSettings
+      summary: Read document-processing provider policy and key status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Document-processing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminDocumentProcessingSettingsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminDocumentProcessingSettings
+      summary: Update document-processing provider policy and keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.document_processing_settings.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDocumentProcessingSettingsRequest"
+      responses:
+        "200":
+          description: Updated document-processing settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminDocumentProcessingSettingsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/document-processing/test-connection:
+    post:
+      operationId: postAdminDocumentProcessingTestConnection
+      summary: Test one document-processing provider connection
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminDocumentProcessingTestConnectionRequest"
+      responses:
+        "200":
+          description: Provider connection test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminDocumentProcessingTestConnectionResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/visibility:
     get:
       operationId: getAdminPlanVisibility
@@ -4032,6 +4708,7 @@ components:
         - processing
         - ready
         - failed
+        - needs_review
     AssistantKnowledgeQuotaState:
       type: object
       required:
@@ -4151,7 +4828,6 @@ components:
       type: string
       enum:
         - product
-        - skill
     GlobalKnowledgeSourceState:
       type: object
       required:
@@ -4302,10 +4978,13 @@ components:
               enum:
                 - document
                 - global
+                - product
+                - skill
                 - memory
                 - chat
                 - preset
                 - subscription
+                - web
     AdminKnowledgeRetrievalRecentSearch:
       type: object
       required:
@@ -4340,10 +5019,13 @@ components:
           enum:
             - document
             - global
+            - product
+            - skill
             - memory
             - chat
             - preset
             - subscription
+            - web
         retrievalMode:
           type: string
           enum:
@@ -4524,6 +5206,656 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminKnowledgeConnectorState"
+    SkillStatus:
+      type: string
+      enum:
+        - draft
+        - active
+        - archived
+    AssistantSkillAssignmentStatus:
+      type: string
+      enum:
+        - active
+        - disabled
+        - archived
+        - plan_disabled
+    KnowledgeIndexingJobSourceType:
+      type: string
+      enum:
+        - assistant_knowledge_source
+        - global_knowledge_source
+        - skill_document
+    KnowledgeIndexingJobStatus:
+      type: string
+      enum:
+        - pending
+        - in_progress
+        - completed
+        - failed
+        - needs_review
+        - cancelled
+    KnowledgeIndexingJobProcessorMode:
+      type: string
+      enum:
+        - auto
+        - local
+        - default_provider
+        - high_quality_fallback
+    DocumentProcessingProviderKey:
+      type: string
+      enum:
+        - local
+        - mistral
+        - llamaparse
+    SkillLocalizedText:
+      type: object
+      additionalProperties:
+        type: string
+      example:
+        ru: Бухгалтер
+        en: Accountant
+    SkillInstructionCardState:
+      type: object
+      required:
+        - title
+        - body
+        - guardrails
+        - examples
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        guardrails:
+          type: array
+          items:
+            type: string
+        examples:
+          type: array
+          items:
+            type: string
+    AdminSkillUpsertRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - description
+        - category
+        - instructionCard
+      properties:
+        name:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        category:
+          type: string
+          maxLength: 64
+        tags:
+          type: array
+          items:
+            type: string
+        instructionCard:
+          $ref: "#/components/schemas/SkillInstructionCardState"
+        iconEmoji:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        displayOrder:
+          type: integer
+          nullable: true
+        status:
+          allOf:
+            - $ref: "#/components/schemas/SkillStatus"
+          nullable: true
+    SkillDocumentState:
+      type: object
+      required:
+        - id
+        - skillId
+        - displayName
+        - description
+        - originalFilename
+        - mimeType
+        - sizeBytes
+        - status
+        - currentVersion
+        - chunkCount
+        - processorProviderKey
+        - processorMode
+        - processingQuality
+        - lastIndexedAt
+        - lastReindexRequestedAt
+        - lastErrorCode
+        - lastErrorMessage
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        skillId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        originalFilename:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: number
+        status:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceStatus"
+        currentVersion:
+          type: integer
+          minimum: 1
+        chunkCount:
+          type: integer
+          minimum: 0
+        processorProviderKey:
+          type: string
+          nullable: true
+        processorMode:
+          allOf:
+            - $ref: "#/components/schemas/KnowledgeIndexingJobProcessorMode"
+          nullable: true
+        processingQuality:
+          type: object
+          additionalProperties: true
+          nullable: true
+        lastIndexedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReindexRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminSkillState:
+      type: object
+      required:
+        - id
+        - status
+        - name
+        - description
+        - category
+        - tags
+        - instructionCard
+        - iconEmoji
+        - color
+        - displayOrder
+        - archivedAt
+        - createdAt
+        - updatedAt
+        - documents
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/SkillStatus"
+        name:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        instructionCard:
+          $ref: "#/components/schemas/SkillInstructionCardState"
+        iconEmoji:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        displayOrder:
+          type: integer
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillDocumentState"
+    AssistantSkillCatalogItemState:
+      type: object
+      required:
+        - skill
+        - assignment
+        - selectable
+        - disabledReason
+      properties:
+        skill:
+          $ref: "#/components/schemas/AdminSkillState"
+        assignment:
+          allOf:
+            - $ref: "#/components/schemas/AssistantSkillAssignmentState"
+          nullable: true
+        selectable:
+          type: boolean
+        disabledReason:
+          type: string
+          nullable: true
+    AssistantSkillAssignmentState:
+      type: object
+      required:
+        - id
+        - skillId
+        - status
+        - disabledReason
+        - enabledAt
+        - disabledAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        skillId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AssistantSkillAssignmentStatus"
+        disabledReason:
+          type: string
+          nullable: true
+        enabledAt:
+          type: string
+          format: date-time
+          nullable: true
+        disabledAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    KnowledgeIndexingJobState:
+      type: object
+      required:
+        - id
+        - sourceType
+        - sourceId
+        - sourceVersion
+        - status
+        - processorMode
+        - selectedProviderKey
+        - fallbackProviderKey
+        - attemptCount
+        - maxAttempts
+        - retryAfterAt
+        - extractionQuality
+        - resultPayload
+        - lastErrorCode
+        - lastErrorMessage
+        - startedAt
+        - completedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        sourceType:
+          $ref: "#/components/schemas/KnowledgeIndexingJobSourceType"
+        sourceId:
+          type: string
+          format: uuid
+        sourceVersion:
+          type: integer
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/KnowledgeIndexingJobStatus"
+        processorMode:
+          $ref: "#/components/schemas/KnowledgeIndexingJobProcessorMode"
+        selectedProviderKey:
+          type: string
+          nullable: true
+        fallbackProviderKey:
+          type: string
+          nullable: true
+        attemptCount:
+          type: integer
+          minimum: 0
+        maxAttempts:
+          type: integer
+          minimum: 1
+        retryAfterAt:
+          type: string
+          format: date-time
+          nullable: true
+        extractionQuality:
+          type: object
+          additionalProperties: true
+          nullable: true
+        resultPayload:
+          type: object
+          additionalProperties: true
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DocumentProcessingProviderState:
+      type: object
+      required:
+        - providerKey
+        - enabled
+        - configured
+        - role
+        - lastFour
+        - updatedAt
+      properties:
+        providerKey:
+          $ref: "#/components/schemas/DocumentProcessingProviderKey"
+        enabled:
+          type: boolean
+        configured:
+          type: boolean
+        role:
+          type: string
+          enum:
+            - local_fallback
+            - default_provider
+            - high_quality_fallback
+        lastFour:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    DocumentProcessingPolicyState:
+      type: object
+      required:
+        - defaultProvider
+        - highQualityFallbackProvider
+        - localFallbackEnabled
+        - autoFallbackEnabled
+        - needsReviewThreshold
+      properties:
+        defaultProvider:
+          $ref: "#/components/schemas/DocumentProcessingProviderKey"
+        highQualityFallbackProvider:
+          $ref: "#/components/schemas/DocumentProcessingProviderKey"
+        localFallbackEnabled:
+          type: boolean
+        autoFallbackEnabled:
+          type: boolean
+        needsReviewThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+    AdminDocumentProcessingSettingsState:
+      type: object
+      required:
+        - policy
+        - providers
+        - notes
+      properties:
+        policy:
+          $ref: "#/components/schemas/DocumentProcessingPolicyState"
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentProcessingProviderState"
+        notes:
+          type: array
+          items:
+            type: string
+    AdminDocumentProcessingSettingsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - policy
+        - providerKeys
+      properties:
+        policy:
+          $ref: "#/components/schemas/DocumentProcessingPolicyState"
+        providerKeys:
+          type: object
+          additionalProperties: false
+          properties:
+            mistral:
+              type: string
+              nullable: true
+            llamaparse:
+              type: string
+              nullable: true
+    AdminDocumentProcessingTestConnectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - providerKey
+      properties:
+        providerKey:
+          $ref: "#/components/schemas/DocumentProcessingProviderKey"
+    DocumentProcessingTestConnectionState:
+      type: object
+      required:
+        - providerKey
+        - ok
+        - message
+        - checkedAt
+      properties:
+        providerKey:
+          $ref: "#/components/schemas/DocumentProcessingProviderKey"
+        ok:
+          type: boolean
+        message:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+    GetAdminSkillsResponse:
+      type: object
+      required:
+        - requestId
+        - skills
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminSkillState"
+    GetAdminSkillResponse:
+      type: object
+      required:
+        - requestId
+        - skill
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        skill:
+          $ref: "#/components/schemas/AdminSkillState"
+    DeleteAdminSkillResponse:
+      type: object
+      required:
+        - requestId
+        - archived
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        archived:
+          type: boolean
+          enum:
+            - true
+    PostAdminSkillDocumentUploadResponse:
+      type: object
+      required:
+        - requestId
+        - document
+        - indexingJob
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        document:
+          $ref: "#/components/schemas/SkillDocumentState"
+        indexingJob:
+          $ref: "#/components/schemas/KnowledgeIndexingJobState"
+    DeleteAdminSkillDocumentResponse:
+      type: object
+      required:
+        - requestId
+        - deleted
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        deleted:
+          type: boolean
+          enum:
+            - true
+    PostAdminSkillDocumentReindexResponse:
+      type: object
+      required:
+        - requestId
+        - document
+        - indexingJob
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        document:
+          $ref: "#/components/schemas/SkillDocumentState"
+        indexingJob:
+          $ref: "#/components/schemas/KnowledgeIndexingJobState"
+    GetAssistantSkillsResponse:
+      type: object
+      required:
+        - requestId
+        - skills
+        - assignedSkillIds
+        - limit
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantSkillCatalogItemState"
+        assignedSkillIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        limit:
+          type: integer
+          nullable: true
+    PutAssistantSkillAssignmentsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - skillIds
+      properties:
+        skillIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    GetKnowledgeIndexingJobsResponse:
+      type: object
+      required:
+        - requestId
+        - jobs
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeIndexingJobState"
+    GetAdminDocumentProcessingSettingsResponse:
+      type: object
+      required:
+        - requestId
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminDocumentProcessingSettingsState"
+    PutAdminDocumentProcessingSettingsResponse:
+      type: object
+      required:
+        - requestId
+        - settings
+        - configGeneration
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminDocumentProcessingSettingsState"
+        configGeneration:
+          type: integer
+    PostAdminDocumentProcessingTestConnectionResponse:
+      type: object
+      required:
+        - requestId
+        - result
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        result:
+          $ref: "#/components/schemas/DocumentProcessingTestConnectionState"
     AssistantRuntimePreflightState:
       type: object
       required:
@@ -5454,6 +6786,38 @@ components:
                 - precheck
                 - llm
                 - fallback
+            retrievalPlan:
+              type: object
+              nullable: true
+              required:
+                - useSkills
+                - selectedSkillIds
+                - useUserKnowledge
+                - useProductKnowledge
+                - useWeb
+                - confidence
+                - reasonCode
+              properties:
+                useSkills:
+                  type: boolean
+                selectedSkillIds:
+                  type: array
+                  items:
+                    type: string
+                useUserKnowledge:
+                  type: boolean
+                useProductKnowledge:
+                  type: boolean
+                useWeb:
+                  type: boolean
+                confidence:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                reasonCode:
+                  type: string
     AssistantWebChatTurnState:
       type: object
       required:

@@ -70,6 +70,7 @@ const ORDINARY_TEMPLATE_IDS = [
   "soul",
   "user",
   "identity",
+  "enabled_skills",
   "tools",
   "agents",
   "heartbeat",
@@ -143,6 +144,7 @@ const PRESET_META: Record<
       { key: "soul_block", hint: "Compiled soul prompt block" },
       { key: "user_block", hint: "Compiled user-context block" },
       { key: "identity_block", hint: "Compiled identity block" },
+      { key: "enabled_skills_block", hint: "Compiled enabled Skills instruction cards" },
       { key: "tools_block", hint: "Compiled native tool runtime block" },
       { key: "agents_block", hint: "Compiled memory and task governance block" },
       { key: "heartbeat_block", hint: "Compiled task heartbeat block" }
@@ -190,6 +192,12 @@ const PRESET_META: Record<
       { key: "assistant_avatar_emoji_line", hint: "Avatar emoji line" },
       { key: "assistant_avatar_url_line", hint: "Avatar URL line" }
     ]
+  },
+  enabled_skills: {
+    label: "Enabled Skills",
+    description:
+      "Prompt Constructor block for user-enabled professional Skill instruction cards. Empty when no active Skill is enabled or the assignment is disabled, archived, or over the plan limit.",
+    variables: [{ key: "skill_cards_block", hint: "Rendered enabled Skill cards" }]
   },
   tools: {
     label: "Native Tool Runtime",
@@ -284,6 +292,8 @@ const SAMPLE_VARIABLES: Record<string, string> = {
   assistant_avatar_url_line: "",
   human_name: "Alex",
   traits_summary_line: "They set your personality to: warmth 80/100, playfulness 75/100.",
+  skill_cards_block:
+    "# Enabled Skills\n\n## 1. Accounting mode\n\n- Skill: Accountant\n- Summary: Accounting support\n- Category: finance\n- Tags: tax, books\n\nUse accounting knowledge carefully.\n\nGuardrails:\n- No legal guarantees",
   time_since_last_user_message_in_thread: "earlier today",
   time_since_last_user_message_anywhere: "yesterday",
   current_local_time: "21:47",
@@ -362,6 +372,7 @@ function buildOrdinaryPreview(
   const sectionVariables = {
     ...SAMPLE_VARIABLES,
     route_control_block: "",
+    skill_cards_block: SAMPLE_VARIABLES.skill_cards_block ?? "",
     tools_catalog_block: buildPreviewToolCatalogBlock(toolStates)
   };
   const sectionById = Object.fromEntries(
@@ -388,6 +399,8 @@ function buildOrdinaryPreview(
 
 {{identity_block}}
 
+{{enabled_skills_block}}
+
 {{tools_block}}
 
 {{agents_block}}
@@ -398,6 +411,7 @@ function buildOrdinaryPreview(
     soul_block: sectionById.soul,
     user_block: sectionById.user,
     identity_block: sectionById.identity,
+    enabled_skills_block: sectionById.enabled_skills,
     tools_block: sectionById.tools,
     agents_block: sectionById.agents,
     heartbeat_block: sectionById.heartbeat

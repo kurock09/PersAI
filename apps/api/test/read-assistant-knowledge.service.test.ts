@@ -22,7 +22,7 @@ type KnowledgeChunkRow = {
 type GlobalKnowledgeChunkRow = {
   workspaceId: string;
   globalKnowledgeSourceId: string;
-  scope: "product" | "skill";
+  scope: "product";
   sourceVersion: number;
   chunkIndex: number;
   locator: string | null;
@@ -254,39 +254,39 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
   {
     workspaceId: "workspace-1",
     globalKnowledgeSourceId: "global-source-1",
-    scope: "skill",
+    scope: "product",
     sourceVersion: 1,
     chunkIndex: 0,
     locator: "sync-guide#1",
-    content: "Connector sync cadence keeps uploaded skill knowledge fresh across reindex runs.",
+    content: "Connector sync cadence keeps uploaded Product knowledge fresh across reindex runs.",
     embeddingModelKey: null,
     embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
       workspaceId: "workspace-1",
       status: "ready",
-      displayName: "Skill Sync Guide",
-      originalFilename: "skill-sync-guide.md",
+      displayName: "Product Sync Guide",
+      originalFilename: "product-sync-guide.md",
       mimeType: "text/markdown"
     }
   },
   {
     workspaceId: "workspace-1",
     globalKnowledgeSourceId: "global-source-1",
-    scope: "skill",
+    scope: "product",
     sourceVersion: 1,
     chunkIndex: 1,
     locator: "sync-guide#2",
     content:
-      "Admins can upload skill knowledge and trigger reindex when connector configuration changes.",
+      "Admins can upload Product knowledge and trigger reindex when connector configuration changes.",
     embeddingModelKey: null,
     embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
       workspaceId: "workspace-1",
       status: "ready",
-      displayName: "Skill Sync Guide",
-      originalFilename: "skill-sync-guide.md",
+      displayName: "Product Sync Guide",
+      originalFilename: "product-sync-guide.md",
       mimeType: "text/markdown"
     }
   }
@@ -1339,7 +1339,7 @@ async function run(): Promise<void> {
     maxResults: 3
   });
   assert.equal(uploadedGlobalHits[0]?.referenceId, "global-uploaded:global-source-1:1:0");
-  assert.equal(uploadedGlobalHits[0]?.title, "Skill Sync Guide");
+  assert.equal(uploadedGlobalHits[0]?.title, "Product Sync Guide");
 
   const globalFetched = await service.fetch({
     assistantId: "assistant-1",
@@ -1356,7 +1356,7 @@ async function run(): Promise<void> {
   });
   assert.equal(uploadedGlobalFetched?.source, "global");
   assert.ok((uploadedGlobalFetched?.content ?? "").includes("Connector sync cadence"));
-  assert.ok((uploadedGlobalFetched?.content ?? "").includes("Admins can upload skill knowledge"));
+  assert.ok((uploadedGlobalFetched?.content ?? "").includes("Admins can upload Product knowledge"));
 
   const missing = await service.fetchDocument({
     assistantId: "assistant-1",

@@ -41,6 +41,14 @@ export interface AssistantRuntimeBundleUserContext {
   timezone: string;
 }
 
+export interface AssistantRuntimeEnabledSkillSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  tags: string[];
+}
+
 export interface AssistantRuntimeBundleSecretRef {
   source: string;
   provider: string;
@@ -120,6 +128,7 @@ export interface AssistantRuntimePromptDocuments {
   soul: string;
   user: string;
   identity: string;
+  enabledSkills?: string;
   tools: string;
   agents: string;
   heartbeat: string;
@@ -150,6 +159,7 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   soul: string;
   user: string;
   identity: string;
+  enabledSkills: string;
   tools: string;
   agents: string;
   heartbeat: string;
@@ -178,6 +188,10 @@ export interface AssistantRuntimeBundleChannels {
   telegram: AssistantRuntimeBundleTelegramChannel;
 }
 
+export interface AssistantRuntimeBundleSkills {
+  enabled: AssistantRuntimeEnabledSkillSummary[];
+}
+
 export interface AssistantRuntimeBundle {
   schema: typeof PERSAI_RUNTIME_BUNDLE_SCHEMA;
   contractSchema: typeof PERSAI_RUNTIME_CONTRACT_SCHEMA;
@@ -187,6 +201,7 @@ export interface AssistantRuntimeBundle {
   runtime: AssistantRuntimeBundleRuntimeConfig;
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
+  skills?: AssistantRuntimeBundleSkills;
   promptDocuments: AssistantRuntimePromptDocuments;
   promptConstructor: AssistantRuntimePromptConstructor;
 }
@@ -198,6 +213,7 @@ export interface CreateAssistantRuntimeBundleInput {
   runtime: AssistantRuntimeBundleRuntimeConfig;
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
+  skills?: AssistantRuntimeBundleSkills;
   promptDocuments: AssistantRuntimePromptDocuments;
   promptConstructor?: AssistantRuntimePromptConstructor;
 }
@@ -256,6 +272,7 @@ export function createAssistantRuntimeBundle(
         soul: input.promptDocuments.soul,
         user: input.promptDocuments.user,
         identity: input.promptDocuments.identity,
+        enabledSkills: input.promptDocuments.enabledSkills ?? "",
         tools: input.promptDocuments.tools,
         agents: input.promptDocuments.agents,
         heartbeat: input.promptDocuments.heartbeat
@@ -277,6 +294,7 @@ export function createAssistantRuntimeBundle(
         input.promptDocuments.soul,
         input.promptDocuments.user,
         input.promptDocuments.identity,
+        input.promptDocuments.enabledSkills,
         input.promptDocuments.tools,
         input.promptDocuments.agents
       ]
@@ -298,6 +316,7 @@ export function createAssistantRuntimeBundle(
           input.promptDocuments.soul,
           input.promptDocuments.user,
           input.promptDocuments.identity,
+          input.promptDocuments.enabledSkills,
           input.promptDocuments.tools,
           input.promptDocuments.agents
         ]
@@ -322,6 +341,7 @@ export function createAssistantRuntimeBundle(
     runtime: input.runtime,
     governance: input.governance,
     channels: input.channels,
+    ...(input.skills === undefined ? {} : { skills: input.skills }),
     promptDocuments: {
       ...input.promptDocuments,
       bootstrap: input.promptDocuments.bootstrap ?? input.promptDocuments.welcome

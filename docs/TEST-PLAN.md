@@ -146,11 +146,23 @@ When a change touches the active knowledge plane, retrieval policy, or admin kno
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-document-processing-settings.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/enabled-skills-prompt-materialization.test.ts
+corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/manage-assistant-knowledge-sources.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
 corepack pnpm --filter @persai/api exec tsx test/admin-authorization.test.ts
 corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts
+corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/skills/page.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts app/app/setup/page.test.tsx
 ```
 
 ## Helm / deploy truth checks

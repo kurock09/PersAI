@@ -27,12 +27,15 @@ import { useAppDataContext } from "../_components/app-shell";
 import {
   getAssistant,
   getAssistantPersonaArchetypes,
+  getAssistantSkills,
   getAssistantVoiceSettings,
   patchAssistantDraft,
   postAssistantCreate,
   postAssistantPublish,
   postAssistantSetupPreview,
+  updateAssistantSkillAssignments,
   uploadAssistantAvatar,
+  type AssistantSkillsState,
   type AssistantPersonaArchetypeState,
   type AssistantVoiceSettingsState
 } from "../assistant-api-client";
@@ -53,6 +56,7 @@ import {
   resolveDefaultYandexVoiceOption,
   YANDEX_VOICE_OPTIONS
 } from "../_components/assistant-voice-options";
+import { AssistantSkillsManager } from "../_components/assistant-skills-manager";
 
 const AVATARS = [
   { id: "nova", emoji: "🌟", label: "Nova" },
@@ -255,6 +259,10 @@ export default function SetupWizardPage() {
   const [runtimePreview, setRuntimePreview] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [skillsState, setSkillsState] = useState<AssistantSkillsState | null>(null);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
   const previewDraftPersistedRef = useRef(false);
   const autoPreviewStepRef = useRef<number | null>(null);
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
@@ -495,6 +503,20 @@ export default function SetupWizardPage() {
     traits
   ]);
 
+  const loadSkills = useCallback(async () => {
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const nextState = await getAssistantSkills(await resolveSetupToken(true));
+      setSkillsState(nextState);
+      setSelectedSkillIds(nextState.assignedSkillIds);
+    } catch (error) {
+      setSkillsError(error instanceof Error ? error.message : t("skillsLoadFailed"));
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, [resolveSetupToken, t]);
+
   const loadRuntimePreview = useCallback(async () => {
     setPreviewLoading(true);
     setPreviewError(null);
@@ -518,7 +540,8 @@ export default function SetupWizardPage() {
     if (autoPreviewStepRef.current === step) return;
     autoPreviewStepRef.current = step;
     void loadRuntimePreview();
-  }, [loadRuntimePreview, step]);
+    void loadSkills();
+  }, [loadRuntimePreview, loadSkills, step]);
 
   const handleCreate = useCallback(async () => {
     setCreating(true);
@@ -539,6 +562,10 @@ export default function SetupWizardPage() {
           avatarUrl: uploaded.avatarUrl
         });
       }
+
+      await updateAssistantSkillAssignments(await resolveSetupToken(true), {
+        skillIds: selectedSkillIds
+      });
 
       await postAssistantPublish(await resolveSetupToken(true));
       await appData.reload();
@@ -567,6 +594,7 @@ export default function SetupWizardPage() {
     persistDraftForPreview,
     resolveSetupToken,
     router,
+    selectedSkillIds,
     setupMode,
     t
   ]);
@@ -1024,6 +1052,26 @@ export default function SetupWizardPage() {
                     {t("identity", { gender: assistantGender })}
                   </p>
                 )}
+
+                {skillsState !== null || skillsLoading || skillsError !== null ? (
+                  <div className="mt-6 w-full max-w-3xl text-left">
+                    <div className="mb-3">
+                      <p className="text-sm font-semibold text-text">{t("skillsTitle")}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-text-muted">
+                        {t("skillsSubtitle")}
+                      </p>
+                    </div>
+                    <AssistantSkillsManager
+                      state={skillsState}
+                      selectedSkillIds={selectedSkillIds}
+                      onChange={setSelectedSkillIds}
+                      loading={skillsLoading}
+                      error={skillsError}
+                      mode="setup"
+                      disabled={creating}
+                    />
+                  </div>
+                ) : null}
 
                 <button
                   type="button"

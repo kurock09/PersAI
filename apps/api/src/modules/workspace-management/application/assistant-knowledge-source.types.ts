@@ -2,9 +2,9 @@ export type AssistantKnowledgeSourceNamespace = "assistant_user_workspace";
 
 export type AssistantKnowledgeSourceKind = "uploaded_file";
 
-export type AssistantKnowledgeSourceStatus = "processing" | "ready" | "failed";
+export type AssistantKnowledgeSourceStatus = "processing" | "ready" | "failed" | "needs_review";
 
-export type GlobalKnowledgeSourceScope = "product" | "skill";
+export type GlobalKnowledgeSourceScope = "product";
 
 export type AssistantKnowledgeSourceState = {
   id: string;
