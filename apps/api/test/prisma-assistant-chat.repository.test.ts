@@ -71,6 +71,63 @@ async function runRetriesSerializableWebChatCap(): Promise<void> {
   });
 }
 
+async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
+  const calls: string[] = [];
+  const tx = {
+    runtimeSession: {
+      findMany: async () => [{ id: "runtime-session-1" }],
+      deleteMany: async (args: Record<string, unknown>) => {
+        calls.push(`runtime-session:${JSON.stringify(args)}`);
+        return { count: 1 };
+      }
+    },
+    runtimeTurnReceipt: {
+      deleteMany: async (args: Record<string, unknown>) => {
+        calls.push(`runtime-receipt:${JSON.stringify(args)}`);
+        return { count: 2 };
+      }
+    },
+    runtimeSessionCompaction: {
+      deleteMany: async (args: Record<string, unknown>) => {
+        calls.push(`runtime-compaction:${JSON.stringify(args)}`);
+        return { count: 1 };
+      }
+    },
+    assistantChatMessage: {
+      deleteMany: async (args: Record<string, unknown>) => {
+        calls.push(`chat-message:${JSON.stringify(args)}`);
+        return { count: 2 };
+      }
+    },
+    assistantChat: {
+      delete: async (args: Record<string, unknown>) => {
+        calls.push(`chat:${JSON.stringify(args)}`);
+        return {};
+      }
+    }
+  };
+  const repository = new PrismaAssistantChatRepository({
+    assistantChat: {
+      findUnique: async () => ({
+        id: "chat-1",
+        assistantId: "assistant-1",
+        surface: "web",
+        surfaceThreadKey: "thread-1"
+      })
+    },
+    $transaction: async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)
+  } as never);
+
+  assert.equal(await repository.hardDeleteChat("chat-1", "assistant-1"), true);
+  assert.deepEqual(calls, [
+    'runtime-receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
+    'runtime-compaction:{"where":{"runtimeSessionId":{"in":["runtime-session-1"]},"assistantId":"assistant-1"}}',
+    'runtime-session:{"where":{"id":{"in":["runtime-session-1"]},"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
+    'chat-message:{"where":{"chatId":"chat-1","assistantId":"assistant-1"}}',
+    'chat:{"where":{"id_assistantId":{"id":"chat-1","assistantId":"assistant-1"}}}'
+  ]);
+}
+
 const assistantChatTx = {
   findUnique: async () => null,
   count: async () => 19,
@@ -97,4 +154,4 @@ const assistantChatCapTx = {
   }
 };
 
-void runRetriesSerializableWebChatCap();
+void runRetriesSerializableWebChatCap().then(runHardDeleteRemovesWebRuntimeState);

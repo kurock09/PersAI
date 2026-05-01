@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-05-01 (Web chat runtime-session identity cleanup) — GKE/live DB audit found a current web chat row using a `surfaceThreadKey` whose runtime session/compaction predated the chat; fixed chat lifecycle so stale web runtime sessions are deleted before new turns and on hard-delete, with runtime hydration retaining a stale-summary guard (`apps/api`, `apps/runtime`; focused regressions green)
+
+### Why this session
+
+Founder reported that after the recent chat/stream fixes the assistant stopped receiving the latest chat messages as context, in multiple chats, and asked to inspect GKE logs rather than guess.
+
+### Diagnosis
+
+- Deployed `persai-dev` was on `482b3b59` for `api`, `runtime`, and `web`.
+- GKE logs showed web turns accepted/running/completed normally, with `memory/hydrate-for-turn` returning `200`.
+- Live DB for the repro chat (`chatId=1dfdb112-6244-46e9-972d-f9e25533434b`, `threadKey=web-1776965077282`) showed recent user/assistant messages were correctly persisted in `assistant_chat_messages`.
+- The actual identity mismatch was in chat lifecycle: the `assistant_chat` row was created `2026-04-30T23:50:48Z`, but the runtime session for the same `surfaceThreadKey` was created `2026-04-23T17:24:43Z`.
+- The latest runtime compaction on that older session had `summarizedMessageCount=245`, `preservedRecentMessageCount=8`, while the current canonical chat had only 85 hydratable messages. Runtime used `summaryBoundary = min(245, 85)`, treated every current message as summarized, and sent the model only the old rolling synopsis plus the current user message.
+- So the fix is not just "memory fallback": web chat identity must not inherit runtime state that predates the canonical chat row.
+
+### What changed
+
+- `apps/api/src/modules/workspace-management/application/prepare-assistant-inbound-turn.service.ts`:
+  - Before a web chat turn creates the new user message, it deletes any web runtime session/compactions/turn receipts for the same `surfaceThreadKey` whose runtime session was created before the current `assistant_chat`.
+  - This covers already-affected chats after deploy: the next turn on a chat whose canonical row is newer than its runtime session starts with a fresh runtime session instead of reusing stale rolling context.
+- `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`:
+  - Hard-deleting a web chat now also deletes the matching web runtime session, compactions, and turn receipts for that `surfaceThreadKey`, so a later reused/draft `web-*` key cannot inherit old runtime context.
+- `apps/runtime/src/modules/turns/turn-context-hydration.service.ts`:
+  - Reusable compaction metadata now carries `preservedRecentMessageCount`.
+  - Hydration still defensively ignores a reusable compaction summary when `summarizedMessageCount + preservedRecentMessageCount` is greater than the current hydratable canonical message count.
+- Tests:
+  - `prepare-assistant-inbound-turn.service.test.ts` covers deleting a stale runtime session before a web turn proceeds.
+  - `prisma-assistant-chat.repository.test.ts` covers hard-delete removing web runtime state.
+  - Added regression coverage for a stale compaction (`summarizedMessageCount=245`) over a shorter current chat sequence. The stale summary is not included, and current canonical messages are preserved.
+
+### Tests run
+
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts` — passed.
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-assistant-chat.repository.test.ts` — passed.
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts` — passed.
+- `corepack pnpm -r --if-present run lint` — passed.
+- `corepack pnpm run format:check` — passed.
+- `corepack pnpm --filter @persai/api run typecheck` — passed.
+- `corepack pnpm --filter @persai/web run typecheck` — passed.
+- `corepack pnpm --filter @persai/runtime run typecheck` — passed.
+
+### Next recommended step
+
+Run full repo lint/format/typechecks, then deploy API + runtime and re-run the founder repro in the affected chat and a fresh chat. Expected: next turn on the affected chat clears the stale pre-chat runtime session, creates a fresh runtime context, and OpenAI logs include the latest canonical user messages again.
+
+---
+
 ## 2026-05-01 (Desktop composer Enter focus restore) — fixed desktop web composer focus not returning after sending with Enter by restoring focus again on the next animation frame (`apps/web`; `chat-input.test.tsx` 10/10 green)
 
 ### Why this session

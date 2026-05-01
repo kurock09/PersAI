@@ -884,6 +884,55 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     content: "message-22"
   });
 
+  runtimeStatePostgres.latestCompaction = {
+    summaryPayload: {
+      schema: "persai.runtimeSessionCompaction.v2",
+      toolCode: "compact_context",
+      preservedRecentMessageCount: 8,
+      sections: {
+        stableFacts: ["Stale summary from a longer message sequence."],
+        userPreferences: [],
+        assistantCommitments: [],
+        openThreads: [],
+        importantReferences: []
+      },
+      summarizedMessageCount: 245
+    }
+  };
+  const ignoredStaleSummary = await service.buildMessages(
+    {
+      ...request,
+      idempotencyKey: "message-21",
+      message: {
+        ...request.message,
+        text: "current turn with stale compaction",
+        attachments: []
+      }
+    },
+    runtimeBundle
+  );
+  assert.equal(ignoredStaleSummary.length, 23);
+  assert.deepEqual(ignoredStaleSummary.at(0), {
+    role: "assistant",
+    content: HYDRATED_MEMORY_CONTEXT
+  });
+  assert.deepEqual(ignoredStaleSummary.at(1), {
+    role: "user",
+    content: "message-1"
+  });
+  assert.ok(
+    !ignoredStaleSummary.some(
+      (message) =>
+        typeof message.content === "string" &&
+        message.content.includes("Stale summary from a longer message sequence.")
+    ),
+    "stale compaction summaries must not replace current canonical chat history"
+  );
+  assert.deepEqual(ignoredStaleSummary.at(-2), {
+    role: "user",
+    content: "current turn with stale compaction"
+  });
+
   const compactionSource = await service.buildCompactionMessages({
     conversation: request.conversation,
     keepRecentMessageCount: 4

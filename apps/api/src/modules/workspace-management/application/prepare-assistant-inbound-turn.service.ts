@@ -116,6 +116,14 @@ export class PrepareAssistantInboundTurnService {
             deepModeEnabled: input.deepModeEnabled ?? false
           });
 
+    if (input.surface === "web_chat") {
+      await this.deleteStaleWebRuntimeThreadState({
+        assistantId: assistant.id,
+        surfaceThreadKey: chat.surfaceThreadKey,
+        chatCreatedAt: chat.createdAt
+      });
+    }
+
     const userMessage = await this.assistantChatRepository.createMessage({
       chatId: chat.id,
       assistantId: assistant.id,
@@ -225,5 +233,49 @@ export class PrepareAssistantInboundTurnService {
     }
 
     return result.chat;
+  }
+
+  private async deleteStaleWebRuntimeThreadState(params: {
+    assistantId: string;
+    surfaceThreadKey: string;
+    chatCreatedAt: Date;
+  }): Promise<void> {
+    const sessions = await this.prisma.runtimeSession.findMany({
+      where: {
+        assistantId: params.assistantId,
+        channel: "web",
+        externalThreadKey: params.surfaceThreadKey,
+        createdAt: { lt: params.chatCreatedAt }
+      },
+      select: { id: true }
+    });
+    const sessionIds = sessions.map((session) => session.id);
+    if (sessionIds.length === 0) {
+      return;
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.runtimeTurnReceipt.deleteMany({
+        where: {
+          assistantId: params.assistantId,
+          channel: "web",
+          externalThreadKey: params.surfaceThreadKey
+        }
+      }),
+      this.prisma.runtimeSessionCompaction.deleteMany({
+        where: {
+          runtimeSessionId: { in: sessionIds },
+          assistantId: params.assistantId
+        }
+      }),
+      this.prisma.runtimeSession.deleteMany({
+        where: {
+          id: { in: sessionIds },
+          assistantId: params.assistantId,
+          channel: "web",
+          externalThreadKey: params.surfaceThreadKey
+        }
+      })
+    ]);
   }
 }

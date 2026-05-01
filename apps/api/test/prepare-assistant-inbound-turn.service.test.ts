@@ -36,6 +36,7 @@ async function run(): Promise<void> {
   };
 
   const createdMessages: Array<{ chatId: string; content: string }> = [];
+  const runtimeDeletes: string[] = [];
   const service = new PrepareAssistantInboundTurnService(
     {
       async findChatBySurfaceThread() {
@@ -90,6 +91,26 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      $transaction: async (operations: Array<Promise<unknown>>) => Promise.all(operations),
+      runtimeSession: {
+        findMany: async () => [{ id: "stale-runtime-session-1" }],
+        deleteMany: async (args: Record<string, unknown>) => {
+          runtimeDeletes.push(`session:${JSON.stringify(args)}`);
+          return { count: 1 };
+        }
+      },
+      runtimeTurnReceipt: {
+        deleteMany: async (args: Record<string, unknown>) => {
+          runtimeDeletes.push(`receipt:${JSON.stringify(args)}`);
+          return { count: 1 };
+        }
+      },
+      runtimeSessionCompaction: {
+        deleteMany: async (args: Record<string, unknown>) => {
+          runtimeDeletes.push(`compaction:${JSON.stringify(args)}`);
+          return { count: 1 };
+        }
+      },
       workspace: {
         findUnique: async () => ({ timezone: "UTC" })
       }
@@ -126,6 +147,11 @@ async function run(): Promise<void> {
   assert.equal(prepared.chat.id, "chat-1");
   assert.equal(createdMessages.length, 1);
   assert.equal(createdMessages[0]?.chatId, "chat-1");
+  assert.deepEqual(runtimeDeletes, [
+    'receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
+    'compaction:{"where":{"runtimeSessionId":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1"}}',
+    'session:{"where":{"id":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}'
+  ]);
 
   await assert.rejects(
     () =>

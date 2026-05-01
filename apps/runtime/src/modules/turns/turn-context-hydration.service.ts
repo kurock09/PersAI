@@ -114,6 +114,7 @@ type DirectInputSelection = {
 type ReusableCompactionSummary = {
   summaryText: string;
   summarizedMessageCount: number;
+  preservedRecentMessageCount: number;
 };
 
 type DurableMemoryHydration = {
@@ -404,7 +405,9 @@ export class TurnContextHydrationService {
       reusableSummary.summarizedMessageCount,
       hydratableMessages.length
     );
-    if (summaryBoundary <= 0) {
+    const expectedCompactedMessageCount =
+      reusableSummary.summarizedMessageCount + reusableSummary.preservedRecentMessageCount;
+    if (summaryBoundary <= 0 || expectedCompactedMessageCount > hydratableMessages.length) {
       const hydratedMessages = await this.hydrateCanonicalMessageSequence(
         hydratableMessages,
         input,
@@ -860,7 +863,8 @@ export class TurnContextHydrationService {
 
     return {
       summaryText: parsed.summaryText,
-      summarizedMessageCount: parsed.summarizedMessageCount
+      summarizedMessageCount: parsed.summarizedMessageCount,
+      preservedRecentMessageCount: parsed.payload.preservedRecentMessageCount
     };
   }
 

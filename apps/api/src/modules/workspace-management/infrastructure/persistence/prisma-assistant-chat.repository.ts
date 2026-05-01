@@ -259,28 +259,68 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
   async hardDeleteChat(chatId: string, assistantId: string): Promise<boolean> {
     const existingChat = await this.prisma.assistantChat.findUnique({
       where: { id: chatId },
-      select: { id: true, assistantId: true }
+      select: { id: true, assistantId: true, surface: true, surfaceThreadKey: true }
     });
     if (existingChat === null || existingChat.assistantId !== assistantId) {
       return false;
     }
 
-    await this.prisma.$transaction([
-      this.prisma.assistantChatMessage.deleteMany({
+    await this.prisma.$transaction(async (tx) => {
+      const runtimeSessions =
+        existingChat.surface === "web"
+          ? await tx.runtimeSession.findMany({
+              where: {
+                assistantId,
+                channel: "web",
+                externalThreadKey: existingChat.surfaceThreadKey
+              },
+              select: { id: true }
+            })
+          : [];
+      const runtimeSessionIds = runtimeSessions.map((session) => session.id);
+
+      if (existingChat.surface === "web") {
+        await tx.runtimeTurnReceipt.deleteMany({
+          where: {
+            assistantId,
+            channel: "web",
+            externalThreadKey: existingChat.surfaceThreadKey
+          }
+        });
+
+        if (runtimeSessionIds.length > 0) {
+          await tx.runtimeSessionCompaction.deleteMany({
+            where: {
+              runtimeSessionId: { in: runtimeSessionIds },
+              assistantId
+            }
+          });
+          await tx.runtimeSession.deleteMany({
+            where: {
+              id: { in: runtimeSessionIds },
+              assistantId,
+              channel: "web",
+              externalThreadKey: existingChat.surfaceThreadKey
+            }
+          });
+        }
+      }
+
+      await tx.assistantChatMessage.deleteMany({
         where: {
           chatId,
           assistantId
         }
-      }),
-      this.prisma.assistantChat.delete({
+      });
+      await tx.assistantChat.delete({
         where: {
           id_assistantId: {
             id: chatId,
             assistantId
           }
         }
-      })
-    ]);
+      });
+    });
 
     return true;
   }
