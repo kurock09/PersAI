@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-080 assistant Skill authoring slice) — admin-only draft enrichment uses Admin Knowledge authoring model (`apps/api`, `apps/web`, `packages/contracts`, docs; checks green)
+
+### What changed
+
+- Added admin-only `POST /api/v1/admin/skills/:skillId/authoring/draft` for assistant-assisted Skill draft/enrichment.
+- The authoring flow runs in the API/control plane through provider-gateway text generation, not through ordinary runtime chat.
+- Added `authoringModelKey` to the admin Knowledge model policy so `/admin/knowledge` owns the high-quality model slot for `Собрать с помощью агента`; if unset, the flow falls back to the platform primary chat model.
+- Added the Admin Skills UI action that fills editable draft fields and proposes draft-only Skill knowledge cards. Generated cards are not saved, activated, indexed, or injected into runtime until an admin explicitly saves/activates them.
+- Kept the slice bounded: no web crawling, no curator jobs, no Product KB assistant authoring, no marketplace, and no versioned Skills.
+
+### Verification
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/generate-skill-authoring-draft.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/knowledge/page.test.tsx app/admin/skills/page.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+
+### Next recommended step
+
+Live-smoke one draft Skill: generate with the authoring model, review/save a draft card, activate/reindex it, assign the Skill, and verify retrieval uses only the approved active card.
+
+---
+
 ## 2026-05-02 (ADR-080 admin UI slice) — Product KB text entries and Skill knowledge cards are editable in admin (`apps/web`, docs; focused checks green)
 
 ### What changed

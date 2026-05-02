@@ -2601,6 +2601,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/authoring/draft:
+    post:
+      operationId: postAdminSkillAuthoringDraft
+      summary: Generate an assistant-assisted Skill draft proposal
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillAuthoringDraftRequest"
+      responses:
+        "200":
+          description: Draft-only Skill authoring proposal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillAuthoringDraftResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Authoring model or provider conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/skills/{skillId}/documents:
     post:
       operationId: postAdminSkillDocumentUpload
@@ -5632,6 +5688,106 @@ components:
           allOf:
             - $ref: "#/components/schemas/SkillStatus"
           nullable: true
+    SkillAuthoringDraftRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt
+        - currentDraft
+      properties:
+        prompt:
+          type: string
+          nullable: true
+        currentDraft:
+          allOf:
+            - $ref: "#/components/schemas/SkillAuthoringDraftSkillFields"
+          nullable: true
+    SkillAuthoringDraftSkillFields:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        description:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        instructionCard:
+          $ref: "#/components/schemas/SkillInstructionCardState"
+        iconEmoji:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+    SkillAuthoringDraftKnowledgeCardProposal:
+      type: object
+      required:
+        - title
+        - body
+        - locale
+        - tags
+        - lifecycleStatus
+        - provenanceKind
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        locale:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        lifecycleStatus:
+          type: string
+          enum:
+            - draft
+        provenanceKind:
+          type: string
+          enum:
+            - assistant_generated
+    SkillAuthoringDraftProposalState:
+      type: object
+      required:
+        - schema
+        - providerKey
+        - modelKey
+        - generatedAt
+        - skillDraft
+        - knowledgeCards
+        - warnings
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.skillAuthoringDraftProposal.v1
+        providerKey:
+          type: string
+          enum:
+            - openai
+            - anthropic
+        modelKey:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        skillDraft:
+          $ref: "#/components/schemas/SkillAuthoringDraftSkillFields"
+        knowledgeCards:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillAuthoringDraftKnowledgeCardProposal"
+        warnings:
+          type: array
+          items:
+            type: string
     SkillDocumentState:
       type: object
       required:
@@ -6250,6 +6406,17 @@ components:
           type: boolean
           enum:
             - true
+    PostAdminSkillAuthoringDraftResponse:
+      type: object
+      required:
+        - requestId
+        - proposal
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        proposal:
+          $ref: "#/components/schemas/SkillAuthoringDraftProposalState"
     PostAdminSkillDocumentUploadResponse:
       type: object
       required:

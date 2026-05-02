@@ -6,12 +6,14 @@ export type AdminKnowledgeRetrievalPolicyState = {
   schema: typeof ADMIN_KNOWLEDGE_RETRIEVAL_POLICY_SCHEMA;
   embeddingModelKey: string | null;
   retrievalModelKey: string | null;
+  authoringModelKey: string | null;
   notes: string[];
 };
 
 export type UpdateAdminKnowledgeRetrievalPolicyInput = {
   embeddingModelKey: string | null;
   retrievalModelKey: string | null;
+  authoringModelKey: string | null;
 };
 
 export function parseUpdateAdminKnowledgeRetrievalPolicyInput(
@@ -23,7 +25,8 @@ export function parseUpdateAdminKnowledgeRetrievalPolicyInput(
   }
   return {
     embeddingModelKey: normalizeOptionalModelKey(row.embeddingModelKey, "embeddingModelKey"),
-    retrievalModelKey: normalizeOptionalModelKey(row.retrievalModelKey, "retrievalModelKey")
+    retrievalModelKey: normalizeOptionalModelKey(row.retrievalModelKey, "retrievalModelKey"),
+    authoringModelKey: normalizeOptionalModelKey(row.authoringModelKey, "authoringModelKey")
   };
 }
 
@@ -35,20 +38,25 @@ export function normalizeAdminKnowledgeRetrievalPolicyRecord(
     row === null ? null : normalizeStoredModelKey(row.embeddingModelKey, "embeddingModelKey");
   const retrievalModelKey =
     row === null ? null : normalizeStoredModelKey(row.retrievalModelKey, "retrievalModelKey");
+  const authoringModelKey =
+    row === null ? null : normalizeStoredModelKey(row.authoringModelKey, "authoringModelKey");
   return buildAdminKnowledgeRetrievalPolicyState({
     embeddingModelKey,
-    retrievalModelKey
+    retrievalModelKey,
+    authoringModelKey
   });
 }
 
 export function buildAdminKnowledgeRetrievalPolicyState(input: {
   embeddingModelKey: string | null;
   retrievalModelKey: string | null;
+  authoringModelKey: string | null;
 }): AdminKnowledgeRetrievalPolicyState {
   return {
     schema: ADMIN_KNOWLEDGE_RETRIEVAL_POLICY_SCHEMA,
     embeddingModelKey: input.embeddingModelKey,
     retrievalModelKey: input.retrievalModelKey,
+    authoringModelKey: input.authoringModelKey,
     notes: [
       "This policy applies to admin-owned Product KB documents and Skill documents.",
       "User-uploaded assistant knowledge continues to use the assistant plan retrieval slots.",
@@ -57,18 +65,25 @@ export function buildAdminKnowledgeRetrievalPolicyState(input: {
         : `Admin-owned KB vector search uses ${input.embeddingModelKey}.`,
       input.retrievalModelKey === null
         ? "Admin-owned KB helper rerank is disabled until a retrieval helper model is configured."
-        : `Admin-owned KB helper rerank uses ${input.retrievalModelKey}.`
+        : `Admin-owned KB helper rerank uses ${input.retrievalModelKey}.`,
+      input.authoringModelKey === null
+        ? "Assistant-assisted admin authoring uses the platform primary chat model."
+        : `Assistant-assisted admin authoring uses ${input.authoringModelKey}.`
     ]
   };
 }
 
 export function toAdminKnowledgeRetrievalPolicyRecord(
-  policy: Pick<AdminKnowledgeRetrievalPolicyState, "embeddingModelKey" | "retrievalModelKey">
+  policy: Pick<
+    AdminKnowledgeRetrievalPolicyState,
+    "embeddingModelKey" | "retrievalModelKey" | "authoringModelKey"
+  >
 ): Record<string, string | null> {
   return {
     schema: ADMIN_KNOWLEDGE_RETRIEVAL_POLICY_SCHEMA,
     embeddingModelKey: policy.embeddingModelKey,
-    retrievalModelKey: policy.retrievalModelKey
+    retrievalModelKey: policy.retrievalModelKey,
+    authoringModelKey: policy.authoringModelKey
   };
 }
 

@@ -95,6 +95,7 @@ import type {
   PostAdminPlatformRolloutRequest,
   PostAdminPlatformRolloutResponse,
   PostAdminPlatformRolloutRollbackResponse,
+  PostAdminSkillAuthoringDraftResponse,
   PostAdminSkillDocumentReindexResponse,
   PostAdminSkillDocumentUploadBody,
   PostAdminSkillDocumentUploadResponse,
@@ -114,6 +115,7 @@ import type {
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
   PutAssistantSkillAssignmentsRequest,
+  SkillAuthoringDraftRequest,
   SkillKnowledgeCardInput,
   SuccessResponse
 } from "./model";
@@ -3853,6 +3855,77 @@ export const deleteAdminSkill = async (
     ...options,
     method: "DELETE"
   });
+};
+
+/**
+ * @summary Generate an assistant-assisted Skill draft proposal
+ */
+export type postAdminSkillAuthoringDraftResponse200 = {
+  data: PostAdminSkillAuthoringDraftResponse;
+  status: 200;
+};
+
+export type postAdminSkillAuthoringDraftResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSkillAuthoringDraftResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminSkillAuthoringDraftResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminSkillAuthoringDraftResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillAuthoringDraftResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminSkillAuthoringDraftResponseSuccess =
+  postAdminSkillAuthoringDraftResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSkillAuthoringDraftResponseError = (
+  | postAdminSkillAuthoringDraftResponse400
+  | postAdminSkillAuthoringDraftResponse401
+  | postAdminSkillAuthoringDraftResponse403
+  | postAdminSkillAuthoringDraftResponse404
+  | postAdminSkillAuthoringDraftResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillAuthoringDraftResponse =
+  | postAdminSkillAuthoringDraftResponseSuccess
+  | postAdminSkillAuthoringDraftResponseError;
+
+export const getPostAdminSkillAuthoringDraftUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}/authoring/draft`;
+};
+
+export const postAdminSkillAuthoringDraft = async (
+  skillId: string,
+  skillAuthoringDraftRequest: SkillAuthoringDraftRequest,
+  options?: RequestInit
+): Promise<postAdminSkillAuthoringDraftResponse> => {
+  return customFetch<postAdminSkillAuthoringDraftResponse>(
+    getPostAdminSkillAuthoringDraftUrl(skillId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(skillAuthoringDraftRequest)
+    }
+  );
 };
 
 /**

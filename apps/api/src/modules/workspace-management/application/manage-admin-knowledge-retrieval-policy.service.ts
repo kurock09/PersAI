@@ -72,6 +72,7 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
       details: {
         embeddingModelKey: policy.embeddingModelKey,
         retrievalModelKey: policy.retrievalModelKey,
+        authoringModelKey: policy.authoringModelKey,
         embeddingBackfill: backfill
       }
     });

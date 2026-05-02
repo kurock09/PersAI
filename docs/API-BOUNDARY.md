@@ -83,7 +83,7 @@ Active boundary rules:
 - admin global-knowledge writes are workspace-scoped and require explicit admin authorization
 - workspace knowledge-storage quota is enforced for admin global-knowledge uploads/deletes
 - upload/reindex creates DB-backed indexing jobs for Product sources; processing is source-agnostic and shares the ADR-079 worker path with assistant knowledge and Skill documents
-- `/admin/knowledge` owns the admin Product/Skill KB retrieval model slots (`embeddingModelKey`, `retrievalModelKey`); user-uploaded assistant knowledge remains plan-slot owned
+- `/admin/knowledge` owns the admin Product/Skill KB retrieval and authoring model slots (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`); user-uploaded assistant knowledge remains plan-slot owned
 - retrieval observability is a durable API surface, not a process-local debug cache
 - ADR-080 Product KB text entries are admin-authored Knowledge sources, not user Files; save/activate is explicit and indexing remains async through the existing jobs
 
@@ -110,6 +110,7 @@ Current admin Skill routes are served by `apps/api`:
 - `GET /api/v1/admin/skills/:skillId`
 - `PATCH /api/v1/admin/skills/:skillId`
 - `DELETE /api/v1/admin/skills/:skillId`
+- `POST /api/v1/admin/skills/:skillId/authoring/draft`
 - `POST /api/v1/admin/skills/:skillId/documents`
 - `DELETE /api/v1/admin/skills/:skillId/documents/:documentId`
 - `POST /api/v1/admin/skills/:skillId/documents/:documentId/reindex`
@@ -121,6 +122,7 @@ Active boundary rules:
 - delete archives a Skill and disables active assignments rather than hard-deleting the product concept
 - Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
 - ADR-080 Skill knowledge cards and assistant-assisted Skill drafts belong to the admin Skill surface; generated proposals must not become active runtime knowledge without explicit admin save/activation
+- assistant-assisted Skill draft/enrichment is API/control-plane authoring that calls provider-gateway using the admin Knowledge `authoringModelKey`; it is not a runtime chat turn and does not mutate saved Skill or Knowledge rows unless the admin saves the proposal
 - `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
 
 ### Assistant Skills

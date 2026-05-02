@@ -79,6 +79,7 @@ import { ManageAdminToolCredentialsService } from "./application/manage-admin-to
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
 import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
+import { GenerateSkillAuthoringDraftService } from "./application/generate-skill-authoring-draft.service";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
@@ -318,6 +319,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminToolPromptMetadataService,
     ManageAdminKnowledgeSourcesService,
     ManageAdminSkillsService,
+    GenerateSkillAuthoringDraftService,
     ManageAdminKnowledgeRetrievalPolicyService,
     ListKnowledgeIndexingJobsService,
     KnowledgeDocumentProcessorService,

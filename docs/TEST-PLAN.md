@@ -39,6 +39,7 @@ If API/data-model behavior changes, also add focused service/controller tests th
 3. Draft and archived authored entries are not used by runtime retrieval.
 4. Assistant-assisted drafts never activate or overwrite saved admin knowledge without an explicit admin save/apply action.
 5. Authored Knowledge entries remain Knowledge sources and do not become `AssistantFile` rows unless a separate Files action intentionally exports them.
+6. The Skill authoring model is resolved from the admin Knowledge `authoringModelKey` policy slot and generated proposals remain draft-only.
 
 If the admin UI surfaces change, add focused web checks that prove:
 

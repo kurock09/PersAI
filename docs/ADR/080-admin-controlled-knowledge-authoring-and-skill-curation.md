@@ -180,6 +180,11 @@ ADR-080 knowledge cards and Product KB text entries are Knowledge sources, not F
 
 First-version API surfaces should be admin-only.
 
+Admin Knowledge model policy:
+
+- `/admin/knowledge` owns `authoringModelKey` for assistant-assisted Skill/Product KB authoring, next to `embeddingModelKey` and `retrievalModelKey`.
+- Authoring uses the API/control-plane provider-gateway path, not ordinary runtime chat, so admin curation quality can be tuned independently from request-time user conversations.
+
 Skill authoring:
 
 - `POST /api/v1/admin/skills/:skillId/authoring/draft`

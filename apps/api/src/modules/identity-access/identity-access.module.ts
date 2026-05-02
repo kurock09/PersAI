@@ -204,6 +204,7 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
+      { path: "api/v1/admin/skills/:skillId/authoring/draft", method: RequestMethod.POST },
       { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
       {
         path: "api/v1/admin/skills/:skillId/documents/:documentId",

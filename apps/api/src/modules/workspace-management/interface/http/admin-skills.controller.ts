@@ -15,8 +15,10 @@ import {
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
+import { GenerateSkillAuthoringDraftService } from "../../application/generate-skill-authoring-draft.service";
 import { ManageAdminSkillsService } from "../../application/manage-admin-skills.service";
 import type { SkillKnowledgeCardState } from "../../application/authored-knowledge.types";
+import type { SkillAuthoringDraftProposalState } from "../../application/skill-authoring-draft.types";
 import type {
   AdminSkillState,
   KnowledgeIndexingJobState,
@@ -25,7 +27,10 @@ import type {
 
 @Controller("api/v1/admin/skills")
 export class AdminSkillsController {
-  constructor(private readonly manageAdminSkillsService: ManageAdminSkillsService) {}
+  constructor(
+    private readonly manageAdminSkillsService: ManageAdminSkillsService,
+    private readonly generateSkillAuthoringDraftService: GenerateSkillAuthoringDraftService
+  ) {}
 
   @Get()
   async list(@Req() req: RequestWithPlatformContext): Promise<{
@@ -78,6 +83,22 @@ export class AdminSkillsController {
     const userId = this.resolveRequestUserId(req);
     await this.manageAdminSkillsService.archive(userId, skillId);
     return { requestId: req.requestId ?? null, archived: true };
+  }
+
+  @Post(":skillId/authoring/draft")
+  async generateAuthoringDraft(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Body() body: unknown
+  ): Promise<{ requestId: string | null; proposal: SkillAuthoringDraftProposalState }> {
+    const userId = this.resolveRequestUserId(req);
+    const request = this.generateSkillAuthoringDraftService.parseInput(body);
+    const proposal = await this.generateSkillAuthoringDraftService.execute({
+      userId,
+      skillId,
+      request
+    });
+    return { requestId: req.requestId ?? null, proposal };
   }
 
   @Post(":skillId/documents")

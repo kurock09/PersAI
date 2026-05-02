@@ -76,6 +76,11 @@ export class KnowledgeModelPolicyService {
     return policy.retrievalModelKey;
   }
 
+  async resolveAdminKnowledgeAuthoringModelKey(): Promise<string | null> {
+    const policy = await this.resolveAdminKnowledgeRetrievalPolicy();
+    return policy.authoringModelKey;
+  }
+
   async resolveAssistantRetrievalPolicy(assistantId: string): Promise<KnowledgeRetrievalPolicy> {
     const billingHints = await this.resolveAssistantPlanBillingHints(assistantId);
     const retrievalPolicy = asObject(billingHints?.retrievalPolicy ?? null);

@@ -72,7 +72,7 @@ Current active knowledge/retrieval persistence includes:
 - `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary
 - workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
 - workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
-- `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` as the admin-owned Product/Skill KB retrieval model policy (`embeddingModelKey`, `retrievalModelKey`)
+- `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` as the admin-owned Product/Skill KB retrieval and authoring model policy (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`)
 
 ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_source`, `global_knowledge_source`, and `skill_document`. Upload/reindex writes source metadata and a pending `KnowledgeIndexingJob`; the API worker claims jobs with token/expiry fields, records attempt/retry/failure state, processes normalized source content, persists source provider/processor/quality/error state, writes legacy chunk rows, and replaces pgvector rows through `KnowledgeVectorChunk` when embeddings are available. `needs_review` is an indexing quality state and does not imply ADR-080 lifecycle governance.
 
@@ -85,6 +85,8 @@ Orchestrated retrieval context is transient runtime turn state. ADR-079 does not
 The active retrieval-policy contract is plan-managed rather than hard-coded for user-uploaded assistant knowledge. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior. Admin-owned Product KB and Skill documents use the platform admin knowledge retrieval policy for model slots so admin KB indexing/rerank can be tuned independently from user plans.
 
 ADR-080 adds the target-state authoring layer for Skill and Product KB knowledge. Authored Skill knowledge cards and Product KB text entries are Knowledge sources, not Files. They carry admin lifecycle state (`draft`, `active`, `stale`, `archived`) separately from ADR-079 processing/indexing state (`processing`, `ready`, `failed`, `needs_review`). Draft and archived authored entries must not be injected into runtime retrieval; active entries enqueue or refresh normal ADR-079 indexing jobs.
+
+Assistant-assisted Skill authoring currently returns a transient draft proposal rather than a persisted `KnowledgeAuthoringDraft` row. The proposal can fill editable Skill draft fields and draft-only knowledge-card editor content; durable `Skill` / `SkillKnowledgeCard` rows are written only when the admin explicitly saves, and runtime retrieval remains gated by `active` lifecycle plus indexing readiness.
 
 ## Durable assistant memory
 

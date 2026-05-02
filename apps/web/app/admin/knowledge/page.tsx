@@ -275,6 +275,7 @@ export default function AdminKnowledgePage() {
   );
   const [embeddingModelDraft, setEmbeddingModelDraft] = useState("");
   const [retrievalModelDraft, setRetrievalModelDraft] = useState("");
+  const [authoringModelDraft, setAuthoringModelDraft] = useState("");
   const [availableModelKeys, setAvailableModelKeys] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -322,6 +323,7 @@ export default function AdminKnowledgePage() {
       setRetrievalPolicy(nextRetrievalPolicy);
       setEmbeddingModelDraft(nextRetrievalPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextRetrievalPolicy.retrievalModelKey ?? "");
+      setAuthoringModelDraft(nextRetrievalPolicy.authoringModelKey ?? "");
       setAvailableModelKeys(flattenAvailableTextModelOptions(runtimeSettings));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load knowledge sources.");
@@ -504,11 +506,13 @@ export default function AdminKnowledgePage() {
     try {
       const nextPolicy = await updateAdminKnowledgeRetrievalPolicy(token, {
         embeddingModelKey: embeddingModelDraft.trim() || null,
-        retrievalModelKey: retrievalModelDraft.trim() || null
+        retrievalModelKey: retrievalModelDraft.trim() || null,
+        authoringModelKey: authoringModelDraft.trim() || null
       });
       setRetrievalPolicy(nextPolicy);
       setEmbeddingModelDraft(nextPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextPolicy.retrievalModelKey ?? "");
+      setAuthoringModelDraft(nextPolicy.authoringModelKey ?? "");
       setFeedback(
         "Admin retrieval policy saved. Reindex Product KB and Skill documents to refresh embeddings."
       );
@@ -516,7 +520,7 @@ export default function AdminKnowledgePage() {
       setFeedback(error instanceof Error ? error.message : "Failed to save retrieval policy.");
     }
     setSavingPolicy(false);
-  }, [embeddingModelDraft, getToken, retrievalModelDraft]);
+  }, [authoringModelDraft, embeddingModelDraft, getToken, retrievalModelDraft]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-24">
@@ -568,10 +572,10 @@ export default function AdminKnowledgePage() {
       <div className="rounded-xl border border-border/70 bg-surface p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-text">Admin retrieval models</h2>
+            <h2 className="text-sm font-semibold text-text">Admin Knowledge models</h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">
-              Used for admin-owned Product KB and Skill documents. User-uploaded assistant knowledge
-              keeps using the assistant plan slots.
+              Used for admin-owned Product KB, Skill documents, and assistant-assisted Skill
+              authoring. User-uploaded assistant knowledge keeps using the assistant plan slots.
             </p>
           </div>
           <button
@@ -586,7 +590,7 @@ export default function AdminKnowledgePage() {
             Save models
           </button>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
           <label className="block">
             <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
               Embedding index model
@@ -607,6 +611,17 @@ export default function AdminKnowledgePage() {
               onChange={setRetrievalModelDraft}
               options={availableModelKeys}
               placeholder="platform default"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Authoring agent model
+            </span>
+            <ModelOptionSelect
+              value={authoringModelDraft}
+              onChange={setAuthoringModelDraft}
+              options={availableModelKeys}
+              placeholder="primary chat model"
             />
           </label>
         </div>

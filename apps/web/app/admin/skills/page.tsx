@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Sparkles,
   Trash2,
   Upload
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   createAdminSkill,
   createAdminSkillKnowledgeCard,
   deleteAdminSkillDocument,
+  generateAdminSkillAuthoringDraft,
   getAdminSkills,
   reindexAdminSkillKnowledgeCard,
   reindexAdminSkillDocument,
@@ -29,6 +31,8 @@ import {
   type AdminSkillUpsertRequest,
   type SkillKnowledgeCardInput,
   type SkillKnowledgeCardState,
+  type SkillAuthoringDraftKnowledgeCardProposal,
+  type SkillAuthoringDraftProposalState,
   type SkillDocumentState
 } from "@/app/app/assistant-api-client";
 
@@ -71,6 +75,7 @@ type SkillKnowledgeCardDraft = {
   locale: string;
   tagsText: string;
   lifecycleStatus: "draft" | "active" | "stale" | "archived";
+  provenanceKind: "manual" | "assistant_generated";
 };
 
 const SKILL_GROUP_OPTIONS = [
@@ -106,7 +111,8 @@ const EMPTY_KNOWLEDGE_CARD_DRAFT: SkillKnowledgeCardDraft = {
   body: "",
   locale: "",
   tagsText: "",
-  lifecycleStatus: "draft"
+  lifecycleStatus: "draft",
+  provenanceKind: "manual"
 };
 
 const FIELD_CLASS =
@@ -232,6 +238,66 @@ export function draftToSkillPayload(draft: SkillDraft): AdminSkillUpsertRequest 
   };
 }
 
+function draftToAuthoringContext(draft: SkillDraft): Partial<AdminSkillUpsertRequest> {
+  const context: Partial<AdminSkillUpsertRequest> = {
+    name: localizedFromDraft(draft.nameEn, draft.nameRu),
+    description: localizedFromDraft(draft.descriptionEn, draft.descriptionRu),
+    tags: draft.tagsText
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    instructionCard: {
+      title: draft.instructionTitle.trim(),
+      body: draft.instructionBody.trim(),
+      guardrails: normalizeLines(draft.guardrailsText),
+      examples: normalizeLines(draft.examplesText)
+    },
+    iconEmoji: draft.iconEmoji.trim() || null,
+    color: draft.color.trim() || null
+  };
+  if (draft.category.trim()) {
+    context.category = draft.category.trim();
+  }
+  return context;
+}
+
+function mergeAuthoringProposalIntoDraft(
+  current: SkillDraft,
+  proposal: SkillAuthoringDraftProposalState
+): SkillDraft {
+  const proposed = proposal.skillDraft;
+  return {
+    ...current,
+    nameEn: proposed.name?.en ?? current.nameEn,
+    nameRu: proposed.name?.ru ?? current.nameRu,
+    descriptionEn: proposed.description?.en ?? current.descriptionEn,
+    descriptionRu: proposed.description?.ru ?? current.descriptionRu,
+    category: proposed.category ?? current.category,
+    tagsText: proposed.tags?.length ? proposed.tags.join(", ") : current.tagsText,
+    instructionTitle: proposed.instructionCard?.title ?? current.instructionTitle,
+    instructionBody: proposed.instructionCard?.body ?? current.instructionBody,
+    guardrailsText: proposed.instructionCard?.guardrails?.join("\n") ?? current.guardrailsText,
+    examplesText: proposed.instructionCard?.examples?.join("\n") ?? current.examplesText,
+    iconEmoji: proposed.iconEmoji ?? current.iconEmoji,
+    color: proposed.color ?? current.color,
+    status: "draft"
+  };
+}
+
+function proposedKnowledgeCardToDraft(
+  card: SkillAuthoringDraftKnowledgeCardProposal
+): SkillKnowledgeCardDraft {
+  return {
+    id: null,
+    title: card.title,
+    body: card.body,
+    locale: card.locale ?? "",
+    tagsText: card.tags.join(", "),
+    lifecycleStatus: "draft",
+    provenanceKind: "assistant_generated"
+  };
+}
+
 export function knowledgeCardToDraft(
   card: SkillKnowledgeCardState | null
 ): SkillKnowledgeCardDraft {
@@ -244,7 +310,8 @@ export function knowledgeCardToDraft(
     body: card.body,
     locale: card.locale ?? "",
     tagsText: card.tags.join(", "),
-    lifecycleStatus: card.lifecycleStatus
+    lifecycleStatus: card.lifecycleStatus,
+    provenanceKind: card.provenanceKind === "assistant_generated" ? "assistant_generated" : "manual"
   };
 }
 
@@ -278,7 +345,7 @@ export function knowledgeCardDraftToPayload(
       .map((tag) => tag.trim())
       .filter(Boolean),
     lifecycleStatus: draft.lifecycleStatus,
-    provenanceKind: "manual",
+    provenanceKind: draft.provenanceKind,
     provenanceMetadata: null
   };
 }
@@ -378,8 +445,12 @@ export default function AdminSkillsPage() {
   const [knowledgeCardDraft, setKnowledgeCardDraft] = useState<SkillKnowledgeCardDraft>(() =>
     knowledgeCardToDraft(null)
   );
+  const [authoringPrompt, setAuthoringPrompt] = useState("");
+  const [authoringProposal, setAuthoringProposal] =
+    useState<SkillAuthoringDraftProposalState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generatingAuthoringDraft, setGeneratingAuthoringDraft] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [savingKnowledgeCard, setSavingKnowledgeCard] = useState(false);
   const [busyDocumentId, setBusyDocumentId] = useState<string | null>(null);
@@ -436,6 +507,8 @@ export default function AdminSkillsPage() {
     setDraft(skillToDraft(selectedSkill));
     setDocumentDraft({ displayName: "", description: "" });
     setSelectedKnowledgeCardId(selectedSkill?.knowledgeCards[0]?.id ?? null);
+    setAuthoringPrompt("");
+    setAuthoringProposal(null);
   }, [selectedSkill]);
 
   useEffect(() => {
@@ -475,6 +548,36 @@ export default function AdminSkillsPage() {
     }
     setSaving(false);
   }, [draft, getToken, load]);
+
+  const handleGenerateAuthoringDraft = useCallback(async () => {
+    if (selectedSkill === null) return;
+    const token = await getToken();
+    if (!token) return;
+    setGeneratingAuthoringDraft(true);
+    setFeedback(null);
+    try {
+      const proposal = await generateAdminSkillAuthoringDraft(token, selectedSkill.id, {
+        prompt: authoringPrompt.trim() || null,
+        currentDraft: draftToAuthoringContext(draft)
+      });
+      setDraft((current) => mergeAuthoringProposalIntoDraft(current, proposal));
+      setAuthoringProposal(proposal);
+      if (proposal.knowledgeCards[0]) {
+        setSelectedKnowledgeCardId(null);
+        setKnowledgeCardDraft(proposedKnowledgeCardToDraft(proposal.knowledgeCards[0]));
+      }
+      setFeedback(
+        proposal.knowledgeCards.length > 0
+          ? `Assistant filled draft fields and proposed ${proposal.knowledgeCards.length} draft knowledge card(s). Review and save manually.`
+          : "Assistant filled draft fields. Review and save manually."
+      );
+    } catch (error) {
+      setFeedback(
+        error instanceof Error ? error.message : "Skill authoring draft generation failed."
+      );
+    }
+    setGeneratingAuthoringDraft(false);
+  }, [authoringPrompt, draft, getToken, selectedSkill]);
 
   const handleArchive = useCallback(async () => {
     if (selectedSkill === null) return;
@@ -788,6 +891,40 @@ export default function AdminSkillsPage() {
               </div>
             </div>
 
+            <div className="mt-4 rounded-xl border border-dashed border-accent/30 bg-accent/5 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold text-text">Собрать с помощью агента</h3>
+                  <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-text-muted">
+                    Fills only the editable draft fields and proposes draft cards. Nothing is saved,
+                    activated, or indexed until an admin presses Save.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={selectedSkill === null || generatingAuthoringDraft}
+                  onClick={() => void handleGenerateAuthoringDraft()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {generatingAuthoringDraft ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  Fill draft
+                </button>
+              </div>
+              <textarea
+                value={authoringPrompt}
+                onChange={(event) => setAuthoringPrompt(event.target.value)}
+                className={`${FIELD_CLASS} mt-3 min-h-20 resize-y`}
+                placeholder="Optional admin instructions: target profession, audience, locale, constraints, or facts to preserve."
+              />
+              <p className="mt-2 text-[11px] text-text-subtle">
+                Model is configured in Admin &gt; Knowledge as the Authoring agent model.
+              </p>
+            </div>
+
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <Field label="Name EN" error={validationErrors.name}>
                 <input
@@ -961,6 +1098,48 @@ export default function AdminSkillsPage() {
                 New card
               </button>
             </div>
+
+            {authoringProposal?.knowledgeCards.length ? (
+              <div className="mt-4 rounded-xl border border-accent/30 bg-accent/5 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-semibold text-text">Assistant-proposed cards</h3>
+                    <p className="text-[11px] text-text-muted">
+                      Draft proposals only. Pick one to load into the editor, then save manually.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-text-muted">
+                    {authoringProposal.providerKey}:{authoringProposal.modelKey}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {authoringProposal.knowledgeCards.map((card, index) => (
+                    <button
+                      key={`${card.title}-${index}`}
+                      type="button"
+                      onClick={() => {
+                        setSelectedKnowledgeCardId(null);
+                        setKnowledgeCardDraft(proposedKnowledgeCardToDraft(card));
+                      }}
+                      className="rounded-xl border border-border/70 bg-background p-3 text-left hover:border-border-strong"
+                    >
+                      <p className="text-xs font-medium text-text">{card.title}</p>
+                      <p className="mt-1 line-clamp-3 text-[11px] text-text-muted">{card.body}</p>
+                      <p className="mt-2 text-[10px] text-text-subtle">
+                        {card.locale ?? "any locale"} · {card.tags.join(", ") || "no tags"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                {authoringProposal.warnings.length ? (
+                  <div className="mt-3 space-y-1 text-[11px] text-warning">
+                    {authoringProposal.warnings.map((warning) => (
+                      <p key={warning}>{warning}</p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {selectedSkill === null ? (
               <div className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-text-muted">

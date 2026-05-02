@@ -3045,7 +3045,27 @@ export type AdminKnowledgeRetrievalPolicyState = {
   schema: "persai.adminKnowledgeRetrievalPolicy.v1";
   embeddingModelKey: string | null;
   retrievalModelKey: string | null;
+  authoringModelKey: string | null;
   notes: string[];
+};
+
+export type SkillAuthoringDraftKnowledgeCardProposal = {
+  title: string;
+  body: string;
+  locale: string | null;
+  tags: string[];
+  lifecycleStatus: "draft";
+  provenanceKind: "assistant_generated";
+};
+
+export type SkillAuthoringDraftProposalState = {
+  schema: "persai.skillAuthoringDraftProposal.v1";
+  providerKey: "openai" | "anthropic";
+  modelKey: string;
+  generatedAt: string;
+  skillDraft: Partial<AdminSkillUpsertRequest>;
+  knowledgeCards: SkillAuthoringDraftKnowledgeCardProposal[];
+  warnings: string[];
 };
 
 export type AssistantFileState = {
@@ -3423,6 +3443,7 @@ export async function getAdminKnowledgeRetrievalPolicy(
       schema: "persai.adminKnowledgeRetrievalPolicy.v1",
       embeddingModelKey: null,
       retrievalModelKey: null,
+      authoringModelKey: null,
       notes: []
     }
   );
@@ -3430,7 +3451,11 @@ export async function getAdminKnowledgeRetrievalPolicy(
 
 export async function updateAdminKnowledgeRetrievalPolicy(
   token: string,
-  input: { embeddingModelKey: string | null; retrievalModelKey: string | null }
+  input: {
+    embeddingModelKey: string | null;
+    retrievalModelKey: string | null;
+    authoringModelKey: string | null;
+  }
 ): Promise<AdminKnowledgeRetrievalPolicyState> {
   const base = getApiBaseUrl();
   const res = await fetch(`${base}/admin/knowledge-sources/retrieval-policy`, {
@@ -3843,6 +3868,33 @@ export async function reindexAdminSkillDocument(
     throw new Error("Skill document reindex returned an unexpected response.");
   }
   return { document: data.document, indexingJob: data.indexingJob };
+}
+
+export async function generateAdminSkillAuthoringDraft(
+  token: string,
+  skillId: string,
+  payload: {
+    prompt: string | null;
+    currentDraft: Partial<AdminSkillUpsertRequest> | null;
+  }
+): Promise<SkillAuthoringDraftProposalState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills/${encodeURIComponent(skillId)}/authoring/draft`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to generate Skill draft."));
+  }
+  const data = (await res.json()) as { proposal?: SkillAuthoringDraftProposalState };
+  if (!data.proposal) {
+    throw new Error("Skill authoring draft returned an unexpected response.");
+  }
+  return data.proposal;
 }
 
 export async function createAdminSkillKnowledgeCard(
