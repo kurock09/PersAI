@@ -179,7 +179,7 @@ async function run(): Promise<void> {
           description:
             "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files.",
           usageGuidance:
-            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
+            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A fileRef, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -290,6 +290,8 @@ async function run(): Promise<void> {
   assert.match(files?.description ?? "", /write-and-send/);
   assert.match(files?.description ?? "", /files\.write_and_send when the user asks/);
   assert.match(files?.description ?? "", /files\.search with a non-empty query/);
+  assert.match(files?.description ?? "", /call files\.send in the same turn/);
+  assert.match(files?.description ?? "", /not a substitute for delivery/);
   assert.match(files?.description ?? "", /Do not claim a file was sent unless/);
   assert.ok(
     Array.isArray(
@@ -306,12 +308,19 @@ async function run(): Promise<void> {
   const filesProperties = (
     files?.inputSchema as {
       properties?: {
+        query?: { description?: string };
         path?: { description?: string };
+        fileRef?: { description?: string };
         filename?: { description?: string };
       };
     }
   )?.properties;
+  assert.match(
+    filesProperties?.query?.description ?? "",
+    /call action="send" with the resolved target/
+  );
   assert.match(filesProperties?.path?.description ?? "", /canonical save location/);
+  assert.match(filesProperties?.fileRef?.description ?? "", /not a substitute for actual delivery/);
   assert.match(filesProperties?.filename?.description ?? "", /does not replace path/);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);

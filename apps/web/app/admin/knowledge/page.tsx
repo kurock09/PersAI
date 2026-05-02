@@ -8,6 +8,7 @@ import {
   getAdminKnowledgeConnectors,
   getAdminKnowledgeObservability,
   getAdminKnowledgeRetrievalPolicy,
+  getAdminRuntimeProviderSettings,
   getAdminKnowledgeSources,
   reindexAdminKnowledgeSource,
   updateAdminKnowledgeRetrievalPolicy,
@@ -15,6 +16,7 @@ import {
   type AdminKnowledgeConnectorState,
   type AdminKnowledgeObservabilityState,
   type AdminKnowledgeRetrievalPolicyState,
+  type AdminRuntimeProviderSettingsState,
   type AdminKnowledgeSourceState
 } from "@/app/app/assistant-api-client";
 
@@ -43,6 +45,92 @@ function formatWhen(value: string | null): string {
   });
 }
 
+type ModelOption = {
+  provider: string;
+  model: string;
+};
+
+export function flattenAvailableTextModelOptions(
+  settings: Pick<
+    AdminRuntimeProviderSettingsState,
+    "availableModelsByProvider" | "availableModelCatalogByProvider"
+  > | null
+): ModelOption[] {
+  if (settings === null) {
+    return [];
+  }
+
+  const result: ModelOption[] = [];
+  const seen = new Set<string>();
+  const append = (provider: string, model: string) => {
+    const normalizedProvider = provider.trim();
+    const normalizedModel = model.trim();
+    if (normalizedProvider.length === 0 || normalizedModel.length === 0) {
+      return;
+    }
+    const key = `${normalizedProvider}:${normalizedModel}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    result.push({ provider: normalizedProvider, model: normalizedModel });
+  };
+
+  for (const [provider, models] of Object.entries(settings.availableModelsByProvider ?? {})) {
+    for (const model of models ?? []) {
+      append(provider, model);
+    }
+  }
+  if (result.length > 0) {
+    return result;
+  }
+
+  for (const [provider, catalog] of Object.entries(
+    settings.availableModelCatalogByProvider ?? {}
+  )) {
+    for (const model of catalog?.chat ?? []) {
+      append(provider, model);
+    }
+  }
+  return result;
+}
+
+function ModelOptionSelect({
+  value,
+  onChange,
+  options,
+  placeholder
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: ModelOption[];
+  placeholder: string;
+}) {
+  const grouped = options.reduce<Record<string, string[]>>((acc, { provider, model }) => {
+    (acc[provider] ??= []).push(model);
+    return acc;
+  }, {});
+
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+    >
+      <option value="">{placeholder}</option>
+      {Object.entries(grouped).map(([provider, models]) => (
+        <optgroup key={provider} label={provider}>
+          {models.map((model) => (
+            <option key={`${provider}-${model}`} value={model}>
+              {model}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
 export default function AdminKnowledgePage() {
   const { getToken } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +142,7 @@ export default function AdminKnowledgePage() {
   );
   const [embeddingModelDraft, setEmbeddingModelDraft] = useState("");
   const [retrievalModelDraft, setRetrievalModelDraft] = useState("");
+  const [availableModelKeys, setAvailableModelKeys] = useState<ModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [savingPolicy, setSavingPolicy] = useState(false);
@@ -70,12 +159,13 @@ export default function AdminKnowledgePage() {
     setLoading(true);
     setFeedback(null);
     try {
-      const [nextSources, nextObservability, nextConnectors, nextRetrievalPolicy] =
+      const [nextSources, nextObservability, nextConnectors, nextRetrievalPolicy, runtimeSettings] =
         await Promise.all([
           getAdminKnowledgeSources(token, "product"),
           getAdminKnowledgeObservability(token),
           getAdminKnowledgeConnectors(token, "product"),
-          getAdminKnowledgeRetrievalPolicy(token)
+          getAdminKnowledgeRetrievalPolicy(token),
+          getAdminRuntimeProviderSettings(token).catch(() => null)
         ]);
       setSources(nextSources);
       setObservability(nextObservability);
@@ -83,6 +173,7 @@ export default function AdminKnowledgePage() {
       setRetrievalPolicy(nextRetrievalPolicy);
       setEmbeddingModelDraft(nextRetrievalPolicy.embeddingModelKey ?? "");
       setRetrievalModelDraft(nextRetrievalPolicy.retrievalModelKey ?? "");
+      setAvailableModelKeys(flattenAvailableTextModelOptions(runtimeSettings));
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load knowledge sources.");
     }
@@ -264,22 +355,22 @@ export default function AdminKnowledgePage() {
             <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
               Embedding index model
             </span>
-            <input
+            <ModelOptionSelect
               value={embeddingModelDraft}
-              onChange={(event) => setEmbeddingModelDraft(event.target.value)}
-              placeholder="text-embedding-3-small"
-              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              onChange={setEmbeddingModelDraft}
+              options={availableModelKeys}
+              placeholder="platform default"
             />
           </label>
           <label className="block">
             <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
               Retrieval helper model
             </span>
-            <input
+            <ModelOptionSelect
               value={retrievalModelDraft}
-              onChange={(event) => setRetrievalModelDraft(event.target.value)}
-              placeholder="gpt-4.1-mini"
-              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+              onChange={setRetrievalModelDraft}
+              options={availableModelKeys}
+              placeholder="platform default"
             />
           </label>
         </div>

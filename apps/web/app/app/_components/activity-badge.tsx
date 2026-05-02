@@ -50,8 +50,8 @@ function renderActivityDetail(detail: string) {
     <span className="inline-flex items-center gap-1 opacity-55">
       {beforeIcon.trimEnd().length > 0 ? <span>{beforeIcon.trimEnd()}</span> : null}
       <span
-        className="text-[10px] opacity-60 grayscale"
-        style={{ filter: "grayscale(1) saturate(0)" }}
+        className="text-[10px] opacity-75"
+        style={{ filter: "saturate(0.68) brightness(1.04)" }}
         aria-hidden="true"
       >
         {skillIcon}

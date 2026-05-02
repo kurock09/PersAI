@@ -89,6 +89,20 @@ export function orderSkillCatalogItems(
   });
 }
 
+export function resolveVisibleSkillCatalogItems(
+  items: AssistantSkillCatalogItemState[],
+  input: {
+    collapsible: boolean;
+    expanded: boolean;
+    initialVisibleCount: number;
+  }
+): AssistantSkillCatalogItemState[] {
+  if (!input.collapsible || input.expanded) {
+    return items;
+  }
+  return items.slice(0, input.initialVisibleCount);
+}
+
 export function summarizeSkillReadiness(item: AssistantSkillCatalogItemState): SkillReadiness {
   if (item.skill.documents.length === 0) {
     return "empty";
@@ -168,10 +182,11 @@ export function AssistantSkillsManager({
     limit === null
       ? t("compactCounterUnlimited", { count: enabledCount })
       : t("compactCounterLimited", { count: enabledCount, limit });
-  const visibleSkills =
-    collapsible && !expanded && !skillsUnavailableByPlan
-      ? sortedSkills.slice(0, initialVisibleCount)
-      : sortedSkills;
+  const visibleSkills = resolveVisibleSkillCatalogItems(sortedSkills, {
+    collapsible,
+    expanded,
+    initialVisibleCount
+  });
   const hiddenSkillCount = Math.max(0, sortedSkills.length - visibleSkills.length);
   const visibleGroups = useMemo(() => groupSkillCatalogItems(visibleSkills), [visibleSkills]);
 
@@ -195,7 +210,7 @@ export function AssistantSkillsManager({
 
   return (
     <div className="max-w-full space-y-3 overflow-x-hidden">
-      <div className="rounded-2xl border border-border/70 bg-surface/70 p-4 shadow-[0_18px_44px_rgba(0,0,0,0.16)]">
+      <div className="rounded-2xl border border-border/70 bg-surface/80 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="text-sm font-semibold text-text">{t("title")}</p>

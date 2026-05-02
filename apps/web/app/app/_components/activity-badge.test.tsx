@@ -93,5 +93,6 @@ describe("ActivityBadge", () => {
     expect(screen.getAllByText("activityRetrievalSkillStart").length).toBeGreaterThan(0);
     expect(screen.getByText("Навык -")).toBeInTheDocument();
     expect(screen.getByText("✈️")).toBeInTheDocument();
+    expect(screen.getByText("✈️")).toHaveStyle({ filter: "saturate(0.68) brightness(1.04)" });
   });
 });

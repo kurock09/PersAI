@@ -1,5 +1,120 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-079 Skill/Product semantic retrieval backfill) — admin KB policy now reindexes missing vectors and Skill retrieval fetches exact windows (`apps/api`, `docs`; focused checks green)
+
+### What changed
+
+- Added an admin-owned KB embedding backfill path to `/admin/knowledge` retrieval-policy updates. When an embedding model is configured, ready Product KB sources and Skill documents that lack `knowledge_vector_chunks` for the current version/model are marked `processing`, version-bumped, and queued for indexing jobs.
+- Hardened Skill orchestrated retrieval so Skill document context is not injected from lexical-only matches when an admin embedding model is configured. With semantic grounding expected, Skill references must come from pgvector hits.
+- Added a Skill reference fetch-window path inside orchestration: selected semantic Skill hits now load neighboring `SkillDocumentChunk` rows before context injection, include window metadata, and record `skill` fetch telemetry with `fetchDepth` / `fetchedChars`.
+- Added focused regressions for admin policy backfill, indexing worker embedding propagation, Skill hybrid/vector retrieval, lexical-only suppression, and exact Skill excerpt/window injection.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-retrieval-policy.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `ReadLints` on touched API source/test files
+
+### Next recommended step
+
+Run the full required gates, deploy this API change, then set/save the admin Knowledge embedding policy on live if needed so the backfill jobs queue. After the jobs complete, re-smoke assistant `275e2382-cb4e-41d8-98da-fe04d4569f55` and verify Skill document jobs show `embeddingChunkCount > 0`, `knowledge_vector_chunks` exist for the Skill, and Skill retrieval telemetry includes hybrid search plus non-zero fetch depth/chars.
+
+---
+
+## 2026-05-02 (Admin Knowledge model selector + auth continuity) — retrieval-policy routes are Clerk-guarded again and Knowledge uses plan-style available model selectors (`apps/web`, `apps/api`, `docs`; focused checks green)
+
+### What changed
+
+- Replaced the free-text admin Knowledge retrieval model inputs with plan-style model selectors populated from the live runtime provider settings model inventory. The page now reads the same available text-model list used by the Plans screen, with a chat-catalog fallback when the legacy text-model list is absent.
+- Fixed the auth regression behind the `Authenticated user context is missing.` error on the Knowledge screen: `GET/POST /api/v1/admin/knowledge-sources/retrieval-policy` were missing from `ClerkAuthMiddleware`, so those requests reached the controller without `resolvedAppUser`.
+- Added focused regressions for both sides: a web helper test for catalog-fed Knowledge model options and an API middleware-route regression test for the retrieval-policy endpoints.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/knowledge/page.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on touched `apps/web/app/admin/knowledge/page.tsx`, `apps/web/app/admin/knowledge/page.test.tsx`, `apps/api/src/modules/identity-access/identity-access.module.ts`, and `apps/api/test/identity-access.module.test.ts`
+
+### Next recommended step
+
+Continue the ADR-079 live-smoke/fix path: wire admin-owned Skill/Product KB into true semantic+fetch retrieval by restoring skill vector indexing from the admin retrieval policy, adding a reliable skill fetch path for long quotes/excerpts, and then reindexing/live-validating the reported assistant.
+
+---
+
+## 2026-05-02 (Skill badge icon color polish) — retrieval badge emoji keeps soft color instead of grayscale (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Removed the hard grayscale treatment from the Skill emoji inside the strong activity badge.
+- The Skill icon now keeps a soft muted color treatment with reduced saturation and slight brightness lift, so it feels more premium and legible without turning into a bright glow.
+- Left the badge typography and spacing unchanged; this slice only tunes the emoji rendering itself.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on `apps/web/app/app/_components/activity-badge.tsx` and `apps/web/app/app/_components/activity-badge.test.tsx`
+
+### Next recommended step
+
+Live-smoke a Skill-assisted turn in dark mode and confirm the emoji now reads with gentle color presence, without the old flat grayscale look or any harsh glow.
+
+---
+
+## 2026-05-02 (Skills compactness and file-send continuity polish) — tariff-disabled Skills stay collapsed and fake local file links no longer masquerade as delivery (`apps/web`, `apps/api`, `apps/runtime`, `docs`; focused checks green)
+
+### What changed
+
+- Restored compact Skills behavior when the current tariff disallows enabling Skills (`limit=0`): the manager now still shows only the first page of cards until expanded, instead of dumping the full catalog at once.
+- Strengthened the model-visible `files` contract so if the user asks to send/resend/share an existing file, discovery is not enough: the model is told to call `files.send` in the same turn, and that `fileRef`, path, filename, or markdown links are not delivery.
+- Added a structural final-delivery safety net for local file-style markdown links with no real delivered attachment. Relative/sandbox file links are downgraded to plain filename text and an honesty correction is appended when no file was actually delivered.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Next recommended step
+
+Live-smoke two paths: first open Skills on a tariff-disabled assistant and confirm only the compact first page is shown until expand; then ask the assistant to find and send an existing file and confirm it uses the real file delivery surface rather than only naming or linking the file.
+
+---
+
+## 2026-05-02 (Skills panel shadow polish) — remove harsh outer shadow from Professional Skills header card (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Removed the heavy outer drop shadow from the top `Professional Skills` / `Профессиональные Skills` panel in the Skills manager.
+- Kept the card readable with the existing border and surface fill, but dropped the dark halo that was showing hard edges on both light and dark themes.
+- Left the selected skill-card highlight untouched; this slice only quiets the header container around the Skills intro/counter area.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on `apps/web/app/app/_components/assistant-skills-manager.tsx`
+
+### Next recommended step
+
+Live-smoke the Skills screen in both light and dark themes on mobile width and confirm the top panel no longer shows a hard rectangular shadow edge against the page background.
+
+---
+
 ## 2026-05-02 (prompt and action-chip continuity polish) — gender-safe default prompt, plain user actions, quieter mobile chips (`apps/api`, `apps/web`, `docs`; focused checks green)
 
 ### What changed

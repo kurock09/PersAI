@@ -19,6 +19,16 @@ import {
 } from "./platform-runtime-provider-settings";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
+type AdminKbBackfillCandidate = {
+  id: string;
+  workspaceId: string;
+  currentVersion: number;
+};
+
+type SkillDocumentBackfillCandidate = AdminKbBackfillCandidate & {
+  skillId: string;
+};
+
 @Injectable()
 export class ManageAdminKnowledgeRetrievalPolicyService {
   constructor(
@@ -50,6 +60,7 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
     await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const policy = buildAdminKnowledgeRetrievalPolicyState(input);
     await this.persistPolicy(policy, userId);
+    const backfill = await this.enqueueAdminKnowledgeEmbeddingBackfill(policy, userId);
     const configGeneration = await this.bumpConfigGenerationService.execute();
     await this.appendAssistantAuditEventService.execute({
       workspaceId: null,
@@ -60,7 +71,8 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
       summary: "Admin knowledge retrieval policy updated.",
       details: {
         embeddingModelKey: policy.embeddingModelKey,
-        retrievalModelKey: policy.retrievalModelKey
+        retrievalModelKey: policy.retrievalModelKey,
+        embeddingBackfill: backfill
       }
     });
     return { policy, configGeneration };
@@ -103,5 +115,143 @@ export class ManageAdminKnowledgeRetrievalPolicyService {
         updatedByUserId: userId
       }
     });
+  }
+
+  private async enqueueAdminKnowledgeEmbeddingBackfill(
+    policy: AdminKnowledgeRetrievalPolicyState,
+    userId: string
+  ): Promise<{ productSourceCount: number; skillDocumentCount: number }> {
+    const embeddingModelKey = policy.embeddingModelKey;
+    if (embeddingModelKey === null) {
+      return { productSourceCount: 0, skillDocumentCount: 0 };
+    }
+
+    const [productSources, skillDocuments] = await Promise.all([
+      this.findProductSourcesMissingVectorIndex(embeddingModelKey),
+      this.findSkillDocumentsMissingVectorIndex(embeddingModelKey)
+    ]);
+
+    let productSourceCount = 0;
+    let skillDocumentCount = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const source of productSources) {
+        const nextVersion = source.currentVersion + 1;
+        const updated = await tx.globalKnowledgeSource.updateMany({
+          where: {
+            id: source.id,
+            status: "ready",
+            currentVersion: source.currentVersion
+          },
+          data: {
+            status: "processing",
+            currentVersion: nextVersion,
+            lastReindexRequestedAt: new Date(),
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+        if (updated.count === 0) {
+          continue;
+        }
+        await tx.knowledgeIndexingJob.create({
+          data: {
+            workspaceId: source.workspaceId,
+            requestedByUserId: userId,
+            sourceType: "global_knowledge_source",
+            sourceId: source.id,
+            sourceVersion: nextVersion,
+            status: "pending",
+            processorMode: "auto",
+            priority: 90,
+            pendingDedupeKey: `global_knowledge_source:${source.id}:${String(nextVersion)}`
+          }
+        });
+        productSourceCount += 1;
+      }
+
+      for (const document of skillDocuments) {
+        const nextVersion = document.currentVersion + 1;
+        const updated = await tx.skillDocument.updateMany({
+          where: {
+            id: document.id,
+            status: "ready",
+            currentVersion: document.currentVersion
+          },
+          data: {
+            status: "processing",
+            currentVersion: nextVersion,
+            lastReindexRequestedAt: new Date(),
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+        if (updated.count === 0) {
+          continue;
+        }
+        await tx.knowledgeIndexingJob.create({
+          data: {
+            workspaceId: document.workspaceId,
+            skillId: document.skillId,
+            requestedByUserId: userId,
+            sourceType: "skill_document",
+            sourceId: document.id,
+            sourceVersion: nextVersion,
+            status: "pending",
+            processorMode: "auto",
+            priority: 90,
+            pendingDedupeKey: `skill_document:${document.id}:${String(nextVersion)}`
+          }
+        });
+        skillDocumentCount += 1;
+      }
+    });
+
+    return { productSourceCount, skillDocumentCount };
+  }
+
+  private async findProductSourcesMissingVectorIndex(
+    embeddingModelKey: string
+  ): Promise<AdminKbBackfillCandidate[]> {
+    return this.prisma.$queryRaw<AdminKbBackfillCandidate[]>(Prisma.sql`
+      SELECT
+        "id",
+        "workspace_id" AS "workspaceId",
+        "current_version" AS "currentVersion"
+      FROM "global_knowledge_sources" AS source
+      WHERE source."scope" = 'product'
+        AND source."status" = 'ready'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "knowledge_vector_chunks" AS vector
+          WHERE vector."source_type" = 'global_knowledge_source'
+            AND vector."source_id" = source."id"
+            AND vector."source_version" = source."current_version"
+            AND vector."embedding_model_key" = ${embeddingModelKey}
+        )
+      ORDER BY source."updated_at" ASC, source."id" ASC
+    `);
+  }
+
+  private async findSkillDocumentsMissingVectorIndex(
+    embeddingModelKey: string
+  ): Promise<SkillDocumentBackfillCandidate[]> {
+    return this.prisma.$queryRaw<SkillDocumentBackfillCandidate[]>(Prisma.sql`
+      SELECT
+        "id",
+        "workspace_id" AS "workspaceId",
+        "skill_id" AS "skillId",
+        "current_version" AS "currentVersion"
+      FROM "skill_documents" AS document
+      WHERE document."status" = 'ready'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "knowledge_vector_chunks" AS vector
+          WHERE vector."source_type" = 'skill_document'
+            AND vector."source_id" = document."id"
+            AND vector."source_version" = document."current_version"
+            AND vector."embedding_model_key" = ${embeddingModelKey}
+        )
+      ORDER BY document."updated_at" ASC, document."id" ASC
+    `);
   }
 }

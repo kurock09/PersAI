@@ -179,6 +179,8 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/knowledge-sources", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/observability", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.POST },
       { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
       { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
       { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },

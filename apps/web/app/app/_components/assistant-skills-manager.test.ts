@@ -6,6 +6,7 @@ import {
   getSkillGroupRank,
   isSkillSelectionOverLimit,
   orderSkillCatalogItems,
+  resolveVisibleSkillCatalogItems,
   resolveSkillDescription,
   resolveSkillDisplayName,
   resolveSkillGroupLabel,
@@ -89,6 +90,26 @@ describe("assistant Skills manager helpers", () => {
     expect(getEnabledSkillCount(["skill-1", "skill-1", "skill-2"])).toBe(2);
     expect(toggleSkillSelection(["skill-1"], "skill-2", true)).toEqual(["skill-1", "skill-2"]);
     expect(toggleSkillSelection(["skill-1", "skill-2"], "skill-1", false)).toEqual(["skill-2"]);
+  });
+
+  it("keeps the compact first-page slice even when all Skills are plan-disabled", () => {
+    const items = Array.from({ length: 6 }, (_, index) =>
+      createItem({
+        skill: {
+          ...createItem().skill,
+          id: `skill-${index + 1}`,
+          name: { en: `Skill ${index + 1}` }
+        }
+      })
+    );
+
+    expect(
+      resolveVisibleSkillCatalogItems(items, {
+        collapsible: true,
+        expanded: false,
+        initialVisibleCount: 4
+      }).length
+    ).toBe(4);
   });
 
   it("detects plan limits and disabled reasons", () => {

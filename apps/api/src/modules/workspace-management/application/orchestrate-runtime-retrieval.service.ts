@@ -19,6 +19,7 @@ import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.servic
 
 const MAX_CONTEXT_ITEMS = 6;
 const MAX_ITEM_CHARS = 1_200;
+const MAX_SKILL_FETCHED_ITEM_CHARS = 2_400;
 const MAX_RENDERED_BLOCK_CHARS = 6_000;
 const MAX_PER_SOURCE_RESULTS = 3;
 const MIN_SKILL_VECTOR_SCORE = 0.18;
@@ -76,6 +77,17 @@ type SkillReferenceSearchResult = {
   helperOutputTokens: number | null;
   helperTotalTokens: number | null;
   retrievalMode: "lexical" | "hybrid";
+  fetchDepth: number;
+  fetchedChars: number;
+};
+
+type SkillFetchedContent = {
+  content: string;
+  fetchDepth: number;
+  fetchedChars: number;
+  windowStartChunkIndex: number;
+  windowEndChunkIndex: number;
+  embeddingModelKey: string | null;
 };
 
 @Injectable()
@@ -222,6 +234,18 @@ export class OrchestrateRuntimeRetrievalService {
         helperOutputTokens: result.helperOutputTokens,
         helperTotalTokens: result.helperTotalTokens
       });
+      if (result.fetchedChars > 0) {
+        await this.recordFetchTelemetry({
+          workspaceId,
+          assistantId: input.assistantId,
+          source: "skill",
+          retrievalMode: result.retrievalMode,
+          durationMs: Date.now() - startedAt,
+          fetchDepth: result.fetchDepth,
+          fetchedChars: result.fetchedChars,
+          embeddingModelKey: result.embeddingModelKey
+        });
+      }
       return result.items;
     } catch (error) {
       await this.recordTelemetry({
@@ -339,12 +363,17 @@ export class OrchestrateRuntimeRetrievalService {
       });
     }
 
+    const semanticGroundingRequired =
+      retrievalPolicy.embeddingSearchEnabled && embeddingModelKey !== null;
+
     const helperCandidateLimit = Math.max(
       MAX_PER_SOURCE_RESULTS,
       Math.min(retrievalPolicy.helperCandidateLimit, 8)
     );
     let selected = this.selectSkillCandidates(
-      [...rankedByReferenceId.values()].sort((left, right) => right.score - left.score),
+      [...rankedByReferenceId.values()]
+        .filter((candidate) => !semanticGroundingRequired || candidate.vectorScore !== null)
+        .sort((left, right) => right.score - left.score),
       helperCandidateLimit
     );
     const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
@@ -380,24 +409,38 @@ export class OrchestrateRuntimeRetrievalService {
       });
     }
 
-    const items = selected.slice(0, MAX_PER_SOURCE_RESULTS).map(({ row, score, vectorScore }) => ({
+    const fetchedCandidates = await Promise.all(
+      selected.slice(0, MAX_PER_SOURCE_RESULTS).map(async (candidate) => ({
+        candidate,
+        fetched: await this.fetchSkillCandidateWindow(candidate, {
+          fetchMaxChars: retrievalPolicy.fetchMaxChars,
+          windowRadius: retrievalPolicy.knowledgeFetchWindowRadius
+        })
+      }))
+    );
+    const items = fetchedCandidates.map(({ candidate, fetched }) => ({
       label: "skill_reference" as const,
-      referenceId: this.buildSkillReferenceId(row),
-      title: `${this.localize(row.skill.name, input.locale)} / ${
-        row.skillDocument.displayName ?? row.skillDocument.originalFilename
+      referenceId: this.buildSkillReferenceId(candidate.row),
+      title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
+        candidate.row.skillDocument.displayName ?? candidate.row.skillDocument.originalFilename
       }`,
-      locator: row.locator,
-      content: this.truncate(row.content, MAX_ITEM_CHARS),
-      score,
+      locator: candidate.row.locator,
+      content: this.truncate(fetched.content, MAX_SKILL_FETCHED_ITEM_CHARS),
+      score: candidate.score,
       metadata: {
-        skillId: row.skillId,
-        skillCategory: row.skill.category,
-        skillDocumentId: row.skillDocumentId,
-        sourceVersion: row.sourceVersion,
-        chunkIndex: row.chunkIndex,
-        mimeType: row.skillDocument.mimeType,
+        skillId: candidate.row.skillId,
+        skillCategory: candidate.row.skill.category,
+        skillDocumentId: candidate.row.skillDocumentId,
+        sourceVersion: candidate.row.sourceVersion,
+        chunkIndex: candidate.row.chunkIndex,
+        windowStartChunkIndex: fetched.windowStartChunkIndex,
+        windowEndChunkIndex: fetched.windowEndChunkIndex,
+        windowChunkCount: fetched.fetchDepth,
+        mimeType: candidate.row.skillDocument.mimeType,
         retrievalMode,
-        vectorScore
+        semanticGroundingRequired,
+        vectorScore: candidate.vectorScore,
+        embeddingModelKey: fetched.embeddingModelKey
       }
     }));
     return {
@@ -411,7 +454,9 @@ export class OrchestrateRuntimeRetrievalService {
       helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
       helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
       helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
-      retrievalMode
+      retrievalMode,
+      fetchDepth: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchDepth, 0),
+      fetchedChars: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchedChars, 0)
     };
   }
 
@@ -488,6 +533,31 @@ export class OrchestrateRuntimeRetrievalService {
       helperTotalTokens: input.helperTotalTokens ?? null,
       outcome: input.outcome,
       errorCode: input.errorCode
+    });
+  }
+
+  private async recordFetchTelemetry(input: {
+    workspaceId: string | null;
+    assistantId: string;
+    source: OrchestratedRetrievalTelemetrySource;
+    retrievalMode: "lexical" | "hybrid";
+    durationMs: number;
+    fetchDepth: number;
+    fetchedChars: number;
+    embeddingModelKey: string | null;
+  }): Promise<void> {
+    if (input.workspaceId === null) {
+      return;
+    }
+    await this.knowledgeRetrievalObservabilityService.recordFetch({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      source: input.source,
+      retrievalMode: input.retrievalMode,
+      durationMs: input.durationMs,
+      fetchDepth: input.fetchDepth,
+      fetchedChars: input.fetchedChars,
+      embeddingModelKey: input.embeddingModelKey
     });
   }
 
@@ -616,7 +686,9 @@ export class OrchestrateRuntimeRetrievalService {
       helperInputTokens: null,
       helperOutputTokens: null,
       helperTotalTokens: null,
-      retrievalMode: "lexical"
+      retrievalMode: "lexical",
+      fetchDepth: 0,
+      fetchedChars: 0
     };
   }
 
@@ -743,6 +815,53 @@ export class OrchestrateRuntimeRetrievalService {
       }
     }
     return selected;
+  }
+
+  private async fetchSkillCandidateWindow(
+    candidate: RankedSkillCandidate,
+    policy: { fetchMaxChars: number; windowRadius: number }
+  ): Promise<SkillFetchedContent> {
+    const row = candidate.row;
+    const surroundingRows = (await this.prisma.skillDocumentChunk.findMany({
+      where: {
+        skillDocumentId: row.skillDocumentId,
+        skillId: row.skillId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: {
+          gte: Math.max(0, row.chunkIndex - policy.windowRadius),
+          lte: row.chunkIndex + policy.windowRadius
+        },
+        skillDocument: { status: "ready" },
+        skill: {
+          status: "active",
+          archivedAt: null
+        }
+      },
+      orderBy: [{ chunkIndex: "asc" }]
+    })) as Array<
+      Pick<
+        SkillChunkRow,
+        "chunkIndex" | "content" | "embeddingModelKey" | "locator" | "sourceVersion"
+      >
+    >;
+    const windowRows = surroundingRows.length > 0 ? surroundingRows : [row];
+    const content = windowRows
+      .map((entry) => entry.content.trim())
+      .filter((entry) => entry.length > 0)
+      .join("\n\n---\n\n")
+      .slice(0, Math.max(MAX_SKILL_FETCHED_ITEM_CHARS, policy.fetchMaxChars));
+    return {
+      content: content.length > 0 ? content : row.content,
+      fetchDepth: windowRows.length,
+      fetchedChars: content.length > 0 ? content.length : row.content.length,
+      windowStartChunkIndex: windowRows[0]?.chunkIndex ?? row.chunkIndex,
+      windowEndChunkIndex: windowRows[windowRows.length - 1]?.chunkIndex ?? row.chunkIndex,
+      embeddingModelKey:
+        windowRows.find((entry) => typeof entry.embeddingModelKey === "string")
+          ?.embeddingModelKey ??
+        row.embeddingModelKey ??
+        null
+    };
   }
 
   private buildSkillReferenceId(row: SkillChunkRow): string {

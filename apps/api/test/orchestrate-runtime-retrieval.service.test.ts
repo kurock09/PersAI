@@ -9,7 +9,55 @@ const skillChunks = [
     sourceVersion: 1,
     chunkIndex: 0,
     locator: "tax#1",
-    content: "Professional tax review requires checking deductible expenses against local rules.",
+    content:
+      "Professional tax review starts by identifying the user's filing context and documented expenses.",
+    embeddingModelKey: "text-embedding-3-small",
+    skillDocument: {
+      id: "doc-1",
+      displayName: "Tax Review Guide",
+      originalFilename: "tax-review.md",
+      mimeType: "text/markdown",
+      status: "ready"
+    },
+    skill: {
+      id: "skill-accounting",
+      name: { en: "Accounting" },
+      category: "finance"
+    }
+  },
+  {
+    skillDocumentId: "doc-1",
+    skillId: "skill-accounting",
+    workspaceId: "workspace-1",
+    sourceVersion: 1,
+    chunkIndex: 1,
+    locator: "tax#2",
+    content:
+      "Professional tax review requires checking deductible expenses against local rules and keeping the exact source excerpt available for citation.",
+    embeddingModelKey: "text-embedding-3-small",
+    skillDocument: {
+      id: "doc-1",
+      displayName: "Tax Review Guide",
+      originalFilename: "tax-review.md",
+      mimeType: "text/markdown",
+      status: "ready"
+    },
+    skill: {
+      id: "skill-accounting",
+      name: { en: "Accounting" },
+      category: "finance"
+    }
+  },
+  {
+    skillDocumentId: "doc-1",
+    skillId: "skill-accounting",
+    workspaceId: "workspace-1",
+    sourceVersion: 1,
+    chunkIndex: 2,
+    locator: "tax#3",
+    content:
+      "The excerpt window should include neighboring Skill document chunks when the selected chunk is fetched.",
+    embeddingModelKey: "text-embedding-3-small",
     skillDocument: {
       id: "doc-1",
       displayName: "Tax Review Guide",
@@ -90,9 +138,14 @@ class FakeReadAssistantKnowledgeService {
 
 class FakeKnowledgeRetrievalObservabilityService {
   searches: Array<Record<string, unknown>> = [];
+  fetches: Array<Record<string, unknown>> = [];
 
   async recordSearch(input: Record<string, unknown>): Promise<void> {
     this.searches.push(input);
+  }
+
+  async recordFetch(input: Record<string, unknown>): Promise<void> {
+    this.fetches.push(input);
   }
 }
 
@@ -129,12 +182,29 @@ async function run(): Promise<void> {
         helperMaxOutputTokens: 220,
         embeddingSearchEnabled: true
       }),
-      resolveAdminKnowledgeEmbeddingModelKey: async () => null,
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
       resolveAdminKnowledgeRetrievalModelKey: async () => null
     } as never,
-    { generateEmbeddings: async () => [] } as never,
+    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
-    { searchNearest: async () => [] } as never
+    {
+      searchNearest: async () => [
+        {
+          id: "vector-1",
+          workspaceId: "workspace-1",
+          assistantId: null,
+          skillId: "skill-accounting",
+          sourceType: "skill_document",
+          sourceId: "doc-1",
+          chunkId: null,
+          sourceVersion: 1,
+          chunkIndex: 1,
+          embeddingModelKey: "text-embedding-3-small",
+          score: 0.92,
+          metadata: null
+        }
+      ]
+    } as never
   );
 
   const context = await service.execute(
@@ -183,18 +253,48 @@ async function run(): Promise<void> {
     ),
     false
   );
+  const skillItem = context.items.find((item) => item.label === "skill_reference");
+  assert.ok(skillItem);
+  assert.match(
+    skillItem.content,
+    /exact source excerpt available for citation/,
+    "Skill retrieval must inject the fetched exact excerpt, not only a search snippet."
+  );
+  assert.match(
+    skillItem.content,
+    /neighboring Skill document chunks/,
+    "Skill retrieval should use a fetch window around the semantic hit."
+  );
+  assert.equal((skillItem.metadata as { retrievalMode?: string }).retrievalMode, "hybrid");
+  assert.equal((skillItem.metadata as { vectorScore?: number }).vectorScore, 0.92);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
     ["document", "memory", "chat", "global", "preset", "subscription"]
   );
-  assert.deepEqual(
-    observability.searches.map((call) => [call.source, call.outcome, call.resultCount]),
-    [
-      ["skill", "success", 1],
-      ["document", "success", 1],
-      ["product", "success", 1]
-    ]
-  );
+  assert.deepEqual(observability.searches[0], {
+    workspaceId: "workspace-1",
+    assistantId: "assistant-1",
+    source: "skill",
+    durationMs: observability.searches[0]?.durationMs,
+    resultCount: 1,
+    outcome: "success",
+    errorCode: null,
+    retrievalMode: "hybrid",
+    lexicalCandidateCount: 3,
+    vectorCandidateCount: 1,
+    helperApplied: false,
+    embeddingModelKey: "text-embedding-3-small",
+    helperModelKey: null,
+    helperProviderKey: null,
+    helperInputTokens: null,
+    helperOutputTokens: null,
+    helperTotalTokens: null
+  });
+  assert.equal(observability.fetches.length, 1);
+  assert.equal(observability.fetches[0]?.source, "skill");
+  assert.equal(observability.fetches[0]?.retrievalMode, "hybrid");
+  assert.equal(observability.fetches[0]?.fetchDepth, 3);
+  assert.ok(Number(observability.fetches[0]?.fetchedChars) > 120);
 
   await service.execute(
     service.parseInput({
@@ -215,6 +315,57 @@ async function run(): Promise<void> {
   assert.equal(observability.searches.at(-1)?.source, "web");
   assert.equal(observability.searches.at(-1)?.outcome, "empty");
   assert.equal(observability.searches.at(-1)?.errorCode, "web_reference_not_executed");
+
+  const lexicalOnlyObservability = new FakeKnowledgeRetrievalObservabilityService();
+  const lexicalOnlyService = new OrchestrateRuntimeRetrievalService(
+    prisma as never,
+    readKnowledge as never,
+    lexicalOnlyObservability as never,
+    {
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: 5,
+        maxMaxResults: 8,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: true,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true
+      }),
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
+      resolveAdminKnowledgeRetrievalModelKey: async () => null
+    } as never,
+    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
+    { rerankCandidates: async () => null } as never,
+    { searchNearest: async () => [] } as never
+  );
+  const lexicalOnlyContext = await lexicalOnlyService.execute(
+    lexicalOnlyService.parseInput({
+      assistantId: "assistant-1",
+      query: "deductible expenses",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: false,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "test_plan"
+      }
+    })
+  );
+  assert.equal(
+    lexicalOnlyContext.items.some((item) => item.label === "skill_reference"),
+    false,
+    "Skill docs with an admin embedding policy must not be injected from lexical-only matches."
+  );
+  assert.equal(lexicalOnlyObservability.fetches.length, 0);
+  assert.equal(lexicalOnlyObservability.searches[0]?.retrievalMode, "hybrid");
+  assert.equal(lexicalOnlyObservability.searches[0]?.resultCount, 0);
 
   assert.throws(
     () =>

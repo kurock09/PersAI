@@ -42,6 +42,48 @@ function isStandaloneDeliveredFileLine(lineWithoutLinks: string): boolean {
   return normalized.length <= 32;
 }
 
+function isSafeDeliveredLinkHref(href: string): boolean {
+  const normalized = href.trim().toLowerCase();
+  return (
+    normalized.startsWith("https://") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("mailto:") ||
+    normalized.startsWith("tel:") ||
+    normalized.startsWith("/api/assistant-file/")
+  );
+}
+
+function looksLikeFileReference(value: string): boolean {
+  const normalized = normalizeFilename(value);
+  return /\.[a-z0-9]{1,12}$/i.test(normalized);
+}
+
+function stripUndeliveredLocalFileMarkdownLinks(input: { assistantText: string }): {
+  assistantText: string;
+  strippedLocalFileLink: boolean;
+} {
+  const markdownLinkPattern = /\[([^\]\n]+)\]\(([^)\s]+)\)/g;
+  let strippedLocalFileLink = false;
+  const assistantText = input.assistantText.replace(
+    markdownLinkPattern,
+    (match, linkText, href) => {
+      if (typeof linkText !== "string" || typeof href !== "string") {
+        return match;
+      }
+      if (isSafeDeliveredLinkHref(href)) {
+        return match;
+      }
+      if (!looksLikeFileReference(linkText) && !looksLikeFileReference(href)) {
+        return match;
+      }
+      strippedLocalFileLink = true;
+      const plainText = linkText.trim().length > 0 ? linkText.trim() : normalizeFilename(href);
+      return plainText.length > 0 ? plainText : match;
+    }
+  );
+  return { assistantText, strippedLocalFileLink };
+}
+
 function stripDeliveredAttachmentMarkdownLinks(input: {
   assistantText: string;
   deliveredAttachmentFilenames: string[];
@@ -99,14 +141,21 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   deliveredAttachmentFilenames?: string[];
   locale?: string | null;
 }): string {
-  const normalizedText = stripDeliveredAttachmentMarkdownLinks({
+  const deliveredNormalizedText = stripDeliveredAttachmentMarkdownLinks({
     assistantText: input.assistantText.trim(),
     deliveredAttachmentFilenames: input.deliveredAttachmentFilenames ?? []
   });
+  const { assistantText: normalizedText, strippedLocalFileLink } =
+    stripUndeliveredLocalFileMarkdownLinks({
+      assistantText: deliveredNormalizedText
+    });
   if (normalizedText.length === 0) {
     return normalizedText;
   }
-  if (input.attemptedArtifactCount <= 0 || input.deliveredAttachmentCount > 0) {
+  if (
+    input.deliveredAttachmentCount > 0 ||
+    (input.attemptedArtifactCount <= 0 && strippedLocalFileLink === false)
+  ) {
     return normalizedText;
   }
   const correction = buildUndeliveredAttachmentCorrection(normalizedText, input.locale);

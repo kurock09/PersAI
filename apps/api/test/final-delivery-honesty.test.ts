@@ -24,6 +24,28 @@ async function run(): Promise<void> {
     }),
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa report.md bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Готово: [report.md](sandbox:/tmp/report.md)",
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "ru"
+    }),
+    "Готово: report.md\n\nПоправка: файл не был реально доставлен в этот чат в рамках этого ответа."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Source: [report.md](https://example.com/report.md)",
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "en"
+    }),
+    "Source: [report.md](https://example.com/report.md)"
+  );
 }
 
 void run();

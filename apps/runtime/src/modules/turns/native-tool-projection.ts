@@ -955,7 +955,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a found file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
         },
         limit: {
           type: "integer",
@@ -972,7 +972,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         fileRef: {
           type: "string",
           description:
-            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this for any current or prior working file when available.'
+            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this for any current or prior working file when available. A returned fileRef is a selector for a later files action, not a substitute for actual delivery.'
         },
         content: {
           type: "string",
