@@ -4,7 +4,7 @@ global:
     registryHost: europe-west1-docker.pkg.dev
     projectId: project-44786b14-b7d7-4554-a8a
     repository: persai
-    tag: 0269345832da00615a35a6207258af52f31c07aa
+    tag: e0e1bd73172ea1d68d773cdb00d77efde71e4649
 
 networkPolicy:
   enabled: true
