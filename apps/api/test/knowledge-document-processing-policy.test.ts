@@ -6,7 +6,7 @@ import {
   resolveKnowledgeDocumentProcessorSelection
 } from "../src/modules/workspace-management/application/knowledge-document-processing-policy";
 import {
-  FUTURE_KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES,
+  KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES,
   KNOWLEDGE_PROCESSING_STATUSES
 } from "../src/modules/workspace-management/application/knowledge-processing.types";
 
@@ -23,13 +23,13 @@ async function run(): Promise<void> {
     "failed",
     "needs_review"
   ]);
-  assert.deepEqual(FUTURE_KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES, [
+  assert.deepEqual(KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES, [
     "draft",
-    "verified",
+    "active",
     "stale",
-    "deprecated"
+    "archived"
   ]);
-  for (const lifecycleStatus of FUTURE_KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES) {
+  for (const lifecycleStatus of KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES) {
     assert.equal(KNOWLEDGE_PROCESSING_STATUSES.includes(lifecycleStatus as never), false);
   }
 

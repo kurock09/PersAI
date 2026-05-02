@@ -28,10 +28,12 @@ type SourceRow = {
 
 function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolean }) {
   const sources = new Map<string, SourceRow>();
+  const textEntries = new Map<string, Record<string, unknown>>();
   const deletedObjectKeys: string[] = [];
   const releasedBytes: bigint[] = [];
   const jobs: Array<{ sourceType: string; sourceId: string; sourceVersion: number }> = [];
   let nextId = 1;
+  let nextTextEntryId = 1;
 
   const prisma = {
     globalKnowledgeSource: {
@@ -116,7 +118,42 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
         return row;
       }
     },
-    $transaction: async (
+    productKnowledgeTextEntry: {
+      findMany: async () => [...textEntries.values()],
+      findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) => {
+        const row = textEntries.get(where.id);
+        return row && row.workspaceId === where.workspaceId ? row : null;
+      },
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const now = new Date();
+        const row = {
+          id: `text-entry-${nextTextEntryId++}`,
+          ...data,
+          chunkCount: 0,
+          processorProviderKey: null,
+          processorMode: null,
+          processingQuality: null,
+          lastIndexedAt: null,
+          lastReindexRequestedAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          createdAt: now,
+          updatedAt: now
+        };
+        textEntries.set(row.id, row);
+        return row;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const row = textEntries.get(where.id);
+        if (!row) {
+          throw new Error("Text entry not found");
+        }
+        const nextRow = { ...row, ...data, updatedAt: new Date() };
+        textEntries.set(where.id, nextRow);
+        return nextRow;
+      }
+    },
+    $transaction: async <T>(
       callback: (tx: {
         globalKnowledgeSourceChunk: {
           deleteMany: (args: { where: { globalKnowledgeSourceId: string } }) => Promise<void>;
@@ -130,9 +167,20 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
           deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
         };
         knowledgeIndexingJob: {
+          create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
           deleteMany: (args: { where: { sourceType: string; sourceId: string } }) => Promise<void>;
         };
-      }) => Promise<void>
+        productKnowledgeTextEntry: {
+          create: (args: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
+          update: (args: {
+            where: { id: string };
+            data: Record<string, unknown>;
+          }) => Promise<Record<string, unknown>>;
+        };
+        productKnowledgeTextEntryChunk: {
+          deleteMany: (args: { where: { textEntryId: string } }) => Promise<void>;
+        };
+      }) => Promise<T>
     ) =>
       callback({
         globalKnowledgeSourceChunk: {
@@ -147,6 +195,35 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
           deleteMany: async () => undefined
         },
         knowledgeIndexingJob: {
+          create: async ({ data }) => {
+            const job = {
+              id: `job-${jobs.length + 1}`,
+              ...data,
+              selectedProviderKey: null,
+              fallbackProviderKey: null,
+              attemptCount: 0,
+              maxAttempts: 3,
+              retryAfterAt: null,
+              extractionQuality: null,
+              resultPayload: null,
+              lastErrorCode: null,
+              lastErrorMessage: null,
+              startedAt: null,
+              completedAt: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            jobs.push(job as { sourceType: string; sourceId: string; sourceVersion: number });
+            return job;
+          },
+          deleteMany: async () => undefined
+        },
+        productKnowledgeTextEntry: {
+          create: async ({ data }) => prisma.productKnowledgeTextEntry.create({ data }),
+          update: async ({ where, data }) =>
+            prisma.productKnowledgeTextEntry.update({ where, data })
+        },
+        productKnowledgeTextEntryChunk: {
           deleteMany: async () => undefined
         }
       })
@@ -255,6 +332,7 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
   return {
     service,
     sources,
+    textEntries,
     deletedObjectKeys,
     releasedBytes,
     jobs
@@ -326,8 +404,43 @@ async function runQuotaFailures(): Promise<void> {
   assert.equal(cappedHarness.deletedObjectKeys.length, 1);
 }
 
+async function runProductTextEntryLifecycle(): Promise<void> {
+  const harness = createHarness();
+  const draft = await harness.service.createTextEntry("admin-1", {
+    title: "Draft entry",
+    body: "Draft product knowledge.",
+    category: "support",
+    locale: "en",
+    tags: ["draft"],
+    lifecycleStatus: "draft",
+    provenanceKind: "manual",
+    provenanceMetadata: null
+  });
+  assert.equal(draft.entry.lifecycleStatus, "draft");
+  assert.equal(draft.indexingJob, null);
+  assert.equal(harness.jobs.length, 0);
+
+  const active = await harness.service.updateTextEntry("admin-1", draft.entry.id, {
+    title: "Active entry",
+    body: "Active product knowledge.",
+    category: "support",
+    locale: "en",
+    tags: ["active"],
+    lifecycleStatus: "active",
+    provenanceKind: "manual",
+    provenanceMetadata: null
+  });
+  assert.equal(active.entry.lifecycleStatus, "active");
+  assert.equal(active.indexingJob?.sourceType, "product_knowledge_text_entry");
+  assert.equal(harness.jobs.length, 1);
+
+  await harness.service.archiveTextEntry("admin-1", draft.entry.id);
+  assert.equal(harness.textEntries.get(draft.entry.id)?.lifecycleStatus, "archived");
+}
+
 void runUploadAndDeleteHappyPath()
   .then(runQuotaFailures)
+  .then(runProductTextEntryLifecycle)
   .catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;

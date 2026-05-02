@@ -1,5 +1,120 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-080 admin UI slice) — Product KB text entries and Skill knowledge cards are editable in admin (`apps/web`, docs; focused checks green)
+
+### What changed
+
+- Added Product KB text-entry authoring to `Admin > Knowledge`.
+- Added Skill knowledge-card authoring to `Admin > Skills` detail.
+- Both admin surfaces keep ADR-080 lifecycle explicit: entries start as `draft`, admins can switch to `active`, `stale`, or `archived`, and reindex actions are exposed only for active persisted entries.
+- Added web API wrappers for the ADR-080 authored-entry endpoints and focused helper coverage for draft-first payload shaping and lifecycle summaries.
+- Kept the slice bounded: no assistant-assisted draft/enrichment endpoint, no crawling, no curator jobs, no marketplace, and no versioned Skills.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/knowledge/page.test.tsx app/admin/skills/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- Full AGENTS gates pending in this session.
+
+### Next recommended step
+
+Run the full AGENTS verification gates, then perform a local UI smoke: create draft Product KB text entry, activate it, reindex it, archive it; repeat the same lifecycle for one Skill knowledge card.
+
+---
+
+## 2026-05-02 (ADR-080 authored knowledge slice) — Skill cards and Product KB text entries land on ADR-079 indexing (`apps/api`, `packages/contracts`, docs; verification gates green)
+
+### What changed
+
+- Added native API/data model support for admin-authored `SkillKnowledgeCard` rows inside admin Skill detail and `ProductKnowledgeTextEntry` rows inside admin Knowledge.
+- Added the ADR-080 lifecycle (`draft`, `active`, `stale`, `archived`) plus provenance metadata for authored knowledge entries.
+- Active authored entries enqueue and process through the existing ADR-079 `KnowledgeIndexingJob` pipeline; draft/archived entries are not indexed for runtime use, and runtime retrieval revalidates `active` + `ready` state before injecting context.
+- Extended OpenAPI/contracts, admin controllers, Clerk route protection, indexing worker persistence, Skill retrieval, Product KB read/fetch paths, and indexing-job listing for the new source types.
+- Kept this slice bounded: no assistant-assisted authoring endpoint, crawling, curator jobs, marketplace, or versioned Skills.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Build the admin UI surfaces for the new API contract: Product KB text entries in admin Knowledge and Skill knowledge cards inside admin Skill detail, preserving explicit admin activation before runtime indexing.
+
+---
+
+## 2026-05-02 (Chat quick-action spacing polish) — quieter ChatGPT-style suggestion list (`apps/web`, docs; checks green)
+
+### What changed
+
+- Simplified the assistant quick-action area under chat replies.
+- Removed the heavy gradient/sidebar treatment and single shared arrow marker.
+- Actions now render as a quiet vertical list with more whitespace and a small arrow marker per action, closer to the founder's ChatGPT reference screenshot.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx app/app/_components/chat-message.test.tsx`
+- `corepack pnpm run format:check`
+- `ReadLints` on changed web files
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Live-check a reply with multiple suggested actions: the actions should feel separated from the answer by whitespace, not like a heavy banner.
+
+---
+
+## 2026-05-02 (ADR-080 accepted) — admin-controlled Knowledge authoring and Skill curation (`docs`; format check green)
+
+### What changed
+
+- Added `docs/ADR/080-admin-controlled-knowledge-authoring-and-skill-curation.md`.
+- ADR-080 defines the first product scope for admin-controlled authored knowledge: Skill knowledge cards, Product KB text entries, and assistant-assisted Skill draft/enrichment.
+- The decision keeps admin control explicit: generated proposals may fill or enrich draft fields, but active runtime knowledge requires admin save/activation and indexing through ADR-079.
+- Updated Architecture, API Boundary, Data Model, Test Plan, ADR-079, and Changelog references so ADR-080 is current architecture truth rather than a tentative future note.
+
+### Verification
+
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Implement ADR-080 as a bounded first slice: API/data model for Skill knowledge cards and Product KB text entries, with draft/active lifecycle enforcement before adding the assistant-assisted authoring endpoint.
+
+---
+
+## 2026-05-02 (Files send ambiguity live fix) — existing-file resend now tolerates duplicate visible filenames (`apps/runtime`, `apps/api`, docs; focused checks green)
+
+### What changed
+
+- Live GKE receipts showed `files.send` was called for the user's “send me any existing file” repro, but the tool invocation returned `ok:false` and no artifacts, so no attachment card could be rendered.
+- The failing file existed in `assistant_files`; the fragile point was name/query selection when duplicate visible filenames exist across sandbox/runtime copies.
+- `files.send` now resolves ambiguous query matches to the newest item when all candidates share the same visible filename, while keeping genuinely different matches ambiguous.
+- Final delivery honesty now treats stripped technical attachment summaries as delivery claims even when `attemptedArtifactCount=0`, so an undelivered `Assistant sent... fileRef...` line cannot leave behind a confident “sent it” answer with no correction.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `ReadLints` on changed runtime/API files
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Commit/push if requested, wait for dev rollout, then retry the live repro: “Какие у меня есть файлы” followed by “Пришли мне любой из тех что есть у меня” should produce a real attachment card on the first send.
+
+---
+
 ## 2026-05-02 (Media generation tool-call guidance) — stop printing pseudo tool calls for images/videos (`apps/api`, docs; focused checks green)
 
 ### What changed

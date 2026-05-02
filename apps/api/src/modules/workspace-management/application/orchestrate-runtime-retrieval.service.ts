@@ -35,7 +35,8 @@ type OrchestratedRetrievalTelemetrySource = "skill" | "document" | "product" | "
 
 type SkillChunkRow = {
   id: string;
-  skillDocumentId: string;
+  sourceKind: "skill_document" | "skill_knowledge_card";
+  sourceId: string;
   skillId: string;
   workspaceId: string;
   sourceVersion: number;
@@ -43,13 +44,8 @@ type SkillChunkRow = {
   locator: string | null;
   content: string;
   embeddingModelKey?: string | null;
-  skillDocument: {
-    id: string;
-    displayName: string | null;
-    originalFilename: string;
-    mimeType: string;
-    status: string;
-  };
+  sourceTitle: string;
+  mimeType: string;
   skill: {
     id: string;
     name: unknown;
@@ -278,7 +274,7 @@ export class OrchestrateRuntimeRetrievalService {
       await this.knowledgeModelPolicyService.resolveAdminKnowledgeRetrievalModelKey();
     const terms = this.buildSearchTerms(input.query);
     const rankedByReferenceId = new Map<string, RankedSkillCandidate>();
-    const rows = (await this.prisma.skillDocumentChunk.findMany({
+    const documentRows = await this.prisma.skillDocumentChunk.findMany({
       where: {
         skillId: { in: enabledSkillIds },
         skillDocument: {
@@ -318,7 +314,85 @@ export class OrchestrateRuntimeRetrievalService {
         { chunkIndex: "asc" }
       ],
       take: retrievalPolicy.lexicalCandidateLimit
-    })) as SkillChunkRow[];
+    });
+    const cardRows = await this.prisma.skillKnowledgeCardChunk.findMany({
+      where: {
+        skillId: { in: enabledSkillIds },
+        knowledgeCard: {
+          status: "ready",
+          lifecycleStatus: "active"
+        },
+        skill: {
+          status: "active",
+          archivedAt: null
+        },
+        OR: terms.flatMap((term) => [
+          { content: { contains: term, mode: "insensitive" } },
+          { locator: { contains: term, mode: "insensitive" } }
+        ])
+      },
+      include: {
+        knowledgeCard: {
+          select: {
+            id: true,
+            title: true,
+            locale: true,
+            status: true,
+            lifecycleStatus: true
+          }
+        },
+        skill: {
+          select: {
+            id: true,
+            name: true,
+            category: true
+          }
+        }
+      },
+      orderBy: [
+        { skillId: "asc" },
+        { skillKnowledgeCardId: "asc" },
+        { sourceVersion: "desc" },
+        { chunkIndex: "asc" }
+      ],
+      take: retrievalPolicy.lexicalCandidateLimit
+    });
+    const rows: SkillChunkRow[] = [
+      ...documentRows.map(
+        (row): SkillChunkRow => ({
+          id: row.id,
+          sourceKind: "skill_document",
+          sourceId: row.skillDocumentId,
+          skillId: row.skillId,
+          workspaceId: row.workspaceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          locator: row.locator,
+          content: row.content,
+          embeddingModelKey: row.embeddingModelKey,
+          sourceTitle: row.skillDocument.displayName ?? row.skillDocument.originalFilename,
+          mimeType: row.skillDocument.mimeType,
+          skill: row.skill
+        })
+      ),
+      ...cardRows.map(
+        (row): SkillChunkRow => ({
+          id: row.id,
+          sourceKind: "skill_knowledge_card",
+          sourceId: row.skillKnowledgeCardId,
+          skillId: row.skillId,
+          workspaceId: row.workspaceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          locator: row.locator,
+          content: row.content,
+          embeddingModelKey: row.embeddingModelKey,
+          sourceTitle: row.knowledgeCard.title,
+          mimeType: "text/markdown",
+          skill: row.skill
+        })
+      )
+    ];
     for (const row of rows) {
       const score = this.scoreSkillRow(row, input.query);
       if (score <= 0) {
@@ -351,7 +425,7 @@ export class OrchestrateRuntimeRetrievalService {
         embeddingModelKey,
         queryVector: queryEmbedding,
         limit: retrievalPolicy.vectorCandidateLimit,
-        sourceTypes: ["skill_document"],
+        sourceTypes: ["skill_document", "skill_knowledge_card"],
         skillIds: enabledSkillIds
       });
       vectorCandidateCount = vectorHits.length;
@@ -383,7 +457,7 @@ export class OrchestrateRuntimeRetrievalService {
       candidates: selected.map((candidate) => ({
         referenceId: candidate.referenceId,
         title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
-          candidate.row.skillDocument.displayName ?? candidate.row.skillDocument.originalFilename
+          candidate.row.sourceTitle
         }`,
         locator: candidate.row.locator,
         snippet: this.buildSnippet(candidate.row.content, terms)
@@ -422,7 +496,7 @@ export class OrchestrateRuntimeRetrievalService {
       label: "skill_reference" as const,
       referenceId: this.buildSkillReferenceId(candidate.row),
       title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
-        candidate.row.skillDocument.displayName ?? candidate.row.skillDocument.originalFilename
+        candidate.row.sourceTitle
       }`,
       locator: candidate.row.locator,
       content: this.truncate(fetched.content, MAX_SKILL_FETCHED_ITEM_CHARS),
@@ -430,13 +504,14 @@ export class OrchestrateRuntimeRetrievalService {
       metadata: {
         skillId: candidate.row.skillId,
         skillCategory: candidate.row.skill.category,
-        skillDocumentId: candidate.row.skillDocumentId,
+        skillSourceType: candidate.row.sourceKind,
+        skillSourceId: candidate.row.sourceId,
         sourceVersion: candidate.row.sourceVersion,
         chunkIndex: candidate.row.chunkIndex,
         windowStartChunkIndex: fetched.windowStartChunkIndex,
         windowEndChunkIndex: fetched.windowEndChunkIndex,
         windowChunkCount: fetched.fetchDepth,
-        mimeType: candidate.row.skillDocument.mimeType,
+        mimeType: candidate.row.mimeType,
         retrievalMode,
         semanticGroundingRequired,
         vectorScore: candidate.vectorScore,
@@ -703,7 +778,9 @@ export class OrchestrateRuntimeRetrievalService {
       if (hit.score < MIN_SKILL_VECTOR_SCORE) {
         continue;
       }
-      const referenceId = `skill:${hit.skillId ?? "unknown"}:document:${hit.sourceId}:${String(hit.sourceVersion)}:${String(hit.chunkIndex)}`;
+      const sourceKind =
+        hit.sourceType === "skill_knowledge_card" ? "skill_knowledge_card" : "skill_document";
+      const referenceId = `skill:${hit.skillId ?? "unknown"}:${sourceKind}:${hit.sourceId}:${String(hit.sourceVersion)}:${String(hit.chunkIndex)}`;
       vectorScoresByReferenceId.set(
         referenceId,
         Math.max(vectorScoresByReferenceId.get(referenceId) ?? 0, hit.score)
@@ -712,7 +789,9 @@ export class OrchestrateRuntimeRetrievalService {
     if (vectorScoresByReferenceId.size === 0) {
       return;
     }
-    const rows = (await this.prisma.skillDocumentChunk.findMany({
+    const documentHits = input.vectorHits.filter((hit) => hit.sourceType === "skill_document");
+    const cardHits = input.vectorHits.filter((hit) => hit.sourceType === "skill_knowledge_card");
+    const documentRows = await this.prisma.skillDocumentChunk.findMany({
       where: {
         skillId: { in: input.enabledSkillIds },
         skillDocument: { status: "ready" },
@@ -720,7 +799,7 @@ export class OrchestrateRuntimeRetrievalService {
           status: "active",
           archivedAt: null
         },
-        OR: input.vectorHits.map((hit) => ({
+        OR: documentHits.map((hit) => ({
           skillDocumentId: hit.sourceId,
           sourceVersion: hit.sourceVersion,
           chunkIndex: hit.chunkIndex
@@ -744,7 +823,75 @@ export class OrchestrateRuntimeRetrievalService {
           }
         }
       }
-    })) as SkillChunkRow[];
+    });
+    const cardRows = await this.prisma.skillKnowledgeCardChunk.findMany({
+      where: {
+        skillId: { in: input.enabledSkillIds },
+        knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+        skill: {
+          status: "active",
+          archivedAt: null
+        },
+        OR: cardHits.map((hit) => ({
+          skillKnowledgeCardId: hit.sourceId,
+          sourceVersion: hit.sourceVersion,
+          chunkIndex: hit.chunkIndex
+        }))
+      },
+      include: {
+        knowledgeCard: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            lifecycleStatus: true
+          }
+        },
+        skill: {
+          select: {
+            id: true,
+            name: true,
+            category: true
+          }
+        }
+      }
+    });
+    const rows: SkillChunkRow[] = [
+      ...documentRows.map(
+        (row): SkillChunkRow => ({
+          id: row.id,
+          sourceKind: "skill_document",
+          sourceId: row.skillDocumentId,
+          skillId: row.skillId,
+          workspaceId: row.workspaceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          locator: row.locator,
+          content: row.content,
+          embeddingModelKey: row.embeddingModelKey,
+          sourceTitle: row.skillDocument.displayName ?? row.skillDocument.originalFilename,
+          mimeType: row.skillDocument.mimeType,
+          skill: row.skill
+        })
+      ),
+      ...cardRows.map(
+        (row): SkillChunkRow => ({
+          id: row.id,
+          sourceKind: "skill_knowledge_card",
+          sourceId: row.skillKnowledgeCardId,
+          skillId: row.skillId,
+          workspaceId: row.workspaceId,
+          sourceVersion: row.sourceVersion,
+          chunkIndex: row.chunkIndex,
+          locator: row.locator,
+          content: row.content,
+          embeddingModelKey: row.embeddingModelKey,
+          sourceTitle: row.knowledgeCard.title,
+          mimeType: "text/markdown",
+          skill: row.skill
+        })
+      )
+    ];
     for (const row of rows) {
       const referenceId = this.buildSkillReferenceId(row);
       const vectorScore = vectorScoresByReferenceId.get(referenceId);
@@ -766,10 +913,9 @@ export class OrchestrateRuntimeRetrievalService {
     return (
       this.scoreText(row.content, query) +
       this.scoreText(row.locator ?? "", query) * 0.6 +
-      this.scoreText(row.skillDocument.displayName ?? row.skillDocument.originalFilename, query) *
-        1.2 +
+      this.scoreText(row.sourceTitle, query) * 1.2 +
       this.scoreText(this.localize(row.skill.name, null), query) * 1.4 +
-      (row.skillDocument.displayName ? 3 : 0)
+      (row.sourceTitle ? 3 : 0)
     );
   }
 
@@ -796,19 +942,19 @@ export class OrchestrateRuntimeRetrievalService {
     const perDocumentCounts = new Map<string, number>();
     for (const candidate of candidates) {
       const dedupeKey = [
-        candidate.row.skillDocumentId,
+        candidate.row.sourceId,
         this.normalizeSearchText(candidate.row.locator ?? ""),
         this.normalizeSearchText(candidate.row.content).slice(0, 180)
       ].join(":");
       if (seenContent.has(dedupeKey)) {
         continue;
       }
-      const documentCount = perDocumentCounts.get(candidate.row.skillDocumentId) ?? 0;
+      const documentCount = perDocumentCounts.get(candidate.row.sourceId) ?? 0;
       if (documentCount >= 2) {
         continue;
       }
       seenContent.add(dedupeKey);
-      perDocumentCounts.set(candidate.row.skillDocumentId, documentCount + 1);
+      perDocumentCounts.set(candidate.row.sourceId, documentCount + 1);
       selected.push(candidate);
       if (selected.length >= maxResults) {
         break;
@@ -822,28 +968,52 @@ export class OrchestrateRuntimeRetrievalService {
     policy: { fetchMaxChars: number; windowRadius: number }
   ): Promise<SkillFetchedContent> {
     const row = candidate.row;
-    const surroundingRows = (await this.prisma.skillDocumentChunk.findMany({
-      where: {
-        skillDocumentId: row.skillDocumentId,
-        skillId: row.skillId,
-        sourceVersion: row.sourceVersion,
-        chunkIndex: {
-          gte: Math.max(0, row.chunkIndex - policy.windowRadius),
-          lte: row.chunkIndex + policy.windowRadius
-        },
-        skillDocument: { status: "ready" },
-        skill: {
-          status: "active",
-          archivedAt: null
-        }
-      },
-      orderBy: [{ chunkIndex: "asc" }]
-    })) as Array<
-      Pick<
-        SkillChunkRow,
-        "chunkIndex" | "content" | "embeddingModelKey" | "locator" | "sourceVersion"
-      >
-    >;
+    const surroundingRows =
+      row.sourceKind === "skill_knowledge_card"
+        ? ((await this.prisma.skillKnowledgeCardChunk.findMany({
+            where: {
+              skillKnowledgeCardId: row.sourceId,
+              skillId: row.skillId,
+              sourceVersion: row.sourceVersion,
+              chunkIndex: {
+                gte: Math.max(0, row.chunkIndex - policy.windowRadius),
+                lte: row.chunkIndex + policy.windowRadius
+              },
+              knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+              skill: {
+                status: "active",
+                archivedAt: null
+              }
+            },
+            orderBy: [{ chunkIndex: "asc" }]
+          })) as Array<
+            Pick<
+              SkillChunkRow,
+              "chunkIndex" | "content" | "embeddingModelKey" | "locator" | "sourceVersion"
+            >
+          >)
+        : ((await this.prisma.skillDocumentChunk.findMany({
+            where: {
+              skillDocumentId: row.sourceId,
+              skillId: row.skillId,
+              sourceVersion: row.sourceVersion,
+              chunkIndex: {
+                gte: Math.max(0, row.chunkIndex - policy.windowRadius),
+                lte: row.chunkIndex + policy.windowRadius
+              },
+              skillDocument: { status: "ready" },
+              skill: {
+                status: "active",
+                archivedAt: null
+              }
+            },
+            orderBy: [{ chunkIndex: "asc" }]
+          })) as Array<
+            Pick<
+              SkillChunkRow,
+              "chunkIndex" | "content" | "embeddingModelKey" | "locator" | "sourceVersion"
+            >
+          >);
     const windowRows = surroundingRows.length > 0 ? surroundingRows : [row];
     const content = windowRows
       .map((entry) => entry.content.trim())
@@ -865,7 +1035,7 @@ export class OrchestrateRuntimeRetrievalService {
   }
 
   private buildSkillReferenceId(row: SkillChunkRow): string {
-    return `skill:${row.skillId}:document:${row.skillDocumentId}:${String(row.sourceVersion)}:${String(row.chunkIndex)}`;
+    return `skill:${row.skillId}:${row.sourceKind}:${row.sourceId}:${String(row.sourceVersion)}:${String(row.chunkIndex)}`;
   }
 
   private buildSnippet(content: string, terms: string[]): string | null {

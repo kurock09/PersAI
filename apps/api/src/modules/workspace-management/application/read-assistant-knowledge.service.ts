@@ -56,6 +56,24 @@ type GlobalSearchSourceRow = {
   };
 };
 
+type ProductKnowledgeTextEntrySearchRow = {
+  textEntryId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey?: string | null;
+  embeddingVector?: unknown;
+  textEntry: {
+    id: string;
+    title: string;
+    category: string | null;
+    locale: string | null;
+    lifecycleStatus: string;
+    status: string;
+  };
+};
+
 type UploadedGlobalSearchExecution = {
   hits: RuntimeKnowledgeSearchHit[];
   lexicalCandidateCount: number;
@@ -793,6 +811,39 @@ function parseGlobalUploadedReferenceId(
     return null;
   }
   return { globalKnowledgeSourceId, sourceVersion, chunkIndex };
+}
+
+function buildProductTextEntryReferenceId(params: {
+  textEntryId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+}): string {
+  return `product-text-entry:${params.textEntryId}:${String(params.sourceVersion)}:${String(params.chunkIndex)}`;
+}
+
+function parseProductTextEntryReferenceId(
+  referenceId: string
+): { textEntryId: string; sourceVersion: number; chunkIndex: number } | null {
+  if (!referenceId.startsWith("product-text-entry:")) {
+    return null;
+  }
+  const [textEntryId, rawSourceVersion, rawChunkIndex] = referenceId
+    .slice("product-text-entry:".length)
+    .split(":");
+  if (!textEntryId || !rawSourceVersion || !rawChunkIndex) {
+    return null;
+  }
+  const sourceVersion = Number(rawSourceVersion);
+  const chunkIndex = Number(rawChunkIndex);
+  if (
+    !Number.isInteger(sourceVersion) ||
+    sourceVersion < 1 ||
+    !Number.isInteger(chunkIndex) ||
+    chunkIndex < 0
+  ) {
+    return null;
+  }
+  return { textEntryId, sourceVersion, chunkIndex };
 }
 
 function buildMemoryReferenceId(memoryItemId: string): string {
@@ -2599,42 +2650,156 @@ export class ReadAssistantKnowledgeService {
       }
       return left.row.chunkIndex - right.row.chunkIndex;
     });
+    const productTextEntryHits = await this.searchProductKnowledgeTextEntries({
+      workspaceId: assistant.workspaceId,
+      queryInfo,
+      maxResults: resolveMaxResults(
+        input.maxResults,
+        retrievalPolicy.defaultMaxResults,
+        retrievalPolicy.maxMaxResults
+      )
+    });
+    const uploadedHits = selectRankedCandidates(
+      ranked,
+      resolveMaxResults(
+        input.maxResults,
+        retrievalPolicy.defaultMaxResults,
+        retrievalPolicy.maxMaxResults
+      )
+    ).map(({ row, score }) => ({
+      referenceId: buildGlobalUploadedReferenceId({
+        globalKnowledgeSourceId: row.globalKnowledgeSourceId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex
+      }),
+      source: "global" as const,
+      title: row.globalKnowledgeSource.displayName ?? row.globalKnowledgeSource.originalFilename,
+      locator: row.locator,
+      snippet: buildSnippet(row.content, queryInfo.searchTerms),
+      score,
+      metadata: {
+        knowledgeSourceId: row.globalKnowledgeSource.id,
+        scope: row.scope,
+        mimeType: row.globalKnowledgeSource.mimeType,
+        originalFilename: row.globalKnowledgeSource.originalFilename,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex,
+        retrievalMode,
+        kind: "global_uploaded"
+      }
+    }));
 
     return {
       lexicalCandidateCount: rows.length,
       vectorCandidateCount,
       retrievalMode,
       embeddingModelKey: resolvedEmbeddingModelKey,
-      hits: selectRankedCandidates(
-        ranked,
-        resolveMaxResults(
-          input.maxResults,
-          retrievalPolicy.defaultMaxResults,
-          retrievalPolicy.maxMaxResults
+      hits: [...uploadedHits, ...productTextEntryHits]
+        .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
+        .slice(
+          0,
+          resolveMaxResults(
+            input.maxResults,
+            retrievalPolicy.defaultMaxResults,
+            retrievalPolicy.maxMaxResults
+          )
         )
-      ).map(({ row, score }) => ({
-        referenceId: buildGlobalUploadedReferenceId({
-          globalKnowledgeSourceId: row.globalKnowledgeSourceId,
-          sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex
-        }),
-        source: "global",
-        title: row.globalKnowledgeSource.displayName ?? row.globalKnowledgeSource.originalFilename,
-        locator: row.locator,
-        snippet: buildSnippet(row.content, queryInfo.searchTerms),
-        score,
-        metadata: {
-          knowledgeSourceId: row.globalKnowledgeSource.id,
-          scope: row.scope,
-          mimeType: row.globalKnowledgeSource.mimeType,
-          originalFilename: row.globalKnowledgeSource.originalFilename,
-          sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex,
-          retrievalMode,
-          kind: "global_uploaded"
-        }
-      }))
     };
+  }
+
+  private async searchProductKnowledgeTextEntries(input: {
+    workspaceId: string;
+    queryInfo: SearchQueryInfo;
+    maxResults: number;
+  }): Promise<RuntimeKnowledgeSearchHit[]> {
+    const rows = (await this.prisma.productKnowledgeTextEntryChunk.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        textEntry: {
+          workspaceId: input.workspaceId,
+          status: "ready",
+          lifecycleStatus: "active"
+        },
+        OR: input.queryInfo.searchTerms.flatMap((term) => [
+          {
+            content: {
+              contains: term,
+              mode: "insensitive"
+            }
+          },
+          {
+            locator: {
+              contains: term,
+              mode: "insensitive"
+            }
+          }
+        ])
+      },
+      include: {
+        textEntry: {
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            locale: true,
+            lifecycleStatus: true,
+            status: true
+          }
+        }
+      },
+      orderBy: [{ textEntryId: "asc" }, { sourceVersion: "desc" }, { chunkIndex: "asc" }],
+      take: Math.max(input.maxResults * 3, input.maxResults)
+    })) as ProductKnowledgeTextEntrySearchRow[];
+    const ranked = rows
+      .map((row) => {
+        const { lexicalScore, score } = rankStructuredCandidate({
+          query: input.queryInfo,
+          title: row.textEntry.title,
+          filename: null,
+          locator: row.locator,
+          content: row.content,
+          fieldWeights: {
+            title: 3.4,
+            filename: 0,
+            locator: 2.0,
+            content: 1.3,
+            metadata: 0
+          },
+          sourceWeight: 4,
+          enableSemanticRerank: true
+        });
+        return { row, score, lexicalScore };
+      })
+      .filter((candidate) => candidate.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score;
+        }
+        return right.lexicalScore - left.lexicalScore;
+      })
+      .slice(0, input.maxResults);
+    return ranked.map(({ row, score }) => ({
+      referenceId: buildProductTextEntryReferenceId({
+        textEntryId: row.textEntryId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex
+      }),
+      source: "global",
+      title: row.textEntry.title,
+      locator: row.locator,
+      snippet: buildSnippet(row.content, input.queryInfo.searchTerms),
+      score,
+      metadata: {
+        textEntryId: row.textEntry.id,
+        scope: "product",
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex,
+        category: row.textEntry.category,
+        locale: row.textEntry.locale,
+        retrievalMode: "lexical",
+        kind: "product_text_entry"
+      }
+    }));
   }
 
   private async fetchUploadedGlobalDocument(
@@ -2643,6 +2808,15 @@ export class ReadAssistantKnowledgeService {
   ): Promise<RuntimeKnowledgeDocument | null> {
     const retrievalPolicy =
       await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(assistantId);
+    const textEntryReference = parseProductTextEntryReferenceId(referenceId);
+    if (textEntryReference !== null) {
+      return this.fetchProductKnowledgeTextEntryDocument(
+        referenceId,
+        assistantId,
+        textEntryReference,
+        retrievalPolicy
+      );
+    }
     const reference = parseGlobalUploadedReferenceId(referenceId);
     if (reference === null) {
       return null;
@@ -2713,6 +2887,88 @@ export class ReadAssistantKnowledgeService {
         retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
         windowChunkCount: surroundingRows.length,
         kind: "global_uploaded"
+      }
+    };
+  }
+
+  private async fetchProductKnowledgeTextEntryDocument(
+    referenceId: string,
+    assistantId: string,
+    reference: { textEntryId: string; sourceVersion: number; chunkIndex: number },
+    retrievalPolicy: Awaited<
+      ReturnType<KnowledgeModelPolicyService["resolveAssistantRetrievalPolicy"]>
+    >
+  ): Promise<RuntimeKnowledgeDocument | null> {
+    const assistant = await this.resolveAssistantKnowledgeContext(assistantId);
+    if (assistant === null) {
+      return null;
+    }
+    const centerRow = await this.prisma.productKnowledgeTextEntryChunk.findFirst({
+      where: {
+        textEntryId: reference.textEntryId,
+        sourceVersion: reference.sourceVersion,
+        chunkIndex: reference.chunkIndex,
+        workspaceId: assistant.workspaceId,
+        textEntry: {
+          workspaceId: assistant.workspaceId,
+          status: "ready",
+          lifecycleStatus: "active"
+        }
+      },
+      include: {
+        textEntry: {
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            locale: true
+          }
+        }
+      }
+    });
+    if (centerRow === null) {
+      return null;
+    }
+    const surroundingRows = await this.prisma.productKnowledgeTextEntryChunk.findMany({
+      where: {
+        textEntryId: reference.textEntryId,
+        sourceVersion: reference.sourceVersion,
+        workspaceId: assistant.workspaceId,
+        chunkIndex: {
+          gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
+          lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
+        },
+        textEntry: {
+          workspaceId: assistant.workspaceId,
+          status: "ready",
+          lifecycleStatus: "active"
+        }
+      },
+      orderBy: [{ chunkIndex: "asc" }]
+    });
+    const content = surroundingRows
+      .map((row) => row.content.trim())
+      .filter((row) => row.length > 0)
+      .join("\n\n---\n\n")
+      .slice(0, retrievalPolicy.fetchMaxChars);
+    return {
+      referenceId,
+      source: "global",
+      title: centerRow.textEntry.title,
+      locator: centerRow.locator,
+      content,
+      snippet: buildSnippet(centerRow.content, [centerRow.content.slice(0, 80)]),
+      metadata: {
+        textEntryId: centerRow.textEntry.id,
+        scope: "product",
+        sourceVersion: centerRow.sourceVersion,
+        chunkIndex: centerRow.chunkIndex,
+        embeddingModelKey: centerRow.embeddingModelKey,
+        retrievalMode: centerRow.embeddingModelKey === null ? "lexical" : "hybrid",
+        windowChunkCount: surroundingRows.length,
+        category: centerRow.textEntry.category,
+        locale: centerRow.textEntry.locale,
+        kind: "product_text_entry"
       }
     };
   }

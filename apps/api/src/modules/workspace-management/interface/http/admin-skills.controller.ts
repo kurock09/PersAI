@@ -16,6 +16,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import { ManageAdminSkillsService } from "../../application/manage-admin-skills.service";
+import type { SkillKnowledgeCardState } from "../../application/authored-knowledge.types";
 import type {
   AdminSkillState,
   KnowledgeIndexingJobState,
@@ -137,6 +138,74 @@ export class AdminSkillsController {
       document: result.document,
       indexingJob: result.indexingJob
     };
+  }
+
+  @Post(":skillId/knowledge-cards")
+  async createKnowledgeCard(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    card: SkillKnowledgeCardState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAdminSkillsService.parseKnowledgeCardInput(body);
+    const result = await this.manageAdminSkillsService.createKnowledgeCard(userId, skillId, input);
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Patch(":skillId/knowledge-cards/:cardId")
+  async updateKnowledgeCard(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("cardId") cardId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    card: SkillKnowledgeCardState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAdminSkillsService.parseKnowledgeCardInput(body);
+    const result = await this.manageAdminSkillsService.updateKnowledgeCard(
+      userId,
+      skillId,
+      cardId,
+      input
+    );
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Delete(":skillId/knowledge-cards/:cardId")
+  async archiveKnowledgeCard(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("cardId") cardId: string
+  ): Promise<{ requestId: string | null; archived: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.manageAdminSkillsService.archiveKnowledgeCard(userId, skillId, cardId);
+    return { requestId: req.requestId ?? null, archived: true };
+  }
+
+  @Post(":skillId/knowledge-cards/:cardId/reindex")
+  async reindexKnowledgeCard(
+    @Req() req: RequestWithPlatformContext,
+    @Param("skillId") skillId: string,
+    @Param("cardId") cardId: string
+  ): Promise<{
+    requestId: string | null;
+    card: SkillKnowledgeCardState;
+    indexingJob: KnowledgeIndexingJobState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.manageAdminSkillsService.reindexKnowledgeCard(
+      userId,
+      skillId,
+      cardId
+    );
+    return { requestId: req.requestId ?? null, ...result };
   }
 
   private resolveRequestUserId(req: RequestWithPlatformContext): string {

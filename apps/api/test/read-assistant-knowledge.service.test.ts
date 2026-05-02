@@ -976,6 +976,10 @@ async function run(): Promise<void> {
           return true;
         }) ?? null
     },
+    productKnowledgeTextEntryChunk: {
+      findMany: async () => [],
+      findFirst: async () => null
+    },
     assistantMemoryRegistryItem: {
       findMany: async ({
         where,

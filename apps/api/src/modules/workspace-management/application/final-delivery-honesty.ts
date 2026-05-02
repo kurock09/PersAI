@@ -169,9 +169,10 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   deliveredAttachmentFilenames?: string[];
   locale?: string | null;
 }): string {
-  const { assistantText: withoutTechnicalSummary } = stripTechnicalAttachmentSummary({
-    assistantText: input.assistantText.trim()
-  });
+  const { assistantText: withoutTechnicalSummary, strippedTechnicalAttachmentSummary } =
+    stripTechnicalAttachmentSummary({
+      assistantText: input.assistantText.trim()
+    });
   const deliveredNormalizedText = stripDeliveredAttachmentMarkdownLinks({
     assistantText: withoutTechnicalSummary,
     deliveredAttachmentFilenames: input.deliveredAttachmentFilenames ?? []
@@ -187,7 +188,9 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   }
   if (
     input.deliveredAttachmentCount > 0 ||
-    (input.attemptedArtifactCount <= 0 && strippedLocalFileLink === false)
+    (input.attemptedArtifactCount <= 0 &&
+      strippedLocalFileLink === false &&
+      strippedTechnicalAttachmentSummary === false)
   ) {
     return normalizedText;
   }

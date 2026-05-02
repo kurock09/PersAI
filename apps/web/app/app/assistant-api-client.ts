@@ -23,10 +23,14 @@ import {
   type AdminPlanState,
   type AdminPlanUpdateRequest,
   type PutAdminRuntimeProviderSettingsResponse,
+  type ProductKnowledgeTextEntryInput,
+  type ProductKnowledgeTextEntryState,
   type AdminAbuseUnblockRequest,
   type PostAdminAbuseUnblockResponse,
   type AssistantTelegramConfigUpdateRequest,
   type TelegramIntegrationState,
+  type SkillKnowledgeCardInput,
+  type SkillKnowledgeCardState,
   type AssistantWebChatDeleteRequest,
   type AssistantWebChatCompactRequest,
   type AssistantWebChatCompactionResult,
@@ -3529,8 +3533,133 @@ export type {
   AdminSkillUpsertRequest,
   GetAssistantSkillsResponse as AssistantSkillsState,
   KnowledgeIndexingJobState,
+  ProductKnowledgeTextEntryInput,
+  ProductKnowledgeTextEntryState,
+  SkillKnowledgeCardInput,
+  SkillKnowledgeCardState,
   SkillDocumentState
 };
+
+export async function getAdminProductKnowledgeTextEntries(
+  token: string
+): Promise<ProductKnowledgeTextEntryState[]> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/product/text-entries`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load Product KB text entries."));
+  }
+  const data = (await res.json()) as { entries?: ProductKnowledgeTextEntryState[] };
+  return data.entries ?? [];
+}
+
+export async function createAdminProductKnowledgeTextEntry(
+  token: string,
+  payload: ProductKnowledgeTextEntryInput
+): Promise<{
+  entry: ProductKnowledgeTextEntryState;
+  indexingJob: KnowledgeIndexingJobState | null;
+}> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/product/text-entries`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to create Product KB text entry."));
+  }
+  const data = (await res.json()) as {
+    entry?: ProductKnowledgeTextEntryState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.entry) {
+    throw new Error("Product KB text entry create returned an unexpected response.");
+  }
+  return { entry: data.entry, indexingJob: data.indexingJob ?? null };
+}
+
+export async function updateAdminProductKnowledgeTextEntry(
+  token: string,
+  entryId: string,
+  payload: ProductKnowledgeTextEntryInput
+): Promise<{
+  entry: ProductKnowledgeTextEntryState;
+  indexingJob: KnowledgeIndexingJobState | null;
+}> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/product/text-entries/${encodeURIComponent(entryId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to update Product KB text entry."));
+  }
+  const data = (await res.json()) as {
+    entry?: ProductKnowledgeTextEntryState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.entry) {
+    throw new Error("Product KB text entry update returned an unexpected response.");
+  }
+  return { entry: data.entry, indexingJob: data.indexingJob ?? null };
+}
+
+export async function archiveAdminProductKnowledgeTextEntry(
+  token: string,
+  entryId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/product/text-entries/${encodeURIComponent(entryId)}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to archive Product KB text entry."));
+  }
+}
+
+export async function reindexAdminProductKnowledgeTextEntry(
+  token: string,
+  entryId: string
+): Promise<{
+  entry: ProductKnowledgeTextEntryState;
+  indexingJob: KnowledgeIndexingJobState | null;
+}> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/knowledge-sources/product/text-entries/${encodeURIComponent(entryId)}/reindex`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to reindex Product KB text entry."));
+  }
+  const data = (await res.json()) as {
+    entry?: ProductKnowledgeTextEntryState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.entry) {
+    throw new Error("Product KB text entry reindex returned an unexpected response.");
+  }
+  return { entry: data.entry, indexingJob: data.indexingJob ?? null };
+}
 
 export async function getAssistantSkills(token: string): Promise<GetAssistantSkillsResponse> {
   const response = await getAssistantSkillsContract({
@@ -3714,6 +3843,108 @@ export async function reindexAdminSkillDocument(
     throw new Error("Skill document reindex returned an unexpected response.");
   }
   return { document: data.document, indexingJob: data.indexingJob };
+}
+
+export async function createAdminSkillKnowledgeCard(
+  token: string,
+  skillId: string,
+  payload: SkillKnowledgeCardInput
+): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/skills/${encodeURIComponent(skillId)}/knowledge-cards`, {
+    method: "POST",
+    headers: {
+      ...getAuthHeaders(token),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to create Skill knowledge card."));
+  }
+  const data = (await res.json()) as {
+    card?: SkillKnowledgeCardState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.card) {
+    throw new Error("Skill knowledge card create returned an unexpected response.");
+  }
+  return { card: data.card, indexingJob: data.indexingJob ?? null };
+}
+
+export async function updateAdminSkillKnowledgeCard(
+  token: string,
+  skillId: string,
+  cardId: string,
+  payload: SkillKnowledgeCardInput
+): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/skills/${encodeURIComponent(skillId)}/knowledge-cards/${encodeURIComponent(cardId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(token),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to update Skill knowledge card."));
+  }
+  const data = (await res.json()) as {
+    card?: SkillKnowledgeCardState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.card) {
+    throw new Error("Skill knowledge card update returned an unexpected response.");
+  }
+  return { card: data.card, indexingJob: data.indexingJob ?? null };
+}
+
+export async function archiveAdminSkillKnowledgeCard(
+  token: string,
+  skillId: string,
+  cardId: string
+): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/skills/${encodeURIComponent(skillId)}/knowledge-cards/${encodeURIComponent(cardId)}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to archive Skill knowledge card."));
+  }
+}
+
+export async function reindexAdminSkillKnowledgeCard(
+  token: string,
+  skillId: string,
+  cardId: string
+): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
+  const base = getApiBaseUrl();
+  const res = await fetch(
+    `${base}/admin/skills/${encodeURIComponent(skillId)}/knowledge-cards/${encodeURIComponent(cardId)}/reindex`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to reindex Skill knowledge card."));
+  }
+  const data = (await res.json()) as {
+    card?: SkillKnowledgeCardState;
+    indexingJob?: KnowledgeIndexingJobState | null;
+  };
+  if (!data.card) {
+    throw new Error("Skill knowledge card reindex returned an unexpected response.");
+  }
+  return { card: data.card, indexingJob: data.indexingJob ?? null };
 }
 
 export async function postAdminForceReapplyAll(token: string): Promise<ForceReapplyAllSummary> {

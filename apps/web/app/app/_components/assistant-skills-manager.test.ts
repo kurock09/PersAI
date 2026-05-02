@@ -38,7 +38,8 @@ function createItem(
       archivedAt: null,
       createdAt: now,
       updatedAt: now,
-      documents: []
+      documents: [],
+      knowledgeCards: []
     },
     assignment: null,
     selectable: true,

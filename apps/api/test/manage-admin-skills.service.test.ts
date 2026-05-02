@@ -15,12 +15,14 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
   const now = new Date("2026-05-01T12:00:00.000Z");
   const skills = new Map<string, MockRow>();
   const documents = new Map<string, MockRow>();
+  const cards = new Map<string, MockRow>();
   const jobs = new Map<string, MockRow>();
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
   const deletedObjects: string[] = [];
   const releasedKnowledgeStorage: bigint[] = [];
   let nextSkill = 1;
   let nextDocument = 1;
+  let nextCard = 1;
   let nextJob = 1;
 
   const tx = {
@@ -53,6 +55,37 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
         const document = documents.get(where.id);
         documents.delete(where.id);
         return document;
+      }
+    },
+    skillKnowledgeCard: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        const card = {
+          id: `card-${nextCard++}`,
+          ...data,
+          chunkCount: 0,
+          processorProviderKey: null,
+          processorMode: null,
+          processingQuality: null,
+          lastIndexedAt: null,
+          lastReindexRequestedAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          createdAt: now,
+          updatedAt: now
+        };
+        cards.set(card.id, card);
+        return card;
+      },
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const card = cards.get(where.id);
+        const next = { ...card, ...data, updatedAt: now };
+        cards.set(where.id, next);
+        return next;
+      }
+    },
+    skillKnowledgeCardChunk: {
+      deleteMany: async ({ where }: { where: { skillKnowledgeCardId: string } }) => {
+        void where;
       }
     },
     knowledgeIndexingJob: {
@@ -102,7 +135,8 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
       findMany: async () =>
         [...skills.values()].map((skill) => ({
           ...skill,
-          documents: [...documents.values()].filter((document) => document.skillId === skill.id)
+          documents: [...documents.values()].filter((document) => document.skillId === skill.id),
+          knowledgeCards: [...cards.values()].filter((card) => card.skillId === skill.id)
         })),
       findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) => {
         const skill = skills.get(where.id);
@@ -143,6 +177,18 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
           : null;
       },
       delete: tx.skillDocument.delete
+    },
+    skillKnowledgeCard: {
+      findFirst: async ({
+        where
+      }: {
+        where: { id: string; skillId: string; workspaceId: string };
+      }) => {
+        const card = cards.get(where.id);
+        return card && card.skillId === where.skillId && card.workspaceId === where.workspaceId
+          ? card
+          : null;
+      }
     },
     knowledgeIndexingJob: {
       deleteMany: tx.knowledgeIndexingJob.deleteMany
@@ -205,7 +251,15 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
     } as never
   );
 
-  return { service, documents, jobs, deletedObjects, vectorDeletes, releasedKnowledgeStorage };
+  return {
+    service,
+    documents,
+    cards,
+    jobs,
+    deletedObjects,
+    vectorDeletes,
+    releasedKnowledgeStorage
+  };
 }
 
 const skillInput = {
@@ -254,11 +308,48 @@ async function run(): Promise<void> {
   assert.equal(reindexed.document.currentVersion, 2);
   assert.equal(reindexed.indexingJob.sourceVersion, 2);
 
+  const draftCard = await harness.service.createKnowledgeCard("admin-1", created.id, {
+    title: "Draft card",
+    body: "Draft knowledge that is not runtime eligible.",
+    locale: "en",
+    tags: ["draft"],
+    lifecycleStatus: "draft",
+    provenanceKind: "manual",
+    provenanceMetadata: null
+  });
+  assert.equal(draftCard.card.lifecycleStatus, "draft");
+  assert.equal(draftCard.indexingJob, null);
+
+  const activeCard = await harness.service.updateKnowledgeCard(
+    "admin-1",
+    created.id,
+    draftCard.card.id,
+    {
+      title: "Active card",
+      body: "Active knowledge that is runtime eligible.",
+      locale: "en",
+      tags: ["active"],
+      lifecycleStatus: "active",
+      provenanceKind: "manual",
+      provenanceMetadata: null
+    }
+  );
+  assert.equal(activeCard.card.lifecycleStatus, "active");
+  assert.equal(activeCard.indexingJob?.sourceType, "skill_knowledge_card");
+
+  await harness.service.archiveKnowledgeCard("admin-1", created.id, draftCard.card.id);
+  assert.equal(harness.cards.get(draftCard.card.id)?.lifecycleStatus, "archived");
+  assert.deepEqual(harness.vectorDeletes.at(-1), {
+    sourceType: "skill_knowledge_card",
+    sourceId: draftCard.card.id
+  });
+
   await harness.service.deleteDocument("admin-1", created.id, upload.document.id);
   assert.equal(harness.documents.has(upload.document.id), false);
   assert.equal(harness.deletedObjects.length, 1);
   assert.deepEqual(harness.releasedKnowledgeStorage, [BigInt(15)]);
   assert.deepEqual(harness.vectorDeletes, [
+    { sourceType: "skill_knowledge_card", sourceId: draftCard.card.id },
     { sourceType: "skill_document", sourceId: upload.document.id }
   ]);
 

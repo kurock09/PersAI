@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -23,6 +24,8 @@ import { ResolveAdminKnowledgeConnectorsService } from "../../application/resolv
 import { ResolveAdminKnowledgeObservabilityService } from "../../application/resolve-admin-knowledge-observability.service";
 import type { AdminKnowledgeConnectorState } from "../../application/resolve-admin-knowledge-connectors.service";
 import type { KnowledgeRetrievalObservabilityState } from "../../application/knowledge-retrieval-observability.service";
+import type { ProductKnowledgeTextEntryState } from "../../application/authored-knowledge.types";
+import type { KnowledgeIndexingJobState } from "../../application/skill-management.types";
 
 @Controller("api/v1/admin/knowledge-sources")
 export class AdminKnowledgeSourcesController {
@@ -50,6 +53,75 @@ export class AdminKnowledgeSourcesController {
       requestId: req.requestId ?? null,
       sources
     };
+  }
+
+  @Get("product/text-entries")
+  async listTextEntries(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    entries: ProductKnowledgeTextEntryState[];
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const entries = await this.manageAdminKnowledgeSourcesService.listTextEntries(userId);
+    return { requestId: req.requestId ?? null, entries };
+  }
+
+  @Post("product/text-entries")
+  async createTextEntry(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    entry: ProductKnowledgeTextEntryState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAdminKnowledgeSourcesService.parseTextEntryInput(body);
+    const result = await this.manageAdminKnowledgeSourcesService.createTextEntry(userId, input);
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Patch("product/text-entries/:entryId")
+  async updateTextEntry(
+    @Req() req: RequestWithPlatformContext,
+    @Param("entryId") entryId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    entry: ProductKnowledgeTextEntryState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAdminKnowledgeSourcesService.parseTextEntryInput(body);
+    const result = await this.manageAdminKnowledgeSourcesService.updateTextEntry(
+      userId,
+      entryId,
+      input
+    );
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Delete("product/text-entries/:entryId")
+  async archiveTextEntry(
+    @Req() req: RequestWithPlatformContext,
+    @Param("entryId") entryId: string
+  ): Promise<{ requestId: string | null; archived: true }> {
+    const userId = this.resolveRequestUserId(req);
+    await this.manageAdminKnowledgeSourcesService.archiveTextEntry(userId, entryId);
+    return { requestId: req.requestId ?? null, archived: true };
+  }
+
+  @Post("product/text-entries/:entryId/reindex")
+  async reindexTextEntry(
+    @Req() req: RequestWithPlatformContext,
+    @Param("entryId") entryId: string
+  ): Promise<{
+    requestId: string | null;
+    entry: ProductKnowledgeTextEntryState;
+    indexingJob: KnowledgeIndexingJobState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const result = await this.manageAdminKnowledgeSourcesService.reindexTextEntry(userId, entryId);
+    return { requestId: req.requestId ?? null, ...result };
   }
 
   @Get("observability")

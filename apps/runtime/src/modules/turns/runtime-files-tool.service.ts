@@ -687,8 +687,9 @@ export class RuntimeFilesToolService {
     request: FilesSendRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
     const selectedFileRefs = [...request.fileRefs];
+    let selectorWarning: string | null = null;
     if (request.fileRef !== null || request.path !== null || request.query !== null) {
-      const resolved = await this.resolveTarget({
+      const resolved = await this.resolveSendTarget({
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
         currentFileRefs: params.currentFileRefs,
@@ -710,6 +711,7 @@ export class RuntimeFilesToolService {
           isError: true
         };
       }
+      selectorWarning = resolved.warning;
       selectedFileRefs.push(resolved.item.fileRef);
     }
 
@@ -732,7 +734,7 @@ export class RuntimeFilesToolService {
         requestedAction: "send",
         action: queued.isError ? "skipped" : "queued",
         reason: queued.reason,
-        warning: queued.warning,
+        warning: queued.warning ?? selectorWarning,
         item: null,
         items: [],
         content: null,
@@ -1047,6 +1049,51 @@ export class RuntimeFilesToolService {
       reason: "file_selector_required",
       warning: "Provide fileRef, path, or query for this files action."
     };
+  }
+
+  private async resolveSendTarget(input: {
+    assistantId: string;
+    workspaceId: string;
+    currentFileRefs: RuntimeFileRef[];
+    fileRef: string | null;
+    path: string | null;
+    query: string | null;
+  }): Promise<ResolvedFilesToolTarget> {
+    const resolved = await this.resolveTarget(input);
+    if (
+      resolved.item !== null ||
+      input.query === null ||
+      resolved.reason !== "ambiguous_file_query"
+    ) {
+      return resolved;
+    }
+    const items = resolved.items ?? [];
+    const first = items[0];
+    if (first === undefined || !this.allTargetsShareVisibleFileName(items, first)) {
+      return resolved;
+    }
+    return {
+      item: first,
+      warning:
+        "Multiple registry entries matched the same visible filename; sending the newest match."
+    };
+  }
+
+  private allTargetsShareVisibleFileName(
+    items: RuntimeFilesToolItem[],
+    first: RuntimeFilesToolItem
+  ): boolean {
+    const visibleName = this.normalizeVisibleFileName(first);
+    if (visibleName.length === 0) {
+      return false;
+    }
+    return items.every((item) => this.normalizeVisibleFileName(item) === visibleName);
+  }
+
+  private normalizeVisibleFileName(item: RuntimeFilesToolItem): string {
+    const displayName = item.displayName?.trim();
+    const fallbackName = item.relativePath.split("/").pop()?.trim() ?? "";
+    return (displayName && displayName.length > 0 ? displayName : fallbackName).toLowerCase();
   }
 
   private renderDirectoryListing(input: {

@@ -21,6 +21,12 @@ import {
   type SkillDocumentState,
   type SkillDocumentUploadInput
 } from "./skill-management.types";
+import {
+  parseSkillKnowledgeCardInput,
+  toSkillKnowledgeCardState,
+  type SkillKnowledgeCardInput,
+  type SkillKnowledgeCardState
+} from "./authored-knowledge.types";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const SKILL_DOCUMENT_MIMES = new Set([
@@ -59,11 +65,27 @@ export class ManageAdminSkillsService {
     }
   }
 
+  parseKnowledgeCardInput(body: unknown): SkillKnowledgeCardInput {
+    try {
+      return parseSkillKnowledgeCardInput(body);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Invalid Skill knowledge card request.";
+      throw new BadRequestException(message);
+    }
+  }
+
   async list(userId: string): Promise<AdminSkillState[]> {
     const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const rows = await this.prisma.skill.findMany({
       where: { workspaceId: access.workspaceId },
-      include: { documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] } },
+      include: {
+        documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
+        knowledgeCards: {
+          where: { lifecycleStatus: { not: "archived" } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+        }
+      },
       orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }, { id: "desc" }]
     });
     return rows.map(toAdminSkillState);
@@ -73,7 +95,13 @@ export class ManageAdminSkillsService {
     const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const skill = await this.prisma.skill.findFirst({
       where: { id: skillId, workspaceId: access.workspaceId },
-      include: { documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] } }
+      include: {
+        documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
+        knowledgeCards: {
+          where: { lifecycleStatus: { not: "archived" } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+        }
+      }
     });
     if (skill === null) {
       throw new NotFoundException("Skill not found.");
@@ -100,7 +128,7 @@ export class ManageAdminSkillsService {
         displayOrder: input.displayOrder ?? 100,
         archivedAt: status === "archived" ? new Date() : null
       },
-      include: { documents: true }
+      include: { documents: true, knowledgeCards: true }
     });
     return toAdminSkillState(skill);
   }
@@ -138,7 +166,13 @@ export class ManageAdminSkillsService {
               ? null
               : existing.archivedAt
       },
-      include: { documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] } }
+      include: {
+        documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
+        knowledgeCards: {
+          where: { lifecycleStatus: { not: "archived" } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+        }
+      }
     });
     if (nextStatus === "archived") {
       await this.disableAssignmentsForArchivedSkill(existing.id);
@@ -367,6 +401,205 @@ export class ManageAdminSkillsService {
     };
   }
 
+  async createKnowledgeCard(
+    userId: string,
+    skillId: string,
+    input: SkillKnowledgeCardInput
+  ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const skill = await this.requireSkill(access.workspaceId, skillId);
+    const lifecycleStatus = input.lifecycleStatus ?? "draft";
+    const result = await this.prisma.$transaction(async (tx) => {
+      const card = await tx.skillKnowledgeCard.create({
+        data: {
+          skillId: skill.id,
+          workspaceId: access.workspaceId,
+          createdByUserId: access.userId,
+          updatedByUserId: access.userId,
+          title: input.title,
+          body: input.body,
+          locale: input.locale,
+          tags: input.tags as Prisma.InputJsonValue,
+          lifecycleStatus,
+          status: lifecycleStatus === "active" ? "processing" : "ready",
+          provenanceKind: input.provenanceKind,
+          provenanceMetadata:
+            input.provenanceMetadata === null
+              ? Prisma.JsonNull
+              : (input.provenanceMetadata as Prisma.InputJsonValue),
+          currentVersion: 1,
+          archivedAt: lifecycleStatus === "archived" ? new Date() : null
+        }
+      });
+      const indexingJob =
+        lifecycleStatus === "active"
+          ? await tx.knowledgeIndexingJob.create({
+              data: {
+                workspaceId: access.workspaceId,
+                skillId: skill.id,
+                requestedByUserId: access.userId,
+                sourceType: "skill_knowledge_card",
+                sourceId: card.id,
+                sourceVersion: 1,
+                status: "pending",
+                processorMode: "local",
+                pendingDedupeKey: `skill_knowledge_card:${card.id}:1`
+              }
+            })
+          : null;
+      return { card, indexingJob };
+    });
+    return {
+      card: toSkillKnowledgeCardState(result.card),
+      indexingJob:
+        result.indexingJob === null ? null : toKnowledgeIndexingJobState(result.indexingJob)
+    };
+  }
+
+  async updateKnowledgeCard(
+    userId: string,
+    skillId: string,
+    cardId: string,
+    input: SkillKnowledgeCardInput
+  ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    await this.requireSkill(access.workspaceId, skillId);
+    const existing = await this.prisma.skillKnowledgeCard.findFirst({
+      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Skill knowledge card not found.");
+    }
+    const lifecycleStatus = input.lifecycleStatus ?? existing.lifecycleStatus;
+    const shouldIndex = lifecycleStatus === "active";
+    const nextVersion = shouldIndex ? existing.currentVersion + 1 : existing.currentVersion;
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (!shouldIndex) {
+        await this.clearKnowledgeCardRuntimeIndex(tx, existing.id);
+      }
+      const card = await tx.skillKnowledgeCard.update({
+        where: { id: existing.id },
+        data: {
+          title: input.title,
+          body: input.body,
+          locale: input.locale,
+          tags: input.tags as Prisma.InputJsonValue,
+          lifecycleStatus,
+          provenanceKind: input.provenanceKind,
+          provenanceMetadata:
+            input.provenanceMetadata === null
+              ? Prisma.JsonNull
+              : (input.provenanceMetadata as Prisma.InputJsonValue),
+          status: shouldIndex ? "processing" : "ready",
+          currentVersion: nextVersion,
+          updatedByUserId: access.userId,
+          lastReindexRequestedAt: shouldIndex ? new Date() : existing.lastReindexRequestedAt,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          archivedAt:
+            lifecycleStatus === "archived"
+              ? (existing.archivedAt ?? new Date())
+              : lifecycleStatus === "draft" || lifecycleStatus === "active"
+                ? null
+                : existing.archivedAt
+        }
+      });
+      const indexingJob = shouldIndex
+        ? await tx.knowledgeIndexingJob.create({
+            data: {
+              workspaceId: access.workspaceId,
+              skillId,
+              requestedByUserId: access.userId,
+              sourceType: "skill_knowledge_card",
+              sourceId: existing.id,
+              sourceVersion: nextVersion,
+              status: "pending",
+              processorMode: "local",
+              pendingDedupeKey: `skill_knowledge_card:${existing.id}:${String(nextVersion)}`
+            }
+          })
+        : null;
+      return { card, indexingJob };
+    });
+    return {
+      card: toSkillKnowledgeCardState(result.card),
+      indexingJob:
+        result.indexingJob === null ? null : toKnowledgeIndexingJobState(result.indexingJob)
+    };
+  }
+
+  async archiveKnowledgeCard(userId: string, skillId: string, cardId: string): Promise<void> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    await this.requireSkill(access.workspaceId, skillId);
+    const existing = await this.prisma.skillKnowledgeCard.findFirst({
+      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Skill knowledge card not found.");
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await this.clearKnowledgeCardRuntimeIndex(tx, existing.id);
+      await tx.skillKnowledgeCard.update({
+        where: { id: existing.id },
+        data: {
+          lifecycleStatus: "archived",
+          status: "ready",
+          archivedAt: existing.archivedAt ?? new Date(),
+          updatedByUserId: access.userId
+        }
+      });
+    });
+  }
+
+  async reindexKnowledgeCard(
+    userId: string,
+    skillId: string,
+    cardId: string
+  ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    await this.requireSkill(access.workspaceId, skillId);
+    const existing = await this.prisma.skillKnowledgeCard.findFirst({
+      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Skill knowledge card not found.");
+    }
+    if (existing.lifecycleStatus !== "active") {
+      throw new ConflictException("Only active Skill knowledge cards can be reindexed.");
+    }
+    const nextVersion = existing.currentVersion + 1;
+    const result = await this.prisma.$transaction(async (tx) => {
+      const card = await tx.skillKnowledgeCard.update({
+        where: { id: existing.id },
+        data: {
+          status: "processing",
+          currentVersion: nextVersion,
+          lastReindexRequestedAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }
+      });
+      const indexingJob = await tx.knowledgeIndexingJob.create({
+        data: {
+          workspaceId: access.workspaceId,
+          skillId,
+          requestedByUserId: access.userId,
+          sourceType: "skill_knowledge_card",
+          sourceId: existing.id,
+          sourceVersion: nextVersion,
+          status: "pending",
+          processorMode: "local",
+          pendingDedupeKey: `skill_knowledge_card:${existing.id}:${String(nextVersion)}`
+        }
+      });
+      return { card, indexingJob };
+    });
+    return {
+      card: toSkillKnowledgeCardState(result.card),
+      indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
+    };
+  }
+
   private async disableAssignmentsForArchivedSkill(skillId: string): Promise<void> {
     await this.prisma.assistantSkillAssignment.updateMany({
       where: { skillId, status: "active" },
@@ -375,6 +608,45 @@ export class ManageAdminSkillsService {
         disabledReason: "skill_archived",
         disabledAt: new Date()
       }
+    });
+  }
+
+  private async requireSkill(workspaceId: string, skillId: string) {
+    const skill = await this.prisma.skill.findFirst({
+      where: { id: skillId, workspaceId }
+    });
+    if (skill === null) {
+      throw new NotFoundException("Skill not found.");
+    }
+    return skill;
+  }
+
+  private async clearKnowledgeCardRuntimeIndex(
+    tx: {
+      skillKnowledgeCardChunk: {
+        deleteMany: (args: { where: { skillKnowledgeCardId: string } }) => Promise<unknown>;
+      };
+      knowledgeVectorChunk: {
+        deleteMany: (args: {
+          where: { sourceType: "skill_knowledge_card"; sourceId: string };
+        }) => Promise<unknown>;
+      };
+      knowledgeIndexingJob: {
+        deleteMany: (args: {
+          where: { sourceType: "skill_knowledge_card"; sourceId: string; status?: "pending" };
+        }) => Promise<unknown>;
+      };
+    },
+    cardId: string
+  ): Promise<void> {
+    await tx.skillKnowledgeCardChunk.deleteMany({
+      where: { skillKnowledgeCardId: cardId }
+    });
+    await tx.knowledgeVectorChunk.deleteMany({
+      where: { sourceType: "skill_knowledge_card", sourceId: cardId }
+    });
+    await tx.knowledgeIndexingJob.deleteMany({
+      where: { sourceType: "skill_knowledge_card", sourceId: cardId, status: "pending" }
     });
   }
 

@@ -7,6 +7,7 @@
 import type { AssistantWebChatRuntimeStateTurnRoutingMode } from "./assistantWebChatRuntimeStateTurnRoutingMode";
 import type { AssistantWebChatRuntimeStateTurnRoutingExecutionMode } from "./assistantWebChatRuntimeStateTurnRoutingExecutionMode";
 import type { AssistantWebChatRuntimeStateTurnRoutingSource } from "./assistantWebChatRuntimeStateTurnRoutingSource";
+import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan } from "./assistantWebChatRuntimeStateTurnRoutingRetrievalPlan";
 
 /**
  * @nullable
@@ -15,4 +16,6 @@ export type AssistantWebChatRuntimeStateTurnRouting = {
   mode: AssistantWebChatRuntimeStateTurnRoutingMode;
   executionMode: AssistantWebChatRuntimeStateTurnRoutingExecutionMode;
   source: AssistantWebChatRuntimeStateTurnRoutingSource;
+  /** @nullable */
+  retrievalPlan?: AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan;
 } | null;

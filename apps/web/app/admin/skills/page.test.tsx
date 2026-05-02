@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { AdminSkillState, SkillDocumentState } from "@/app/app/assistant-api-client";
+import type {
+  AdminSkillState,
+  SkillDocumentState,
+  SkillKnowledgeCardState
+} from "@/app/app/assistant-api-client";
 import {
   draftToSkillPayload,
+  knowledgeCardDraftToPayload,
+  knowledgeCardToDraft,
   skillToDraft,
+  summarizeKnowledgeCards,
   summarizeSkillReadiness,
+  validateKnowledgeCardDraft,
   validateSkillDraft
 } from "./page";
 
@@ -31,6 +39,36 @@ function createDocument(id: string, status: SkillDocumentState["status"]): Skill
   };
 }
 
+function createKnowledgeCard(
+  id: string,
+  lifecycleStatus: SkillKnowledgeCardState["lifecycleStatus"]
+): SkillKnowledgeCardState {
+  return {
+    id,
+    skillId: "skill-1",
+    title: "Tax checklist",
+    body: "Ask for jurisdiction, tax year, and business structure before giving guidance.",
+    locale: "en",
+    tags: ["tax"],
+    lifecycleStatus,
+    provenanceKind: "manual",
+    provenanceMetadata: null,
+    archivedAt: null,
+    createdAt: "2026-05-01T12:00:00.000Z",
+    updatedAt: "2026-05-01T12:00:00.000Z",
+    status: lifecycleStatus === "active" ? "ready" : "processing",
+    currentVersion: 1,
+    chunkCount: lifecycleStatus === "active" ? 1 : 0,
+    processorProviderKey: null,
+    processorMode: null,
+    processingQuality: null,
+    lastIndexedAt: lifecycleStatus === "active" ? "2026-05-01T12:00:00.000Z" : null,
+    lastReindexRequestedAt: null,
+    lastErrorCode: null,
+    lastErrorMessage: null
+  };
+}
+
 function createSkill(): AdminSkillState {
   return {
     id: "skill-1",
@@ -51,7 +89,8 @@ function createSkill(): AdminSkillState {
     archivedAt: null,
     createdAt: "2026-05-01T12:00:00.000Z",
     updatedAt: "2026-05-01T12:00:00.000Z",
-    documents: [createDocument("doc-1", "ready")]
+    documents: [createDocument("doc-1", "ready")],
+    knowledgeCards: [createKnowledgeCard("card-1", "active")]
   };
 }
 
@@ -119,5 +158,42 @@ describe("admin skills page helpers", () => {
       label: "1 failed",
       tone: "failed"
     });
+  });
+
+  it("keeps Skill knowledge cards draft-first until explicitly activated", () => {
+    const draft = knowledgeCardToDraft(null);
+    expect(draft.lifecycleStatus).toBe("draft");
+    expect(validateKnowledgeCardDraft(draft)).toMatchObject({
+      title: expect.stringContaining("Title"),
+      body: expect.stringContaining("20")
+    });
+
+    const payload = knowledgeCardDraftToPayload({
+      ...draft,
+      title: "Bring-up checklist",
+      body: "Inspect rails, current limits, thermal behavior, and logs before deeper debugging.",
+      locale: "en",
+      tagsText: "pcb, checklist",
+      lifecycleStatus: "active"
+    });
+
+    expect(payload).toMatchObject({
+      title: "Bring-up checklist",
+      tags: ["pcb", "checklist"],
+      locale: "en",
+      lifecycleStatus: "active",
+      provenanceKind: "manual",
+      provenanceMetadata: null
+    });
+  });
+
+  it("summarizes Skill knowledge card lifecycle counts", () => {
+    expect(
+      summarizeKnowledgeCards([
+        createKnowledgeCard("active", "active"),
+        createKnowledgeCard("draft", "draft"),
+        createKnowledgeCard("stale", "stale")
+      ])
+    ).toEqual({ total: 3, active: 1, draft: 1, stale: 1 });
   });
 });

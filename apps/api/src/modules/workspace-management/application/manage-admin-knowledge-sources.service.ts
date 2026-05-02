@@ -4,11 +4,21 @@ import {
   Injectable,
   NotFoundException
 } from "@nestjs/common";
-import type { GlobalKnowledgeSource as PrismaGlobalKnowledgeSource } from "@prisma/client";
+import { Prisma, type GlobalKnowledgeSource as PrismaGlobalKnowledgeSource } from "@prisma/client";
 import type {
   GlobalKnowledgeSourceScope,
   GlobalKnowledgeSourceState
 } from "./assistant-knowledge-source.types";
+import {
+  parseProductKnowledgeTextEntryInput,
+  toProductKnowledgeTextEntryState,
+  type ProductKnowledgeTextEntryInput,
+  type ProductKnowledgeTextEntryState
+} from "./authored-knowledge.types";
+import {
+  toKnowledgeIndexingJobState,
+  type KnowledgeIndexingJobState
+} from "./skill-management.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { KnowledgeIndexingJobWorkerService } from "./knowledge-indexing-job-worker.service";
@@ -50,6 +60,16 @@ export class ManageAdminKnowledgeSourcesService {
     return { displayName: trimmed.length > 0 ? trimmed.slice(0, 255) : null };
   }
 
+  parseTextEntryInput(body: unknown): ProductKnowledgeTextEntryInput {
+    try {
+      return parseProductKnowledgeTextEntryInput(body);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Invalid Product KB text entry request.";
+      throw new BadRequestException(message);
+    }
+  }
+
   parseScope(value: unknown): GlobalKnowledgeSourceScope {
     if (value === "product") {
       return value;
@@ -72,6 +92,214 @@ export class ManageAdminKnowledgeSourcesService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }]
     });
     return rows.map((row) => this.toState(row));
+  }
+
+  async listTextEntries(userId: string): Promise<ProductKnowledgeTextEntryState[]> {
+    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    const rows = await this.prisma.productKnowledgeTextEntry.findMany({
+      where: {
+        workspaceId: access.workspaceId,
+        lifecycleStatus: { not: "archived" }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+    });
+    return rows.map(toProductKnowledgeTextEntryState);
+  }
+
+  async createTextEntry(
+    userId: string,
+    input: ProductKnowledgeTextEntryInput
+  ): Promise<{
+    entry: ProductKnowledgeTextEntryState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const lifecycleStatus = input.lifecycleStatus ?? "draft";
+    const result = await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.productKnowledgeTextEntry.create({
+        data: {
+          workspaceId: access.workspaceId,
+          createdByUserId: access.userId,
+          updatedByUserId: access.userId,
+          title: input.title,
+          body: input.body,
+          category: input.category,
+          locale: input.locale,
+          tags: input.tags as Prisma.InputJsonValue,
+          lifecycleStatus,
+          status: lifecycleStatus === "active" ? "processing" : "ready",
+          provenanceKind: input.provenanceKind,
+          provenanceMetadata:
+            input.provenanceMetadata === null
+              ? Prisma.JsonNull
+              : (input.provenanceMetadata as Prisma.InputJsonValue),
+          currentVersion: 1,
+          archivedAt: lifecycleStatus === "archived" ? new Date() : null
+        }
+      });
+      const indexingJob =
+        lifecycleStatus === "active"
+          ? await tx.knowledgeIndexingJob.create({
+              data: {
+                workspaceId: access.workspaceId,
+                requestedByUserId: access.userId,
+                sourceType: "product_knowledge_text_entry",
+                sourceId: entry.id,
+                sourceVersion: 1,
+                status: "pending",
+                processorMode: "local",
+                pendingDedupeKey: `product_knowledge_text_entry:${entry.id}:1`
+              }
+            })
+          : null;
+      return { entry, indexingJob };
+    });
+    return {
+      entry: toProductKnowledgeTextEntryState(result.entry),
+      indexingJob:
+        result.indexingJob === null ? null : toKnowledgeIndexingJobState(result.indexingJob)
+    };
+  }
+
+  async updateTextEntry(
+    userId: string,
+    entryId: string,
+    input: ProductKnowledgeTextEntryInput
+  ): Promise<{
+    entry: ProductKnowledgeTextEntryState;
+    indexingJob: KnowledgeIndexingJobState | null;
+  }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
+      where: { id: entryId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Product KB text entry not found.");
+    }
+    const lifecycleStatus = input.lifecycleStatus ?? existing.lifecycleStatus;
+    const shouldIndex = lifecycleStatus === "active";
+    const nextVersion = shouldIndex ? existing.currentVersion + 1 : existing.currentVersion;
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (!shouldIndex) {
+        await this.clearProductTextEntryRuntimeIndex(tx, existing.id);
+      }
+      const entry = await tx.productKnowledgeTextEntry.update({
+        where: { id: existing.id },
+        data: {
+          title: input.title,
+          body: input.body,
+          category: input.category,
+          locale: input.locale,
+          tags: input.tags as Prisma.InputJsonValue,
+          lifecycleStatus,
+          provenanceKind: input.provenanceKind,
+          provenanceMetadata:
+            input.provenanceMetadata === null
+              ? Prisma.JsonNull
+              : (input.provenanceMetadata as Prisma.InputJsonValue),
+          status: shouldIndex ? "processing" : "ready",
+          currentVersion: nextVersion,
+          updatedByUserId: access.userId,
+          lastReindexRequestedAt: shouldIndex ? new Date() : existing.lastReindexRequestedAt,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          archivedAt:
+            lifecycleStatus === "archived"
+              ? (existing.archivedAt ?? new Date())
+              : lifecycleStatus === "draft" || lifecycleStatus === "active"
+                ? null
+                : existing.archivedAt
+        }
+      });
+      const indexingJob = shouldIndex
+        ? await tx.knowledgeIndexingJob.create({
+            data: {
+              workspaceId: access.workspaceId,
+              requestedByUserId: access.userId,
+              sourceType: "product_knowledge_text_entry",
+              sourceId: existing.id,
+              sourceVersion: nextVersion,
+              status: "pending",
+              processorMode: "local",
+              pendingDedupeKey: `product_knowledge_text_entry:${existing.id}:${String(nextVersion)}`
+            }
+          })
+        : null;
+      return { entry, indexingJob };
+    });
+    return {
+      entry: toProductKnowledgeTextEntryState(result.entry),
+      indexingJob:
+        result.indexingJob === null ? null : toKnowledgeIndexingJobState(result.indexingJob)
+    };
+  }
+
+  async archiveTextEntry(userId: string, entryId: string): Promise<void> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
+      where: { id: entryId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Product KB text entry not found.");
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await this.clearProductTextEntryRuntimeIndex(tx, existing.id);
+      await tx.productKnowledgeTextEntry.update({
+        where: { id: existing.id },
+        data: {
+          lifecycleStatus: "archived",
+          status: "ready",
+          archivedAt: existing.archivedAt ?? new Date(),
+          updatedByUserId: access.userId
+        }
+      });
+    });
+  }
+
+  async reindexTextEntry(
+    userId: string,
+    entryId: string
+  ): Promise<{ entry: ProductKnowledgeTextEntryState; indexingJob: KnowledgeIndexingJobState }> {
+    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
+      where: { id: entryId, workspaceId: access.workspaceId }
+    });
+    if (existing === null) {
+      throw new NotFoundException("Product KB text entry not found.");
+    }
+    if (existing.lifecycleStatus !== "active") {
+      throw new ConflictException("Only active Product KB text entries can be reindexed.");
+    }
+    const nextVersion = existing.currentVersion + 1;
+    const result = await this.prisma.$transaction(async (tx) => {
+      const entry = await tx.productKnowledgeTextEntry.update({
+        where: { id: existing.id },
+        data: {
+          status: "processing",
+          currentVersion: nextVersion,
+          lastReindexRequestedAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }
+      });
+      const indexingJob = await tx.knowledgeIndexingJob.create({
+        data: {
+          workspaceId: access.workspaceId,
+          requestedByUserId: access.userId,
+          sourceType: "product_knowledge_text_entry",
+          sourceId: existing.id,
+          sourceVersion: nextVersion,
+          status: "pending",
+          processorMode: "local",
+          pendingDedupeKey: `product_knowledge_text_entry:${existing.id}:${String(nextVersion)}`
+        }
+      });
+      return { entry, indexingJob };
+    });
+    return {
+      entry: toProductKnowledgeTextEntryState(result.entry),
+      indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
+    };
   }
 
   async upload(params: {
@@ -254,5 +482,38 @@ export class ManageAdminKnowledgeSourcesService {
 
   private isKnowledgeDocumentMime(mimeType: string): boolean {
     return mimeType.startsWith("text/") || KNOWLEDGE_DOCUMENT_MIMES.has(mimeType);
+  }
+
+  private async clearProductTextEntryRuntimeIndex(
+    tx: {
+      productKnowledgeTextEntryChunk: {
+        deleteMany: (args: { where: { textEntryId: string } }) => Promise<unknown>;
+      };
+      knowledgeVectorChunk: {
+        deleteMany: (args: {
+          where: { sourceType: "product_knowledge_text_entry"; sourceId: string };
+        }) => Promise<unknown>;
+      };
+      knowledgeIndexingJob: {
+        deleteMany: (args: {
+          where: {
+            sourceType: "product_knowledge_text_entry";
+            sourceId: string;
+            status?: "pending";
+          };
+        }) => Promise<unknown>;
+      };
+    },
+    entryId: string
+  ): Promise<void> {
+    await tx.productKnowledgeTextEntryChunk.deleteMany({
+      where: { textEntryId: entryId }
+    });
+    await tx.knowledgeVectorChunk.deleteMany({
+      where: { sourceType: "product_knowledge_text_entry", sourceId: entryId }
+    });
+    await tx.knowledgeIndexingJob.deleteMany({
+      where: { sourceType: "product_knowledge_text_entry", sourceId: entryId, status: "pending" }
+    });
   }
 }

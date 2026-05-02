@@ -160,6 +160,9 @@ async function run(): Promise<void> {
     },
     skillDocumentChunk: {
       findMany: async () => skillChunks
+    },
+    skillKnowledgeCardChunk: {
+      findMany: async () => []
     }
   };
   const readKnowledge = new FakeReadAssistantKnowledgeService();

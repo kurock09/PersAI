@@ -5,12 +5,18 @@ import { KnowledgeIndexingError } from "../src/modules/workspace-management/appl
 type Row = Record<string, unknown> & { id: string };
 
 function createHarness(options?: {
-  sourceType?: "assistant_knowledge_source" | "global_knowledge_source" | "skill_document";
+  sourceType?:
+    | "assistant_knowledge_source"
+    | "global_knowledge_source"
+    | "skill_document"
+    | "skill_knowledge_card"
+    | "product_knowledge_text_entry";
   sourceVersion?: number;
   maxAttempts?: number;
   indexingFailure?: Error;
   qualityStatus?: "ok" | "needs_review";
   startInProgressExpired?: boolean;
+  lifecycleStatus?: "draft" | "active" | "stale" | "archived";
 }) {
   const now = new Date("2026-05-01T12:00:00.000Z");
   const sourceType = options?.sourceType ?? "assistant_knowledge_source";
@@ -19,9 +25,13 @@ function createHarness(options?: {
   const assistantSources = new Map<string, Row>();
   const globalSources = new Map<string, Row>();
   const skillDocuments = new Map<string, Row>();
+  const skillKnowledgeCards = new Map<string, Row>();
+  const productTextEntries = new Map<string, Row>();
   const assistantChunks: Row[] = [];
   const globalChunks: Row[] = [];
   const skillChunks: Row[] = [];
+  const skillCardChunks: Row[] = [];
+  const productTextEntryChunks: Row[] = [];
   const jobs = new Map<string, Row>();
   const vectorReplaces: unknown[] = [];
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
@@ -63,7 +73,7 @@ function createHarness(options?: {
       scope: "product",
       displayName: "Product source"
     });
-  } else {
+  } else if (sourceType === "skill_document") {
     skillDocuments.set(sourceId, {
       ...baseSource,
       skillId: "skill-1",
@@ -71,13 +81,42 @@ function createHarness(options?: {
       displayName: "Skill source",
       description: "Skill document"
     });
+  } else if (sourceType === "skill_knowledge_card") {
+    skillKnowledgeCards.set(sourceId, {
+      ...baseSource,
+      skillId: "skill-1",
+      createdByUserId: "admin-1",
+      title: "Skill card",
+      body: "Skill card body",
+      locale: "en",
+      tags: [],
+      lifecycleStatus: options?.lifecycleStatus ?? "active",
+      provenanceKind: "manual",
+      provenanceMetadata: null,
+      archivedAt: null
+    });
+  } else {
+    productTextEntries.set(sourceId, {
+      ...baseSource,
+      createdByUserId: "admin-1",
+      title: "Product KB entry",
+      body: "Product KB body",
+      category: "billing",
+      locale: "en",
+      tags: [],
+      lifecycleStatus: options?.lifecycleStatus ?? "active",
+      provenanceKind: "manual",
+      provenanceMetadata: null,
+      archivedAt: null
+    });
   }
 
   jobs.set("job-1", {
     id: "job-1",
     workspaceId: "ws-1",
     assistantId: sourceType === "assistant_knowledge_source" ? "assistant-1" : null,
-    skillId: sourceType === "skill_document" ? "skill-1" : null,
+    skillId:
+      sourceType === "skill_document" || sourceType === "skill_knowledge_card" ? "skill-1" : null,
     requestedByUserId: sourceType === "assistant_knowledge_source" ? "user-1" : "admin-1",
     sourceType,
     sourceId,
@@ -114,7 +153,11 @@ function createHarness(options?: {
       ? assistantSources
       : sourceType === "global_knowledge_source"
         ? globalSources
-        : skillDocuments;
+        : sourceType === "skill_document"
+          ? skillDocuments
+          : sourceType === "skill_knowledge_card"
+            ? skillKnowledgeCards
+            : productTextEntries;
 
   const prisma = {
     $transaction: async <T>(callback: (tx: typeof prisma) => Promise<T>) => callback(prisma),
@@ -174,9 +217,13 @@ function createHarness(options?: {
     assistantKnowledgeSource: sourceDelegate(assistantSources),
     globalKnowledgeSource: sourceDelegate(globalSources),
     skillDocument: sourceDelegate(skillDocuments),
+    skillKnowledgeCard: sourceDelegate(skillKnowledgeCards),
+    productKnowledgeTextEntry: sourceDelegate(productTextEntries),
     assistantKnowledgeSourceChunk: chunkDelegate(assistantChunks, "knowledgeSourceId"),
     globalKnowledgeSourceChunk: chunkDelegate(globalChunks, "globalKnowledgeSourceId"),
     skillDocumentChunk: chunkDelegate(skillChunks, "skillDocumentId"),
+    skillKnowledgeCardChunk: chunkDelegate(skillCardChunks, "skillKnowledgeCardId"),
+    productKnowledgeTextEntryChunk: chunkDelegate(productTextEntryChunks, "textEntryId"),
     knowledgeVectorChunk: {
       deleteMany: async () => undefined
     }
@@ -292,6 +339,8 @@ function createHarness(options?: {
     assistantChunks,
     globalChunks,
     skillChunks,
+    skillCardChunks,
+    productTextEntryChunks,
     vectorReplaces,
     vectorDeletes,
     processCalls
@@ -373,6 +422,35 @@ async function runSkillDocumentProcessing(): Promise<void> {
   assert.equal(harness.source()?.processorProviderKey, "local");
 }
 
+async function runAuthoredKnowledgeEntryProcessing(): Promise<void> {
+  const skillCardHarness = createHarness({ sourceType: "skill_knowledge_card" });
+  await skillCardHarness.service.processDueIndexingJobsBatch(1);
+  assert.equal(skillCardHarness.jobs.get("job-1")?.status, "completed");
+  assert.equal(skillCardHarness.source()?.status, "ready");
+  assert.equal(skillCardHarness.skillCardChunks.length, 1);
+  assert.equal(skillCardHarness.vectorReplaces.length, 1);
+
+  const productEntryHarness = createHarness({ sourceType: "product_knowledge_text_entry" });
+  await productEntryHarness.service.processDueIndexingJobsBatch(1);
+  assert.equal(productEntryHarness.jobs.get("job-1")?.status, "completed");
+  assert.equal(productEntryHarness.source()?.status, "ready");
+  assert.equal(productEntryHarness.productTextEntryChunks.length, 1);
+  assert.equal(productEntryHarness.vectorReplaces.length, 1);
+
+  const draftHarness = createHarness({
+    sourceType: "skill_knowledge_card",
+    lifecycleStatus: "draft",
+    maxAttempts: 1
+  });
+  await draftHarness.service.processDueIndexingJobsBatch(1);
+  assert.equal(draftHarness.jobs.get("job-1")?.status, "failed");
+  assert.equal(draftHarness.source()?.status, "failed");
+  assert.equal(draftHarness.skillCardChunks.length, 0);
+  assert.deepEqual(draftHarness.vectorDeletes, [
+    { sourceType: "skill_knowledge_card", sourceId: "skill_knowledge_card-1" }
+  ]);
+}
+
 async function runExpiredClaimIsReclaimed(): Promise<void> {
   const harness = createHarness({ startInProgressExpired: true });
   await harness.service.processDueIndexingJobsBatch(1);
@@ -386,6 +464,7 @@ async function main(): Promise<void> {
   await runFailureRetryAndExhaustion();
   await runNeedsReviewGate();
   await runSkillDocumentProcessing();
+  await runAuthoredKnowledgeEntryProcessing();
   await runExpiredClaimIsReclaimed();
 }
 

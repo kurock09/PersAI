@@ -7,22 +7,22 @@ export const KNOWLEDGE_PROCESSING_STATUSES = [
 
 export type KnowledgeProcessingStatus = (typeof KNOWLEDGE_PROCESSING_STATUSES)[number];
 
-// ADR-080 may introduce these lifecycle states. ADR-079 keeps them out of the
-// active processing/indexing state machine.
-export const FUTURE_KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES = [
+export const KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES = [
   "draft",
-  "verified",
+  "active",
   "stale",
-  "deprecated"
+  "archived"
 ] as const;
 
-export type FutureKnowledgeLifecycleGovernanceStatus =
-  (typeof FUTURE_KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES)[number];
+export type KnowledgeLifecycleGovernanceStatus =
+  (typeof KNOWLEDGE_LIFECYCLE_GOVERNANCE_STATUSES)[number];
 
 export const KNOWLEDGE_SOURCE_TYPES = [
   "assistant_knowledge_source",
   "global_knowledge_source",
-  "skill_document"
+  "skill_document",
+  "skill_knowledge_card",
+  "product_knowledge_text_entry"
 ] as const;
 
 export type KnowledgeSourceType = (typeof KNOWLEDGE_SOURCE_TYPES)[number];

@@ -181,6 +181,20 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/knowledge-sources/connectors", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.GET },
       { path: "api/v1/admin/knowledge-sources/retrieval-policy", method: RequestMethod.POST },
+      { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.GET },
+      { path: "api/v1/admin/knowledge-sources/product/text-entries", method: RequestMethod.POST },
+      {
+        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId",
+        method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/admin/knowledge-sources/product/text-entries/:entryId/reindex",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/knowledge-sources/:scope", method: RequestMethod.POST },
       { path: "api/v1/admin/knowledge-sources/:sourceId", method: RequestMethod.DELETE },
       { path: "api/v1/admin/knowledge-sources/:sourceId/reindex", method: RequestMethod.POST },
@@ -197,6 +211,19 @@ export class IdentityAccessModule implements NestModule {
       },
       {
         path: "api/v1/admin/skills/:skillId/documents/:documentId/reindex",
+        method: RequestMethod.POST
+      },
+      { path: "api/v1/admin/skills/:skillId/knowledge-cards", method: RequestMethod.POST },
+      {
+        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId",
+        method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/admin/skills/:skillId/knowledge-cards/:cardId/reindex",
         method: RequestMethod.POST
       },
       { path: "api/v1/admin/tools/document-processing", method: RequestMethod.GET },

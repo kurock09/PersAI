@@ -4,7 +4,7 @@ This document describes the current active PersAI request boundaries.
 
 For exact request and response schemas, use `packages/contracts/openapi.yaml` and the generated client/types in `packages/contracts/src/generated`.
 
-ADR-072 is closed as the historical native migration ADR. Current continuation work is tracked in `docs/ADR/078-consolidated-follow-through-program.md`.
+ADR-072 is closed as the historical native migration ADR. ADR-078 is completed as the consolidated follow-through program. ADR-080 defines admin-controlled Knowledge authoring and Skill curation. ADR-081 defines unified user Files.
 
 ## Public product APIs
 
@@ -17,6 +17,7 @@ Primary public API surface:
 - Voice DNA admin routes: `GET /api/v1/admin/persona-archetypes`, `PATCH /api/v1/admin/persona-archetypes/:key`, `POST /api/v1/admin/persona-archetypes/:key/reset-to-default`
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
 - admin Skill routes under `/api/v1/admin/skills*`
+- future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin runtime-provider settings expose both the legacy chat-model alias `availableModelsByProvider` and the capability-aware `availableModelCatalogByProvider` (`chat`, `image`, `video` per provider). Plan admin payloads may select `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`; media model keys are validated against the runtime-provider catalog during plan writes and materialized into runtime tool credential refs with optional fallback chains.
 - single-batch web bootstrap: `GET /api/v1/app/bootstrap` — bearer-protected, fans out to assistant lifecycle, web chats, telegram integration, notification preference, user plan visibility, and admin plan visibility via `Promise.allSettled`; each section is `{ ok: true, data } | { ok: false, error }` so partial failures don't block the rest. Called once during SSR by `apps/web/app/app/layout.tsx`; mutations still use the per-endpoint refresh paths
@@ -84,6 +85,7 @@ Active boundary rules:
 - upload/reindex creates DB-backed indexing jobs for Product sources; processing is source-agnostic and shares the ADR-079 worker path with assistant knowledge and Skill documents
 - `/admin/knowledge` owns the admin Product/Skill KB retrieval model slots (`embeddingModelKey`, `retrievalModelKey`); user-uploaded assistant knowledge remains plan-slot owned
 - retrieval observability is a durable API surface, not a process-local debug cache
+- ADR-080 Product KB text entries are admin-authored Knowledge sources, not user Files; save/activate is explicit and indexing remains async through the existing jobs
 
 ### Admin document processing
 
@@ -118,6 +120,7 @@ Active boundary rules:
 - `Skill.category` is the current group key shown in admin/user UI (`work`, `engineering`, `personal`, `education`)
 - delete archives a Skill and disables active assignments rather than hard-deleting the product concept
 - Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
+- ADR-080 Skill knowledge cards and assistant-assisted Skill drafts belong to the admin Skill surface; generated proposals must not become active runtime knowledge without explicit admin save/activation
 - `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
 
 ### Assistant Skills

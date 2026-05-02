@@ -70,6 +70,18 @@ async function run(): Promise<void> {
     }),
     "Файл отправлен."
   );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        'Вот этот. Отправила в чат:\n\nAssistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "ru"
+    }),
+    "Вот этот. Отправила в чат:\n\nПоправка: файл не был реально доставлен в этот чат в рамках этого ответа."
+  );
 }
 
 void run();

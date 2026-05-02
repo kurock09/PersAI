@@ -12,7 +12,7 @@ PersAI is a modular monolith control plane plus three internal execution service
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
-ADR-072 remains the historical migration ADR through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`. ADR-081 is the active target-state decision for the unified user Files architecture.
+ADR-072 remains the historical migration ADR through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for the unified user Files architecture.
 
 ## Core boundaries
 
@@ -25,6 +25,7 @@ ADR-072 remains the historical migration ADR through the native-path closeout. T
 - canonical chat/message persistence
 - unified user-visible Files over the canonical `AssistantFile` registry
 - assistant/global knowledge indexing, retrieval policy, and admin knowledge governance
+- admin-authored Skill knowledge cards, Product KB text entries, and assistant-assisted admin knowledge drafts
 - durable retrieval observability and workspace-scoped operator surfaces for knowledge quality
 - governance, quota, admin, and audit boundaries
 - Telegram webhook ingress
@@ -108,6 +109,7 @@ Current active config expectations:
 - runtime bundle is the active materialized execution artifact
 - `assistant_files` is the canonical persisted assistant-workspace/file authority on the active path
 - runtime knowledge access now publishes the active bounded `hybrid` retrieval contract
+- admin-authored Knowledge entries are Knowledge sources, not Files; ADR-080 defines their draft/review/apply lifecycle before ADR-079 indexing and runtime retrieval
 - historical compatibility/migration traces do not define current request-time behavior
 
 ## Files truth

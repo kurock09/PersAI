@@ -15,14 +15,20 @@ import {
 } from "lucide-react";
 import {
   archiveAdminSkill,
+  archiveAdminSkillKnowledgeCard,
   createAdminSkill,
+  createAdminSkillKnowledgeCard,
   deleteAdminSkillDocument,
   getAdminSkills,
+  reindexAdminSkillKnowledgeCard,
   reindexAdminSkillDocument,
   updateAdminSkill,
+  updateAdminSkillKnowledgeCard,
   uploadAdminSkillDocument,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
+  type SkillKnowledgeCardInput,
+  type SkillKnowledgeCardState,
   type SkillDocumentState
 } from "@/app/app/assistant-api-client";
 
@@ -58,6 +64,15 @@ type DocumentUploadDraft = {
   description: string;
 };
 
+type SkillKnowledgeCardDraft = {
+  id: string | null;
+  title: string;
+  body: string;
+  locale: string;
+  tagsText: string;
+  lifecycleStatus: "draft" | "active" | "stale" | "archived";
+};
+
 const SKILL_GROUP_OPTIONS = [
   { value: "work", label: "Работа" },
   { value: "engineering", label: "Профессии / Engineering" },
@@ -83,6 +98,15 @@ const EMPTY_SKILL_DRAFT: SkillDraft = {
   iconEmoji: "",
   color: "",
   displayOrder: "100"
+};
+
+const EMPTY_KNOWLEDGE_CARD_DRAFT: SkillKnowledgeCardDraft = {
+  id: null,
+  title: "",
+  body: "",
+  locale: "",
+  tagsText: "",
+  lifecycleStatus: "draft"
 };
 
 const FIELD_CLASS =
@@ -208,6 +232,71 @@ export function draftToSkillPayload(draft: SkillDraft): AdminSkillUpsertRequest 
   };
 }
 
+export function knowledgeCardToDraft(
+  card: SkillKnowledgeCardState | null
+): SkillKnowledgeCardDraft {
+  if (card === null) {
+    return { ...EMPTY_KNOWLEDGE_CARD_DRAFT };
+  }
+  return {
+    id: card.id,
+    title: card.title,
+    body: card.body,
+    locale: card.locale ?? "",
+    tagsText: card.tags.join(", "),
+    lifecycleStatus: card.lifecycleStatus
+  };
+}
+
+export function validateKnowledgeCardDraft(draft: SkillKnowledgeCardDraft): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!draft.title.trim()) {
+    errors.title = "Title is required.";
+  }
+  if (draft.title.trim().length > 255) {
+    errors.title = "Title must stay within 255 characters.";
+  }
+  if (draft.body.trim().length < 20) {
+    errors.body = "Body should contain at least 20 characters.";
+  }
+  return errors;
+}
+
+export function knowledgeCardDraftToPayload(
+  draft: SkillKnowledgeCardDraft
+): SkillKnowledgeCardInput {
+  const firstError = Object.values(validateKnowledgeCardDraft(draft))[0];
+  if (firstError) {
+    throw new Error(firstError);
+  }
+  return {
+    title: draft.title.trim(),
+    body: draft.body.trim(),
+    locale: draft.locale.trim() || null,
+    tags: draft.tagsText
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    lifecycleStatus: draft.lifecycleStatus,
+    provenanceKind: "manual",
+    provenanceMetadata: null
+  };
+}
+
+export function summarizeKnowledgeCards(cards: SkillKnowledgeCardState[]): {
+  active: number;
+  draft: number;
+  stale: number;
+  total: number;
+} {
+  return {
+    total: cards.length,
+    active: cards.filter((card) => card.lifecycleStatus === "active").length,
+    draft: cards.filter((card) => card.lifecycleStatus === "draft").length,
+    stale: cards.filter((card) => card.lifecycleStatus === "stale").length
+  };
+}
+
 export function summarizeSkillReadiness(documents: SkillDocumentState[]): SkillReadinessSummary {
   const ready = documents.filter((document) => document.status === "ready").length;
   const processing = documents.filter((document) => document.status === "processing").length;
@@ -249,6 +338,7 @@ function statusTone(status: string): string {
       return "border-success/40 bg-success/10 text-success";
     case "processing":
     case "draft":
+    case "stale":
       return "border-warning/40 bg-warning/10 text-warning";
     case "needs_review":
       return "border-warning/40 bg-warning/10 text-warning";
@@ -284,10 +374,16 @@ export default function AdminSkillsPage() {
     displayName: "",
     description: ""
   });
+  const [selectedKnowledgeCardId, setSelectedKnowledgeCardId] = useState<string | null>(null);
+  const [knowledgeCardDraft, setKnowledgeCardDraft] = useState<SkillKnowledgeCardDraft>(() =>
+    knowledgeCardToDraft(null)
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [savingKnowledgeCard, setSavingKnowledgeCard] = useState(false);
   const [busyDocumentId, setBusyDocumentId] = useState<string | null>(null);
+  const [busyKnowledgeCardId, setBusyKnowledgeCardId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const selectedSkill = useMemo(
@@ -295,6 +391,18 @@ export default function AdminSkillsPage() {
     [selectedSkillId, skills]
   );
   const validationErrors = useMemo(() => validateSkillDraft(draft), [draft]);
+  const selectedKnowledgeCard = useMemo(
+    () => selectedSkill?.knowledgeCards.find((card) => card.id === selectedKnowledgeCardId) ?? null,
+    [selectedKnowledgeCardId, selectedSkill]
+  );
+  const knowledgeCardValidationErrors = useMemo(
+    () => validateKnowledgeCardDraft(knowledgeCardDraft),
+    [knowledgeCardDraft]
+  );
+  const knowledgeCardSummary = useMemo(
+    () => summarizeKnowledgeCards(selectedSkill?.knowledgeCards ?? []),
+    [selectedSkill]
+  );
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -327,11 +435,24 @@ export default function AdminSkillsPage() {
   useEffect(() => {
     setDraft(skillToDraft(selectedSkill));
     setDocumentDraft({ displayName: "", description: "" });
+    setSelectedKnowledgeCardId(selectedSkill?.knowledgeCards[0]?.id ?? null);
   }, [selectedSkill]);
+
+  useEffect(() => {
+    setKnowledgeCardDraft(knowledgeCardToDraft(selectedKnowledgeCard));
+  }, [selectedKnowledgeCard]);
 
   const startCreate = useCallback(() => {
     setSelectedSkillId(null);
     setDraft(skillToDraft(null));
+    setSelectedKnowledgeCardId(null);
+    setKnowledgeCardDraft(knowledgeCardToDraft(null));
+    setFeedback(null);
+  }, []);
+
+  const startCreateKnowledgeCard = useCallback(() => {
+    setSelectedKnowledgeCardId(null);
+    setKnowledgeCardDraft(knowledgeCardToDraft(null));
     setFeedback(null);
   }, []);
 
@@ -436,8 +557,77 @@ export default function AdminSkillsPage() {
     [getToken, load, selectedSkill]
   );
 
+  const handleSaveKnowledgeCard = useCallback(async () => {
+    if (selectedSkill === null) return;
+    const token = await getToken();
+    if (!token) return;
+    setSavingKnowledgeCard(true);
+    setFeedback(null);
+    try {
+      const payload = knowledgeCardDraftToPayload(knowledgeCardDraft);
+      const saved =
+        knowledgeCardDraft.id === null
+          ? await createAdminSkillKnowledgeCard(token, selectedSkill.id, payload)
+          : await updateAdminSkillKnowledgeCard(
+              token,
+              selectedSkill.id,
+              knowledgeCardDraft.id,
+              payload
+            );
+      setFeedback(
+        saved.indexingJob
+          ? "Skill knowledge card saved and queued for indexing."
+          : "Skill knowledge card saved as non-runtime draft."
+      );
+      await load();
+      setSelectedKnowledgeCardId(saved.card.id);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Knowledge card save failed.");
+    }
+    setSavingKnowledgeCard(false);
+  }, [getToken, knowledgeCardDraft, load, selectedSkill]);
+
+  const handleArchiveKnowledgeCard = useCallback(
+    async (cardId: string) => {
+      if (selectedSkill === null) return;
+      const token = await getToken();
+      if (!token) return;
+      setBusyKnowledgeCardId(cardId);
+      setFeedback(null);
+      try {
+        await archiveAdminSkillKnowledgeCard(token, selectedSkill.id, cardId);
+        setFeedback("Skill knowledge card archived.");
+        await load();
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : "Knowledge card archive failed.");
+      }
+      setBusyKnowledgeCardId(null);
+    },
+    [getToken, load, selectedSkill]
+  );
+
+  const handleReindexKnowledgeCard = useCallback(
+    async (cardId: string) => {
+      if (selectedSkill === null) return;
+      const token = await getToken();
+      if (!token) return;
+      setBusyKnowledgeCardId(cardId);
+      setFeedback(null);
+      try {
+        await reindexAdminSkillKnowledgeCard(token, selectedSkill.id, cardId);
+        setFeedback("Skill knowledge card reindex queued.");
+        await load();
+      } catch (error) {
+        setFeedback(error instanceof Error ? error.message : "Knowledge card reindex failed.");
+      }
+      setBusyKnowledgeCardId(null);
+    },
+    [getToken, load, selectedSkill]
+  );
+
   const readySkills = skills.filter((skill) => skill.status === "active").length;
   const documentCount = skills.reduce((sum, skill) => sum + skill.documents.length, 0);
+  const knowledgeCardCount = skills.reduce((sum, skill) => sum + skill.knowledgeCards.length, 0);
 
   return (
     <div className="mx-auto max-w-7xl space-y-3 pb-24">
@@ -470,7 +660,7 @@ export default function AdminSkillsPage() {
         <MetricCard
           label="Skill documents"
           value={String(documentCount)}
-          detail="Queued and processed by indexing jobs"
+          detail={`${knowledgeCardCount} curated cards`}
         />
         <MetricCard
           label="Current editor"
@@ -549,6 +739,7 @@ export default function AdminSkillsPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-text-subtle">
                       <span>{skill.category}</span>
                       <span>{skill.tags.length} tags</span>
+                      <span>{skill.knowledgeCards.length} cards</span>
                       <span className={readinessTone(readiness.tone)}>{readiness.label}</span>
                     </div>
                   </button>
@@ -749,6 +940,237 @@ export default function AdminSkillsPage() {
                 </Field>
               </div>
             </div>
+          </section>
+
+          <section className="rounded-xl border border-border/70 bg-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xs font-semibold text-text">Skill knowledge cards</h2>
+                <p className="text-[11px] text-text-muted">
+                  Curated short Knowledge attached to this Skill. Active cards index through
+                  ADR-079.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={selectedSkill === null}
+                onClick={startCreateKnowledgeCard}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New card
+              </button>
+            </div>
+
+            {selectedSkill === null ? (
+              <div className="mt-4 rounded-xl border border-dashed border-border p-4 text-xs text-text-muted">
+                Save or select a Skill before adding knowledge cards.
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="max-h-[26rem] space-y-2 overflow-y-auto rounded-xl border border-border/60 bg-background p-3">
+                  <div className="flex flex-wrap gap-2 text-[10px]">
+                    <span className="rounded-full bg-surface px-2 py-0.5 text-text-muted">
+                      {knowledgeCardSummary.active} active
+                    </span>
+                    <span className="rounded-full bg-surface px-2 py-0.5 text-text-muted">
+                      {knowledgeCardSummary.draft} draft
+                    </span>
+                    <span className="rounded-full bg-surface px-2 py-0.5 text-text-muted">
+                      {knowledgeCardSummary.stale} stale
+                    </span>
+                  </div>
+                  {selectedSkill.knowledgeCards.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-border p-4 text-xs text-text-muted">
+                      No cards yet. Add concise approved knowledge that does not need a full file.
+                    </div>
+                  ) : (
+                    selectedSkill.knowledgeCards.map((card) => {
+                      const selected = card.id === selectedKnowledgeCardId;
+                      const busy = busyKnowledgeCardId === card.id;
+                      return (
+                        <button
+                          key={card.id}
+                          type="button"
+                          onClick={() => setSelectedKnowledgeCardId(card.id)}
+                          className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                            selected
+                              ? "border-accent bg-accent/10"
+                              : "border-border/70 bg-surface hover:border-border-strong"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-text">{card.title}</p>
+                              <p className="mt-1 line-clamp-2 text-[11px] text-text-muted">
+                                {card.body}
+                              </p>
+                            </div>
+                            {busy ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                            <span
+                              className={`rounded-full border px-2 py-0.5 ${statusTone(card.lifecycleStatus)}`}
+                            >
+                              {card.lifecycleStatus}
+                            </span>
+                            <span
+                              className={`rounded-full border px-2 py-0.5 ${statusTone(card.status)}`}
+                            >
+                              {card.status}
+                            </span>
+                            <span className="rounded-full bg-background px-2 py-0.5 text-text-muted">
+                              {card.chunkCount} chunks
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="rounded-xl border border-border/60 bg-background p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xs font-semibold text-text">
+                        {knowledgeCardDraft.id === null ? "Create card" : "Edit card"}
+                      </h3>
+                      <p className="text-[11px] text-text-muted">
+                        Save draft first; activate only after admin review.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {knowledgeCardDraft.id !== null &&
+                      selectedKnowledgeCard?.lifecycleStatus === "active" ? (
+                        <button
+                          type="button"
+                          disabled={busyKnowledgeCardId === knowledgeCardDraft.id}
+                          onClick={() =>
+                            void handleReindexKnowledgeCard(knowledgeCardDraft.id as string)
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-[11px] text-text-muted hover:text-text disabled:opacity-50"
+                        >
+                          {busyKnowledgeCardId === knowledgeCardDraft.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3 w-3" />
+                          )}
+                          Reindex
+                        </button>
+                      ) : null}
+                      {knowledgeCardDraft.id !== null ? (
+                        <button
+                          type="button"
+                          disabled={busyKnowledgeCardId === knowledgeCardDraft.id}
+                          onClick={() =>
+                            void handleArchiveKnowledgeCard(knowledgeCardDraft.id as string)
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-[11px] text-destructive hover:bg-destructive/15 disabled:opacity-50"
+                        >
+                          <Archive className="h-3 w-3" />
+                          Archive
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={
+                          savingKnowledgeCard ||
+                          Object.keys(knowledgeCardValidationErrors).length > 0
+                        }
+                        onClick={() => void handleSaveKnowledgeCard()}
+                        className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                      >
+                        {savingKnowledgeCard ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Save className="h-3 w-3" />
+                        )}
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <Field label="Title" error={knowledgeCardValidationErrors.title}>
+                      <input
+                        value={knowledgeCardDraft.title}
+                        onChange={(event) =>
+                          setKnowledgeCardDraft((prev) => ({
+                            ...prev,
+                            title: event.target.value
+                          }))
+                        }
+                        className={FIELD_CLASS}
+                        placeholder="Bring-up checklist"
+                      />
+                    </Field>
+                    <Field label="Lifecycle">
+                      <select
+                        value={knowledgeCardDraft.lifecycleStatus}
+                        onChange={(event) =>
+                          setKnowledgeCardDraft((prev) => ({
+                            ...prev,
+                            lifecycleStatus: event.target
+                              .value as SkillKnowledgeCardDraft["lifecycleStatus"]
+                          }))
+                        }
+                        className={FIELD_CLASS}
+                      >
+                        <option value="draft">draft</option>
+                        <option value="active">active</option>
+                        <option value="stale">stale</option>
+                        <option value="archived">archived</option>
+                      </select>
+                    </Field>
+                    <Field label="Locale">
+                      <input
+                        value={knowledgeCardDraft.locale}
+                        onChange={(event) =>
+                          setKnowledgeCardDraft((prev) => ({
+                            ...prev,
+                            locale: event.target.value
+                          }))
+                        }
+                        className={FIELD_CLASS}
+                        placeholder="en or ru"
+                      />
+                    </Field>
+                    <Field label="Tags">
+                      <input
+                        value={knowledgeCardDraft.tagsText}
+                        onChange={(event) =>
+                          setKnowledgeCardDraft((prev) => ({
+                            ...prev,
+                            tagsText: event.target.value
+                          }))
+                        }
+                        className={FIELD_CLASS}
+                        placeholder="checklist, safety"
+                      />
+                    </Field>
+                    <div className="md:col-span-2">
+                      <Field
+                        label={`Body (${knowledgeCardDraft.body.trim().length} chars)`}
+                        error={knowledgeCardValidationErrors.body}
+                      >
+                        <textarea
+                          value={knowledgeCardDraft.body}
+                          onChange={(event) =>
+                            setKnowledgeCardDraft((prev) => ({
+                              ...prev,
+                              body: event.target.value
+                            }))
+                          }
+                          rows={8}
+                          className={`${FIELD_CLASS} resize-y`}
+                          placeholder="Write concise professional knowledge for this Skill."
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="rounded-xl border border-border/70 bg-surface p-4">

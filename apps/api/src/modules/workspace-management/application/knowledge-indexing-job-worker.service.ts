@@ -15,6 +15,7 @@ import {
 } from "./knowledge-vector-index";
 import type {
   KnowledgeDocumentProcessorMode,
+  KnowledgeDocumentContent,
   KnowledgeExtractionQuality,
   KnowledgeProcessingProviderTrace,
   KnowledgeSourceType,
@@ -47,13 +48,15 @@ type ClaimedKnowledgeIndexingJob = {
 
 type SourceLoadResult = {
   normalizedSource: NormalizedKnowledgeSource;
-  content: {
-    kind: "bytes";
-    buffer: Buffer;
-    mimeType: string;
-    originalFilename: string;
-    sizeBytes: number;
-  };
+  content:
+    | {
+        kind: "bytes";
+        buffer: Buffer;
+        mimeType: string;
+        originalFilename: string;
+        sizeBytes: number;
+      }
+    | KnowledgeDocumentContent;
   embeddingModelKey: string | null;
 };
 
@@ -388,6 +391,138 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       };
     }
 
+    if (job.sourceType === "product_knowledge_text_entry") {
+      const source = await this.prisma.productKnowledgeTextEntry.findUnique({
+        where: { id: job.sourceId }
+      });
+      if (source === null) {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_not_found",
+          "The Product KB text entry no longer exists.",
+          false
+        );
+      }
+      if (source.currentVersion !== job.sourceVersion) {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_version_superseded",
+          "The indexing job was superseded by a newer source version.",
+          false
+        );
+      }
+      if (source.lifecycleStatus !== "active") {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_not_active",
+          "Only active Product KB text entries are indexed.",
+          false
+        );
+      }
+      const embeddingModelKey =
+        await this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey();
+      return {
+        normalizedSource: {
+          sourceType: job.sourceType,
+          sourceId: source.id,
+          sourceVersion: job.sourceVersion,
+          workspaceId: source.workspaceId,
+          assistantId: null,
+          skillId: null,
+          provenance: {
+            originKind: "manual_entry",
+            title: source.title,
+            createdByUserId: source.createdByUserId,
+            metadata: {
+              category: source.category,
+              locale: source.locale,
+              tags: source.tags,
+              provenanceKind: source.provenanceKind,
+              provenanceMetadata: source.provenanceMetadata
+            }
+          },
+          metadata: {
+            title: source.title,
+            category: source.category,
+            locale: source.locale,
+            tags: source.tags,
+            lifecycleStatus: source.lifecycleStatus,
+            provenanceKind: source.provenanceKind
+          }
+        },
+        content: {
+          kind: "text",
+          text: source.body,
+          mimeType: "text/markdown",
+          title: source.title,
+          sizeBytes: Buffer.byteLength(source.body, "utf8")
+        },
+        embeddingModelKey
+      };
+    }
+
+    if (job.sourceType === "skill_knowledge_card") {
+      const source = await this.prisma.skillKnowledgeCard.findUnique({
+        where: { id: job.sourceId }
+      });
+      if (source === null) {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_not_found",
+          "The Skill knowledge card no longer exists.",
+          false
+        );
+      }
+      if (source.currentVersion !== job.sourceVersion) {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_version_superseded",
+          "The indexing job was superseded by a newer source version.",
+          false
+        );
+      }
+      if (source.lifecycleStatus !== "active") {
+        throw new KnowledgeIndexingJobExecutionError(
+          "source_not_active",
+          "Only active Skill knowledge cards are indexed.",
+          false
+        );
+      }
+      const embeddingModelKey =
+        await this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey();
+      return {
+        normalizedSource: {
+          sourceType: job.sourceType,
+          sourceId: source.id,
+          sourceVersion: job.sourceVersion,
+          workspaceId: source.workspaceId,
+          assistantId: null,
+          skillId: source.skillId,
+          provenance: {
+            originKind: "manual_entry",
+            title: source.title,
+            createdByUserId: source.createdByUserId,
+            metadata: {
+              locale: source.locale,
+              tags: source.tags,
+              provenanceKind: source.provenanceKind,
+              provenanceMetadata: source.provenanceMetadata
+            }
+          },
+          metadata: {
+            title: source.title,
+            locale: source.locale,
+            tags: source.tags,
+            lifecycleStatus: source.lifecycleStatus,
+            provenanceKind: source.provenanceKind
+          }
+        },
+        content: {
+          kind: "text",
+          text: source.body,
+          mimeType: "text/markdown",
+          title: source.title,
+          sizeBytes: Buffer.byteLength(source.body, "utf8")
+        },
+        embeddingModelKey
+      };
+    }
+
     const source = await this.prisma.skillDocument.findUnique({
       where: { id: job.sourceId }
     });
@@ -561,6 +696,89 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       return;
     }
 
+    if (input.job.sourceType === "product_knowledge_text_entry") {
+      const source = await this.prisma.productKnowledgeTextEntry.findUniqueOrThrow({
+        where: { id: input.job.sourceId },
+        select: { workspaceId: true }
+      });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.productKnowledgeTextEntryChunk.deleteMany({
+          where: { textEntryId: input.job.sourceId }
+        });
+        await tx.productKnowledgeTextEntryChunk.createMany({
+          data: input.chunks.map((chunk) => ({
+            textEntryId: input.job.sourceId,
+            workspaceId: source.workspaceId,
+            sourceVersion: input.job.sourceVersion,
+            chunkIndex: chunk.chunkIndex,
+            locator: chunk.locator,
+            content: chunk.content,
+            embeddingModelKey: chunk.embeddingModelKey,
+            embeddingVector:
+              chunk.embeddingVector === null
+                ? Prisma.JsonNull
+                : (chunk.embeddingVector as Prisma.InputJsonValue),
+            embeddingGeneratedAt: chunk.embeddingGeneratedAt
+          }))
+        });
+        await tx.productKnowledgeTextEntry.update({
+          where: { id: input.job.sourceId },
+          data: {
+            status: "ready",
+            currentVersion: input.job.sourceVersion,
+            chunkCount: input.chunks.length,
+            processorProviderKey: input.provider?.providerKey ?? null,
+            processorMode: input.provider?.processorMode ?? input.job.processorMode,
+            processingQuality: qualityJson,
+            lastIndexedAt: now,
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+      });
+      return;
+    }
+
+    if (input.job.sourceType === "skill_knowledge_card") {
+      const source = await this.prisma.skillKnowledgeCard.findUniqueOrThrow({
+        where: { id: input.job.sourceId },
+        select: { skillId: true, workspaceId: true }
+      });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.skillKnowledgeCardChunk.deleteMany({
+          where: { skillKnowledgeCardId: input.job.sourceId }
+        });
+        await tx.skillKnowledgeCardChunk.createMany({
+          data: input.chunks.map((chunk) => ({
+            skillKnowledgeCardId: input.job.sourceId,
+            skillId: source.skillId,
+            workspaceId: source.workspaceId,
+            sourceVersion: input.job.sourceVersion,
+            chunkIndex: chunk.chunkIndex,
+            locator: chunk.locator,
+            content: chunk.content,
+            embeddingModelKey: chunk.embeddingModelKey,
+            embeddingGeneratedAt: chunk.embeddingGeneratedAt
+          }))
+        });
+        await tx.skillKnowledgeCard.update({
+          where: { id: input.job.sourceId },
+          data: {
+            status: "ready",
+            currentVersion: input.job.sourceVersion,
+            chunkCount: input.chunks.length,
+            processorProviderKey: input.provider?.providerKey ?? null,
+            processorMode: input.provider?.processorMode ?? input.job.processorMode,
+            processingQuality: qualityJson,
+            lastIndexedAt: now,
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+      });
+      return;
+    }
+
     const source = await this.prisma.skillDocument.findUniqueOrThrow({
       where: { id: input.job.sourceId },
       select: { skillId: true, workspaceId: true }
@@ -671,6 +889,18 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       });
       return;
     }
+    if (job.sourceType === "product_knowledge_text_entry") {
+      await this.prisma.productKnowledgeTextEntryChunk.deleteMany({
+        where: { textEntryId: job.sourceId }
+      });
+      return;
+    }
+    if (job.sourceType === "skill_knowledge_card") {
+      await this.prisma.skillKnowledgeCardChunk.deleteMany({
+        where: { skillKnowledgeCardId: job.sourceId }
+      });
+      return;
+    }
     await this.prisma.skillDocumentChunk.deleteMany({
       where: { skillDocumentId: job.sourceId }
     });
@@ -704,6 +934,20 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
     }
     if (job.sourceType === "global_knowledge_source") {
       await this.prisma.globalKnowledgeSource.update({
+        where: { id: job.sourceId },
+        data
+      });
+      return;
+    }
+    if (job.sourceType === "product_knowledge_text_entry") {
+      await this.prisma.productKnowledgeTextEntry.update({
+        where: { id: job.sourceId },
+        data
+      });
+      return;
+    }
+    if (job.sourceType === "skill_knowledge_card") {
+      await this.prisma.skillKnowledgeCard.update({
         where: { id: job.sourceId },
         data
       });

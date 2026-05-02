@@ -50,18 +50,17 @@ This is a single architecture block. It may be implemented internally in ordered
 
 ADR-079 is about how PersAI uses knowledge at runtime and how first-class Skills become a product capability. It is not the architecture for long-lived knowledge curation, web-fed knowledge bases, admin cleanup commands, source governance, or curator-LLM maintenance workflows.
 
-Those concerns should be handled by a later architecture decision, tentatively:
+Those concerns are now owned by:
 
-- `ADR-080: Hybrid Knowledge Ingestion and Curation`
+- `ADR-080: Admin-controlled knowledge authoring and Skill curation`
 
-ADR-080 should own:
+ADR-080 owns:
 
-- web ingestion by admin query or trusted source policy
 - generated and manually curated knowledge entries
-- draft / verified / stale / deprecated lifecycle governance
-- deduplication, merge, cleanup, and stale detection workflows
-- curator / maintenance commands
-- knowledge gap discovery
+- assistant-assisted admin Skill drafts and enrichment
+- manual Skill knowledge cards
+- Product KB text entries
+- draft / active / stale / archived lifecycle governance for authored knowledge
 - trust and provenance policy beyond the runtime retrieval roles defined here
 
 ADR-079 must still leave clean extension points so ADR-080 can be layered on top without replacing the retrieval/runtime architecture.

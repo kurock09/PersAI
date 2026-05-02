@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { flattenAvailableTextModelOptions } from "./page";
+import {
+  flattenAvailableTextModelOptions,
+  productTextEntryDraftToPayload,
+  productTextEntryToDraft,
+  summarizeProductTextEntries,
+  validateProductTextEntryDraft
+} from "./page";
 
 describe("admin knowledge page helpers", () => {
   it("flattens available text models from runtime settings", () => {
@@ -37,5 +43,68 @@ describe("admin knowledge page helpers", () => {
       { provider: "openai", model: "gpt-5.4-mini" },
       { provider: "anthropic", model: "claude-4.6-sonnet-medium-thinking" }
     ]);
+  });
+
+  it("keeps Product KB text entries draft-first until explicitly activated", () => {
+    const draft = productTextEntryToDraft(null);
+    expect(draft.lifecycleStatus).toBe("draft");
+    expect(validateProductTextEntryDraft(draft)).toMatchObject({
+      title: expect.stringContaining("Title"),
+      body: expect.stringContaining("20")
+    });
+
+    const payload = productTextEntryDraftToPayload({
+      ...draft,
+      title: "Refund policy",
+      body: "Approved Product KB answer about refunds.",
+      category: "billing",
+      locale: "en",
+      tagsText: "billing, refunds",
+      lifecycleStatus: "active"
+    });
+
+    expect(payload).toMatchObject({
+      title: "Refund policy",
+      category: "billing",
+      locale: "en",
+      tags: ["billing", "refunds"],
+      lifecycleStatus: "active",
+      provenanceKind: "manual",
+      provenanceMetadata: null
+    });
+  });
+
+  it("summarizes Product KB authored entry lifecycle counts", () => {
+    const base = {
+      id: "entry-1",
+      title: "Entry",
+      body: "Approved body content.",
+      category: null,
+      locale: null,
+      tags: [],
+      provenanceKind: "manual" as const,
+      provenanceMetadata: null,
+      archivedAt: null,
+      createdAt: "2026-05-02T12:00:00.000Z",
+      updatedAt: "2026-05-02T12:00:00.000Z",
+      status: "ready" as const,
+      currentVersion: 1,
+      chunkCount: 1,
+      processorProviderKey: null,
+      processorMode: null,
+      processingQuality: null,
+      lastIndexedAt: null,
+      lastReindexRequestedAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    };
+
+    expect(
+      summarizeProductTextEntries([
+        { ...base, id: "active", lifecycleStatus: "active" },
+        { ...base, id: "draft", lifecycleStatus: "draft" },
+        { ...base, id: "stale", lifecycleStatus: "stale" }
+      ])
+    ).toEqual({ total: 3, active: 1, draft: 1, stale: 1 });
   });
 });

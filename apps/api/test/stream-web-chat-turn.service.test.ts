@@ -137,6 +137,14 @@ describe("StreamWebChatTurnService", () => {
             createdAt: new Date("2026-04-05T12:00:00.000Z")
           };
         },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant",
+          content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
         findChatById: async (chatId: string) => ({
           id: chatId,
           assistantId: "assistant-1",
@@ -268,13 +276,13 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "");
     assert.equal(memoryWrites.length, 1);
-    assert.equal(memoryWrites[0]?.assistantContent, "");
+    assert.equal(memoryWrites[0]?.assistantContent, "File sent.");
     assert.equal(quotaWrites.length, 1);
-    assert.equal(quotaWrites[0]?.assistantContent, "");
+    assert.equal(quotaWrites[0]?.assistantContent, "File sent.");
     const transport = (
       outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
     ).transport.assistantMessage;
-    assert.equal(transport.content, "");
+    assert.equal(transport.content, "File sent.");
     assert.ok(Array.isArray(transport.attachments));
     assert.equal((transport.attachments[0] as Record<string, unknown>)?.id, "att-1");
     assert.equal((transport.attachments[0] as Record<string, unknown>)?.attachmentType, "audio");

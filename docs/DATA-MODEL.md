@@ -2,7 +2,7 @@
 
 This document describes the current active PersAI data-model truth at a high level.
 
-ADR-072 remains the historical migration record through the native-path closeout. The active continuation backlog now lives in `docs/ADR/078-consolidated-follow-through-program.md`. ADR-081 is the active target-state decision for unified user-visible Files.
+ADR-072 remains the historical migration record through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the active target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the active target-state decision for unified user-visible Files.
 
 ## Control-plane ownership
 
@@ -16,6 +16,7 @@ PersAI is the source of truth for:
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
 - canonical user-visible Files through `assistant_files` and durable `fileRef`
 - assistant/global knowledge source metadata and indexed chunks
+- admin-authored Skill knowledge cards and Product KB text entries, with explicit lifecycle governance before indexing/runtime use
 - persisted assistant workspace files through `assistant_files`
 - assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
 - plan-owned retrieval policy and admin-managed knowledge governance
@@ -82,6 +83,8 @@ Runtime router Skill planning is also bundle-derived state. The materialized run
 Orchestrated retrieval context is transient runtime turn state. ADR-079 does not add a persisted retrieval-plan table: the API validates the per-turn plan, reads existing `SkillDocumentChunk`, assistant knowledge, memory/chat, and Product/preset/subscription sources, then returns a bounded source-aware context block to the runtime. Skill references are derived from ready `SkillDocument`/`SkillDocumentChunk` rows for currently active assistant Skill assignments. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks.
 
 The active retrieval-policy contract is plan-managed rather than hard-coded for user-uploaded assistant knowledge. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior. Admin-owned Product KB and Skill documents use the platform admin knowledge retrieval policy for model slots so admin KB indexing/rerank can be tuned independently from user plans.
+
+ADR-080 adds the target-state authoring layer for Skill and Product KB knowledge. Authored Skill knowledge cards and Product KB text entries are Knowledge sources, not Files. They carry admin lifecycle state (`draft`, `active`, `stale`, `archived`) separately from ADR-079 processing/indexing state (`processing`, `ready`, `failed`, `needs_review`). Draft and archived authored entries must not be injected into runtime retrieval; active entries enqueue or refresh normal ADR-079 indexing jobs.
 
 ## Durable assistant memory
 

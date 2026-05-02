@@ -8,6 +8,7 @@ import type { SkillStatus } from "./skillStatus";
 import type { SkillLocalizedText } from "./skillLocalizedText";
 import type { SkillInstructionCardState } from "./skillInstructionCardState";
 import type { SkillDocumentState } from "./skillDocumentState";
+import type { SkillKnowledgeCardState } from "./skillKnowledgeCardState";
 
 export interface AdminSkillState {
   id: string;
@@ -27,4 +28,5 @@ export interface AdminSkillState {
   createdAt: string;
   updatedAt: string;
   documents: SkillDocumentState[];
+  knowledgeCards: SkillKnowledgeCardState[];
 }

@@ -2,8 +2,11 @@ import type {
   AssistantSkillAssignment,
   KnowledgeIndexingJob,
   Skill,
-  SkillDocument
+  SkillDocument,
+  SkillKnowledgeCard
 } from "@prisma/client";
+import type { SkillKnowledgeCardState } from "./authored-knowledge.types";
+import { toSkillKnowledgeCardState } from "./authored-knowledge.types";
 
 export type SkillStatus = "draft" | "active" | "archived";
 export type SkillLocalizedText = Record<string, string>;
@@ -69,6 +72,7 @@ export type AdminSkillState = {
   createdAt: string;
   updatedAt: string;
   documents: SkillDocumentState[];
+  knowledgeCards: SkillKnowledgeCardState[];
 };
 
 export type AssistantSkillAssignmentState = {
@@ -97,7 +101,12 @@ export type AssistantSkillsState = {
 
 export type KnowledgeIndexingJobState = {
   id: string;
-  sourceType: "assistant_knowledge_source" | "global_knowledge_source" | "skill_document";
+  sourceType:
+    | "assistant_knowledge_source"
+    | "global_knowledge_source"
+    | "skill_document"
+    | "skill_knowledge_card"
+    | "product_knowledge_text_entry";
   sourceId: string;
   sourceVersion: number;
   status: "pending" | "in_progress" | "completed" | "failed" | "needs_review" | "cancelled";
@@ -162,7 +171,9 @@ export function parseAssistantSkillAssignmentsInput(body: unknown): { skillIds: 
   return { skillIds: [...deduped] };
 }
 
-export function toAdminSkillState(skill: Skill & { documents?: SkillDocument[] }): AdminSkillState {
+export function toAdminSkillState(
+  skill: Skill & { documents?: SkillDocument[]; knowledgeCards?: SkillKnowledgeCard[] }
+): AdminSkillState {
   return {
     id: skill.id,
     status: skill.status,
@@ -177,7 +188,8 @@ export function toAdminSkillState(skill: Skill & { documents?: SkillDocument[] }
     archivedAt: skill.archivedAt?.toISOString() ?? null,
     createdAt: skill.createdAt.toISOString(),
     updatedAt: skill.updatedAt.toISOString(),
-    documents: (skill.documents ?? []).map(toSkillDocumentState)
+    documents: (skill.documents ?? []).map(toSkillDocumentState),
+    knowledgeCards: (skill.knowledgeCards ?? []).map(toSkillKnowledgeCardState)
   };
 }
 

@@ -23,6 +23,37 @@ For production slices that touch API contracts, runtime behavior, or shared cont
 corepack pnpm run test
 ```
 
+## ADR-080 admin Knowledge authoring focused checks
+
+When a change implements ADR-080 Skill knowledge cards, Product KB text entries, or assistant-assisted admin authoring, add focused checks for the touched area before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+If API/data-model behavior changes, also add focused service/controller tests that prove:
+
+1. Skill knowledge cards can be created/edited/archived by an authorized admin and enqueue indexing only when active.
+2. Product KB text entries can be created/edited/archived by an authorized admin and index through the existing ADR-079 pipeline.
+3. Draft and archived authored entries are not used by runtime retrieval.
+4. Assistant-assisted drafts never activate or overwrite saved admin knowledge without an explicit admin save/apply action.
+5. Authored Knowledge entries remain Knowledge sources and do not become `AssistantFile` rows unless a separate Files action intentionally exports them.
+
+If the admin UI surfaces change, add focused web checks that prove:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/admin/knowledge/page.test.tsx app/admin/skills/page.test.tsx
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Product KB text entries live under Admin Knowledge and Skill knowledge cards live inside Admin Skills detail.
+2. New authored entries are draft-first unless the admin explicitly selects `active`.
+3. UI payload helpers preserve lifecycle/provenance truth and do not treat authored Knowledge entries as Files.
+4. Reindex controls should be available only for active persisted authored entries.
+
 ## Voice DNA / persona-archetype focused checks
 
 When a change touches Voice DNA archetypes, prompt-template V1 placeholders, setup/admin archetype selection, or published Voice DNA snapshotting, add the focused pack below before calling the slice clean:

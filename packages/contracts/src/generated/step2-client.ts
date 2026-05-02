@@ -28,9 +28,11 @@ import type {
   AssistantWebChatTurnRequest,
   DeleteAdminKnowledgeSourceResponse,
   DeleteAdminSkillDocumentResponse,
+  DeleteAdminSkillKnowledgeCardResponse,
   DeleteAdminSkillResponse,
   DeleteAssistantKnowledgeSourceResponse,
   DeleteAssistantWebChatResponse,
+  DeleteProductKnowledgeTextEntryResponse,
   ErrorEnvelope,
   GetAdminBusinessCockpitResponse,
   GetAdminDocumentProcessingSettingsResponse,
@@ -73,6 +75,7 @@ import type {
   GetAssistantWebChatTurnStatusResponse,
   GetKnowledgeIndexingJobsResponse,
   GetMeResponse,
+  GetProductKnowledgeTextEntriesResponse,
   GlobalKnowledgeSourceScope,
   OnboardingRequest,
   PatchAdminIdleReengagementNotificationPolicyRequest,
@@ -95,6 +98,7 @@ import type {
   PostAdminSkillDocumentReindexResponse,
   PostAdminSkillDocumentUploadBody,
   PostAdminSkillDocumentUploadResponse,
+  PostAdminSkillKnowledgeCardResponse,
   PostAdminStepUpChallengeResponse,
   PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
@@ -105,9 +109,12 @@ import type {
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
   PostAssistantWebChatCompactResponse,
+  PostProductKnowledgeTextEntryResponse,
+  ProductKnowledgeTextEntryInput,
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
   PutAssistantSkillAssignmentsRequest,
+  SkillKnowledgeCardInput,
   SuccessResponse
 } from "./model";
 
@@ -3091,6 +3098,259 @@ export const getAdminKnowledgeConnectors = async (
 };
 
 /**
+ * @summary List Product KB text entries
+ */
+export type getAdminProductKnowledgeTextEntriesResponse200 = {
+  data: GetProductKnowledgeTextEntriesResponse;
+  status: 200;
+};
+
+export type getAdminProductKnowledgeTextEntriesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminProductKnowledgeTextEntriesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminProductKnowledgeTextEntriesResponseSuccess =
+  getAdminProductKnowledgeTextEntriesResponse200 & {
+    headers: Headers;
+  };
+export type getAdminProductKnowledgeTextEntriesResponseError = (
+  | getAdminProductKnowledgeTextEntriesResponse401
+  | getAdminProductKnowledgeTextEntriesResponse403
+) & {
+  headers: Headers;
+};
+
+export type getAdminProductKnowledgeTextEntriesResponse =
+  | getAdminProductKnowledgeTextEntriesResponseSuccess
+  | getAdminProductKnowledgeTextEntriesResponseError;
+
+export const getGetAdminProductKnowledgeTextEntriesUrl = () => {
+  return `/admin/knowledge-sources/product/text-entries`;
+};
+
+export const getAdminProductKnowledgeTextEntries = async (
+  options?: RequestInit
+): Promise<getAdminProductKnowledgeTextEntriesResponse> => {
+  return customFetch<getAdminProductKnowledgeTextEntriesResponse>(
+    getGetAdminProductKnowledgeTextEntriesUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Create a Product KB text entry
+ */
+export type postAdminProductKnowledgeTextEntryResponse200 = {
+  data: PostProductKnowledgeTextEntryResponse;
+  status: 200;
+};
+
+export type postAdminProductKnowledgeTextEntryResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminProductKnowledgeTextEntryResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminProductKnowledgeTextEntryResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminProductKnowledgeTextEntryResponseSuccess =
+  postAdminProductKnowledgeTextEntryResponse200 & {
+    headers: Headers;
+  };
+export type postAdminProductKnowledgeTextEntryResponseError = (
+  | postAdminProductKnowledgeTextEntryResponse400
+  | postAdminProductKnowledgeTextEntryResponse401
+  | postAdminProductKnowledgeTextEntryResponse403
+) & {
+  headers: Headers;
+};
+
+export type postAdminProductKnowledgeTextEntryResponse =
+  | postAdminProductKnowledgeTextEntryResponseSuccess
+  | postAdminProductKnowledgeTextEntryResponseError;
+
+export const getPostAdminProductKnowledgeTextEntryUrl = () => {
+  return `/admin/knowledge-sources/product/text-entries`;
+};
+
+export const postAdminProductKnowledgeTextEntry = async (
+  productKnowledgeTextEntryInput: ProductKnowledgeTextEntryInput,
+  options?: RequestInit
+): Promise<postAdminProductKnowledgeTextEntryResponse> => {
+  return customFetch<postAdminProductKnowledgeTextEntryResponse>(
+    getPostAdminProductKnowledgeTextEntryUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(productKnowledgeTextEntryInput)
+    }
+  );
+};
+
+/**
+ * @summary Update a Product KB text entry
+ */
+export type patchAdminProductKnowledgeTextEntryResponse200 = {
+  data: PostProductKnowledgeTextEntryResponse;
+  status: 200;
+};
+
+export type patchAdminProductKnowledgeTextEntryResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminProductKnowledgeTextEntryResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminProductKnowledgeTextEntryResponseSuccess =
+  patchAdminProductKnowledgeTextEntryResponse200 & {
+    headers: Headers;
+  };
+export type patchAdminProductKnowledgeTextEntryResponseError = (
+  | patchAdminProductKnowledgeTextEntryResponse400
+  | patchAdminProductKnowledgeTextEntryResponse404
+) & {
+  headers: Headers;
+};
+
+export type patchAdminProductKnowledgeTextEntryResponse =
+  | patchAdminProductKnowledgeTextEntryResponseSuccess
+  | patchAdminProductKnowledgeTextEntryResponseError;
+
+export const getPatchAdminProductKnowledgeTextEntryUrl = (entryId: string) => {
+  return `/admin/knowledge-sources/product/text-entries/${entryId}`;
+};
+
+export const patchAdminProductKnowledgeTextEntry = async (
+  entryId: string,
+  productKnowledgeTextEntryInput: ProductKnowledgeTextEntryInput,
+  options?: RequestInit
+): Promise<patchAdminProductKnowledgeTextEntryResponse> => {
+  return customFetch<patchAdminProductKnowledgeTextEntryResponse>(
+    getPatchAdminProductKnowledgeTextEntryUrl(entryId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(productKnowledgeTextEntryInput)
+    }
+  );
+};
+
+/**
+ * @summary Archive a Product KB text entry
+ */
+export type deleteAdminProductKnowledgeTextEntryResponse200 = {
+  data: DeleteProductKnowledgeTextEntryResponse;
+  status: 200;
+};
+
+export type deleteAdminProductKnowledgeTextEntryResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminProductKnowledgeTextEntryResponseSuccess =
+  deleteAdminProductKnowledgeTextEntryResponse200 & {
+    headers: Headers;
+  };
+export type deleteAdminProductKnowledgeTextEntryResponseError =
+  deleteAdminProductKnowledgeTextEntryResponse404 & {
+    headers: Headers;
+  };
+
+export type deleteAdminProductKnowledgeTextEntryResponse =
+  | deleteAdminProductKnowledgeTextEntryResponseSuccess
+  | deleteAdminProductKnowledgeTextEntryResponseError;
+
+export const getDeleteAdminProductKnowledgeTextEntryUrl = (entryId: string) => {
+  return `/admin/knowledge-sources/product/text-entries/${entryId}`;
+};
+
+export const deleteAdminProductKnowledgeTextEntry = async (
+  entryId: string,
+  options?: RequestInit
+): Promise<deleteAdminProductKnowledgeTextEntryResponse> => {
+  return customFetch<deleteAdminProductKnowledgeTextEntryResponse>(
+    getDeleteAdminProductKnowledgeTextEntryUrl(entryId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Enqueue reindexing for one Product KB text entry
+ */
+export type postAdminProductKnowledgeTextEntryReindexResponse200 = {
+  data: PostProductKnowledgeTextEntryResponse;
+  status: 200;
+};
+
+export type postAdminProductKnowledgeTextEntryReindexResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminProductKnowledgeTextEntryReindexResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminProductKnowledgeTextEntryReindexResponseSuccess =
+  postAdminProductKnowledgeTextEntryReindexResponse200 & {
+    headers: Headers;
+  };
+export type postAdminProductKnowledgeTextEntryReindexResponseError = (
+  | postAdminProductKnowledgeTextEntryReindexResponse404
+  | postAdminProductKnowledgeTextEntryReindexResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminProductKnowledgeTextEntryReindexResponse =
+  | postAdminProductKnowledgeTextEntryReindexResponseSuccess
+  | postAdminProductKnowledgeTextEntryReindexResponseError;
+
+export const getPostAdminProductKnowledgeTextEntryReindexUrl = (entryId: string) => {
+  return `/admin/knowledge-sources/product/text-entries/${entryId}/reindex`;
+};
+
+export const postAdminProductKnowledgeTextEntryReindex = async (
+  entryId: string,
+  options?: RequestInit
+): Promise<postAdminProductKnowledgeTextEntryReindexResponse> => {
+  return customFetch<postAdminProductKnowledgeTextEntryReindexResponse>(
+    getPostAdminProductKnowledgeTextEntryReindexUrl(entryId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
  * @summary Upload a global knowledge source into the selected scope
  */
 export type postAdminKnowledgeSourceUploadResponse200 = {
@@ -3804,6 +4064,207 @@ export const postAdminSkillDocumentReindex = async (
 ): Promise<postAdminSkillDocumentReindexResponse> => {
   return customFetch<postAdminSkillDocumentReindexResponse>(
     getPostAdminSkillDocumentReindexUrl(skillId, documentId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Create a Skill knowledge card
+ */
+export type postAdminSkillKnowledgeCardResponse200 = {
+  data: PostAdminSkillKnowledgeCardResponse;
+  status: 200;
+};
+
+export type postAdminSkillKnowledgeCardResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminSkillKnowledgeCardResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillKnowledgeCardResponseSuccess = postAdminSkillKnowledgeCardResponse200 & {
+  headers: Headers;
+};
+export type postAdminSkillKnowledgeCardResponseError = (
+  | postAdminSkillKnowledgeCardResponse400
+  | postAdminSkillKnowledgeCardResponse404
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillKnowledgeCardResponse =
+  | postAdminSkillKnowledgeCardResponseSuccess
+  | postAdminSkillKnowledgeCardResponseError;
+
+export const getPostAdminSkillKnowledgeCardUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}/knowledge-cards`;
+};
+
+export const postAdminSkillKnowledgeCard = async (
+  skillId: string,
+  skillKnowledgeCardInput: SkillKnowledgeCardInput,
+  options?: RequestInit
+): Promise<postAdminSkillKnowledgeCardResponse> => {
+  return customFetch<postAdminSkillKnowledgeCardResponse>(
+    getPostAdminSkillKnowledgeCardUrl(skillId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(skillKnowledgeCardInput)
+    }
+  );
+};
+
+/**
+ * @summary Update a Skill knowledge card
+ */
+export type patchAdminSkillKnowledgeCardResponse200 = {
+  data: PostAdminSkillKnowledgeCardResponse;
+  status: 200;
+};
+
+export type patchAdminSkillKnowledgeCardResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminSkillKnowledgeCardResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminSkillKnowledgeCardResponseSuccess =
+  patchAdminSkillKnowledgeCardResponse200 & {
+    headers: Headers;
+  };
+export type patchAdminSkillKnowledgeCardResponseError = (
+  | patchAdminSkillKnowledgeCardResponse400
+  | patchAdminSkillKnowledgeCardResponse404
+) & {
+  headers: Headers;
+};
+
+export type patchAdminSkillKnowledgeCardResponse =
+  | patchAdminSkillKnowledgeCardResponseSuccess
+  | patchAdminSkillKnowledgeCardResponseError;
+
+export const getPatchAdminSkillKnowledgeCardUrl = (skillId: string, cardId: string) => {
+  return `/admin/skills/${skillId}/knowledge-cards/${cardId}`;
+};
+
+export const patchAdminSkillKnowledgeCard = async (
+  skillId: string,
+  cardId: string,
+  skillKnowledgeCardInput: SkillKnowledgeCardInput,
+  options?: RequestInit
+): Promise<patchAdminSkillKnowledgeCardResponse> => {
+  return customFetch<patchAdminSkillKnowledgeCardResponse>(
+    getPatchAdminSkillKnowledgeCardUrl(skillId, cardId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(skillKnowledgeCardInput)
+    }
+  );
+};
+
+/**
+ * @summary Archive a Skill knowledge card
+ */
+export type deleteAdminSkillKnowledgeCardResponse200 = {
+  data: DeleteAdminSkillKnowledgeCardResponse;
+  status: 200;
+};
+
+export type deleteAdminSkillKnowledgeCardResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminSkillKnowledgeCardResponseSuccess =
+  deleteAdminSkillKnowledgeCardResponse200 & {
+    headers: Headers;
+  };
+export type deleteAdminSkillKnowledgeCardResponseError =
+  deleteAdminSkillKnowledgeCardResponse404 & {
+    headers: Headers;
+  };
+
+export type deleteAdminSkillKnowledgeCardResponse =
+  | deleteAdminSkillKnowledgeCardResponseSuccess
+  | deleteAdminSkillKnowledgeCardResponseError;
+
+export const getDeleteAdminSkillKnowledgeCardUrl = (skillId: string, cardId: string) => {
+  return `/admin/skills/${skillId}/knowledge-cards/${cardId}`;
+};
+
+export const deleteAdminSkillKnowledgeCard = async (
+  skillId: string,
+  cardId: string,
+  options?: RequestInit
+): Promise<deleteAdminSkillKnowledgeCardResponse> => {
+  return customFetch<deleteAdminSkillKnowledgeCardResponse>(
+    getDeleteAdminSkillKnowledgeCardUrl(skillId, cardId),
+    {
+      ...options,
+      method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Enqueue reindexing for one Skill knowledge card
+ */
+export type postAdminSkillKnowledgeCardReindexResponse200 = {
+  data: PostAdminSkillKnowledgeCardResponse;
+  status: 200;
+};
+
+export type postAdminSkillKnowledgeCardReindexResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminSkillKnowledgeCardReindexResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminSkillKnowledgeCardReindexResponseSuccess =
+  postAdminSkillKnowledgeCardReindexResponse200 & {
+    headers: Headers;
+  };
+export type postAdminSkillKnowledgeCardReindexResponseError = (
+  | postAdminSkillKnowledgeCardReindexResponse404
+  | postAdminSkillKnowledgeCardReindexResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminSkillKnowledgeCardReindexResponse =
+  | postAdminSkillKnowledgeCardReindexResponseSuccess
+  | postAdminSkillKnowledgeCardReindexResponseError;
+
+export const getPostAdminSkillKnowledgeCardReindexUrl = (skillId: string, cardId: string) => {
+  return `/admin/skills/${skillId}/knowledge-cards/${cardId}/reindex`;
+};
+
+export const postAdminSkillKnowledgeCardReindex = async (
+  skillId: string,
+  cardId: string,
+  options?: RequestInit
+): Promise<postAdminSkillKnowledgeCardReindexResponse> => {
+  return customFetch<postAdminSkillKnowledgeCardReindexResponse>(
+    getPostAdminSkillKnowledgeCardReindexUrl(skillId, cardId),
     {
       ...options,
       method: "POST"

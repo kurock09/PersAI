@@ -50,7 +50,7 @@ export class ListKnowledgeIndexingJobsService {
         OR: [
           { assistantId: assistant.id },
           {
-            sourceType: "skill_document",
+            sourceType: { in: ["skill_document", "skill_knowledge_card"] },
             skill: {
               assignments: {
                 some: {
@@ -76,7 +76,9 @@ export class ListKnowledgeIndexingJobsService {
     if (
       value === "assistant_knowledge_source" ||
       value === "global_knowledge_source" ||
-      value === "skill_document"
+      value === "skill_document" ||
+      value === "skill_knowledge_card" ||
+      value === "product_knowledge_text_entry"
     ) {
       return value;
     }

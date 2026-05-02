@@ -636,7 +636,7 @@ function AssistantActionChips({
   if (actions.length === 0) return null;
 
   return (
-    <div className="assistant-response-actions mt-1" data-testid="assistant-response-actions">
+    <div className="assistant-response-actions mt-4" data-testid="assistant-response-actions">
       {actions.slice(0, 4).map((action) => (
         <button
           key={action}

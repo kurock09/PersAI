@@ -2066,6 +2066,162 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/product/text-entries:
+    get:
+      operationId: getAdminProductKnowledgeTextEntries
+      summary: List Product KB text entries
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Product KB text entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetProductKnowledgeTextEntriesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminProductKnowledgeTextEntry
+      summary: Create a Product KB text entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductKnowledgeTextEntryInput"
+      responses:
+        "200":
+          description: Product KB text entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostProductKnowledgeTextEntryResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/product/text-entries/{entryId}:
+    patch:
+      operationId: patchAdminProductKnowledgeTextEntry
+      summary: Update a Product KB text entry
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: entryId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductKnowledgeTextEntryInput"
+      responses:
+        "200":
+          description: Product KB text entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostProductKnowledgeTextEntryResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Product KB text entry not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminProductKnowledgeTextEntry
+      summary: Archive a Product KB text entry
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: entryId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Product KB text entry archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteProductKnowledgeTextEntryResponse"
+        "404":
+          description: Product KB text entry not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/knowledge-sources/product/text-entries/{entryId}/reindex:
+    post:
+      operationId: postAdminProductKnowledgeTextEntryReindex
+      summary: Enqueue reindexing for one Product KB text entry
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: entryId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Product KB text entry indexing job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostProductKnowledgeTextEntryResponse"
+        "404":
+          description: Product KB text entry not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Product KB text entry is not active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/knowledge-sources/{scope}:
     post:
       operationId: postAdminKnowledgeSourceUpload
@@ -2615,6 +2771,157 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "500":
           description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/knowledge-cards:
+    post:
+      operationId: postAdminSkillKnowledgeCard
+      summary: Create a Skill knowledge card
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillKnowledgeCardInput"
+      responses:
+        "200":
+          description: Skill knowledge card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillKnowledgeCardResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/knowledge-cards/{cardId}:
+    patch:
+      operationId: patchAdminSkillKnowledgeCard
+      summary: Update a Skill knowledge card
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: cardId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SkillKnowledgeCardInput"
+      responses:
+        "200":
+          description: Skill knowledge card
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillKnowledgeCardResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill knowledge card not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminSkillKnowledgeCard
+      summary: Archive a Skill knowledge card
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: cardId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill knowledge card archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAdminSkillKnowledgeCardResponse"
+        "404":
+          description: Skill knowledge card not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/knowledge-cards/{cardId}/reindex:
+    post:
+      operationId: postAdminSkillKnowledgeCardReindex
+      summary: Enqueue reindexing for one Skill knowledge card
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: skillId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: cardId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Skill knowledge card indexing job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminSkillKnowledgeCardResponse"
+        "404":
+          description: Skill knowledge card not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Skill knowledge card is not active
           content:
             application/json:
               schema:
@@ -5225,6 +5532,22 @@ components:
         - assistant_knowledge_source
         - global_knowledge_source
         - skill_document
+        - skill_knowledge_card
+        - product_knowledge_text_entry
+    KnowledgeLifecycleStatus:
+      type: string
+      enum:
+        - draft
+        - active
+        - stale
+        - archived
+    KnowledgeAuthoringProvenanceKind:
+      type: string
+      enum:
+        - manual
+        - assistant_generated
+        - document_summary
+        - imported
     KnowledgeIndexingJobStatus:
       type: string
       enum:
@@ -5389,6 +5712,196 @@ components:
         updatedAt:
           type: string
           format: date-time
+    AuthoredKnowledgeProcessingFields:
+      type: object
+      required:
+        - status
+        - currentVersion
+        - chunkCount
+        - processorProviderKey
+        - processorMode
+        - processingQuality
+        - lastIndexedAt
+        - lastReindexRequestedAt
+        - lastErrorCode
+        - lastErrorMessage
+      properties:
+        status:
+          $ref: "#/components/schemas/AssistantKnowledgeSourceStatus"
+        currentVersion:
+          type: integer
+          minimum: 1
+        chunkCount:
+          type: integer
+          minimum: 0
+        processorProviderKey:
+          type: string
+          nullable: true
+        processorMode:
+          allOf:
+            - $ref: "#/components/schemas/KnowledgeIndexingJobProcessorMode"
+          nullable: true
+        processingQuality:
+          type: object
+          additionalProperties: true
+          nullable: true
+        lastIndexedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReindexRequestedAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+    SkillKnowledgeCardInput:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - body
+      properties:
+        title:
+          type: string
+          maxLength: 255
+        body:
+          type: string
+        locale:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        lifecycleStatus:
+          allOf:
+            - $ref: "#/components/schemas/KnowledgeLifecycleStatus"
+          nullable: true
+        provenanceKind:
+          $ref: "#/components/schemas/KnowledgeAuthoringProvenanceKind"
+        provenanceMetadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+    ProductKnowledgeTextEntryInput:
+      allOf:
+        - $ref: "#/components/schemas/SkillKnowledgeCardInput"
+        - type: object
+          properties:
+            category:
+              type: string
+              nullable: true
+    SkillKnowledgeCardState:
+      allOf:
+        - $ref: "#/components/schemas/AuthoredKnowledgeProcessingFields"
+        - type: object
+          required:
+            - id
+            - skillId
+            - title
+            - body
+            - locale
+            - tags
+            - lifecycleStatus
+            - provenanceKind
+            - provenanceMetadata
+            - archivedAt
+            - createdAt
+            - updatedAt
+          properties:
+            id:
+              type: string
+              format: uuid
+            skillId:
+              type: string
+              format: uuid
+            title:
+              type: string
+            body:
+              type: string
+            locale:
+              type: string
+              nullable: true
+            tags:
+              type: array
+              items:
+                type: string
+            lifecycleStatus:
+              $ref: "#/components/schemas/KnowledgeLifecycleStatus"
+            provenanceKind:
+              $ref: "#/components/schemas/KnowledgeAuthoringProvenanceKind"
+            provenanceMetadata:
+              type: object
+              additionalProperties: true
+              nullable: true
+            archivedAt:
+              type: string
+              format: date-time
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    ProductKnowledgeTextEntryState:
+      allOf:
+        - $ref: "#/components/schemas/AuthoredKnowledgeProcessingFields"
+        - type: object
+          required:
+            - id
+            - title
+            - body
+            - category
+            - locale
+            - tags
+            - lifecycleStatus
+            - provenanceKind
+            - provenanceMetadata
+            - archivedAt
+            - createdAt
+            - updatedAt
+          properties:
+            id:
+              type: string
+              format: uuid
+            title:
+              type: string
+            body:
+              type: string
+            category:
+              type: string
+              nullable: true
+            locale:
+              type: string
+              nullable: true
+            tags:
+              type: array
+              items:
+                type: string
+            lifecycleStatus:
+              $ref: "#/components/schemas/KnowledgeLifecycleStatus"
+            provenanceKind:
+              $ref: "#/components/schemas/KnowledgeAuthoringProvenanceKind"
+            provenanceMetadata:
+              type: object
+              additionalProperties: true
+              nullable: true
+            archivedAt:
+              type: string
+              format: date-time
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
     AdminSkillState:
       type: object
       required:
@@ -5406,6 +5919,7 @@ components:
         - createdAt
         - updatedAt
         - documents
+        - knowledgeCards
       properties:
         id:
           type: string
@@ -5446,6 +5960,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillDocumentState"
+        knowledgeCards:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillKnowledgeCardState"
     AssistantSkillCatalogItemState:
       type: object
       required:
@@ -5773,6 +6291,77 @@ components:
           $ref: "#/components/schemas/SkillDocumentState"
         indexingJob:
           $ref: "#/components/schemas/KnowledgeIndexingJobState"
+    PostAdminSkillKnowledgeCardResponse:
+      type: object
+      required:
+        - requestId
+        - card
+        - indexingJob
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        card:
+          $ref: "#/components/schemas/SkillKnowledgeCardState"
+        indexingJob:
+          allOf:
+            - $ref: "#/components/schemas/KnowledgeIndexingJobState"
+          nullable: true
+    DeleteAdminSkillKnowledgeCardResponse:
+      type: object
+      required:
+        - requestId
+        - archived
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        archived:
+          type: boolean
+          enum:
+            - true
+    GetProductKnowledgeTextEntriesResponse:
+      type: object
+      required:
+        - requestId
+        - entries
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductKnowledgeTextEntryState"
+    PostProductKnowledgeTextEntryResponse:
+      type: object
+      required:
+        - requestId
+        - entry
+        - indexingJob
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        entry:
+          $ref: "#/components/schemas/ProductKnowledgeTextEntryState"
+        indexingJob:
+          allOf:
+            - $ref: "#/components/schemas/KnowledgeIndexingJobState"
+          nullable: true
+    DeleteProductKnowledgeTextEntryResponse:
+      type: object
+      required:
+        - requestId
+        - archived
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        archived:
+          type: boolean
+          enum:
+            - true
     GetAssistantSkillsResponse:
       type: object
       required:

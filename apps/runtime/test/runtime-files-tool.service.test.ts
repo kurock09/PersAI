@@ -228,6 +228,23 @@ async function run(): Promise<void> {
       createdAt: new Date("2026-04-19T12:03:00.000Z")
     },
     {
+      id: "file-ref-artifact-copy",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "runtime_output" as const,
+      sourceToolCode: null,
+      objectKey: "assistant-media/runtime-output/hello-copy.txt",
+      relativePath: "artifacts/64b30d1b-c01b-4bc0-874c-f65de135b8b6/hello.txt",
+      displayName: "hello.txt",
+      mimeType: "text/plain",
+      sizeBytes: BigInt(21),
+      logicalSizeBytes: BigInt(21),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:03:30.000Z")
+    },
+    {
       id: "file-ref-generated-1",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
@@ -600,6 +617,31 @@ async function run(): Promise<void> {
   );
   assert.equal(sendFileRef.artifacts[0]?.filename, "custom-report.txt");
   assert.equal(sendFileRef.artifacts[0]?.caption, "Sandbox output");
+
+  const sendAmbiguousDuplicateByQuery = await service.executeToolCall({
+    bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
+    toolCall: {
+      id: "tool-call-send-duplicate-query",
+      name: "files",
+      arguments: {
+        action: "send",
+        query: "hello.txt"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4a",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(sendAmbiguousDuplicateByQuery.isError, false);
+  assert.equal(sendAmbiguousDuplicateByQuery.payload.action, "queued");
+  assert.equal(
+    sendAmbiguousDuplicateByQuery.payload.warning?.includes("same visible filename"),
+    true
+  );
+  assert.equal(sendAmbiguousDuplicateByQuery.payload.fileRefs[0], "file-ref-artifact");
+  assert.equal(sendAmbiguousDuplicateByQuery.artifacts[0]?.filename, "hello.txt");
 
   const writeAndSendResult = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
