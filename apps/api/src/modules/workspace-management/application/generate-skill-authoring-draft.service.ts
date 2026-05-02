@@ -219,13 +219,22 @@ export class GenerateSkillAuthoringDraftService {
         skillDraft: {
           type: "object",
           additionalProperties: false,
+          required: [
+            "name",
+            "description",
+            "category",
+            "tags",
+            "instructionCard",
+            "iconEmoji",
+            "color"
+          ],
           properties: {
             name: { $ref: "#/$defs/localizedText" },
             description: { $ref: "#/$defs/localizedText" },
-            category: { type: "string" },
+            category: { type: ["string", "null"] },
             tags: { type: "array", items: { type: "string" } },
             instructionCard: {
-              type: "object",
+              type: ["object", "null"],
               additionalProperties: false,
               required: ["title", "body", "guardrails", "examples"],
               properties: {
@@ -235,8 +244,8 @@ export class GenerateSkillAuthoringDraftService {
                 examples: { type: "array", items: { type: "string" } }
               }
             },
-            iconEmoji: { type: "string" },
-            color: { type: "string" }
+            iconEmoji: { type: ["string", "null"] },
+            color: { type: ["string", "null"] }
           }
         },
         knowledgeCards: {
@@ -261,8 +270,13 @@ export class GenerateSkillAuthoringDraftService {
       },
       $defs: {
         localizedText: {
-          type: "object",
-          additionalProperties: { type: "string" }
+          type: ["object", "null"],
+          additionalProperties: false,
+          required: ["en", "ru"],
+          properties: {
+            en: { type: ["string", "null"] },
+            ru: { type: ["string", "null"] }
+          }
         }
       }
     };

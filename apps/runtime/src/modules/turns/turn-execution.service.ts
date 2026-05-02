@@ -2756,7 +2756,7 @@ export class TurnExecutionService {
     switch (label) {
       case "skill_reference":
         return "skill";
-      case "product_reference":
+      case "product_kb":
         return "product";
       case "web_reference":
         return "web";

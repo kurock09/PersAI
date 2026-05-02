@@ -4,7 +4,6 @@ import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
 import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
-import { PERSAI_GLOBAL_KNOWLEDGE_DOCUMENTS } from "./persai-global-knowledge";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const DEFAULT_KNOWLEDGE_SEARCH_MAX_RESULTS = 5;
@@ -176,16 +175,6 @@ type PlanCatalogKnowledgeRow = {
       capabilityGroup: string;
     };
   }>;
-};
-
-type ToolCatalogKnowledgeRow = {
-  code: string;
-  displayName: string;
-  description: string | null;
-  toolClass: string;
-  capabilityGroup: string;
-  status: "active" | "inactive";
-  updatedAt: Date;
 };
 
 type WorkspaceSubscriptionKnowledgeRow = {
@@ -680,14 +669,8 @@ function resolveTextKnowledgeSourceWeight(row: TextKnowledgeDocumentRow): number
   if (row.source === "subscription") {
     return 10;
   }
-  if (row.referenceId.startsWith("global:product:")) {
-    return 12;
-  }
   if (row.referenceId.startsWith("global:plan:")) {
     return 8;
-  }
-  if (row.referenceId.startsWith("global:tool:")) {
-    return 7;
   }
   return 6;
 }
@@ -1009,7 +992,7 @@ export class ReadAssistantKnowledgeService {
     const query = this.readRequiredString(row.query, "query");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, preset, subscription, and global knowledge search are currently available."
+        "Only document, memory, chat, preset, subscription, and Product KB knowledge search are currently available."
       );
     }
 
@@ -1042,7 +1025,7 @@ export class ReadAssistantKnowledgeService {
     const referenceId = this.readRequiredString(row.referenceId, "referenceId");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, preset, subscription, and global knowledge fetch are currently available."
+        "Only document, memory, chat, preset, subscription, and Product KB knowledge fetch are currently available."
       );
     }
 
@@ -3161,49 +3144,32 @@ export class ReadAssistantKnowledgeService {
   private async loadGlobalKnowledgeDocuments(
     assistantId: string
   ): Promise<TextKnowledgeDocumentRow[]> {
-    const [assistant, plans, tools] = await Promise.all([
-      this.resolveAssistantKnowledgeContext(assistantId),
-      this.prisma.planCatalogPlan.findMany({
-        where: {
-          status: "active"
-        },
-        include: {
-          entitlement: true,
-          toolActivations: {
-            include: {
-              tool: {
-                select: {
-                  code: true,
-                  displayName: true,
-                  description: true,
-                  toolClass: true,
-                  capabilityGroup: true
-                }
+    void assistantId;
+    const plans = await this.prisma.planCatalogPlan.findMany({
+      where: {
+        status: "active"
+      },
+      include: {
+        entitlement: true,
+        toolActivations: {
+          include: {
+            tool: {
+              select: {
+                code: true,
+                displayName: true,
+                description: true,
+                toolClass: true,
+                capabilityGroup: true
               }
-            },
-            orderBy: [{ tool: { code: "asc" } }]
-          }
-        },
-        orderBy: [{ updatedAt: "desc" }, { code: "asc" }]
-      }),
-      this.prisma.toolCatalogTool.findMany({
-        where: {
-          status: "active"
-        },
-        orderBy: [{ displayName: "asc" }]
-      })
-    ]);
+            }
+          },
+          orderBy: [{ tool: { code: "asc" } }]
+        }
+      },
+      orderBy: [{ updatedAt: "desc" }, { code: "asc" }]
+    });
 
-    const documents: TextKnowledgeDocumentRow[] = PERSAI_GLOBAL_KNOWLEDGE_DOCUMENTS.map(
-      (document) => ({
-        referenceId: document.referenceId,
-        source: "global",
-        title: document.title,
-        locator: document.locator,
-        content: document.content,
-        metadata: document.metadata
-      })
-    );
+    const documents: TextKnowledgeDocumentRow[] = [];
 
     for (const plan of plans as PlanCatalogKnowledgeRow[]) {
       documents.push(
@@ -3221,53 +3187,6 @@ export class ReadAssistantKnowledgeService {
           }
         })
       );
-    }
-
-    for (const tool of (tools as ToolCatalogKnowledgeRow[]).filter(
-      (row) => !NON_PRODUCT_TOOL_CODES.has(row.code)
-    )) {
-      documents.push({
-        referenceId: `global:tool:${tool.code}`,
-        source: "global",
-        title: `Tool: ${tool.displayName}`,
-        locator: `tool:${tool.code}`,
-        content: [
-          `# ${tool.displayName}`,
-          `- Code: ${tool.code}`,
-          `- Capability group: ${tool.capabilityGroup}`,
-          `- Tool class: ${tool.toolClass}`,
-          tool.description ? `Description:\n${tool.description}` : null
-        ]
-          .filter((row): row is string => row !== null)
-          .join("\n\n"),
-        metadata: {
-          kind: "tool_catalog",
-          code: tool.code,
-          capabilityGroup: tool.capabilityGroup,
-          toolClass: tool.toolClass,
-          updatedAt: tool.updatedAt.toISOString()
-        }
-      });
-    }
-
-    if (assistant?.governance?.assistantPlanOverrideCode || assistant?.governance?.quotaPlanCode) {
-      documents.unshift({
-        referenceId: "global:product:current-plan-routing",
-        source: "global",
-        title: "Current Knowledge Routing Policy",
-        locator: "global:routing-policy",
-        content: [
-          "# Current Knowledge Routing Policy",
-          `- Assistant plan override: ${assistant.governance?.assistantPlanOverrideCode ?? "none"}`,
-          `- Quota plan: ${assistant.governance?.quotaPlanCode ?? "none"}`,
-          "- Global Product knowledge is a PersAI-owned indexed copy, not a direct read from external drives.",
-          "- Assistant-private uploaded documents can use hybrid lexical plus vector retrieval when the active plan configures an embedding model.",
-          "- Retrieval helper use stays optional and is resolved from the plan retrieval slot."
-        ].join("\n"),
-        metadata: {
-          kind: "knowledge_routing_policy"
-        }
-      });
     }
 
     return documents;

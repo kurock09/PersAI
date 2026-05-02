@@ -39,6 +39,26 @@ type GlobalKnowledgeChunkRow = {
   };
 };
 
+type ProductKnowledgeTextEntryChunkRow = {
+  workspaceId: string;
+  textEntryId: string;
+  sourceVersion: number;
+  chunkIndex: number;
+  locator: string | null;
+  content: string;
+  embeddingModelKey: string | null;
+  embeddingVector: unknown;
+  textEntry: {
+    id: string;
+    workspaceId: string;
+    title: string;
+    category: string | null;
+    locale: string | null;
+    lifecycleStatus: "draft" | "active" | "stale" | "archived";
+    status: "processing" | "ready" | "failed" | "needs_review";
+  };
+};
+
 type MemoryRegistryRow = {
   id: string;
   assistantId: string;
@@ -121,16 +141,6 @@ type PlanCatalogKnowledgeRow = {
     };
   }>;
   isDefaultFirstRegistrationPlan?: boolean;
-};
-
-type ToolCatalogKnowledgeRow = {
-  code: string;
-  displayName: string;
-  description: string | null;
-  toolClass: string;
-  capabilityGroup: string;
-  status: "active" | "inactive";
-  updatedAt: Date;
 };
 
 type WorkspaceSubscriptionKnowledgeRow = {
@@ -573,33 +583,84 @@ const planCatalogRows: PlanCatalogKnowledgeRow[] = [
   }
 ];
 
-const toolCatalogRows: ToolCatalogKnowledgeRow[] = [
+const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
   {
-    code: "web_search",
-    displayName: "Web Search",
-    description: "Provider-backed external web lookup tool.",
-    toolClass: "cost_driving",
-    capabilityGroup: "knowledge",
-    status: "active",
-    updatedAt: new Date("2026-04-14T09:00:00.000Z")
+    workspaceId: "workspace-1",
+    textEntryId: "product-text-1",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "product-kb:overview",
+    content:
+      "PersAI is a persistent assistant platform where product overview knowledge lives in admin-managed Product KB text entries.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    textEntry: {
+      id: "product-text-1",
+      workspaceId: "workspace-1",
+      title: "PersAI Product Overview",
+      category: "product_baseline",
+      locale: "en-US",
+      lifecycleStatus: "active",
+      status: "ready"
+    }
   },
   {
-    code: "browser",
-    displayName: "Browser",
-    description: "Automated browser for interactive page navigation and extraction.",
-    toolClass: "cost_driving",
-    capabilityGroup: "knowledge",
-    status: "active",
-    updatedAt: new Date("2026-04-14T09:00:00.000Z")
+    workspaceId: "workspace-1",
+    textEntryId: "product-text-2",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "product-kb:principles",
+    content:
+      "PersAI Product Principles: draft and publish lifecycle, admin control, memory controls, quotas, safety, and transparent degradation.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    textEntry: {
+      id: "product-text-2",
+      workspaceId: "workspace-1",
+      title: "PersAI Product Principles",
+      category: "product_baseline",
+      locale: "en-US",
+      lifecycleStatus: "active",
+      status: "ready"
+    }
   },
   {
-    code: "scheduled_action",
-    displayName: "Scheduled Action",
-    description: "Schedule reminders and hidden assistant follow-ups.",
-    toolClass: "utility",
-    capabilityGroup: "workspace_ops",
-    status: "active",
-    updatedAt: new Date("2026-04-14T09:00:00.000Z")
+    workspaceId: "workspace-1",
+    textEntryId: "product-text-draft",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "product-kb:draft",
+    content: "This draft Product KB entry must not be searchable.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    textEntry: {
+      id: "product-text-draft",
+      workspaceId: "workspace-1",
+      title: "Draft Product KB",
+      category: "product_baseline",
+      locale: "en-US",
+      lifecycleStatus: "draft",
+      status: "ready"
+    }
+  },
+  {
+    workspaceId: "workspace-1",
+    textEntryId: "product-text-archived",
+    sourceVersion: 1,
+    chunkIndex: 0,
+    locator: "product-kb:archived",
+    content: "This archived Product KB entry must not be searchable.",
+    embeddingModelKey: null,
+    embeddingVector: null,
+    textEntry: {
+      id: "product-text-archived",
+      workspaceId: "workspace-1",
+      title: "Archived Product KB",
+      category: "product_baseline",
+      locale: "en-US",
+      lifecycleStatus: "archived",
+      status: "ready"
+    }
   }
 ];
 
@@ -977,8 +1038,137 @@ async function run(): Promise<void> {
         }) ?? null
     },
     productKnowledgeTextEntryChunk: {
-      findMany: async () => [],
-      findFirst: async () => null
+      findMany: async ({
+        where,
+        take,
+        orderBy
+      }: {
+        where: Record<string, unknown>;
+        take?: number;
+        orderBy?: Array<{
+          textEntryId?: "asc" | "desc";
+          sourceVersion?: "asc" | "desc";
+          chunkIndex?: "asc" | "desc";
+        }>;
+      }) => {
+        const filtered = productKnowledgeTextEntryRows.filter((row) => {
+          if (where.workspaceId !== undefined && row.workspaceId !== where.workspaceId) {
+            return false;
+          }
+          if (where.textEntryId !== undefined && row.textEntryId !== where.textEntryId) {
+            return false;
+          }
+          if (where.sourceVersion !== undefined && row.sourceVersion !== where.sourceVersion) {
+            return false;
+          }
+          if (typeof where.chunkIndex === "number" && row.chunkIndex !== where.chunkIndex) {
+            return false;
+          }
+          if (
+            where.chunkIndex &&
+            typeof where.chunkIndex === "object" &&
+            where.chunkIndex !== null &&
+            ("gte" in where.chunkIndex || "lte" in where.chunkIndex)
+          ) {
+            const bounds = where.chunkIndex as { gte?: number; lte?: number };
+            if (bounds.gte !== undefined && row.chunkIndex < bounds.gte) {
+              return false;
+            }
+            if (bounds.lte !== undefined && row.chunkIndex > bounds.lte) {
+              return false;
+            }
+          }
+          const textEntryWhere = where.textEntry as Record<string, unknown> | undefined;
+          if (textEntryWhere) {
+            if (
+              textEntryWhere.workspaceId !== undefined &&
+              row.textEntry.workspaceId !== textEntryWhere.workspaceId
+            ) {
+              return false;
+            }
+            if (
+              textEntryWhere.status !== undefined &&
+              row.textEntry.status !== textEntryWhere.status
+            ) {
+              return false;
+            }
+            if (
+              textEntryWhere.lifecycleStatus !== undefined &&
+              row.textEntry.lifecycleStatus !== textEntryWhere.lifecycleStatus
+            ) {
+              return false;
+            }
+          }
+          if (Array.isArray(where.OR)) {
+            return where.OR.some((entry) => {
+              const contentWhere = (entry as { content?: { contains?: string } }).content;
+              if (typeof contentWhere?.contains === "string") {
+                return containsInsensitive(row.content, contentWhere.contains);
+              }
+
+              const locatorWhere = (entry as { locator?: { contains?: string } }).locator;
+              return typeof locatorWhere?.contains === "string" && row.locator !== null
+                ? containsInsensitive(row.locator, locatorWhere.contains)
+                : false;
+            });
+          }
+          return true;
+        });
+        const sorted = [...filtered].sort((left, right) => {
+          if (!Array.isArray(orderBy)) {
+            return 0;
+          }
+          for (const rule of orderBy) {
+            if (rule.textEntryId) {
+              const diff = left.textEntryId.localeCompare(right.textEntryId);
+              if (diff !== 0) {
+                return rule.textEntryId === "asc" ? diff : -diff;
+              }
+            }
+            if (rule.sourceVersion) {
+              const diff = left.sourceVersion - right.sourceVersion;
+              if (diff !== 0) {
+                return rule.sourceVersion === "asc" ? diff : -diff;
+              }
+            }
+            if (rule.chunkIndex) {
+              const diff = left.chunkIndex - right.chunkIndex;
+              if (diff !== 0) {
+                return rule.chunkIndex === "asc" ? diff : -diff;
+              }
+            }
+          }
+          return 0;
+        });
+        return typeof take === "number" ? sorted.slice(0, take) : sorted;
+      },
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        productKnowledgeTextEntryRows.find((row) => {
+          if (where.workspaceId !== undefined && row.workspaceId !== where.workspaceId) {
+            return false;
+          }
+          if (where.textEntryId !== undefined && row.textEntryId !== where.textEntryId) {
+            return false;
+          }
+          if (where.sourceVersion !== undefined && row.sourceVersion !== where.sourceVersion) {
+            return false;
+          }
+          if (where.chunkIndex !== undefined && row.chunkIndex !== where.chunkIndex) {
+            return false;
+          }
+          const textEntryWhere = where.textEntry as Record<string, unknown> | undefined;
+          if (!textEntryWhere) {
+            return true;
+          }
+          return (
+            (textEntryWhere.workspaceId === undefined ||
+              row.textEntry.workspaceId === textEntryWhere.workspaceId) &&
+            (textEntryWhere.status === undefined ||
+              row.textEntry.status === textEntryWhere.status) &&
+            (textEntryWhere.lifecycleStatus === undefined ||
+              row.textEntry.lifecycleStatus === textEntryWhere.lifecycleStatus)
+          );
+        }) ?? null
     },
     assistantMemoryRegistryItem: {
       findMany: async ({
@@ -1122,15 +1312,6 @@ async function run(): Promise<void> {
         }) ?? null,
       findMany: async ({ where }: { where: Record<string, unknown> }) =>
         planCatalogRows.filter((row) => {
-          if (where.status !== undefined) {
-            return row.status === where.status;
-          }
-          return true;
-        })
-    },
-    toolCatalogTool: {
-      findMany: async ({ where }: { where: Record<string, unknown> }) =>
-        toolCatalogRows.filter((row) => {
           if (where.status !== undefined) {
             return row.status === where.status;
           }
@@ -1325,7 +1506,8 @@ async function run(): Promise<void> {
     maxResults: 3
   });
   assert.equal(globalHits[0]?.source, "global");
-  assert.equal(globalHits[0]?.referenceId, "global:product:overview");
+  assert.equal(globalHits[0]?.referenceId, "product-text-entry:product-text-1:1:0");
+  assert.equal(globalHits[0]?.title, "PersAI Product Overview");
 
   const globalPlanHits = await service.search({
     assistantId: "assistant-1",
@@ -1336,6 +1518,21 @@ async function run(): Promise<void> {
   assert.equal(
     globalPlanHits.some((hit) => hit.referenceId === "global:plan:pro"),
     true
+  );
+
+  const inactiveProductKbHits = await service.search({
+    assistantId: "assistant-1",
+    source: "global",
+    query: "draft archived product kb",
+    maxResults: 5
+  });
+  assert.equal(
+    inactiveProductKbHits.some(
+      (hit) =>
+        hit.referenceId === "product-text-entry:product-text-draft:1:0" ||
+        hit.referenceId === "product-text-entry:product-text-archived:1:0"
+    ),
+    false
   );
 
   const uploadedGlobalHits = await service.search({
@@ -1350,10 +1547,11 @@ async function run(): Promise<void> {
   const globalFetched = await service.fetch({
     assistantId: "assistant-1",
     source: "global",
-    referenceId: "global:tool:browser"
+    referenceId: "product-text-entry:product-text-2:1:0"
   });
   assert.equal(globalFetched?.source, "global");
-  assert.ok((globalFetched?.content ?? "").includes("interactive page navigation"));
+  assert.equal(globalFetched?.title, "PersAI Product Principles");
+  assert.ok((globalFetched?.content ?? "").includes("admin control"));
 
   const uploadedGlobalFetched = await service.fetch({
     assistantId: "assistant-1",
@@ -1391,7 +1589,7 @@ async function run(): Promise<void> {
   const parsedGlobalFetch = service.parseFetchInput({
     assistantId: "assistant-1",
     source: "global",
-    referenceId: "global:product:overview"
+    referenceId: "product-text-entry:product-text-1:1:0"
   });
   assert.equal(parsedGlobalFetch.source, "global");
   assert.throws(
@@ -1401,7 +1599,7 @@ async function run(): Promise<void> {
         source: "database",
         query: "quota"
       }),
-    /Only document, memory, chat, preset, subscription, and global knowledge search/
+    /Only document, memory, chat, preset, subscription, and Product KB knowledge search/
   );
   assert.throws(
     () =>
@@ -1410,7 +1608,7 @@ async function run(): Promise<void> {
         source: "database",
         referenceId: "source-1:1:1"
       }),
-    /Only document, memory, chat, preset, subscription, and global knowledge fetch/
+    /Only document, memory, chat, preset, subscription, and Product KB knowledge fetch/
   );
 }
 

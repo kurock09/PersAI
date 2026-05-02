@@ -404,11 +404,16 @@ function createKnowledgeSearchToolDefinition(
   policy: RuntimeToolPolicy,
   sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
 ): ProviderGatewayToolDefinition {
+  const sourceDescriptions = sourceConfigs
+    .map(
+      (sourceConfig) => `${sourceConfig.source}: ${describeKnowledgeSource(sourceConfig.source)}`
+    )
+    .join("; ");
   return {
     name: "knowledge_search",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
+      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets. Use source global for Product KB text entries/files and plan catalog facts; think of it as Product KB, not a separate generic global base.",
       "May be called in parallel with other independent searches."
     ),
     inputSchema: {
@@ -419,7 +424,7 @@ function createKnowledgeSearchToolDefinition(
         source: {
           type: "string",
           enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
-          description: "Knowledge source namespace to search."
+          description: `Knowledge source namespace to search. Available meanings: ${sourceDescriptions}.`
         },
         query: {
           type: "string",
@@ -440,11 +445,16 @@ function createKnowledgeFetchToolDefinition(
   policy: RuntimeToolPolicy,
   sourceConfigs: RuntimeKnowledgeAccessSourceConfig[]
 ): ProviderGatewayToolDefinition {
+  const sourceDescriptions = sourceConfigs
+    .map(
+      (sourceConfig) => `${sourceConfig.source}: ${describeKnowledgeSource(sourceConfig.source)}`
+    )
+    .join("; ");
   return {
     name: "knowledge_fetch",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
+      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search. Use source global for Product KB references.",
       "May be called in parallel with other independent fetches when you already have the needed referenceIds."
     ),
     inputSchema: {
@@ -455,7 +465,7 @@ function createKnowledgeFetchToolDefinition(
         source: {
           type: "string",
           enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
-          description: "Knowledge source namespace for the reference."
+          description: `Knowledge source namespace for the reference. Available meanings: ${sourceDescriptions}.`
         },
         referenceId: {
           type: "string",
@@ -464,6 +474,25 @@ function createKnowledgeFetchToolDefinition(
       }
     }
   };
+}
+
+function describeKnowledgeSource(source: RuntimeKnowledgeAccessSourceConfig["source"]): string {
+  switch (source) {
+    case "document":
+      return "assistant/user uploaded knowledge";
+    case "memory":
+      return "assistant memory";
+    case "chat":
+      return "prior chat history";
+    case "preset":
+      return "platform prompt/preset internals";
+    case "subscription":
+      return "current workspace subscription and plan";
+    case "global":
+      return "Product KB, including admin-managed Product KB text entries/files and plan catalog facts";
+    default:
+      return source;
+  }
 }
 
 function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {

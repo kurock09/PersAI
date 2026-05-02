@@ -86,6 +86,7 @@ Active boundary rules:
 - `/admin/knowledge` owns the admin Product/Skill KB retrieval and authoring model slots (`embeddingModelKey`, `retrievalModelKey`, `authoringModelKey`); user-uploaded assistant knowledge remains plan-slot owned
 - retrieval observability is a durable API surface, not a process-local debug cache
 - ADR-080 Product KB text entries are admin-authored Knowledge sources, not user Files; save/activate is explicit and indexing remains async through the existing jobs
+- Product KB is the model-facing product knowledge concept. Product Overview and Product Principles are Product KB text entries visible in `/admin/knowledge`; runtime retrieval must not inject separate hard-coded product overview/principle documents. Pricing, plans, quotas, and plan differences remain sourced from the plan/subscription catalog and current workspace subscription state.
 
 ### Admin document processing
 

@@ -138,6 +138,24 @@ async function run(): Promise<void> {
     const providerRequest = capturedRequests[0] as {
       model?: string;
       provider?: string;
+      outputSchema?: {
+        schema?: {
+          properties?: {
+            skillDraft?: {
+              required?: string[];
+              properties?: {
+                name?: { $ref?: string };
+              };
+            };
+          };
+          $defs?: {
+            localizedText?: {
+              required?: string[];
+              additionalProperties?: boolean;
+            };
+          };
+        };
+      };
       requestMetadata?: {
         classification?: string;
         runtimeSessionId?: string | null;
@@ -149,6 +167,23 @@ async function run(): Promise<void> {
     assert.equal(providerRequest.requestMetadata?.classification, "admin_authoring");
     assert.equal(providerRequest.requestMetadata?.runtimeSessionId, null);
     assert.equal(providerRequest.requestMetadata?.toolLoopIteration, null);
+    assert.deepEqual(providerRequest.outputSchema?.schema?.properties?.skillDraft?.required, [
+      "name",
+      "description",
+      "category",
+      "tags",
+      "instructionCard",
+      "iconEmoji",
+      "color"
+    ]);
+    assert.equal(
+      providerRequest.outputSchema?.schema?.$defs?.localizedText?.additionalProperties,
+      false
+    );
+    assert.deepEqual(providerRequest.outputSchema?.schema?.$defs?.localizedText?.required, [
+      "en",
+      "ru"
+    ]);
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries(previousEnv)) {

@@ -86,6 +86,8 @@ The active retrieval-policy contract is plan-managed rather than hard-coded for 
 
 ADR-080 adds the target-state authoring layer for Skill and Product KB knowledge. Authored Skill knowledge cards and Product KB text entries are Knowledge sources, not Files. They carry admin lifecycle state (`draft`, `active`, `stale`, `archived`) separately from ADR-079 processing/indexing state (`processing`, `ready`, `failed`, `needs_review`). Draft and archived authored entries must not be injected into runtime retrieval; active entries enqueue or refresh normal ADR-079 indexing jobs.
 
+The built-in PersAI Product Overview and Product Principles documents are no longer code-owned runtime documents. They are seeded/backfilled as active `ProductKnowledgeTextEntry` rows so admins can see and edit them in Product KB. Runtime Product KB retrieval reads admin-managed Product KB text entries/files plus plan/subscription catalog facts for tariffs and quota differences; non-pricing product truth should not be hard-coded into runtime retrieval.
+
 Assistant-assisted Skill authoring currently returns a transient draft proposal rather than a persisted `KnowledgeAuthoringDraft` row. The proposal can fill editable Skill draft fields and draft-only knowledge-card editor content; durable `Skill` / `SkillKnowledgeCard` rows are written only when the admin explicitly saves, and runtime retrieval remains gated by `active` lifecycle plus indexing readiness.
 
 ## Durable assistant memory

@@ -1,5 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-079 Skill routing live fix) — short Skill-domain turns use admin Skill metadata before `simple_turn` (`apps/runtime`; focused check green)
+
+### What changed
+
+- Investigated live assistant `7fd2c02c-6663-4691-977d-feb3f706836d` after the founder reported Dietitian was enabled but not activated.
+- Live DB showed `Dietitian / Диетолог` active and `Mental Wellbeing / Психолог` disabled for the assistant, and the refreshed runtime bundle contained only the Dietitian Skill.
+- Persisted turn attempts showed the earlier diet-analysis turn selected the old Psychologist Skill, then later short nutrition turns finalized in runtime precheck as `simple_turn` with `useSkills=false`, so the Skill classifier was bypassed.
+- Fixed runtime precheck so short turns that match enabled Skill metadata across the recent user/assistant chat window trigger the semantic Skill classifier instead of falling through to `simple_turn`.
+- The fix is generic: it derives terms from the admin-managed enabled Skill metadata already materialized into the bundle (`name`, `description`, `tags`, `routingExamples`) and checks recent user + assistant messages, without hard-coding diet/nutrition vocabulary into runtime code.
+- Existing active Skill sticky reuse remains precheck-fast for ordinary continuations; forced/high-signal checks can still re-run the classifier for drift.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `ReadLints` on changed runtime files
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Deploy and retry the live Dietitian conversation. The expected routing snapshot is `source=classifier`, `useSkills=true`, and `selectedSkillIds` containing the active Dietitian Skill id.
+
+---
+
+## 2026-05-03 (ADR-080 assistant Skill authoring hotfix) — OpenAI strict schema accepts `skill_authoring_draft` (`apps/api`; focused checks green)
+
+### What changed
+
+- Investigated live `/admin/skills/:skillId/authoring/draft` failure shown in the UI as `HTTP 500`.
+- Provider-gateway logs showed OpenAI rejecting the structured output schema: `Invalid schema for response_format 'skill_authoring_draft': In context=(), object schema missing properties.`
+- Fixed the authoring output schema so strict-mode objects list all properties in `required`, with optional Skill draft values represented as nullable fields.
+- Added a regression assertion for the strict schema shape in the authoring draft service test.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/generate-skill-authoring-draft.service.test.ts`
+- `corepack pnpm --filter @persai/api run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Push/deploy the hotfix, then retry `Собрать с помощью агента` with the configured authoring model.
+
+---
+
+## 2026-05-03 (ADR-080 Product KB baseline consolidation) — Product Overview/Principles are admin-managed Product KB entries (`apps/api`, `apps/runtime`, `packages/runtime-contract`, docs; checks green)
+
+### What changed
+
+- Removed hidden hard-coded Product Overview and Product Principles runtime documents from `persai-global-knowledge`.
+- Added seeded/backfilled active `ProductKnowledgeTextEntry` rows for PersAI Product Overview and PersAI Product Principles so they are visible and editable under `/admin/knowledge`.
+- Kept tariffs/plans/quota differences sourced from plan/subscription catalog state rather than Product KB text hard-code.
+- Updated runtime/orchestrated retrieval so product grounding is labeled `product_kb` and uses admin-managed Product KB entries/files plus subscription/plan facts; prompt presets are no longer treated as Product Knowledge.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+
+### Next recommended step
+
+Run focused retrieval checks and AGENTS gates, then deploy/smoke a Product KB search for overview/principles plus a tariff/plan-difference question.
+
+---
+
 ## 2026-05-03 (ADR-080 assistant Skill authoring slice) — admin-only draft enrichment uses Admin Knowledge authoring model (`apps/api`, `apps/web`, `packages/contracts`, docs; checks green)
 
 ### What changed

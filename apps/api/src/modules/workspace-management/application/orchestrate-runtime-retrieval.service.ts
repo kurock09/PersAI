@@ -139,9 +139,8 @@ export class OrchestrateRuntimeRetrievalService {
           assistantId: input.assistantId,
           source: "product",
           execute: async () => [
-            ...(await this.searchKnowledgeSource(input, "global", "product_reference")),
-            ...(await this.searchKnowledgeSource(input, "preset", "product_reference")),
-            ...(await this.searchKnowledgeSource(input, "subscription", "product_reference"))
+            ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
+            ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
           ]
         }))
       );

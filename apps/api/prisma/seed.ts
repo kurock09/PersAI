@@ -10,6 +10,7 @@ import {
 import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { PERSONA_ARCHETYPE_DEFAULTS } from "./persona-archetype-data.js";
+import { PRODUCT_KB_SEED_TEXT_ENTRIES } from "./product-kb-seed-data.js";
 import { upsertToolCatalogEntry } from "./tool-catalog-sync.js";
 
 const prisma = new PrismaClient();
@@ -66,6 +67,60 @@ async function upsertPersonaArchetypes(): Promise<void> {
   }
 }
 
+async function seedProductKbTextEntries(): Promise<void> {
+  for (const entry of PRODUCT_KB_SEED_TEXT_ENTRIES) {
+    const existing = await prisma.productKnowledgeTextEntry.findFirst({
+      where: {
+        workspaceId: SEED_WORKSPACE_ID,
+        title: entry.title,
+        category: entry.category
+      },
+      select: { id: true }
+    });
+    if (existing !== null) {
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.productKnowledgeTextEntry.create({
+        data: {
+          workspaceId: SEED_WORKSPACE_ID,
+          createdByUserId: SEED_USER_ID,
+          title: entry.title,
+          body: entry.body,
+          category: entry.category,
+          locale: entry.locale,
+          tags: entry.tags,
+          lifecycleStatus: "active",
+          status: "ready",
+          provenanceKind: "manual",
+          provenanceMetadata: {
+            schema: "persai.productKbSeed.v1",
+            seedKey: entry.key,
+            migratedFrom: "persai_global_knowledge"
+          },
+          currentVersion: 1,
+          chunkCount: 1,
+          lastIndexedAt: new Date()
+        }
+      });
+      await tx.productKnowledgeTextEntryChunk.create({
+        data: {
+          textEntryId: created.id,
+          workspaceId: SEED_WORKSPACE_ID,
+          sourceVersion: 1,
+          chunkIndex: 0,
+          locator: entry.locator,
+          content: entry.body,
+          embeddingModelKey: null,
+          embeddingVector: null,
+          embeddingGeneratedAt: null
+        }
+      });
+    });
+  }
+}
+
 async function main(): Promise<void> {
   await upsertToolCatalog();
   await upsertPromptTemplates();
@@ -117,6 +172,8 @@ async function main(): Promise<void> {
       role: WorkspaceRole.owner
     }
   });
+
+  await seedProductKbTextEntries();
 
   await prisma.planCatalogPlan.updateMany({
     where: { isDefaultFirstRegistrationPlan: true, code: { not: SEED_DEFAULT_PLAN_CODE } },

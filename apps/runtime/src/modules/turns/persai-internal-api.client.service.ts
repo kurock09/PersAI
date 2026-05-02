@@ -1283,7 +1283,7 @@ export class PersaiInternalApiClientService {
       row !== null &&
       (row.label === "skill_reference" ||
         row.label === "user_document" ||
-        row.label === "product_reference" ||
+        row.label === "product_kb" ||
         row.label === "web_reference") &&
       typeof row.referenceId === "string" &&
       (row.title === null || typeof row.title === "string") &&

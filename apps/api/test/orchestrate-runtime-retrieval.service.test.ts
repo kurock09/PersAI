@@ -95,13 +95,13 @@ class FakeReadAssistantKnowledgeService {
     if (input.source === "global") {
       return [
         {
-          referenceId: "global:product:overview",
+          referenceId: "product-text-entry:product-text-1:1:0",
           source: "global",
           title: "PersAI Overview",
           locator: null,
-          snippet: "PersAI supports source-aware retrieval.",
+          snippet: "PersAI Product KB supports source-aware retrieval.",
           score: 7,
-          metadata: { kind: "product" }
+          metadata: { kind: "product_text_entry" }
         }
       ];
     }
@@ -121,15 +121,15 @@ class FakeReadAssistantKnowledgeService {
         metadata: { knowledgeSourceId: "source-1" }
       };
     }
-    if (input.referenceId === "global:product:overview") {
+    if (input.referenceId === "product-text-entry:product-text-1:1:0") {
       return {
-        referenceId: "global:product:overview",
+        referenceId: "product-text-entry:product-text-1:1:0",
         source: "global",
         title: "PersAI Overview",
         locator: null,
-        content: "PersAI uses source-aware retrieval context labels.",
-        snippet: "PersAI supports source-aware retrieval.",
-        metadata: { kind: "product" }
+        content: "PersAI Product KB uses source-aware retrieval context labels.",
+        snippet: "PersAI Product KB supports source-aware retrieval.",
+        metadata: { kind: "product_text_entry" }
       };
     }
     return null;
@@ -237,7 +237,7 @@ async function run(): Promise<void> {
     true
   );
   assert.equal(
-    context.items.some((item) => item.label === "product_reference"),
+    context.items.some((item) => item.label === "product_kb"),
     true
   );
   assert.equal(
@@ -272,7 +272,7 @@ async function run(): Promise<void> {
   assert.equal((skillItem.metadata as { vectorScore?: number }).vectorScore, 0.92);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat", "global", "preset", "subscription"]
+    ["document", "memory", "chat", "global", "subscription"]
   );
   assert.deepEqual(observability.searches[0], {
     workspaceId: "workspace-1",

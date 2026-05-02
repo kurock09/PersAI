@@ -362,7 +362,7 @@ export interface RuntimeSkillRoutingContext {
 export type RuntimeRetrievedKnowledgeSourceLabel =
   | "skill_reference"
   | "user_document"
-  | "product_reference"
+  | "product_kb"
   | "web_reference";
 
 export interface RuntimeRetrievedKnowledgeContextItem {

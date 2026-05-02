@@ -40,6 +40,7 @@ If API/data-model behavior changes, also add focused service/controller tests th
 4. Assistant-assisted drafts never activate or overwrite saved admin knowledge without an explicit admin save/apply action.
 5. Authored Knowledge entries remain Knowledge sources and do not become `AssistantFile` rows unless a separate Files action intentionally exports them.
 6. The Skill authoring model is resolved from the admin Knowledge `authoringModelKey` policy slot and generated proposals remain draft-only.
+7. Product KB baseline documents such as Product Overview and Product Principles are seeded/backfilled as active `ProductKnowledgeTextEntry` rows, are visible in Admin Knowledge, and are retrieved from Product KB entries/files rather than hard-coded runtime documents. Plan/tariff answers should still resolve from plan/subscription catalog state.
 
 If the admin UI surfaces change, add focused web checks that prove:
 

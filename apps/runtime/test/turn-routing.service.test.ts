@@ -70,7 +70,16 @@ function createBundle(
       toolTerms: string[];
     } | null;
   },
-  includeSkills = true
+  includeSkills = true,
+  enabledSkills?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    tags: string[];
+    iconEmoji: string;
+    routingExamples: string[];
+  }>
 ) {
   return compileAssistantRuntimeBundle({
     metadata: {
@@ -215,7 +224,7 @@ function createBundle(
     },
     skills: {
       enabled: includeSkills
-        ? [
+        ? (enabledSkills ?? [
             {
               id: "skill-accounting",
               name: "Accountant",
@@ -234,7 +243,7 @@ function createBundle(
               iconEmoji: "⚖️",
               routingExamples: ["Draft a contract clause", "Review legal risk"]
             }
-          ]
+          ])
         : []
     }
   }).bundle;
@@ -408,6 +417,80 @@ async function run(): Promise<void> {
   assert.equal(simpleEnabledSkillTurn.retrievalPlan.useSkills, false);
   assert.equal(providerGatewayClient.calls.length, 2);
 
+  providerGatewayClient.result = {
+    ...skillClassifierResult,
+    text: JSON.stringify({
+      executionMode: "normal",
+      retrievalHint: true,
+      toolHints: "knowledge",
+      confidence: "high",
+      clarifyNeeded: false,
+      fallbackMode: "normal",
+      reasonCode: "classifier_result",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-dietitian"],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "classifier_skill_plan"
+      }
+    })
+  };
+  const metadataSkillMatchDecision = await service.decide({
+    bundle: createBundle(undefined, true, [
+      {
+        id: "skill-dietitian",
+        name: "Диетолог",
+        description: "Помощник по питанию и составлению рациона под цели",
+        category: "personal",
+        tags: ["nutrition", "meal-planning"],
+        iconEmoji: "🥦",
+        routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
+      }
+    ]),
+    request: withSkillRoutingContext(createRequest("Сколько калорий?"), {
+      state: null,
+      currentUserMessageIndex: 3,
+      recentMessages: [{ role: "user", text: "Сколько калорий?" }]
+    }),
+    projectedTools
+  });
+  assert.equal(metadataSkillMatchDecision.source, "classifier");
+  assert.deepEqual(metadataSkillMatchDecision.retrievalPlan.selectedSkillIds, ["skill-dietitian"]);
+  assert.equal(providerGatewayClient.calls.length, 3);
+
+  const assistantContextSkillMatchDecision = await service.decide({
+    bundle: createBundle(undefined, true, [
+      {
+        id: "skill-dietitian",
+        name: "Диетолог",
+        description: "Помощник по питанию и составлению рациона под цели",
+        category: "personal",
+        tags: ["nutrition", "meal-planning"],
+        iconEmoji: "🥦",
+        routingExamples: ["Объясни, почему вес стоит при текущем количестве калорий."]
+      }
+    ]),
+    request: withSkillRoutingContext(createRequest("А подешевле?"), {
+      state: null,
+      currentUserMessageIndex: 4,
+      recentMessages: [
+        { role: "user", text: "Посчитай мой рацион" },
+        { role: "assistant", text: "Я посчитала калории и предложила рацион на неделю." },
+        { role: "user", text: "А подешевле?" }
+      ]
+    }),
+    projectedTools
+  });
+  assert.equal(assistantContextSkillMatchDecision.source, "classifier");
+  assert.deepEqual(assistantContextSkillMatchDecision.retrievalPlan.selectedSkillIds, [
+    "skill-dietitian"
+  ]);
+  assert.equal(providerGatewayClient.calls.length, 4);
+  providerGatewayClient.result = skillClassifierResult;
+
   const stickySkillDecision = await service.decide({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("А если изменить срок?"), {
@@ -433,7 +516,7 @@ async function run(): Promise<void> {
   assert.equal(stickySkillDecision.reasonCode, "sticky_skill_reuse");
   assert.deepEqual(stickySkillDecision.retrievalPlan.selectedSkillIds, ["skill-accounting"]);
   assert.equal(stickySkillDecision.autoSkillState?.messageCountSinceCheck, 3);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 4);
 
   providerGatewayClient.result = {
     ...skillClassifierResult,
@@ -485,7 +568,7 @@ async function run(): Promise<void> {
   assert.equal(driftRecheckDecision.autoSkillState?.checkedAtMessageIndex, 9);
   assert.equal(driftRecheckDecision.autoSkillState?.messageCountSinceCheck, 0);
   assert.match(
-    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[4]?.messages[0]?.content ?? ""),
     /Current auto Skill state: status=active/
   );
   providerGatewayClient.result = skillClassifierResult;
@@ -502,7 +585,7 @@ async function run(): Promise<void> {
   });
   assert.equal(noSkillsDecision.source, "precheck");
   assert.equal(noSkillsDecision.reasonCode, "simple_turn");
-  assert.equal(providerGatewayClient.calls.length, 3);
+  assert.equal(providerGatewayClient.calls.length, 5);
 
   const ambiguousDecision = await service.decide({
     bundle: createBundle(),
@@ -522,19 +605,19 @@ async function run(): Promise<void> {
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
-  assert.equal(providerGatewayClient.calls.length, 4);
-  assert.equal(providerGatewayClient.calls[3]?.requestMetadata?.classification, "turn_routing");
-  assert.equal(providerGatewayClient.calls[3]?.outputSchema?.name, "turn_route_decision");
+  assert.equal(providerGatewayClient.calls.length, 6);
+  assert.equal(providerGatewayClient.calls[5]?.requestMetadata?.classification, "turn_routing");
+  assert.equal(providerGatewayClient.calls[5]?.outputSchema?.name, "turn_route_decision");
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[3]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
     /Recent conversation tail/
   );
   assert.match(
-    String(providerGatewayClient.calls[3]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
     /Current user message:/
   );
   assert.match(
-    String(providerGatewayClient.calls[3]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
     /Enabled Skills summary: id=skill-accounting/
   );
   assert.doesNotMatch(

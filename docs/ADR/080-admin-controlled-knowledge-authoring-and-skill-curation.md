@@ -254,6 +254,8 @@ The Product KB page should support:
 
 Manual text editing is not a file upload workaround. It is a first-class Product KB source.
 
+Product KB is also the runtime-facing product knowledge label. Baseline product documents such as PersAI Product Overview and PersAI Product Principles must live as admin-managed Product KB text entries, not as hidden hard-coded runtime documents. Runtime retrieval may still expose plan/subscription facts from the billing/catalog model for tariffs, quotas, and plan differences, but non-pricing product truth should come from Product KB entries/files.
+
 ## Implementation order
 
 1. Add ADR/API/data-model contracts for authored Skill and Product KB text entries.

@@ -423,7 +423,9 @@ export class TurnRoutingService {
     const shouldUseClassifierForSkillRouting = this.shouldUseClassifierForAutoSkillRouting({
       request: input.request,
       lowerText,
+      enabledSkills,
       enabledSkillCount: enabledSkills.length,
+      hasActiveAutoSkill: activeAutoSkill !== null,
       retrievalTerms,
       toolTerms,
       availableHints
@@ -832,7 +834,7 @@ export class TurnRoutingService {
       }`,
       `productKnowledge=${
         availableHints.has("knowledge") &&
-        (sourceNames.has("global") || sourceNames.has("preset") || sourceNames.has("subscription"))
+        (sourceNames.has("global") || sourceNames.has("subscription"))
           ? "available"
           : "none"
       }`,
@@ -885,7 +887,9 @@ export class TurnRoutingService {
   private shouldUseClassifierForAutoSkillRouting(input: {
     request: RuntimeTurnRequest;
     lowerText: string;
+    enabledSkills: EnabledSkillSummary[];
     enabledSkillCount: number;
+    hasActiveAutoSkill: boolean;
     retrievalTerms: string[];
     toolTerms: string[];
     availableHints: Set<RoutingToolHint>;
@@ -899,7 +903,74 @@ export class TurnRoutingService {
     if (this.isHighSignalGroundingTurn(input)) {
       return true;
     }
+    if (input.hasActiveAutoSkill) {
+      return false;
+    }
+    if (
+      this.hasEnabledSkillLexicalMatch(
+        this.buildSkillRoutingMatchText(input.request, input.lowerText),
+        input.enabledSkills
+      )
+    ) {
+      return true;
+    }
     return false;
+  }
+
+  private buildSkillRoutingMatchText(request: RuntimeTurnRequest, lowerText: string): string {
+    const recentMessages = request.skillRoutingContext?.recentMessages ?? [];
+    const recentText = recentMessages
+      .slice(-8)
+      .map((message) => this.normalizeMessageText(message.text).toLowerCase())
+      .filter((text) => text.length > 0)
+      .join("\n");
+    return [recentText, lowerText]
+      .filter((part) => part.length > 0)
+      .join("\n")
+      .slice(-4_000);
+  }
+
+  private hasEnabledSkillLexicalMatch(
+    lowerText: string,
+    enabledSkills: EnabledSkillSummary[]
+  ): boolean {
+    if (lowerText.length < 4) {
+      return false;
+    }
+    return enabledSkills.some((skill) =>
+      this.buildSkillRoutingTerms(skill).some((term) => lowerText.includes(term))
+    );
+  }
+
+  private buildSkillRoutingTerms(skill: EnabledSkillSummary): string[] {
+    const terms = new Set<string>();
+    const values = [skill.name, skill.description, ...skill.tags, ...skill.routingExamples].filter(
+      (value): value is string => value !== null && value.trim().length > 0
+    );
+
+    for (const value of values) {
+      const tokens = this.tokenizeForSkillRouting(value);
+      for (const token of tokens) {
+        if (token.length >= 4) {
+          terms.add(token);
+        }
+        for (const stem of this.skillRoutingStems(token)) {
+          terms.add(stem);
+        }
+      }
+    }
+    return Array.from(terms).filter((term) => term.length >= 4);
+  }
+
+  private tokenizeForSkillRouting(value: string): string[] {
+    return Array.from(value.toLowerCase().matchAll(/[\p{L}\p{N}]+/gu), (match) => match[0]);
+  }
+
+  private skillRoutingStems(token: string): string[] {
+    if (!/^\p{L}+$/u.test(token) || token.length < 6) {
+      return [];
+    }
+    return token.length >= 8 ? [token.slice(0, 4), token.slice(0, 5)] : [token.slice(0, 4)];
   }
 
   private isHighSignalGroundingTurn(input: {
@@ -972,12 +1043,15 @@ export class TurnRoutingService {
 
   private buildTopicSummary(request: RuntimeTurnRequest): string | null {
     const messages = request.skillRoutingContext?.recentMessages ?? [];
-    const userTexts = messages
-      .filter((message) => message.role === "user")
-      .map((message) => this.normalizeMessageText(message.text))
-      .filter((text) => text.length > 0)
-      .slice(-3);
-    const summary = userTexts.join(" / ").slice(0, 240).trim();
+    const conversationTexts = messages
+      .slice(-6)
+      .map((message) => ({
+        role: message.role,
+        text: this.normalizeMessageText(message.text)
+      }))
+      .filter((message) => message.text.length > 0)
+      .map((message) => `${message.role}: ${message.text}`);
+    const summary = conversationTexts.join(" / ").slice(0, 240).trim();
     return summary.length === 0 ? null : summary;
   }
 
