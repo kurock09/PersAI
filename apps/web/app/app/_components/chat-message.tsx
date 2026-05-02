@@ -471,6 +471,20 @@ function ThoughtBlock({ message }: { message: ChatMessage }) {
   );
 }
 
+function isSafeMarkdownHref(href: unknown): href is string {
+  if (typeof href !== "string") {
+    return false;
+  }
+  const normalized = href.trim().toLowerCase();
+  return (
+    normalized.startsWith("https://") ||
+    normalized.startsWith("http://") ||
+    normalized.startsWith("mailto:") ||
+    normalized.startsWith("tel:") ||
+    normalized.startsWith("/api/assistant-file/")
+  );
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const markdownComponents: Record<string, React.ComponentType<any>> = {
   code: ({
@@ -512,16 +526,20 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
       {children}
     </td>
   ),
-  a: ({ children, ...props }: React.ComponentPropsWithoutRef<"a">) => (
-    <a
-      className="text-accent underline decoration-accent/30 hover:decoration-accent"
-      target="_blank"
-      rel="noopener noreferrer"
-      {...props}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ children, href, ...props }: React.ComponentPropsWithoutRef<"a">) =>
+    isSafeMarkdownHref(href) ? (
+      <a
+        className="text-accent underline decoration-accent/30 hover:decoration-accent"
+        target="_blank"
+        rel="noopener noreferrer"
+        href={href}
+        {...props}
+      >
+        {children}
+      </a>
+    ) : (
+      <span className="text-text-muted">{children}</span>
+    ),
   p: ({ children, ...props }: React.ComponentPropsWithoutRef<"p">) => (
     <p className="mb-3 last:mb-0 leading-relaxed" {...props}>
       {children}
@@ -736,16 +754,17 @@ function AttachmentStrip({
       {attachments.map((att) => {
         const isPending = att.processingStatus === "pending";
         const isFailed = att.processingStatus === "failed";
+        const isDeleted = att.fileDeleted === true;
         const progressLabel =
           isPending && typeof att.uploadProgressPercent === "number"
             ? `${String(att.uploadProgressPercent)}%`
             : null;
         const inlineUrl =
-          att.id.startsWith("local-") || !att.fileRef
+          isDeleted || att.id.startsWith("local-") || !att.fileRef
             ? undefined
             : getAssistantFileDownloadUrl(att.fileRef);
         const downloadUrl =
-          att.id.startsWith("local-") || !att.fileRef
+          isDeleted || att.id.startsWith("local-") || !att.fileRef
             ? undefined
             : getAssistantFileDownloadUrl(att.fileRef, { download: true });
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
@@ -854,13 +873,17 @@ function AttachmentStrip({
           <>
             {isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
+            ) : isDeleted ? (
+              <FileText className="h-3.5 w-3.5 text-text-subtle" />
             ) : (
               <Download className="h-3.5 w-3.5 text-text-subtle" />
             )}
             <span className="max-w-[150px] truncate text-text-muted">
               {att.originalFilename ?? "File"}
             </span>
-            <span className="text-text-subtle">{progressLabel ?? formatBytes(att.sizeBytes)}</span>
+            <span className="text-text-subtle">
+              {isDeleted ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
+            </span>
           </>
         );
 

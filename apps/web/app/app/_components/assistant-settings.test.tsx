@@ -36,6 +36,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   postAssistantRollback: vi.fn(),
   postAssistantReset: vi.fn(),
   getAssistantFiles: vi.fn(),
+  cleanupAssistantFilesCache: vi.fn(),
   patchAssistantFileDisplayName: vi.fn(),
   deleteAssistantFile: vi.fn(),
   uploadAssistantAvatar: vi.fn()
@@ -74,6 +75,7 @@ vi.mock("../assistant-api-client", async () => {
     postAssistantRollback: assistantApiMocks.postAssistantRollback,
     postAssistantReset: assistantApiMocks.postAssistantReset,
     getAssistantFiles: assistantApiMocks.getAssistantFiles,
+    cleanupAssistantFilesCache: assistantApiMocks.cleanupAssistantFilesCache,
     patchAssistantFileDisplayName: assistantApiMocks.patchAssistantFileDisplayName,
     deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar
@@ -236,7 +238,10 @@ beforeEach(() => {
     elevenlabs: null
   });
   assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([]);
-  assistantApiMocks.getAssistantFiles.mockResolvedValue([]);
+  assistantApiMocks.getAssistantFiles.mockResolvedValue({
+    files: [],
+    cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+  });
 });
 
 afterEach(() => {
@@ -353,8 +358,8 @@ describe("AssistantSettings character CTA", () => {
 
 describe("AssistantSettings Files", () => {
   it("renders a compact scrollable Files section with canonical file actions", async () => {
-    assistantApiMocks.getAssistantFiles.mockResolvedValue(
-      Array.from({ length: 12 }, (_, index) => ({
+    assistantApiMocks.getAssistantFiles.mockResolvedValue({
+      files: Array.from({ length: 12 }, (_, index) => ({
         fileRef: `file-ref-${index}`,
         origin:
           index % 3 === 0
@@ -367,9 +372,14 @@ describe("AssistantSettings Files", () => {
         mimeType: "application/pdf",
         sizeBytes: 1024 + index,
         logicalSizeBytes: 1024 + index,
+        fileBucket:
+          index % 3 === 0 ? "user_files" : index % 3 === 1 ? "assistant_created" : "media_uploads",
+        cleanupEligible: false,
+        cleanupReason: null,
         createdAt: "2026-05-02T00:00:00.000Z"
-      }))
-    );
+      })),
+      cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+    });
 
     renderSettings(makeAppData(), "files");
 
@@ -389,7 +399,64 @@ describe("AssistantSettings Files", () => {
       "href",
       "/api/assistant-file/file-ref-0?download=1"
     );
-    expect(screen.getByText("Spec 11.pdf").closest(".max-h-\\[360px\\]")).not.toBeNull();
+    expect(screen.getByText("User files")).toBeInTheDocument();
+    expect(screen.getByText("Created by assistant")).toBeInTheDocument();
+    expect(screen.getByText("Media")).toBeInTheDocument();
+  });
+
+  it("keeps cache history collapsed and cleans only eligible cache files", async () => {
+    assistantApiMocks.getAssistantFiles.mockResolvedValue({
+      files: [
+        {
+          fileRef: "file-user-1",
+          origin: "uploaded_attachment",
+          displayName: "notes.md",
+          filename: "notes.md",
+          mimeType: "text/markdown",
+          sizeBytes: 512,
+          logicalSizeBytes: 512,
+          fileBucket: "user_files",
+          cleanupEligible: false,
+          cleanupReason: null,
+          createdAt: "2026-05-02T00:00:00.000Z"
+        },
+        {
+          fileRef: "file-cache-1",
+          origin: "uploaded_attachment",
+          displayName: "voice-1.webm",
+          filename: "voice-1.webm",
+          mimeType: "audio/webm",
+          sizeBytes: 64,
+          logicalSizeBytes: 64,
+          fileBucket: "cache_history",
+          cleanupEligible: true,
+          cleanupReason: "voice_upload_cache",
+          createdAt: "2026-05-02T00:00:00.000Z"
+        }
+      ],
+      cleanup: { eligibleCount: 1, eligibleBytes: 64 }
+    });
+    assistantApiMocks.cleanupAssistantFilesCache.mockResolvedValue({
+      eligibleCount: 1,
+      eligibleBytes: 64,
+      deletedCount: 1,
+      deletedBytes: 64
+    });
+
+    renderSettings(makeAppData(), "files");
+
+    expect(await screen.findByText("notes.md")).toBeInTheDocument();
+    expect(screen.queryByText("voice-1.webm")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /History and cache/i }));
+    expect(screen.getByText("voice-1.webm")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clean cache" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clean" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.cleanupAssistantFilesCache).toHaveBeenCalledWith("token-1");
+    });
+    expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(screen.queryByText("voice-1.webm")).toBeNull();
   });
 });
 

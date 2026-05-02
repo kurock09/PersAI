@@ -172,7 +172,7 @@ This ADR should be implemented in large, complete slices. Do not split into tiny
 
 Goal: make `AssistantFile` the durable product authority for user-visible files at the API boundary.
 
-Status: implemented 2026-05-02 for chat/upload attachment origins. Chat attachments now link to `AssistantFile` through `assistant_file_id`, upload/inbound/delivery paths register canonical rows immediately, API/runtime attachment responses can carry `fileRef`, and the first assistant-scoped Files read APIs exist for list/search, metadata, download, rename/update metadata, and registry-row delete/archive semantics.
+Status: implemented 2026-05-02 for chat/upload attachment origins. Chat attachments now link to `AssistantFile` through `assistant_file_id`, upload/inbound/delivery paths register canonical rows immediately, API/runtime attachment responses can carry `fileRef`, and the first assistant-scoped Files read APIs exist for list/search, metadata, download, rename/update metadata, and registry-row delete/archive semantics. Live polish on 2026-05-02 fixed refresh-time download loss for generated delivery attachments by persisting existing runtime-generated `fileRef` values back to chat attachment rows before history reloads depend on them.
 
 Scope:
 
@@ -225,7 +225,7 @@ Out of scope:
 
 Goal: make `files` and Skill-assisted work use one stable file selector across uploads, generated outputs, and sandbox files.
 
-Status: implemented 2026-05-02 for runtime Files and Skill working-file behavior. Chat attachments are now presented in prompt hydration as working files with durable `fileRef`, the Files tool schema describes one unified fileRef-first surface across uploads/generated/sandbox files, and `files.read`/`files.edit`/`files.delete` mount resolved assistant Files into sandbox jobs by required `fileRef` before path-based sandbox operations. Focused tests cover uploaded PDF query -> read with required fileRef mount, ambiguous query choices with fileRef, sandbox-created file send, generated file search/read/send continuity, and working-file prompt hydration. Knowledge ingestion remains separate.
+Status: implemented 2026-05-02 for runtime Files and Skill working-file behavior. Chat attachments are now presented in prompt hydration as working files with durable `fileRef`, the Files tool schema describes one unified fileRef-first surface across uploads/generated/sandbox files, and `files.read`/`files.edit`/`files.delete` mount resolved assistant Files into sandbox jobs by required `fileRef` before path-based sandbox operations. Focused tests cover uploaded PDF query -> read with required fileRef mount, ambiguous query choices with fileRef, sandbox-created file send, generated file search/read/send continuity, and working-file prompt hydration. Live polish on 2026-05-02 confirmed non-deleted prior user/assistant files remain available to the agent by `fileRef`, while deleted chat attachments are filtered from runtime hydration so deletion is respected. Knowledge ingestion remains separate.
 
 Scope:
 
@@ -252,7 +252,7 @@ Out of scope:
 
 Goal: give the user one visible Files surface without introducing a separate top-level app route.
 
-Status: implemented 2026-05-02 for the first product Files surface. Assistant Settings now includes a compact Files section with search/refresh, provenance badges, inline scroll for large lists, and Open/Download/Rename/Delete actions backed by canonical `fileRef`. Chat attachment cards now use the canonical Files download/open route whenever `fileRef` exists, so chat cards and settings rows point to the same File without exposing `objectKey`, raw sandbox paths, or storage internals. Knowledge remains separate.
+Status: implemented 2026-05-02 for the first product Files surface. Assistant Settings now includes a compact mobile-first Files section with search/refresh, quiet collapsible groups, provenance badges, inline scroll for large lists, and Open/Download/Rename/Delete actions backed by canonical `fileRef`. Backend Files responses own the product grouping through `fileBucket`, `cleanupEligible`, and `cleanupReason`, so the web UI can group user files, assistant-created files, media, and history/cache without guessing from filenames. Chat attachment cards now use the canonical Files download/open route whenever `fileRef` exists, so chat cards and settings rows point to the same File without exposing `objectKey`, raw sandbox paths, or storage internals. Live polish on 2026-05-02 added quiet deleted-file projection: when a Files row is deleted, linked chat attachments render disabled metadata with `файл удалён` rather than a broken download state. The same polish also keeps delivered-file downloads in the attachment card by stripping/downgrading model-written markdown links to delivered filenames. Mobile download polish on 2026-05-02 fixed Cyrillic text/markdown content after Capacitor/Android downloads by declaring UTF-8 at the API boundary and adding a UTF-8 BOM for forced text downloads where legacy Android viewers need an in-file encoding hint. Cache cleanup is intentionally narrow and backend-owned: only cleanup-eligible history/cache artifacts such as voice-upload cache are removed, while user files, assistant-created/generated files, media uploads, Knowledge, and non-deleted working files remain. Knowledge remains separate.
 
 Scope:
 

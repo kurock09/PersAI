@@ -161,6 +161,12 @@ export class MediaDeliveryService {
       })
     });
     if (artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string") {
+      await this.assistantFileRegistryService.linkAttachmentToExistingFile({
+        assistantId: attachment.assistantId,
+        workspaceId: attachment.workspaceId,
+        sourceAttachmentId: attachment.id,
+        fileRef: artifact.fileRef
+      });
       attachment.assistantFileId = artifact.fileRef;
     } else {
       attachment.assistantFileId = (

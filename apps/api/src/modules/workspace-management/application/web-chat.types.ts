@@ -32,6 +32,7 @@ export interface AssistantWebChatMessageAttachmentState {
   mimeType: string;
   sizeBytes: number;
   processingStatus: string;
+  fileDeleted?: boolean;
   createdAt: string;
 }
 

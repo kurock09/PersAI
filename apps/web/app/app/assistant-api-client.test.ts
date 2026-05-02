@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
+  cleanupAssistantFilesCache,
   getAssistantFileDownloadUrl,
   getAssistantFiles,
   getChatCompactionState,
@@ -403,19 +404,66 @@ describe("assistant files client", () => {
               mimeType: "application/pdf",
               sizeBytes: 1024,
               logicalSizeBytes: 1024,
+              fileBucket: "user_files",
+              cleanupEligible: false,
+              cleanupReason: null,
               createdAt: "2026-05-02T00:00:00.000Z"
             }
-          ]
+          ],
+          cleanup: { eligibleCount: 1, eligibleBytes: 42 }
         }),
         { status: 200, headers: { "content-type": "application/json" } }
       )
     );
     global.fetch = fetchMock;
 
-    await expect(getAssistantFiles("token-1", { query: "spec", limit: 20 })).resolves.toHaveLength(
-      1
-    );
+    await expect(getAssistantFiles("token-1", { query: "spec", limit: 20 })).resolves.toEqual({
+      files: [
+        {
+          fileRef: "file-ref-1",
+          origin: "uploaded_attachment",
+          displayName: "spec.pdf",
+          filename: "spec.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1024,
+          logicalSizeBytes: 1024,
+          fileBucket: "user_files",
+          cleanupEligible: false,
+          cleanupReason: null,
+          createdAt: "2026-05-02T00:00:00.000Z"
+        }
+      ],
+      cleanup: { eligibleCount: 1, eligibleBytes: 42 }
+    });
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/assistant/files?q=spec&limit=20", {
+      headers: { Authorization: "Bearer token-1" }
+    });
+  });
+
+  it("cleans assistant file cache through the dedicated endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          cleanup: {
+            eligibleCount: 2,
+            eligibleBytes: 128,
+            deletedCount: 2,
+            deletedBytes: 128
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    global.fetch = fetchMock;
+
+    await expect(cleanupAssistantFilesCache("token-1")).resolves.toEqual({
+      eligibleCount: 2,
+      eligibleBytes: 128,
+      deletedCount: 2,
+      deletedBytes: 128
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/assistant/files/cleanup-cache", {
+      method: "POST",
       headers: { Authorization: "Bearer token-1" }
     });
   });
@@ -671,6 +719,32 @@ describe("streamAssistantWebChatTurn", () => {
       toolName: "summarize_context",
       toolCallId: "tool-1",
       isError: false
+    });
+  });
+
+  it("preserves Skill metadata on activity stream events", async () => {
+    const onActivity = vi.fn();
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: activity\ndata: ${JSON.stringify({ source: "skill", phase: "start", resultCount: 0, skillName: "Диетолог", skillIconEmoji: "🥦" })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      { onActivity }
+    );
+
+    expect(onActivity).toHaveBeenCalledWith({
+      source: "skill",
+      phase: "start",
+      resultCount: 0,
+      skillName: "Диетолог",
+      skillIconEmoji: "🥦"
     });
   });
 

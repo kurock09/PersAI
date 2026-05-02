@@ -150,6 +150,7 @@ export class PrepareAssistantInboundTurnService {
       mimeType: a.mimeType,
       sizeBytes: Number(a.sizeBytes),
       processingStatus: a.processingStatus,
+      ...(a.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
       createdAt: a.createdAt.toISOString()
     }));
 

@@ -161,7 +161,21 @@ export class MediaAttachmentController {
     });
     return {
       requestId: req.requestId ?? null,
-      files: files.map((file) => this.toFileState(file))
+      files: files.map((file) => this.toFileState(file)),
+      cleanup: this.toCleanupSummary(files)
+    };
+  }
+
+  @Post("assistant/files/cleanup-cache")
+  async cleanupAssistantFileCache(@Req() req: RequestWithPlatformContext) {
+    const assistant = await this.resolveRequestAssistant(req);
+    const cleanup = await this.assistantFileRegistryService.cleanupAssistantFileCache({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId
+    });
+    return {
+      requestId: req.requestId ?? null,
+      cleanup
     };
   }
 
@@ -199,8 +213,14 @@ export class MediaAttachmentController {
       fileRef
     });
 
+    const payload = this.prepareDownloadPayload({
+      buffer: result.buffer,
+      contentType: result.contentType,
+      forceDownload: download === "1"
+    });
+
     res.statusCode = 200;
-    res.setHeader("Content-Type", result.contentType);
+    res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     if (result.file.displayName) {
       res.setHeader(
@@ -211,7 +231,7 @@ export class MediaAttachmentController {
         )
       );
     }
-    res.end(result.buffer);
+    res.end(payload.buffer);
   }
 
   @Patch("assistant/files/:fileRef")
@@ -260,6 +280,57 @@ export class MediaAttachmentController {
     return `${mode}; filename="${sanitizedFilename}"; filename*=UTF-8''${encodedFilename}`;
   }
 
+  private prepareDownloadPayload(input: {
+    buffer: Buffer;
+    contentType: string;
+    forceDownload: boolean;
+  }): { buffer: Buffer; contentType: string } {
+    const contentType = this.withUtf8CharsetForText(input.contentType);
+    if (!input.forceDownload || !this.isUtf8BomHelpfulTextContent(contentType)) {
+      return { buffer: input.buffer, contentType };
+    }
+    if (
+      input.buffer.length >= 3 &&
+      input.buffer[0] === 0xef &&
+      input.buffer[1] === 0xbb &&
+      input.buffer[2] === 0xbf
+    ) {
+      return { buffer: input.buffer, contentType };
+    }
+    return { buffer: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), input.buffer]), contentType };
+  }
+
+  private withUtf8CharsetForText(contentType: string): string {
+    const [rawMimeType, ...params] = contentType.split(";");
+    const mimeType = (rawMimeType ?? contentType).trim().toLowerCase();
+    if (!this.isTextLikeContentType(mimeType) || params.some((param) => /charset=/i.test(param))) {
+      return contentType;
+    }
+    return `${mimeType}; charset=utf-8`;
+  }
+
+  private isTextLikeContentType(mimeTypeWithParams: string): boolean {
+    const mimeType = mimeTypeWithParams.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    return (
+      mimeType.startsWith("text/") ||
+      mimeType === "application/json" ||
+      mimeType === "application/x-ndjson" ||
+      mimeType === "application/xml" ||
+      mimeType === "application/yaml" ||
+      mimeType === "application/x-yaml"
+    );
+  }
+
+  private isUtf8BomHelpfulTextContent(contentType: string): boolean {
+    const mimeType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    return (
+      mimeType === "text/plain" ||
+      mimeType === "text/markdown" ||
+      mimeType === "text/csv" ||
+      mimeType === "text/tab-separated-values"
+    );
+  }
+
   private resolveRequestUserId(req: RequestWithPlatformContext): string {
     if (req.resolvedAppUser === undefined) {
       throw new UnauthorizedException("Authenticated user context is missing.");
@@ -293,8 +364,24 @@ export class MediaAttachmentController {
       mimeType: file.mimeType,
       sizeBytes: file.sizeBytes,
       logicalSizeBytes: file.logicalSizeBytes,
+      fileBucket: file.fileBucket,
+      cleanupEligible: file.cleanupEligible,
+      cleanupReason: file.cleanupReason,
       createdAt: file.createdAt.toISOString()
     };
+  }
+
+  private toCleanupSummary(files: AssistantFileRegistryRecord[]) {
+    return files.reduce(
+      (summary, file) =>
+        file.cleanupEligible
+          ? {
+              eligibleCount: summary.eligibleCount + 1,
+              eligibleBytes: summary.eligibleBytes + file.sizeBytes
+            }
+          : summary,
+      { eligibleCount: 0, eligibleBytes: 0 }
+    );
   }
 
   private basename(relativePath: string): string {

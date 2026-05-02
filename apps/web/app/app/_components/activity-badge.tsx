@@ -43,13 +43,12 @@ function renderActivityDetail(detail: string) {
   if (skillIconMatch === null) {
     return <span className="opacity-50">{detail}</span>;
   }
-  const [, beforeIcon, skillIcon, afterIcon] = skillIconMatch;
+  const beforeIcon = skillIconMatch[1] ?? "";
+  const skillIcon = skillIconMatch[2] ?? "";
+  const afterIcon = skillIconMatch[3] ?? "";
   return (
     <span className="inline-flex items-center gap-1 opacity-55">
-      <span>
-        {beforeIcon}
-        {afterIcon}
-      </span>
+      {beforeIcon.trimEnd().length > 0 ? <span>{beforeIcon.trimEnd()}</span> : null}
       <span
         className="text-[10px] opacity-60 grayscale"
         style={{ filter: "grayscale(1) saturate(0)" }}
@@ -57,6 +56,7 @@ function renderActivityDetail(detail: string) {
       >
         {skillIcon}
       </span>
+      {afterIcon.trimStart().length > 0 ? <span>{afterIcon.trimStart()}</span> : null}
     </span>
   );
 }

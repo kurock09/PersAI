@@ -1,5 +1,158 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-081 mobile text download encoding polish) — UTF-8 text downloads survive Capacitor/Android viewers (`apps/api`, `persai-mobile/android`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated live report that the same Cyrillic text/markdown file opens correctly after desktop web download but becomes mojibake after mobile Capacitor download.
+- Fixed the API file download boundary to emit `charset=utf-8` for text-like Files downloads and to prefix forced text/markdown/csv/tab-separated downloads with a UTF-8 BOM when absent. Inline/open responses keep the original bytes while still declaring UTF-8.
+- Normalized the Android Capacitor download listener MIME before passing it to `DownloadManager.setMimeType`, so `text/markdown; charset=utf-8` does not leak as an invalid MIME value.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/media-attachment.controller.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Live mobile smoke: generate or upload a `.md`/`.txt` file with Cyrillic content, download it through the Android Capacitor shell, open it from Downloads in the target viewer, and confirm Cyrillic content remains UTF-8.
+
+---
+
+## 2026-05-02 (ADR-081 mobile Files grouping and cache cleanup) — compact grouped Files UI with backend-owned cleanup safety (`apps/api`, `apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Reworked Assistant Settings Files from a flat technical list into one compact mobile-first list with quiet collapsible sections: user files, assistant-created files, media, and history/cache.
+- Added backend-owned classification on `AssistantFile` list responses: `fileBucket`, `cleanupEligible`, and `cleanupReason`. The web UI no longer guesses which files are cache.
+- Added safe cache cleanup through `POST /assistant/files/cleanup-cache`. The current cleanup policy is intentionally narrow: only voice-upload cache/history artifacts are cleanup-eligible; user documents, assistant-created files, generated files, media uploads, Knowledge, and non-deleted working files are preserved.
+- Added a quiet `Очистить кэш` action that only appears when cleanup-eligible bytes/items exist. It opens an inline confirm and removes only files the backend marks eligible.
+- Kept `История и кэш` collapsed by default; useful groups are expanded by default. Row layout is denser and more mobile-friendly with compact metadata and grouped touch targets.
+- Re-ran the runtime hydration guard to confirm deleted/cache-deleted attachments stay out of agent context while non-deleted prior files remain available by `fileRef`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-file-registry.cleanup.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Live mobile smoke: open Assistant Settings Files on a narrow viewport, verify useful groups are quiet/expanded, `История и кэш` is collapsed, `Очистить кэш` appears only with eligible voice cache, and cleanup does not remove user files or assistant-created files.
+
+---
+
+## 2026-05-02 (ADR-081 delivered file duplicate-link polish) — attachment banner is the download surface, not model markdown (`apps/api`, `apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated founder screenshot where the assistant delivered a real file card but also wrote a top inline markdown link like `[recommendations_diabetes_t1_weight_loss.md](recommendations_diabetes_t1_weight_loss.md)`.
+- Fixed final assistant-content post-processing so when files were actually delivered as chat attachments, standalone markdown file-link lines for those delivered filenames are removed from the persisted/final message. If the file link appears inside a meaningful sentence, the link is downgraded to plain filename text.
+- Hardened web markdown rendering so unsafe/relative links such as bare filenames are not rendered as clickable anchors. This prevents the pre-final streaming view from treating `filename.md` as an app-relative navigation that refreshes the page.
+- Kept the canonical file card/banner as the only download/open surface for delivered files.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Live retest: ask the assistant to create and send a markdown file. Expected result: no duplicate clickable filename link in the text after finalization; the file is available only via the attachment card below the message.
+
+---
+
+## 2026-05-02 (ADR-081 Files refresh/delete polish) — persisted `fileRef` downloads and quiet deleted-file cards (`apps/api`, `apps/runtime`, `apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Fixed the live refresh failure where a just-generated/sent file card could lose its active download link after page reload. Root cause: runtime-generated delivery paths that already had an `AssistantFile.fileRef` mutated the in-memory chat attachment but did not persist that existing `fileRef` onto `assistant_chat_message_attachments.assistant_file_id`, so history reloads returned `fileRef:null`.
+- Kept deletion quiet but explicit: deleting an `AssistantFile` now marks linked chat attachments with `fileDeleted` metadata before the FK nulls their `assistantFileId`; web history payloads carry `fileDeleted`, and chat cards render disabled metadata with `файл удалён` instead of a broken-looking download/icon state.
+- Confirmed the agent access path for non-deleted prior files: runtime context hydration already turns prior user/assistant chat attachments into working-file prompt entries with durable `fileRef` and Files-tool guidance. Deleted attachment rows are now filtered out during runtime hydration so the agent cannot resurrect a deleted file by re-registering its storage object.
+- Added focused regressions for refresh-style `fileRef` download cards, deleted-file display, and runtime hydration excluding deleted attachments while preserving previous-file access.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Next recommended step
+
+Deploy/retest ADR-081 live smoke: send a file, refresh the page, confirm the card still downloads; delete it from Files UI, refresh, confirm the chat card quietly says `файл удалён`; ask the assistant to use a non-deleted earlier uploaded/generated file and confirm it can resolve it by `fileRef`.
+
+---
+
+## 2026-05-02 (ADR-079 Skill badge SSE metadata fix) — Skill label survives live stream parser into final badge (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Investigated founder screenshot/live report that the Skill label still did not appear in the chat activity banner during or after a Skill-assisted answer.
+- Confirmed the runtime/API path already forwarded `skillName` and `skillIconEmoji` on `retrieval_activity` / web SSE `activity` events.
+- Found the real live break in `apps/web/app/app/assistant-api-client.ts`: the web SSE parser accepted `activity` events but dropped `skillName` and `skillIconEmoji`, so `useChat` never received the metadata in browser streams. Existing tests missed this because they mocked `onActivity` directly.
+- Preserved Skill metadata in the real SSE parser and added a regression that fails if those fields are dropped again.
+- Updated the chat activity detail to render a compact Skill label such as `Навык - 🥦`, keeping the Skill name in parsed metadata but out of the small banner to avoid long-name overflow.
+- Updated ADR-079 Step 13 ledger with the fix.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/use-chat.test.tsx app/app/_components/activity-badge.test.tsx`
+- `ReadLints` on changed web files
+
+### Next recommended step
+
+Deploy/retest the founder `Диетолог` live smoke. Expected evidence: during streaming and after finalization, the latest assistant activity badge shows the compact selected Skill label/icon (`Навык - 🥦`) instead of only `Ответ готов`.
+
+---
+
+## 2026-05-02 (ADR-078 founder backlog narrowing) — only ADR-074 R2 remains outside ADR-079/081 smoke (`docs`; docs-only)
+
+### What changed
+
+- Recorded founder validation that mobile shell reliability/rollout is working and no longer active ADR-078 backlog.
+- Recorded founder validation that assistant background-task final verification is working and no longer active ADR-078 backlog.
+- Narrowed runtime/tool efficiency follow-through to ADR-074 `R2` only.
+- Cancelled ADR-074 `R3` compound tools because growing the compound-tool surface would make tool choice more confusing rather than more reliable.
+- Updated the ADR-078 execution ledger and real-tail summary accordingly.
+
+### Verification
+
+- Documentation-only founder-decision reconciliation; no automated checks run.
+
+### Next recommended step
+
+Continue ADR-079/081 live validation. Outside those smoke tracks, the only active ADR-078 implementation tail is ADR-074 `R2`.
+
+---
+
+## 2026-05-02 (ADR-078 ledger reconciliation) — ADR-079/081 marked as live-smoke, real remaining tails clarified (`docs`; docs-only)
+
+### What changed
+
+- Reconciled `docs/ADR/078-consolidated-follow-through-program.md` with the current `SESSION-HANDOFF`, `CHANGELOG`, ADR-079, and ADR-081 implementation truth.
+- Marked ADR-079 Knowledge/Skills and ADR-081 Files as `live-smoke` instead of `planned`.
+- Clarified that ADR-079's remaining Step 13 work is deploy/reindex/live founder validation plus narrow validation fixes.
+- Clarified that ADR-081 slices 1-5 are implemented and only live Files smoke plus narrow smoke-discovered fixes remain.
+- Added a short current-tail section: excluding ADR-079/081 live smoke, the real remaining ADR-078 backlog is mobile shell reliability/rollout, ADR-074 `R2 -> R3` runtime/tool efficiency, and ADR-077 background-task final verification/test cleanup. Long-tail research remains deferred.
+
+### Verification
+
+- Documentation-only reconciliation; no automated checks run.
+
+### Next recommended step
+
+Continue founder live validation for ADR-081 Files and ADR-079 enabled Skill document retrieval. If live validation is clean, pick the next real ADR-078 backlog item in documented order.
+
+---
+
 ## 2026-05-02 (ADR-081 live Files auth/download hotfix) — Clerk guard restored for Files routes and no `chat.html` fallback (`apps/api`, `apps/web`; focused checks green)
 
 ### What changed

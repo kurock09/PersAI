@@ -32,6 +32,9 @@ function createAttachment(
 const fakeAssistantFileRegistry = {
   async ensureAttachmentFile(input: { sourceAttachmentId: string }) {
     return { fileRef: `file-${input.sourceAttachmentId}` };
+  },
+  async linkAttachmentToExistingFile() {
+    return undefined;
   }
 };
 
@@ -242,6 +245,84 @@ async function run(): Promise<void> {
   assert.equal(deletedObjectKey, "assistant-media/runtime-output/generated.png");
   assert.equal(nativeDelivered.attachments.length, 1);
   assert.equal(nativeDelivered.attachments[0]?.originalFilename, "generated.png");
+
+  const existingFileLinks: Array<{ sourceAttachmentId: string; fileRef: string }> = [];
+  const existingFileRefService = new MediaDeliveryService(
+    {
+      async create(input: {
+        storagePath: string;
+        originalFilename: string | null;
+        mimeType: string;
+        sizeBytes: bigint;
+      }) {
+        return createAttachment({
+          storagePath: input.storagePath,
+          originalFilename: input.originalFilename,
+          mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes
+        });
+      }
+    } as never,
+    [],
+    {
+      buildChatMessageObjectKey() {
+        return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-existing.png";
+      },
+      async downloadObject() {
+        return {
+          buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+          contentType: "image/png"
+        };
+      },
+      async saveObject(input: { mimeType: string; buffer: Buffer }) {
+        return {
+          objectKey:
+            "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/generated-existing.png",
+          sizeBytes: input.buffer.length,
+          mimeType: input.mimeType
+        };
+      },
+      async deleteObject() {}
+    } as never,
+    {
+      async ensureAttachmentFile() {
+        throw new Error("existing generated fileRef should not create a duplicate file row");
+      },
+      async linkAttachmentToExistingFile(input: { sourceAttachmentId: string; fileRef: string }) {
+        existingFileLinks.push(input);
+      }
+    } as never,
+    new PlatformHttpMetricsService()
+  );
+
+  const existingFileDelivered = await existingFileRefService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/generated-existing.png",
+        fileRef: "existing-file-ref-1",
+        type: "image",
+        mimeType: "image/png",
+        filename: "generated-existing.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+
+  assert.equal(existingFileDelivered.attachments[0]?.fileRef, "existing-file-ref-1");
+  assert.deepEqual(existingFileLinks, [
+    {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sourceAttachmentId: "att-1",
+      fileRef: "existing-file-ref-1"
+    }
+  ]);
 
   let persistedAttachmentDeletedObjectKey: string | null = null;
   const persistedAttachmentService = new MediaDeliveryService(

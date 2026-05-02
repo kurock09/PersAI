@@ -7,6 +7,14 @@ import { PersaiMediaObjectStorageService } from "./media/persai-media-object-sto
 type AttachmentBackedOrigin = Extract<SandboxFileOrigin, "uploaded_attachment" | "runtime_output">;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export type AssistantFileBucket =
+  | "user_files"
+  | "assistant_created"
+  | "media_uploads"
+  | "cache_history";
+
+export type AssistantFileCleanupReason = "voice_upload_cache" | null;
+
 export type AssistantFileRegistryRecord = {
   fileRef: string;
   assistantId: string;
@@ -20,7 +28,20 @@ export type AssistantFileRegistryRecord = {
   logicalSizeBytes: number | null;
   sha256: string | null;
   metadata: Record<string, unknown> | null;
+  fileBucket: AssistantFileBucket;
+  cleanupEligible: boolean;
+  cleanupReason: AssistantFileCleanupReason;
   createdAt: Date;
+};
+
+export type AssistantFileCleanupSummary = {
+  eligibleCount: number;
+  eligibleBytes: number;
+};
+
+export type AssistantFileCleanupResult = AssistantFileCleanupSummary & {
+  deletedCount: number;
+  deletedBytes: number;
 };
 
 @Injectable()
@@ -55,6 +76,18 @@ export class AssistantFileRegistryService {
       take: input.limit
     });
     return rows.map((row) => this.mapRow(row));
+  }
+
+  async summarizeCleanup(input: {
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<AssistantFileCleanupSummary> {
+    const files = await this.listAssistantFiles({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      limit: 1000
+    });
+    return this.summarizeCleanupFromFiles(files);
   }
 
   async findAssistantFile(input: {
@@ -120,8 +153,90 @@ export class AssistantFileRegistryService {
     if (existing === null) {
       throw new NotFoundException("File not found.");
     }
-    await this.prisma.assistantFile.delete({
-      where: { id: input.fileRef }
+    const linkedAttachments = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantFileId: input.fileRef,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      select: {
+        id: true,
+        metadata: true
+      }
+    });
+    const deletedAt = new Date().toISOString();
+    await this.prisma.$transaction([
+      ...linkedAttachments.map((attachment) =>
+        this.prisma.assistantChatMessageAttachment.update({
+          where: { id: attachment.id },
+          data: {
+            metadata: {
+              ...this.asMetadataObject(attachment.metadata),
+              fileDeleted: true,
+              deletedFileRef: input.fileRef,
+              deletedAt
+            } satisfies Prisma.InputJsonObject
+          }
+        })
+      ),
+      this.prisma.assistantFile.delete({
+        where: { id: input.fileRef }
+      })
+    ]);
+  }
+
+  async cleanupAssistantFileCache(input: {
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<AssistantFileCleanupResult> {
+    const files = await this.listAssistantFiles({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      limit: 1000
+    });
+    const eligible = this.summarizeCleanupFromFiles(files);
+    let deletedCount = 0;
+    let deletedBytes = 0;
+
+    for (const file of files.filter((candidate) => candidate.cleanupEligible)) {
+      await this.deleteAssistantFile({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        fileRef: file.fileRef
+      });
+      await this.mediaObjectStorage.deleteObject(file.objectKey).catch(() => {});
+      deletedCount += 1;
+      deletedBytes += file.sizeBytes;
+    }
+
+    return {
+      ...eligible,
+      deletedCount,
+      deletedBytes
+    };
+  }
+
+  async linkAttachmentToExistingFile(input: {
+    assistantId: string;
+    workspaceId: string;
+    sourceAttachmentId: string;
+    fileRef: string;
+  }): Promise<void> {
+    const existing = await this.findAssistantFile({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      fileRef: input.fileRef
+    });
+    if (existing === null) {
+      throw new NotFoundException("File not found.");
+    }
+    await this.prisma.assistantChatMessageAttachment.updateMany({
+      where: {
+        id: input.sourceAttachmentId,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      data: { assistantFileId: input.fileRef }
     });
   }
 
@@ -215,6 +330,12 @@ export class AssistantFileRegistryService {
     return `${prefix}/${referenceId}/${basename}`;
   }
 
+  private asMetadataObject(metadata: Prisma.JsonValue | null): Prisma.InputJsonObject {
+    return metadata !== null && typeof metadata === "object" && !Array.isArray(metadata)
+      ? (metadata as Prisma.InputJsonObject)
+      : {};
+  }
+
   private sanitizeAttachmentFilename(filename: string): string {
     const trimmed = filename.trim();
     const collapsed = trimmed.replace(/[\\/]+/g, "-");
@@ -240,6 +361,86 @@ export class AssistantFileRegistryService {
     return `${referenceId}.bin`;
   }
 
+  private summarizeCleanupFromFiles(
+    files: AssistantFileRegistryRecord[]
+  ): AssistantFileCleanupSummary {
+    return files.reduce(
+      (summary, file) =>
+        file.cleanupEligible
+          ? {
+              eligibleCount: summary.eligibleCount + 1,
+              eligibleBytes: summary.eligibleBytes + file.sizeBytes
+            }
+          : summary,
+      { eligibleCount: 0, eligibleBytes: 0 }
+    );
+  }
+
+  private classifyFile(input: {
+    origin: SandboxFileOrigin;
+    mimeType: string;
+    displayName: string | null;
+    relativePath: string;
+    metadata: Record<string, unknown> | null;
+  }): {
+    fileBucket: AssistantFileBucket;
+    cleanupEligible: boolean;
+    cleanupReason: AssistantFileCleanupReason;
+  } {
+    if (this.isVoiceUploadCache(input)) {
+      return {
+        fileBucket: "cache_history",
+        cleanupEligible: true,
+        cleanupReason: "voice_upload_cache"
+      };
+    }
+    if (input.origin === "runtime_output" || input.origin === "sandbox_output") {
+      return {
+        fileBucket: "assistant_created",
+        cleanupEligible: false,
+        cleanupReason: null
+      };
+    }
+    if (this.isMediaMime(input.mimeType)) {
+      return {
+        fileBucket: "media_uploads",
+        cleanupEligible: false,
+        cleanupReason: null
+      };
+    }
+    return {
+      fileBucket: "user_files",
+      cleanupEligible: false,
+      cleanupReason: null
+    };
+  }
+
+  private isMediaMime(mimeType: string): boolean {
+    return (
+      mimeType.startsWith("image/") ||
+      mimeType.startsWith("audio/") ||
+      mimeType.startsWith("video/")
+    );
+  }
+
+  private isVoiceUploadCache(input: {
+    origin: SandboxFileOrigin;
+    mimeType: string;
+    displayName: string | null;
+    relativePath: string;
+    metadata: Record<string, unknown> | null;
+  }): boolean {
+    if (input.origin !== "uploaded_attachment" || !input.mimeType.startsWith("audio/")) {
+      return false;
+    }
+    const source = input.metadata?.source;
+    if (source !== "chat_upload" && source !== "web_staged_upload") {
+      return false;
+    }
+    const name = (input.displayName ?? input.relativePath).toLowerCase();
+    return /(^|[/\\-])voice[-_]/.test(name) || name.includes("voice-note");
+  }
+
   private mapRow(row: {
     id: string;
     assistantId: string;
@@ -255,6 +456,17 @@ export class AssistantFileRegistryService {
     metadata: Prisma.JsonValue | null;
     createdAt: Date;
   }): AssistantFileRegistryRecord {
+    const metadata =
+      row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : null;
+    const classification = this.classifyFile({
+      origin: row.origin,
+      mimeType: row.mimeType,
+      displayName: row.displayName,
+      relativePath: row.relativePath,
+      metadata
+    });
     return {
       fileRef: row.id,
       assistantId: row.assistantId,
@@ -267,10 +479,8 @@ export class AssistantFileRegistryService {
       sizeBytes: Number(row.sizeBytes),
       logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
       sha256: row.sha256,
-      metadata:
-        row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
-          ? (row.metadata as Record<string, unknown>)
-          : null,
+      metadata,
+      ...classification,
       createdAt: row.createdAt
     };
   }

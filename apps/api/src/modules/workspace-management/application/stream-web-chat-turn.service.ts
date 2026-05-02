@@ -105,6 +105,7 @@ function toAttachmentState(attachment: {
   mimeType: string;
   sizeBytes: bigint;
   processingStatus: string;
+  metadata: Record<string, unknown> | null;
   createdAt: Date;
 }) {
   return {
@@ -115,6 +116,7 @@ function toAttachmentState(attachment: {
     mimeType: attachment.mimeType,
     sizeBytes: Number(attachment.sizeBytes),
     processingStatus: attachment.processingStatus,
+    ...(attachment.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
     createdAt: attachment.createdAt.toISOString()
   };
 }
@@ -522,6 +524,9 @@ export class StreamWebChatTurnService {
         assistantText: cleanedAccumulated,
         attemptedArtifactCount: collectedMedia.length,
         deliveredAttachmentCount: attachmentStates.length,
+        deliveredAttachmentFilenames: attachmentStates
+          .map((attachment) => attachment.originalFilename)
+          .filter((filename): filename is string => typeof filename === "string"),
         locale: prepared.welcomeLocale ?? null
       });
 
@@ -1234,12 +1239,14 @@ export class StreamWebChatTurnService {
     assistantText: string;
     attemptedArtifactCount: number;
     deliveredAttachmentCount: number;
+    deliveredAttachmentFilenames: string[];
     locale: string | null;
   }): Promise<string> {
     const finalAssistantContent = applyFinalDeliveryHonestyCorrection({
       assistantText: input.assistantText,
       attemptedArtifactCount: input.attemptedArtifactCount,
       deliveredAttachmentCount: input.deliveredAttachmentCount,
+      deliveredAttachmentFilenames: input.deliveredAttachmentFilenames,
       locale: input.locale
     });
     if (finalAssistantContent === input.assistantMessage.content) {

@@ -841,16 +841,21 @@ export class TurnContextHydrationService {
       author: message.author,
       content: message.content,
       createdAt: message.createdAt instanceof Date ? message.createdAt : null,
-      attachments: message.attachments.map((attachment) => ({
-        id: attachment.id,
-        attachmentType: attachment.attachmentType,
-        originalFilename: attachment.originalFilename,
-        mimeType: attachment.mimeType,
-        storagePath: attachment.storagePath,
-        sizeBytes: Number(attachment.sizeBytes),
-        transcription: attachment.transcription,
-        metadata: attachment.metadata as Record<string, unknown> | null
-      }))
+      attachments: message.attachments
+        .filter((attachment) => {
+          const metadata = this.asObject(attachment.metadata);
+          return metadata?.fileDeleted !== true;
+        })
+        .map((attachment) => ({
+          id: attachment.id,
+          attachmentType: attachment.attachmentType,
+          originalFilename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          storagePath: attachment.storagePath,
+          sizeBytes: Number(attachment.sizeBytes),
+          transcription: attachment.transcription,
+          metadata: attachment.metadata as Record<string, unknown> | null
+        }))
     }));
   }
 

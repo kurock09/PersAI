@@ -29,7 +29,7 @@ ADR-078 keeps only genuinely open work. Already landed or founder-verified work 
 
 ### 0. Knowledge, Skills, document processing, and orchestrated retrieval
 
-ADR-079 opens a new product/architecture block for the knowledge plane. It supersedes the old admin `scope=skill` concept as product truth and defines first-class Skills, provider-backed document processing, `pgvector` search behind an abstraction, router-owned retrieval planning, and orchestrated source-aware retrieval context.
+ADR-079 opened and implemented the product/architecture block for the knowledge plane. It supersedes the old admin `scope=skill` concept as product truth and defines first-class Skills, provider-backed document processing, `pgvector` search behind an abstraction, router-owned retrieval planning, and orchestrated source-aware retrieval context.
 
 This block should be executed as one coherent product architecture, not as visible partial UX:
 
@@ -47,8 +47,10 @@ Current guidance:
 
 - do not preserve the old `GlobalKnowledgeSource.scope=skill` as active product truth
 - do not add keyword-only Skill triggers
-- do not add seed/demo Skills
+- do not add throwaway demo Skills; the current base catalog is admin-curated product seed data for validation/onboarding
 - keep `knowledge_search` / `knowledge_fetch` as low-level tools while adding orchestration
+
+Current state: ADR-079 implementation is in Step 13 live validation. The remaining work is deploy/reindex/live evidence for enabled Skill document retrieval and small fixes found by that validation, not a reopen of the core architecture.
 
 ### 1. Mobile shell reliability and rollout
 
@@ -67,9 +69,11 @@ Current open themes inside this block:
 - push decision for mobile (`Telegram-only` vs native push)
 - richer mobile camera path only if it becomes a real product ask
 
+Current state: founder-verified as working on 2026-05-02. This block is closed unless a new mobile-specific production rollout issue is discovered.
+
 ### 2. Unified user Files architecture
 
-ADR-081 opens the active product/runtime file architecture block. It supersedes partial selector truth around chat `attachmentId`, turn-local `artifactId`, object-storage `objectKey`, and sandbox paths as model-facing concepts.
+ADR-081 opened and implemented the active product/runtime file architecture block. It supersedes partial selector truth around chat `attachmentId`, turn-local `artifactId`, object-storage `objectKey`, and sandbox paths as model-facing concepts.
 
 Target-state truth:
 
@@ -79,12 +83,15 @@ Target-state truth:
 - Knowledge remains a separate product plane and is not merged into Files.
 - no legacy or transition compatibility mode should be added for the current split.
 
+Current state: ADR-081 slices 1-5 are implemented. The remaining work is live smoke and fixes discovered by that smoke, especially around Assistant Settings Files, chat attachment projection, `fileRef` download/open, and Skill/tool file use.
+
 ### 3. Runtime/tool efficiency follow-through
 
-This block carries the still-open Phase 4 follow-through from ADR-074 in strict order:
+This block carries the still-open Phase 4 follow-through from ADR-074, narrowed by founder decision on 2026-05-02:
 
-1. `R2` — parallel tool calls plus explicit unused-parallelism guidance
-2. `R3` — first wave of compound tools
+1. `R2` — parallel tool calls plus explicit unused-parallelism guidance.
+
+`R3` compound tools are cancelled. The reason is product/runtime simplicity: adding more compound tools would grow the tool model and make tool choice more confusing instead of more reliable.
 
 No other ADR-074 slice remains active here.
 
@@ -100,6 +107,8 @@ This block is intentionally narrow:
 - cleanup of any remaining transition-state test debt
 
 It is not a reopen of the ADR-077 architecture.
+
+Current state: founder-verified as working on 2026-05-02. This block is closed unless a concrete regression appears.
 
 ### 5. Long-tail deferred research
 
@@ -125,14 +134,22 @@ These remain historical records only.
 
 ## Execution ledger
 
-| Program item                                                       | Status   | Notes                                                                                                                                                 |
-| ------------------------------------------------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Knowledge, Skills, document processing, and orchestrated retrieval | planned  | ADR-079 accepted; first-class Skills, provider-backed ingestion, `pgvector`, router `retrievalPlan`, and orchestrated source-aware context            |
-| Mobile shell reliability and rollout                               | planned  | Consolidates remaining ADR-075 and ADR-076 follow-through: offline hardening, measured Slice 7 decision, production rollout, iOS/store/push decisions |
-| Unified user Files architecture                                    | planned  | ADR-081 accepted; one Files product/runtime model, canonical `AssistantFile`, immediate `fileRef`, no model-facing `artifactId`/`objectKey` selectors |
-| Runtime/tool efficiency follow-through                             | planned  | ADR-074 `R2 -> R3` only                                                                                                                               |
-| Assistant background-task final verification/test cleanup          | planned  | Narrow ADR-077 closure hardening only                                                                                                                 |
-| Long-tail deferred research                                        | deferred | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                      |
+| Program item                                                       | Status       | Notes                                                                                                                                                                                         |
+| ------------------------------------------------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knowledge, Skills, document processing, and orchestrated retrieval | live-smoke   | ADR-079 implementation is complete through Step 12 plus follow-up hardening; Step 13 remains for deploy/reindex/live founder validation and narrow fixes discovered during that validation    |
+| Mobile shell reliability and rollout                               | completed    | Founder verified this path as working on 2026-05-02; reopen only for concrete mobile rollout regressions                                                                                      |
+| Unified user Files architecture                                    | live-smoke   | ADR-081 slices 1-5 are implemented; remaining work is live Files smoke after deploy plus narrow fixes found around `fileRef` list/open/download, chat projection, and Skill/tool file handling |
+| Runtime/tool efficiency follow-through                             | planned      | ADR-074 `R2` only; `R3` compound tools are cancelled by founder decision because they would grow/confuse the tool model                                                                       |
+| Assistant background-task final verification/test cleanup          | completed    | Founder verified this path as working on 2026-05-02; reopen only for concrete background-task regressions                                                                                     |
+| Long-tail deferred research                                        | deferred     | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                                                              |
+
+## Current real tails after ADR-079/081 implementation
+
+Excluding live smoke and validation fixes for ADR-079/081, the real remaining ADR-078 backlog is:
+
+1. Runtime/tool efficiency follow-through: ADR-074 `R2` only.
+
+Mobile shell reliability/rollout and assistant background-task final verification are founder-verified as working and are no longer active backlog. ADR-074 `R3` compound tools are cancelled. The long-tail research items stay deferred and should not be pulled into active work without new evidence or an explicit founder decision.
 
 ## Consequences
 

@@ -225,6 +225,8 @@ type WebChatStreamEvent =
         source: "skill" | "user" | "product" | "web";
         phase: "start";
         resultCount: number;
+        skillName?: string | null;
+        skillIconEmoji?: string | null;
       };
     }
   | {
@@ -842,7 +844,13 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       data: {
         source: body.source,
         phase: body.phase,
-        resultCount: Math.max(0, body.resultCount)
+        resultCount: Math.max(0, body.resultCount),
+        ...(typeof body.skillName === "string" || body.skillName === null
+          ? { skillName: body.skillName }
+          : {}),
+        ...(typeof body.skillIconEmoji === "string" || body.skillIconEmoji === null
+          ? { skillIconEmoji: body.skillIconEmoji }
+          : {})
       }
     };
   }
@@ -1957,6 +1965,7 @@ export type ChatHistoryAttachment = {
   mimeType: string;
   sizeBytes: number;
   processingStatus: string;
+  fileDeleted?: boolean;
   createdAt: string;
 };
 
@@ -3043,7 +3052,20 @@ export type AssistantFileState = {
   mimeType: string;
   sizeBytes: number;
   logicalSizeBytes: number | null;
+  fileBucket: "user_files" | "assistant_created" | "media_uploads" | "cache_history";
+  cleanupEligible: boolean;
+  cleanupReason: "voice_upload_cache" | null;
   createdAt: string;
+};
+
+export type AssistantFilesCleanupSummary = {
+  eligibleCount: number;
+  eligibleBytes: number;
+};
+
+export type AssistantFilesCleanupResult = AssistantFilesCleanupSummary & {
+  deletedCount: number;
+  deletedBytes: number;
 };
 
 export type AdminKnowledgeConnectorState = {
@@ -3160,7 +3182,7 @@ export async function uploadChatAttachment(
 export async function getAssistantFiles(
   token: string,
   options?: { query?: string | null; limit?: number }
-): Promise<AssistantFileState[]> {
+): Promise<{ files: AssistantFileState[]; cleanup: AssistantFilesCleanupSummary }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
   const query = options?.query?.trim();
@@ -3177,8 +3199,29 @@ export async function getAssistantFiles(
   if (!res.ok) {
     throw new Error(await readJsonErrorMessage(res, "Failed to load assistant files."));
   }
-  const data = (await res.json()) as { files: AssistantFileState[] };
-  return data.files;
+  const data = (await res.json()) as {
+    files: AssistantFileState[];
+    cleanup?: AssistantFilesCleanupSummary;
+  };
+  return {
+    files: data.files,
+    cleanup: data.cleanup ?? { eligibleCount: 0, eligibleBytes: 0 }
+  };
+}
+
+export async function cleanupAssistantFilesCache(
+  token: string
+): Promise<AssistantFilesCleanupResult> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/files/cleanup-cache`, {
+    method: "POST",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to clean assistant file cache."));
+  }
+  const data = (await res.json()) as { cleanup: AssistantFilesCleanupResult };
+  return data.cleanup;
 }
 
 export async function patchAssistantFileDisplayName(

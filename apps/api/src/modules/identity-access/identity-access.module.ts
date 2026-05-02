@@ -55,6 +55,7 @@ export class IdentityAccessModule implements NestModule {
       },
       { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },
       { path: "api/v1/assistant/files", method: RequestMethod.GET },
+      { path: "api/v1/assistant/files/cleanup-cache", method: RequestMethod.POST },
       { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.GET },
       { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.PATCH },
       { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.DELETE },

@@ -328,6 +328,32 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     );
   });
 
+  it("keeps history-loaded fileRef attachments downloadable after refresh", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              id: "persisted-att-1",
+              fileRef: "persisted-file-ref-1",
+              attachmentType: "document",
+              originalFilename: "after-refresh.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 2048,
+              processingStatus: "ready",
+              createdAt: "2026-05-02T10:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
+      "href",
+      "/api/assistant-file/persisted-file-ref-1?download=1"
+    );
+  });
+
   it("does not render a fallback download link when a committed file lacks fileRef", () => {
     render(
       <ChatMessageBubble
@@ -347,6 +373,29 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.queryByRole("link", { name: /legacy\.pdf/i })).toBeNull();
     expect(screen.getByText("legacy.pdf")).toBeInTheDocument();
+  });
+
+  it("renders a quiet deleted-file status instead of a broken download card", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              ...makeImageAttachment("att-deleted-file"),
+              attachmentType: "document",
+              originalFilename: "deleted.pdf",
+              mimeType: "application/pdf",
+              fileRef: null,
+              fileDeleted: true
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.queryByRole("link", { name: /deleted\.pdf/i })).toBeNull();
+    expect(screen.getByText("deleted.pdf")).toBeInTheDocument();
+    expect(screen.getByText("fileDeleted")).toBeInTheDocument();
   });
 });
 

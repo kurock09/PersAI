@@ -84,8 +84,13 @@ function toAttachmentState(input: {
   mimeType: string;
   sizeBytes: bigint;
   processingStatus: string;
+  metadata: Prisma.JsonValue | null;
   createdAt: Date;
 }): AssistantWebChatMessageAttachmentState {
+  const metadata =
+    input.metadata !== null && typeof input.metadata === "object" && !Array.isArray(input.metadata)
+      ? (input.metadata as Record<string, unknown>)
+      : null;
   return {
     id: input.id,
     fileRef: input.assistantFileId,
@@ -94,6 +99,7 @@ function toAttachmentState(input: {
     mimeType: input.mimeType,
     sizeBytes: Number(input.sizeBytes),
     processingStatus: input.processingStatus,
+    ...(metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
     createdAt: input.createdAt.toISOString()
   };
 }

@@ -425,6 +425,16 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
           sizeBytes: 32,
           transcription: null,
           metadata: { contentPreview: "first note preview" }
+        },
+        {
+          id: "attachment-deleted-1",
+          attachmentType: "document",
+          originalFilename: "deleted.pdf",
+          mimeType: "application/pdf",
+          storagePath: "assistant-media/chat-1/deleted.pdf",
+          sizeBytes: 32,
+          transcription: null,
+          metadata: { fileDeleted: true, deletedFileRef: "file-ref-deleted-1" }
         }
       ]
     },

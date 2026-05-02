@@ -276,6 +276,7 @@ export class ManageWebChatListService {
         mimeType: att.mimeType,
         sizeBytes: Number(att.sizeBytes),
         processingStatus: att.processingStatus,
+        ...(att.metadata?.fileDeleted === true ? { fileDeleted: true } : {}),
         createdAt: att.createdAt.toISOString()
       });
       attachmentsByMessageId.set(att.messageId, list);
