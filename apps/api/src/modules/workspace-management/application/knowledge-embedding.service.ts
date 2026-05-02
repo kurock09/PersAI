@@ -3,10 +3,12 @@ import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-pr
 
 const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
 const EMBEDDINGS_TIMEOUT_MS = 30_000;
+const OPENAI_PROVIDER_SECRET_KEY = "openai";
 
 @Injectable()
 export class KnowledgeEmbeddingService {
   private readonly logger = new Logger(KnowledgeEmbeddingService.name);
+  private missingCredentialWarned = false;
 
   constructor(
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
@@ -21,10 +23,7 @@ export class KnowledgeEmbeddingService {
       return normalizedTexts.map(() => null);
     }
 
-    const apiKey =
-      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
-        "tool_memory_search"
-      );
+    const apiKey = await this.resolveEmbeddingApiKey();
     if (apiKey === null) {
       return normalizedTexts.map(() => null);
     }
@@ -72,5 +71,22 @@ export class KnowledgeEmbeddingService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private async resolveEmbeddingApiKey(): Promise<string | null> {
+    const apiKey =
+      await this.platformRuntimeProviderSecretStoreService.resolveSecretValueByProviderKey(
+        OPENAI_PROVIDER_SECRET_KEY
+      );
+    if (apiKey !== null && apiKey.trim().length > 0) {
+      return apiKey;
+    }
+    if (!this.missingCredentialWarned) {
+      this.missingCredentialWarned = true;
+      this.logger.warn(
+        "Knowledge embedding credentials are not configured. Set the openai provider secret before indexing vector knowledge."
+      );
+    }
+    return null;
   }
 }

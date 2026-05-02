@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-079 live embedding credential fix) — Skill/Product embeddings use the configured OpenAI provider key (`apps/api`, `docs`; focused check green)
+
+### What changed
+
+- Fixed the live cause of `embeddingChunkCount=0` after the admin Knowledge policy backfill. `KnowledgeEmbeddingService` now uses the configured `openai` provider secret for OpenAI embeddings, matching the same provider-key truth used by runtime chat.
+- Added a warning when neither embedding credential exists, so future reindex runs do not silently complete with plain chunks and no vectors.
+- Added a focused regression covering OpenAI provider credential use and the missing-credential no-fetch path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-embedding.service.test.ts`
+- Live GKE pre-fix evidence: `api/runtime/provider-gateway` were on `6ed58b5b`, admin policy save queued 4 Skill document reindex jobs, extraction completed through Mistral, but all jobs still had `embeddingChunkCount=0`; `knowledge_vector_chunks` for `skill_id=7f581145-2806-48e3-b671-1160de592faf` were empty; the normal `openai` provider secret existed and should be the embedding credential source.
+
+### Next recommended step
+
+Run focused/full gates, deploy this API fix, save `/admin/knowledge` retrieval policy again to queue another backfill, then verify the same Skill document jobs finish with `embeddingChunkCount > 0` and `knowledge_vector_chunks` rows exist for `skill_id=7f581145-2806-48e3-b671-1160de592faf`.
+
+---
+
 ## 2026-05-02 (ADR-079 Skill/Product semantic retrieval backfill) — admin KB policy now reindexes missing vectors and Skill retrieval fetches exact windows (`apps/api`, `docs`; focused checks green)
 
 ### What changed
