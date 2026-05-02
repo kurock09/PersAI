@@ -135,9 +135,20 @@ async function run(): Promise<void> {
     assert.equal(proposal.knowledgeCards[0]?.lifecycleStatus, "draft");
     assert.equal(proposal.knowledgeCards[0]?.provenanceKind, "assistant_generated");
 
-    const providerRequest = capturedRequests[0] as { model?: string; provider?: string };
+    const providerRequest = capturedRequests[0] as {
+      model?: string;
+      provider?: string;
+      requestMetadata?: {
+        classification?: string;
+        runtimeSessionId?: string | null;
+        toolLoopIteration?: number | null;
+      };
+    };
     assert.equal(providerRequest.provider, "openai");
     assert.equal(providerRequest.model, "gpt-5.1");
+    assert.equal(providerRequest.requestMetadata?.classification, "admin_authoring");
+    assert.equal(providerRequest.requestMetadata?.runtimeSessionId, null);
+    assert.equal(providerRequest.requestMetadata?.toolLoopIteration, null);
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries(previousEnv)) {

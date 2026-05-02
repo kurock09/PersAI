@@ -132,7 +132,7 @@ export class GenerateSkillAuthoringDraftService {
         schema: this.buildOutputSchema()
       },
       requestMetadata: {
-        classification: "main_turn",
+        classification: "admin_authoring",
         runtimeRequestId: null,
         runtimeSessionId: null,
         toolLoopIteration: null,

@@ -1662,7 +1662,8 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   // that asks the model to extract durable human-voiced notes from the
   // compacted slice and writes them through the M1 memory_write path.
   "auto_extract_to_memory",
-  "background_task_evaluation"
+  "background_task_evaluation",
+  "admin_authoring"
 ] as const;
 
 export type ProviderGatewayRequestClassification =
