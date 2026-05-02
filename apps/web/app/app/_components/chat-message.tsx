@@ -636,10 +636,7 @@ function AssistantActionChips({
   if (actions.length === 0) return null;
 
   return (
-    <div
-      className="flex flex-col items-start gap-1.5 pt-1 sm:flex-row sm:flex-wrap"
-      data-testid="assistant-response-actions"
-    >
+    <div className="assistant-response-actions mt-1" data-testid="assistant-response-actions">
       {actions.slice(0, 4).map((action) => (
         <button
           key={action}

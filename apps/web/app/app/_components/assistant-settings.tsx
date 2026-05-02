@@ -783,7 +783,20 @@ export function AssistantSettings({
 
   const activeTaskItems = taskItems.filter((item) => item.controlStatus === "active");
   const userTaskItems = activeTaskItems.filter((item) => item.audience === "user");
-  const assistantTaskItems = backgroundTaskItems.filter((item) => item.status !== "cancelled");
+  const assistantTaskItems = backgroundTaskItems
+    .filter((item) => item.status !== "cancelled")
+    .reduce<AssistantBackgroundTaskItemState[]>((items, item) => {
+      if (item.status === "completed" && item.recentRuns.length === 0) {
+        return items;
+      }
+      if (
+        item.status === "completed" &&
+        items.filter((candidate) => candidate.status === "completed").length >= 5
+      ) {
+        return items;
+      }
+      return [...items, item];
+    }, []);
   // ADR-074 Slice M3.3 — Memory Center UX merge. The Workspace tab shows
   // workspace_memory_items + structured registry rows (kind ∈ {fact,
   // preference, open_loop}) deduplicated by normalized text; the History
@@ -2132,81 +2145,104 @@ export function AssistantSettings({
                     <p className="mt-3 text-xs text-text-subtle">{t("noAssistantActions")}</p>
                   ) : (
                     <ul className="mt-3 space-y-2.5">
-                      {assistantTaskItems.map((item) => (
-                        <li
-                          key={item.id}
-                          className="rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
-                        >
-                          <div className="flex flex-wrap items-start gap-2">
-                            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
-                              {item.title}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                              {t("assistantAction")}
-                            </span>
-                            <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
-                              {getBackgroundTaskStatusLabel(item.status)}
-                            </span>
-                          </div>
-                          <p className="mt-1.5 text-[11px] text-text-subtle">
-                            {getBackgroundTaskTimingLabel(item)}
-                          </p>
-                          <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                            {item.brief}
-                          </p>
-                          {item.recentRuns.length > 0 && (
-                            <div className="mt-3 rounded-lg border border-border/60 bg-surface-raised/40 p-2.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
-                                {t("runHistory")}
-                              </p>
-                              <ul className="mt-1.5 space-y-1">
-                                {item.recentRuns.map((run) => (
-                                  <li key={run.id} className="text-[11px] text-text-subtle">
-                                    {formatBackgroundRunLine(run)}
-                                    {run.pushText && (
-                                      <span className="mt-0.5 block text-text-muted">
-                                        {run.pushText}
-                                      </span>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
-                            <div className="flex gap-1.5">
-                              {item.status === "active" && (
-                                <ActionButton
-                                  icon={<RotateCcw className="h-3 w-3" />}
-                                  label={t("disable")}
-                                  onClick={() =>
-                                    void handleBackgroundTaskAction(item.id, "disable")
-                                  }
-                                  busy={taskActionId === item.id}
-                                  className="px-2.5 py-1.5"
-                                />
-                              )}
-                              {item.status === "disabled" && (
-                                <ActionButton
-                                  icon={<RotateCcw className="h-3 w-3" />}
-                                  label={t("enable")}
-                                  onClick={() => void handleBackgroundTaskAction(item.id, "enable")}
-                                  busy={taskActionId === item.id}
-                                  className="px-2.5 py-1.5"
-                                />
-                              )}
-                              <ActionButton
-                                icon={<Trash2 className="h-3 w-3" />}
-                                label={t("cancel")}
-                                variant="danger"
-                                onClick={() => void handleBackgroundTaskAction(item.id, "cancel")}
-                                busy={taskActionId === item.id}
-                                className="px-2.5 py-1.5"
-                              />
-                            </div>
-                          </div>
-                        </li>
-                      ))}
+                      {assistantTaskItems.map((item) => {
+                        const recentRuns = item.recentRuns.slice(0, 5);
+                        const completed = item.status === "completed";
+                        return (
+                          <li
+                            key={item.id}
+                            className={cn(
+                              completed
+                                ? "p-0"
+                                : "rounded-xl border border-border/70 bg-background/70 p-3 shadow-sm"
+                            )}
+                          >
+                            {!completed && (
+                              <>
+                                <div className="flex flex-wrap items-start gap-2">
+                                  <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-text">
+                                    {item.title}
+                                  </span>
+                                  <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                    {t("assistantAction")}
+                                  </span>
+                                  <span className="shrink-0 rounded-full bg-background px-2 py-0.5 text-[10px] font-semibold text-text-subtle">
+                                    {getBackgroundTaskStatusLabel(item.status)}
+                                  </span>
+                                </div>
+                                <p className="mt-1.5 text-[11px] text-text-subtle">
+                                  {getBackgroundTaskTimingLabel(item)}
+                                </p>
+                                <p className="mt-2 text-xs leading-relaxed text-text-muted">
+                                  {item.brief}
+                                </p>
+                              </>
+                            )}
+                            {recentRuns.length > 0 && (
+                              <div
+                                className={cn(
+                                  "rounded-lg border border-border/60 bg-surface-raised/40 p-2.5",
+                                  completed ? "mt-0" : "mt-3"
+                                )}
+                              >
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-text-subtle">
+                                  {t("runHistory")}
+                                </p>
+                                <ul className="mt-1.5 space-y-1">
+                                  {recentRuns.map((run) => (
+                                    <li key={run.id} className="text-[11px] text-text-subtle">
+                                      {formatBackgroundRunLine(run)}
+                                      {run.pushText && (
+                                        <span className="mt-0.5 block text-text-muted">
+                                          {run.pushText}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {!completed && (
+                              <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5 border-t border-border/60 pt-3">
+                                <div className="flex gap-1.5">
+                                  {item.status === "active" && (
+                                    <ActionButton
+                                      icon={<RotateCcw className="h-3 w-3" />}
+                                      label={t("disable")}
+                                      onClick={() =>
+                                        void handleBackgroundTaskAction(item.id, "disable")
+                                      }
+                                      busy={taskActionId === item.id}
+                                      className="px-2.5 py-1.5"
+                                    />
+                                  )}
+                                  {item.status === "disabled" && (
+                                    <ActionButton
+                                      icon={<RotateCcw className="h-3 w-3" />}
+                                      label={t("enable")}
+                                      onClick={() =>
+                                        void handleBackgroundTaskAction(item.id, "enable")
+                                      }
+                                      busy={taskActionId === item.id}
+                                      className="px-2.5 py-1.5"
+                                    />
+                                  )}
+                                  <ActionButton
+                                    icon={<Trash2 className="h-3 w-3" />}
+                                    label={t("cancel")}
+                                    variant="danger"
+                                    onClick={() =>
+                                      void handleBackgroundTaskAction(item.id, "cancel")
+                                    }
+                                    busy={taskActionId === item.id}
+                                    className="px-2.5 py-1.5"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </>

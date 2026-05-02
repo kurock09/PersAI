@@ -3099,14 +3099,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.toolHistory?.[1]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    fileRefs?: string[];
+    delivered?: boolean;
+    queuedAttachments?: number;
     queuedArtifacts?: number;
     requestedAction?: string;
   };
   assert.equal(sendMediaToolHistory.action, "queued");
   assert.equal(sendMediaToolHistory.requestedAction, "send");
-  assert.equal(sendMediaToolHistory.fileRefs?.[0], "file-ref-1");
-  assert.equal(sendMediaToolHistory.queuedArtifacts, 1);
+  assert.equal(sendMediaToolHistory.delivered, true);
+  assert.equal(sendMediaToolHistory.queuedAttachments, 1);
+  assert.equal(sendMediaToolHistory.queuedArtifacts, undefined);
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
@@ -3157,14 +3159,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    fileRefs?: string[];
+    delivered?: boolean;
+    queuedAttachments?: number;
     queuedArtifacts?: number;
     requestedAction?: string;
   };
   assert.equal(atomicWriteAndSendToolHistory.action, "written_and_queued");
   assert.equal(atomicWriteAndSendToolHistory.requestedAction, "write_and_send");
-  assert.equal(atomicWriteAndSendToolHistory.fileRefs?.[0], "file-ref-1");
-  assert.equal(atomicWriteAndSendToolHistory.queuedArtifacts, 1);
+  assert.equal(atomicWriteAndSendToolHistory.delivered, true);
+  assert.equal(atomicWriteAndSendToolHistory.queuedAttachments, 1);
+  assert.equal(atomicWriteAndSendToolHistory.queuedArtifacts, undefined);
 
   const undeliveredClaimRequest = createRuntimeTurnRequest();
   undeliveredClaimRequest.bundle.bundleHash = request.bundle.bundleHash;

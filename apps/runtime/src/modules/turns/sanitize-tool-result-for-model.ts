@@ -47,6 +47,19 @@ const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set([
   "caption"
 ]);
 
+function isSuccessfulFilesDeliveryResult(value: Record<string, unknown>): boolean {
+  if (value.toolCode !== "files" || value.executionMode !== "inline") {
+    return false;
+  }
+  if (value.requestedAction !== "send" && value.requestedAction !== "write_and_send") {
+    return false;
+  }
+  if (value.action !== "queued" && value.action !== "written_and_queued") {
+    return false;
+  }
+  return typeof value.queuedArtifacts === "number" && value.queuedArtifacts > 0;
+}
+
 function isRuntimeOutputArtifactShape(value: Record<string, unknown>): boolean {
   return typeof value.artifactId === "string" && typeof value.kind === "string";
 }
@@ -56,6 +69,17 @@ function modelFacingReplacer(_key: string, value: unknown): unknown {
     return value;
   }
   const candidate = value as Record<string, unknown>;
+  if (isSuccessfulFilesDeliveryResult(candidate)) {
+    return {
+      toolCode: "files",
+      requestedAction: candidate.requestedAction,
+      action: candidate.action,
+      delivered: true,
+      queuedAttachments: candidate.queuedArtifacts,
+      instruction:
+        "The file delivery succeeded and will be shown as an attachment card. Do not print fileRef, raw tool output, or attachment metadata. Briefly tell the user the file was sent."
+    };
+  }
   if (!isRuntimeOutputArtifactShape(candidate)) {
     return value;
   }

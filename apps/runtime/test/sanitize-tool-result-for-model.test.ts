@@ -132,6 +132,43 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(json, JSON.stringify(payload));
   }
 
+  // Successful files.send / files.write_and_send results are deliberately
+  // reduced for the model. The full internal payload still drives attachment
+  // delivery, but the model should not see fileRef/raw attachment metadata and
+  // copy it into the final user-visible answer.
+  {
+    const payload = {
+      toolCode: "files" as const,
+      executionMode: "inline" as const,
+      requestedAction: "send" as const,
+      action: "queued" as const,
+      reason: null,
+      warning: null,
+      item: null,
+      items: [],
+      content: null,
+      job: null,
+      fileRefs: ["file-ref-1"],
+      queuedArtifacts: 1
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      toolCode: string;
+      requestedAction: string;
+      action: string;
+      delivered: boolean;
+      queuedAttachments: number;
+      fileRefs?: string[];
+      instruction?: string;
+    };
+    assert.equal(parsed.toolCode, "files");
+    assert.equal(parsed.requestedAction, "send");
+    assert.equal(parsed.action, "queued");
+    assert.equal(parsed.delivered, true);
+    assert.equal(parsed.queuedAttachments, 1);
+    assert.equal(parsed.fileRefs, undefined);
+    assert.match(parsed.instruction ?? "", /Do not print fileRef/);
+  }
+
   // Top-level user-supplied filenames (`sourceFilename`, `referenceFilename`
   // on image_edit / video_generate results) are NOT redacted because the
   // model already saw them in the user's message context — only output

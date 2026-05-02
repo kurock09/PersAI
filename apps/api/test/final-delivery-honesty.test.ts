@@ -46,6 +46,30 @@ async function run(): Promise<void> {
     }),
     "Source: [report.md](https://example.com/report.md)"
   );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        'Вот он. Скинул в чат.\n\nAssistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["recommendations.md"],
+      locale: "ru"
+    }),
+    "Вот он. Скинул в чат."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        'Assistant sent an attachment: document "recommendations.md", fileRef: "file-ref-1".',
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["recommendations.md"],
+      locale: "ru"
+    }),
+    "Файл отправлен."
+  );
 }
 
 void run();

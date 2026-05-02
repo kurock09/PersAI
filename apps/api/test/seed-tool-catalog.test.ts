@@ -77,6 +77,16 @@ function createService({
 
 async function run(): Promise<void> {
   {
+    const imageGenerate = TOOL_CATALOG.find((entry) => entry.code === "image_generate");
+    const videoGenerate = TOOL_CATALOG.find((entry) => entry.code === "video_generate");
+
+    assert.ok(imageGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
+    assert.ok(imageGenerate?.modelUsageGuidance?.includes("Never print `image_generate(...)`"));
+    assert.ok(videoGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
+    assert.ok(videoGenerate?.modelUsageGuidance?.includes("Never print `video_generate(...)`"));
+  }
+
+  {
     const upsertedToolIds: string[] = [];
     const service = new SeedToolCatalogService({
       toolCatalogTool: {

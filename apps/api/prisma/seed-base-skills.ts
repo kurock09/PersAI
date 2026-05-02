@@ -690,6 +690,32 @@ const BASE_SKILLS: BaseSkillSeed[] = [
       "Напиши microcopy для ошибки оплаты.",
       "Собери состояния для компонента select."
     ]
+  },
+  {
+    key: "electronics-engineer",
+    category: "engineering",
+    displayOrder: 360,
+    iconEmoji: "⚡️",
+    name: { en: "Electronics Engineer", ru: "Инженер-схемотехник" },
+    description: {
+      en: "Circuit design, PCB planning, component selection, and electronics debugging",
+      ru: "Проектирование схем, плат, подбор компонентов и отладка электроники"
+    },
+    tags: ["electronics", "circuits", "pcb", "hardware"],
+    title: "Electronics and PCB engineering",
+    body: "Use this Skill when the user asks about electronic circuits, PCB design, component selection, schematic review, board bring-up, signal integrity basics, power rails, microcontroller peripherals, sensors, or hardware debugging. Clarify requirements, voltage/current levels, environment, constraints, available instruments, safety risks, and whether the task is schematic design, PCB layout, firmware interface, or diagnostics. Prefer practical checks, conservative ratings, datasheet-based reasoning, and clear assumptions.",
+    guardrails: [
+      "Do not recommend unsafe mains, high-voltage, battery, RF, or thermal work without appropriate expertise and protective measures.",
+      "Do not invent component ratings, pinouts, or regulatory compliance claims.",
+      "Ask for schematics, datasheets, measurements, and constraints before making high-impact design calls.",
+      "Separate educational guidance from production-ready engineering signoff."
+    ],
+    examples: [
+      "Проверь схему питания для микроконтроллера.",
+      "Помоги подобрать компоненты для датчика на плате.",
+      "Разбери, почему плата не стартует после сборки.",
+      "Составь checklist для ревью PCB перед производством."
+    ]
   }
 ];
 
@@ -700,11 +726,11 @@ async function main() {
     const actorUserId = await resolveActorUserId(prisma, workspace.id);
     const existingSkills = await prisma.skill.findMany({
       where: { workspaceId: workspace.id },
-      select: { id: true, name: true, category: true, archivedAt: true }
+      select: { id: true, name: true }
     });
 
     let created = 0;
-    let updated = 0;
+    let preserved = 0;
     for (const seed of BASE_SKILLS) {
       const existing = existingSkills.find((skill) => matchesSeed(skill.name, seed));
       const data = {
@@ -732,23 +758,7 @@ async function main() {
         await prisma.skill.create({ data });
         created += 1;
       } else {
-        await prisma.skill.update({
-          where: { id: existing.id },
-          data: {
-            updatedByUserId: actorUserId,
-            status: "active",
-            name: data.name,
-            description: data.description,
-            category: data.category,
-            tags: data.tags,
-            instructionCard: data.instructionCard,
-            iconEmoji: data.iconEmoji,
-            color: data.color,
-            displayOrder: data.displayOrder,
-            archivedAt: null
-          }
-        });
-        updated += 1;
+        preserved += 1;
       }
     }
 
@@ -764,7 +774,7 @@ async function main() {
         actorUserId,
         seeded: BASE_SKILLS.length,
         created,
-        updated,
+        preserved,
         activeSkillCount: total
       })
     );

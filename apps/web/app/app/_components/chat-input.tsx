@@ -47,16 +47,16 @@ function shouldRestoreComposerFocusAfterSend(): boolean {
 }
 
 function restoreComposerFocusAfterSend(el: HTMLTextAreaElement): void {
-  el.focus();
   const restore = () => {
     if (!el.isConnected || el.disabled) return;
-    el.focus();
+    el.focus({ preventScroll: true });
   };
+  restore();
   if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
     window.requestAnimationFrame(restore);
-    return;
   }
   window.setTimeout(restore, 0);
+  window.setTimeout(restore, 80);
 }
 
 function fileIcon(mime: string) {

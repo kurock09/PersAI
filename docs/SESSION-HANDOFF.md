@@ -1,5 +1,109 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (Media generation tool-call guidance) — stop printing pseudo tool calls for images/videos (`apps/api`, docs; focused checks green)
+
+### What changed
+
+- Tightened the code-default prompt metadata for `image_generate` and `video_generate`.
+- Direct user requests to make/create/generate an image or video now tell the model to call the tool immediately instead of explaining the planned call.
+- The guidance explicitly forbids printing `image_generate(...)`, `video_generate(...)`, JSON arguments, or fenced code blocks as a substitute for a real tool call.
+- Added a tool-catalog regression so this instruction remains present in the seeded catalog truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+- `corepack pnpm exec prettier --check apps/api/prisma/tool-catalog-data.ts apps/api/test/seed-tool-catalog.test.ts`
+- `ReadLints` on changed API catalog/test files
+
+### Next recommended step
+
+Deploy/sync the updated tool catalog metadata, then retry the exact live repro: attached portrait + “сделай меня живым, видео…” should produce a `video_generate` tool execution immediately, not a markdown code block.
+
+---
+
+## 2026-05-02 (Assistant actions UI polish) — quieter background-task cards, cleaner chat actions, stronger composer focus (`apps/web`, docs; focused checks green)
+
+### What changed
+
+- Completed assistant-owned background actions now render only their compact run history, capped to the latest five completed cards.
+- The `Действия ассистента` helper copy is user-facing: quiet self-set assistant actions it will revisit later.
+- Assistant quick-action suggestions in chat now have a lightly separated action block with a small marker instead of blending into plain message text.
+- Desktop composer focus restore after Enter sends now retries after the immediate render frame and a short delay, reducing the click-to-type-after-send issue.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/_components/chat-message.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Open Assistant Settings and a desktop chat, then live-check the exact founder repro: completed BTC push task should show only the history card, quick actions should visually separate under the assistant reply, and Enter-send should leave the cursor ready in the composer.
+
+---
+
+## 2026-05-02 (Files delivery first-try polish) — hide raw `files.send` metadata from final answers (`apps/runtime`, `apps/api`, docs; focused checks green)
+
+### What changed
+
+- Sanitized successful `files.send` / `files.write_and_send` tool results before they are shown back to the model. The model now sees a compact delivery-success signal instead of raw `fileRefs`, queued artifact metadata, or fields it can echo as `Assistant sent an attachment...`.
+- Hardened final delivery honesty post-processing to strip technical `Assistant sent an attachment: ..., fileRef: ...` lines if the model still writes them.
+- Added fallback final text when the model's entire answer is only the stripped technical attachment summary.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+
+### Next recommended step
+
+Deploy and repeat the live prompt: when the user asks to send an existing file, the first answer should produce the attachment card and avoid exposing `fileRef` or `Assistant sent an attachment...` text.
+
+---
+
+## 2026-05-02 (ADR-078 closure) — consolidated follow-through program is founder-accepted as complete (`docs`; format check pending)
+
+### What changed
+
+- Closed `docs/ADR/078-consolidated-follow-through-program.md` by moving status from `Accepted` to `Completed`.
+- Recorded founder acceptance that the remaining ADR-079/081/R2 live-smoke tails are no longer ADR-078 backlog.
+- Captured the idle re-engagement clarification: long-silence Telegram delivery is conditional `push/no_push` behavior, not a guaranteed push on every idle candidate.
+
+### Verification
+
+- Live inspection confirmed idle re-engagement policy is enabled, Telegram is the preferred notification channel, Telegram binding is active, and the observed no-delivery case was a deliberate `no_push` outbox decision rather than a Telegram delivery failure.
+
+### Next recommended step
+
+Use new ADRs or narrow follow-up slices only when fresh product evidence appears; do not reopen ADR-078 by default.
+
+---
+
+## 2026-05-02 (Base Skill catalog — electronics engineering) — added `Инженер-схемотехник` to Engineering Skills (`apps/api`, live DB; focused checks green)
+
+### What changed
+
+- Added a new base Skill seed entry `electronics-engineer` in category `engineering`, display order `360`.
+- The Skill appears as `Electronics Engineer / Инженер-схемотехник` and covers circuit design, PCB planning, component selection, board bring-up, and electronics debugging.
+- Upserted the same Skill into the live dev database so it is available immediately without waiting for the next seed run.
+- Adjusted the base Skill seed runner to preserve existing Skill rows instead of overwriting admin-edited fields on every seed run.
+- Replaced the live icon with a broadly compatible `⚡️` after the first PowerShell pipe corrupted the emoji into `??`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec eslint prisma/seed-base-skills.ts`
+- `corepack pnpm exec prettier --check apps/api/prisma/seed-base-skills.ts`
+- Live DB update verified via `kubectl exec deploy/api -c api -- node` Prisma query.
+
+### Next recommended step
+
+Open the Skills manager and confirm the new Skill appears under `Профессии / Engineering`; enable it on an assistant and smoke-test a PCB/schematic prompt if needed.
+
+---
+
 ## 2026-05-02 (ADR-079 vector insert timestamp fix) — pgvector rows now satisfy `updated_at` on first insert (`apps/api`, docs; focused checks green)
 
 ### What changed

@@ -50,7 +50,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate brand-new images from a text prompt.",
     modelUsageGuidance:
-      'Use this for image creation only; do not use it for editing existing images or for video generation. If the user asks for transparent background, background removal, cutout, sticker, icon, logo, or a PNG with alpha, set background="transparent".',
+      'Use this for image creation only; do not use it for editing existing images or for video generation. When the user directly asks you to make, draw, create, or generate an image, call this tool immediately instead of explaining the planned call. Never print `image_generate(...)`, JSON arguments, or a fenced code block as a substitute for the tool call. If the user asks for transparent background, background removal, cutout, sticker, icon, logo, or a PNG with alpha, set background="transparent".',
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -79,7 +79,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance:
-      "Use this only when the user explicitly wants a generated video, animation, or clip. You may optionally guide the video with one current or recent chat image as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
+      "Use this only when the user explicitly wants a generated video, animation, or clip. When the user directly asks you to make, animate, create, or generate a video, call this tool immediately instead of explaining the planned call. Never print `video_generate(...)`, JSON arguments, or a fenced code block as a substitute for the tool call. You may optionally guide the video with one current or recent chat image as a first-frame style or appearance reference by setting referenceImageIndex. Do not use this tool for editing an existing video or for answering questions about an image.",
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",

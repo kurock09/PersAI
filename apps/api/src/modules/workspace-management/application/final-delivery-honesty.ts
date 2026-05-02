@@ -9,6 +9,10 @@ function buildUndeliveredAttachmentCorrection(text: string, locale?: string | nu
   return "Correction: no file was actually delivered in this reply.";
 }
 
+function buildDeliveredAttachmentFallback(locale?: string | null): string {
+  return locale?.toLowerCase().startsWith("ru") ? "Файл отправлен." : "File sent.";
+}
+
 function normalizeFilename(value: string): string {
   const trimmed = value.trim();
   const withoutQuery = trimmed.split(/[?#]/, 1)[0] ?? trimmed;
@@ -134,6 +138,30 @@ function stripDeliveredAttachmentMarkdownLinks(input: {
     .trim();
 }
 
+function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
+  assistantText: string;
+  strippedTechnicalAttachmentSummary: boolean;
+} {
+  let strippedTechnicalAttachmentSummary = false;
+  const assistantText = input.assistantText
+    .split("\n")
+    .filter((line) => {
+      const normalized = line.trim();
+      if (
+        /^Assistant sent (?:an? )?attachments?:\s+.+fileRef:\s*"[^"]+".?$/i.test(normalized) ||
+        /^Assistant sent (?:an? )?attachments?:\s+.+fileRef:\s*'[^']+'.?$/i.test(normalized)
+      ) {
+        strippedTechnicalAttachmentSummary = true;
+        return false;
+      }
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { assistantText, strippedTechnicalAttachmentSummary };
+}
+
 export function applyFinalDeliveryHonestyCorrection(input: {
   assistantText: string;
   attemptedArtifactCount: number;
@@ -141,8 +169,11 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   deliveredAttachmentFilenames?: string[];
   locale?: string | null;
 }): string {
+  const { assistantText: withoutTechnicalSummary } = stripTechnicalAttachmentSummary({
+    assistantText: input.assistantText.trim()
+  });
   const deliveredNormalizedText = stripDeliveredAttachmentMarkdownLinks({
-    assistantText: input.assistantText.trim(),
+    assistantText: withoutTechnicalSummary,
     deliveredAttachmentFilenames: input.deliveredAttachmentFilenames ?? []
   });
   const { assistantText: normalizedText, strippedLocalFileLink } =
@@ -150,7 +181,9 @@ export function applyFinalDeliveryHonestyCorrection(input: {
       assistantText: deliveredNormalizedText
     });
   if (normalizedText.length === 0) {
-    return normalizedText;
+    return input.deliveredAttachmentCount > 0
+      ? buildDeliveredAttachmentFallback(input.locale)
+      : normalizedText;
   }
   if (
     input.deliveredAttachmentCount > 0 ||

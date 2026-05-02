@@ -542,7 +542,7 @@
     "userTasksHelp": "Personal reminders and actions the assistant has scheduled for the user.",
     "noCurrentTasks": "No current tasks right now.",
     "assistantActions": "Assistant actions",
-    "assistantActionsDescription": "Quiet background actions the assistant will revisit later. They stay visible here, but toned down so they do not compete with user-facing reminders.",
+    "assistantActionsDescription": "Quiet background actions the assistant sets for itself and will revisit later.",
     "noAssistantActions": "No assistant actions scheduled right now.",
     "assistantAction": "Background",
     "oneTime": "One-time",
