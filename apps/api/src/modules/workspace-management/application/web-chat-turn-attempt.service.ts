@@ -78,6 +78,7 @@ function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRouti
 
 function toAttachmentState(input: {
   id: string;
+  assistantFileId: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -87,6 +88,7 @@ function toAttachmentState(input: {
 }): AssistantWebChatMessageAttachmentState {
   return {
     id: input.id,
+    fileRef: input.assistantFileId,
     attachmentType: input.attachmentType,
     originalFilename: input.originalFilename,
     mimeType: input.mimeType,

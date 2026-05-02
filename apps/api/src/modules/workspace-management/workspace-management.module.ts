@@ -79,6 +79,7 @@ import { ManageAdminToolCredentialsService } from "./application/manage-admin-to
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
 import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
+import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
@@ -223,6 +224,7 @@ import { AdminForceReapplyController } from "./interface/http/admin-force-reappl
 import { MediaAttachmentController } from "./interface/http/media-attachment.controller";
 import { TelegramWebhookController } from "./interface/http/telegram-webhook-proxy.controller";
 import { ManageChatMediaService } from "./application/manage-chat-media.service";
+import { AssistantFileRegistryService } from "./application/assistant-file-registry.service";
 import { MediaPreprocessorService } from "./application/media/media-preprocessor.service";
 import { NativeMediaTranscriptionService } from "./application/media/native-media-transcription.service";
 import { ProviderGatewayPdfTextExtractionService } from "./application/media/provider-gateway-pdf-text-extraction.service";
@@ -316,6 +318,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminToolPromptMetadataService,
     ManageAdminKnowledgeSourcesService,
     ManageAdminSkillsService,
+    ManageAdminKnowledgeRetrievalPolicyService,
     ListKnowledgeIndexingJobsService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
@@ -504,6 +507,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
       useClass: PrismaPersonaArchetypeRepository
     },
     ManageChatMediaService,
+    AssistantFileRegistryService,
     MediaPreprocessorService,
     NativeMediaTranscriptionService,
     ProviderGatewayPdfTextExtractionService,

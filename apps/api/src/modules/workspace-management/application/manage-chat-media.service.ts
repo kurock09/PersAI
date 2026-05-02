@@ -20,6 +20,7 @@ import { PersaiMediaObjectStorageService } from "./media/persai-media-object-sto
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { buildStoredAttachmentMetadata } from "./media/media.types";
+import { AssistantFileRegistryService } from "./assistant-file-registry.service";
 import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
@@ -54,6 +55,7 @@ export class ManageChatMediaService {
     private readonly nativeMediaTranscriptionService: NativeMediaTranscriptionService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly assistantFileRegistryService: AssistantFileRegistryService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
@@ -139,6 +141,12 @@ export class ManageChatMediaService {
         source: "chat_upload",
         textExtract: processed?.textExtract ?? null
       })
+    });
+    await this.attachCanonicalFileRef({
+      attachment,
+      objectKey: uploadResult.objectKey,
+      buffer: fileBuffer,
+      source: "chat_upload"
     });
 
     return attachment;
@@ -280,6 +288,12 @@ export class ManageChatMediaService {
         }),
         clientTurnId: params.clientTurnId?.trim() || null,
         clientAttachmentId: params.clientAttachmentId?.trim() || null
+      });
+      await this.attachCanonicalFileRef({
+        attachment,
+        objectKey: uploadResult.objectKey,
+        buffer: fileBuffer,
+        source: "web_staged_upload"
       });
 
       outcome = "success";
@@ -434,6 +448,30 @@ export class ManageChatMediaService {
     }
   }
 
+  private async attachCanonicalFileRef(input: {
+    attachment: AssistantChatMessageAttachment;
+    objectKey: string;
+    buffer: Buffer;
+    source: "chat_upload" | "web_staged_upload";
+  }): Promise<void> {
+    input.attachment.assistantFileId = (
+      await this.assistantFileRegistryService.ensureAttachmentFile({
+        assistantId: input.attachment.assistantId,
+        workspaceId: input.attachment.workspaceId,
+        origin: "uploaded_attachment",
+        sourceAttachmentId: input.attachment.id,
+        sourceMessageId: input.attachment.messageId,
+        sourceChatId: input.attachment.chatId,
+        objectKey: input.objectKey,
+        filename: input.attachment.originalFilename,
+        mimeType: input.attachment.mimeType,
+        sizeBytes: input.attachment.sizeBytes,
+        contentBuffer: input.buffer,
+        source: input.source
+      })
+    ).fileRef;
+  }
+
   private async rollbackFailedStagedUpload(input: {
     assistant: Assistant | null;
     stagingMessageId: string | null;
@@ -484,30 +522,5 @@ export class ManageChatMediaService {
       );
       return null;
     }
-  }
-
-  async downloadAttachment(params: {
-    userId: string;
-    attachmentId: string;
-  }): Promise<{ buffer: Buffer; contentType: string; filename: string | null }> {
-    const assistant = await this.assistantRepository.findByUserId(params.userId);
-    if (!assistant) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-
-    const attachment = await this.attachmentRepository.findById(params.attachmentId);
-    if (!attachment || attachment.assistantId !== assistant.id) {
-      throw new NotFoundException("Attachment not found.");
-    }
-    const result = await this.mediaObjectStorage.downloadObject(attachment.storagePath);
-    if (!result) {
-      throw new NotFoundException("Media file not found on storage.");
-    }
-
-    return {
-      buffer: result.buffer,
-      contentType: result.contentType,
-      filename: attachment.originalFilename
-    };
   }
 }

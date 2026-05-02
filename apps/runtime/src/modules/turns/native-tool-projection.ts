@@ -931,7 +931,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical file surface. Keep shell and exec separate for real process execution."
+      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical fileRef-first surface. This includes user uploads, generated outputs, and sandbox-created files. Keep shell and exec separate for real process execution."
     ),
     inputSchema: {
       type: "object",
@@ -947,7 +947,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files.'
         },
         limit: {
           type: "integer",
@@ -964,7 +964,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         fileRef: {
           type: "string",
           description:
-            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this when a prior tool result already returned a stable fileRef.'
+            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this for any current or prior working file when available.'
         },
         content: {
           type: "string",
@@ -989,12 +989,6 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           description:
             'Canonical assistant file references to deliver for action="send". You may also combine these with one resolved selector.'
         },
-        artifactIds: {
-          type: "array",
-          items: { type: "string" },
-          description:
-            'Current-turn artifact ids to deliver for action="send" when a prior tool already returned outbound artifacts.'
-        },
         caption: {
           type: "string",
           description: 'Optional caption for action="send" or action="write_and_send".'
@@ -1002,7 +996,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         filename: {
           type: "string",
           description:
-            'Optional filename override for action="send" or action="write_and_send" when exactly one file or artifact is selected. This does not replace path as the canonical save location.'
+            'Optional filename override for action="send" or action="write_and_send" when exactly one file is selected. This does not replace path as the canonical save location.'
         }
       }
     }

@@ -28,6 +28,12 @@ const assistant: Assistant = {
   updatedAt: new Date("2026-04-06T00:00:00.000Z")
 };
 
+const fakeAssistantFileRegistry = {
+  async ensureAttachmentFile(input: { sourceAttachmentId: string }) {
+    return { fileRef: `file-${input.sourceAttachmentId}` };
+  }
+};
+
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
   process.env.DATABASE_URL =
@@ -150,10 +156,11 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     new PlatformHttpMetricsService()
   );
 
-  await directUploadService.uploadAttachment({
+  const directUpload = await directUploadService.uploadAttachment({
     userId: "user-1",
     chatId: "chat-1",
     messageId: "msg-direct-1",
@@ -165,6 +172,7 @@ async function run(): Promise<void> {
   });
 
   assert.equal((directUploadCreateInput?.mimeType as string) ?? null, "text/plain");
+  assert.equal(directUpload.assistantFileId, "file-att-direct-1");
   assert.deepEqual(directUploadCreateInput?.metadata, {
     source: "chat_upload",
     contentPreview: "line one line two"
@@ -322,6 +330,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     metrics
   );
 
@@ -337,6 +346,7 @@ async function run(): Promise<void> {
 
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
+  assert.equal(staged.attachment.assistantFileId, "file-att-1");
   assert.deepEqual(deletedStagingMessageIds, []);
   assert.deepEqual(deletedStoragePaths, []);
   assert.deepEqual(releasedBytes, []);
@@ -477,6 +487,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     failureMetrics
   );
 
@@ -615,6 +626,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     storageFailureMetrics
   );
 
@@ -666,6 +678,7 @@ async function run(): Promise<void> {
         {} as never,
         {} as never,
         {} as never,
+        fakeAssistantFileRegistry as never,
         new PlatformHttpMetricsService()
       ).stageForWebThread({
         userId: "user-1",

@@ -16,6 +16,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import type { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import type { GlobalKnowledgeSourceState } from "../../application/assistant-knowledge-source.types";
+import type { AdminKnowledgeRetrievalPolicyState } from "../../application/admin-knowledge-retrieval-policy";
+import { ManageAdminKnowledgeRetrievalPolicyService } from "../../application/manage-admin-knowledge-retrieval-policy.service";
 import { ManageAdminKnowledgeSourcesService } from "../../application/manage-admin-knowledge-sources.service";
 import { ResolveAdminKnowledgeConnectorsService } from "../../application/resolve-admin-knowledge-connectors.service";
 import { ResolveAdminKnowledgeObservabilityService } from "../../application/resolve-admin-knowledge-observability.service";
@@ -27,7 +29,8 @@ export class AdminKnowledgeSourcesController {
   constructor(
     private readonly manageAdminKnowledgeSourcesService: ManageAdminKnowledgeSourcesService,
     private readonly resolveAdminKnowledgeObservabilityService: ResolveAdminKnowledgeObservabilityService,
-    private readonly resolveAdminKnowledgeConnectorsService: ResolveAdminKnowledgeConnectorsService
+    private readonly resolveAdminKnowledgeConnectorsService: ResolveAdminKnowledgeConnectorsService,
+    private readonly manageAdminKnowledgeRetrievalPolicyService: ManageAdminKnowledgeRetrievalPolicyService
   ) {}
 
   @Get()
@@ -77,6 +80,38 @@ export class AdminKnowledgeSourcesController {
     return {
       requestId: req.requestId ?? null,
       connectors
+    };
+  }
+
+  @Get("retrieval-policy")
+  async getRetrievalPolicy(
+    @Req() req: RequestWithPlatformContext
+  ): Promise<{ requestId: string | null; policy: AdminKnowledgeRetrievalPolicyState }> {
+    const userId = this.resolveRequestUserId(req);
+    const policy = await this.manageAdminKnowledgeRetrievalPolicyService.getPolicy(userId);
+    return {
+      requestId: req.requestId ?? null,
+      policy
+    };
+  }
+
+  @Post("retrieval-policy")
+  async updateRetrievalPolicy(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    policy: AdminKnowledgeRetrievalPolicyState;
+    configGeneration: number;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAdminKnowledgeRetrievalPolicyService.parseUpdateInput(body);
+    const { policy, configGeneration } =
+      await this.manageAdminKnowledgeRetrievalPolicyService.updatePolicy(userId, input);
+    return {
+      requestId: req.requestId ?? null,
+      policy,
+      configGeneration
     };
   }
 

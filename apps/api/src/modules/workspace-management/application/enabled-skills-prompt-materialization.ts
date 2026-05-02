@@ -20,6 +20,7 @@ export type EnabledSkillPromptCandidate = {
   displayOrder: number;
   status: "draft" | "active" | "archived";
   instructionCard: EnabledSkillPromptInstructionCard;
+  iconEmoji: string | null;
   assignmentStatus: EnabledSkillPromptAssignmentStatus;
   assignmentEnabledAt: Date | string | null;
 };
@@ -30,6 +31,7 @@ export type EnabledSkillPromptCard = {
   description: string | null;
   category: string;
   tags: string[];
+  iconEmoji: string | null;
   title: string;
   body: string;
   guardrails: string[];
@@ -62,6 +64,7 @@ export function resolveEnabledSkillPromptCards(params: {
       .map((tag) => normalizeSingleLine(tag))
       .filter((tag) => tag.length > 0)
       .slice(0, MAX_RENDERED_TAGS),
+    iconEmoji: normalizeSingleLine(candidate.iconEmoji ?? "") || null,
     title: normalizeSingleLine(candidate.instructionCard.title) || "Skill instructions",
     body: truncateText(candidate.instructionCard.body, MAX_RENDERED_BODY_CHARS),
     guardrails: normalizeBoundedList(candidate.instructionCard.guardrails, MAX_RENDERED_GUARDRAILS),

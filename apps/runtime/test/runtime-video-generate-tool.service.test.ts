@@ -312,6 +312,41 @@ class FakePersaiMediaObjectStorageService {
   }
 }
 
+const fakeRuntimeAssistantFileRegistryService = {
+  async ensureAttachmentBackedFile(input: {
+    referenceId: string;
+    objectKey: string;
+    filename: string | null;
+    mimeType: string;
+    sizeBytes: number;
+  }) {
+    return {
+      fileRef: `file-${input.referenceId}`,
+      origin: "runtime_output",
+      sourceToolCode: null,
+      objectKey: input.objectKey,
+      relativePath: `artifacts/${input.referenceId}/${input.filename ?? "file"}`,
+      displayName: input.filename,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      logicalSizeBytes: input.sizeBytes
+    };
+  },
+  toRuntimeFileRef(record: {
+    fileRef: string;
+    origin: "runtime_output";
+    sourceToolCode: null;
+    objectKey: string;
+    relativePath: string;
+    displayName: string | null;
+    mimeType: string;
+    sizeBytes: number;
+    logicalSizeBytes: number;
+  }) {
+    return record;
+  }
+};
+
 export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
@@ -319,7 +354,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const service = new RuntimeVideoGenerateToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as unknown as PersaiMediaObjectStorageService
+    mediaObjectStorage as unknown as PersaiMediaObjectStorageService,
+    fakeRuntimeAssistantFileRegistryService as never
   );
 
   const bundle = createBundle();

@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
+import { normalizeAdminKnowledgeRetrievalPolicyRecord } from "./admin-knowledge-retrieval-policy";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID } from "./platform-runtime-provider-settings";
 
 export type KnowledgeRetrievalPolicy = {
   defaultMaxResults: number;
@@ -62,6 +64,16 @@ export class KnowledgeModelPolicyService {
     const billingHints = await this.resolveAssistantPlanBillingHints(assistantId);
     const value = billingHints?.retrievalModelKey;
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  async resolveAdminKnowledgeEmbeddingModelKey(): Promise<string | null> {
+    const policy = await this.resolveAdminKnowledgeRetrievalPolicy();
+    return policy.embeddingModelKey;
+  }
+
+  async resolveAdminKnowledgeRetrievalModelKey(): Promise<string | null> {
+    const policy = await this.resolveAdminKnowledgeRetrievalPolicy();
+    return policy.retrievalModelKey;
   }
 
   async resolveAssistantRetrievalPolicy(assistantId: string): Promise<KnowledgeRetrievalPolicy> {
@@ -141,5 +153,13 @@ export class KnowledgeModelPolicyService {
       select: { billingProviderHints: true }
     });
     return asObject(plan?.billingProviderHints ?? null);
+  }
+
+  private async resolveAdminKnowledgeRetrievalPolicy() {
+    const row = await this.prisma.platformRuntimeProviderSettings.findUnique({
+      where: { id: PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID },
+      select: { adminKnowledgeRetrievalPolicy: true }
+    });
+    return normalizeAdminKnowledgeRetrievalPolicyRecord(row?.adminKnowledgeRetrievalPolicy ?? null);
   }
 }

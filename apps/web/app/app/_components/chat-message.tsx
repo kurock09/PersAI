@@ -46,7 +46,7 @@ import {
 } from "./chat-message-streaming";
 import { VoiceMessagePlayer } from "./voice-message-player";
 import { ImageLightbox } from "./image-lightbox";
-import { getAttachmentDownloadUrl } from "../assistant-api-client";
+import { getAssistantFileDownloadUrl } from "../assistant-api-client";
 import type { ChatAttachment, ChatMessage } from "./use-chat";
 import { isAttachmentsOnlyPlaceholderText } from "./attachments-only-placeholder";
 
@@ -740,12 +740,14 @@ function AttachmentStrip({
           isPending && typeof att.uploadProgressPercent === "number"
             ? `${String(att.uploadProgressPercent)}%`
             : null;
-        const inlineUrl = att.id.startsWith("local-")
-          ? undefined
-          : getAttachmentDownloadUrl(att.id);
-        const downloadUrl = att.id.startsWith("local-")
-          ? undefined
-          : getAttachmentDownloadUrl(att.id, { download: true });
+        const inlineUrl =
+          att.id.startsWith("local-") || !att.fileRef
+            ? undefined
+            : getAssistantFileDownloadUrl(att.fileRef);
+        const downloadUrl =
+          att.id.startsWith("local-") || !att.fileRef
+            ? undefined
+            : getAssistantFileDownloadUrl(att.fileRef, { download: true });
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
 
         if (att.attachmentType === "image") {

@@ -67,6 +67,7 @@ async function runTemplatedCompile(): Promise<void> {
         description: "Accounting support",
         category: "finance",
         tags: ["tax", "books"],
+        iconEmoji: "🧾",
         title: "Accounting mode",
         body: "Use accounting knowledge carefully.",
         guardrails: ["No legal guarantees"],

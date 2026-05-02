@@ -23,6 +23,7 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { selectMediaModelForRequest } from "./media-model-routing";
+import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
 const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 180_000;
@@ -40,7 +41,8 @@ export class RuntimeImageGenerateToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly runtimeAssistantFileRegistryService: RuntimeAssistantFileRegistryService
   ) {}
 
   async executeToolCall(params: {
@@ -231,6 +233,7 @@ export class RuntimeImageGenerateToolService {
         providerResult.images.map((image, index) =>
           this.persistGeneratedArtifact({
             assistantId: params.bundle.metadata.assistantId,
+            workspaceId: params.bundle.metadata.workspaceId,
             sessionId: params.sessionId,
             requestId: params.requestId,
             filenameHint: request.filename,
@@ -387,6 +390,7 @@ export class RuntimeImageGenerateToolService {
 
   private async persistGeneratedArtifact(input: {
     assistantId: string;
+    workspaceId: string;
     sessionId: string;
     requestId: string;
     filenameHint: string | null;
@@ -418,13 +422,27 @@ export class RuntimeImageGenerateToolService {
       buffer,
       mimeType: input.image.mimeType
     });
+    const filename = this.resolveFilename(input.filenameHint, input.index, extension);
+    const file = await this.runtimeAssistantFileRegistryService.ensureAttachmentBackedFile({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      origin: "runtime_output",
+      referenceId: artifactId,
+      objectKey: stored.objectKey,
+      filename,
+      mimeType: stored.mimeType,
+      sizeBytes: stored.sizeBytes
+    });
+    const runtimeFileRef = this.runtimeAssistantFileRegistryService.toRuntimeFileRef(file);
 
     return {
       artifactId,
+      fileRef: runtimeFileRef.fileRef,
+      file: runtimeFileRef,
       kind: "image",
       objectKey: stored.objectKey,
       mimeType: stored.mimeType,
-      filename: this.resolveFilename(input.filenameHint, input.index, extension),
+      filename,
       sizeBytes: stored.sizeBytes,
       voiceNote: false
     };

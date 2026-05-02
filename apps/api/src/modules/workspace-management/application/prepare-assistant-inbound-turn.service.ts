@@ -144,6 +144,7 @@ export class PrepareAssistantInboundTurnService {
     const userAttachments = await this.attachmentRepository.listByMessageId(userMessage.id);
     const attachmentStates: AssistantWebChatMessageAttachmentState[] = userAttachments.map((a) => ({
       id: a.id,
+      fileRef: a.assistantFileId,
       attachmentType: a.attachmentType,
       originalFilename: a.originalFilename,
       mimeType: a.mimeType,

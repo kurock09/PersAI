@@ -230,10 +230,12 @@ function createHarness(options?: {
     {
       buildIndexedChunksForSource: async ({
         source,
-        processorMode
+        processorMode,
+        embeddingModelKey
       }: {
         source: { sourceType: string; sourceId: string };
         processorMode: string;
+        embeddingModelKey?: string | null;
       }) => {
         if (options?.indexingFailure) {
           throw options.indexingFailure;
@@ -254,10 +256,9 @@ function createHarness(options?: {
             chunkIndex: 0,
             locator: "p1",
             content: "Indexable knowledge text",
-            embeddingModelKey:
-              source.sourceType === "assistant_knowledge_source" ? "text-embedding-3-small" : null,
-            embeddingVector: source.sourceType === "assistant_knowledge_source" ? [0.1, 0.2] : null,
-            embeddingGeneratedAt: source.sourceType === "assistant_knowledge_source" ? now : null,
+            embeddingModelKey: embeddingModelKey ?? null,
+            embeddingVector: embeddingModelKey === null ? null : [0.1, 0.2],
+            embeddingGeneratedAt: embeddingModelKey === null ? null : now,
             metadata: { sourceType: source.sourceType },
             provider: {
               providerKey: "local",
@@ -270,7 +271,8 @@ function createHarness(options?: {
       }
     } as never,
     {
-      resolveAssistantEmbeddingModelKey: async () => "text-embedding-3-small"
+      resolveAssistantEmbeddingModelKey: async () => "text-embedding-3-small",
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small"
     } as never,
     {
       replaceSourceChunks: async (input: unknown) => {
@@ -366,6 +368,8 @@ async function runSkillDocumentProcessing(): Promise<void> {
   assert.equal(harness.jobs.get("job-1")?.status, "completed");
   assert.equal(harness.source()?.status, "ready");
   assert.equal(harness.skillChunks.length, 1);
+  assert.equal(harness.skillChunks[0]?.embeddingModelKey, "text-embedding-3-small");
+  assert.equal(harness.vectorReplaces.length, 1);
   assert.equal(harness.source()?.processorProviderKey, "local");
 }
 

@@ -52,7 +52,11 @@ Current active Step 20 persistence includes:
 
 ADR-081 extends the target-state authority of `assistant_files`: every user-visible or assistant-reusable file must be represented by an `AssistantFile` row and a durable `fileRef` immediately when persisted. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 
+ADR-081 Slice 1 adds `assistant_chat_message_attachments.assistant_file_id` as the projection link from chat rendering/download rows to canonical `assistant_files`. Ready upload/inbound/delivery attachments are registered into `assistant_files` immediately; `attachmentId` remains message-rendering state, while `assistant_files.id` is the durable `fileRef`.
+
 `attachmentId`, `artifactId`, `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are not target-state model-facing file selectors. They may remain internal implementation identifiers where needed, but `fileRef` is the product/runtime handle for Files.
+
+ADR-081 Slice 5 removes the old attachment download route from the active product path. Chat attachment rows can still exist as message-rendering projections, but reusable/openable files are surfaced through `assistant_files.id` (`fileRef`) and the Files API does not expose storage paths, `objectKey`, or checksum internals as user-facing state.
 
 Knowledge sources remain separate from Files. A Knowledge document may link internally to a source file, but Knowledge source ids and retrieval references are not sendable file handles.
 
@@ -67,6 +71,7 @@ Current active knowledge/retrieval persistence includes:
 - `KnowledgeVectorChunk` rows as the pgvector-backed normalized vector index boundary
 - workspace-scoped `KnowledgeRetrievalEvent` rows for individual search/fetch telemetry
 - workspace-scoped `KnowledgeRetrievalRollup` rows for durable aggregated retrieval metrics
+- `PlatformRuntimeProviderSettings.adminKnowledgeRetrievalPolicy` as the admin-owned Product/Skill KB retrieval model policy (`embeddingModelKey`, `retrievalModelKey`)
 
 ADR-079 indexing is DB-backed for current source types: `assistant_knowledge_source`, `global_knowledge_source`, and `skill_document`. Upload/reindex writes source metadata and a pending `KnowledgeIndexingJob`; the API worker claims jobs with token/expiry fields, records attempt/retry/failure state, processes normalized source content, persists source provider/processor/quality/error state, writes legacy chunk rows, and replaces pgvector rows through `KnowledgeVectorChunk` when embeddings are available. `needs_review` is an indexing quality state and does not imply ADR-080 lifecycle governance.
 
@@ -76,7 +81,7 @@ Runtime router Skill planning is also bundle-derived state. The materialized run
 
 Orchestrated retrieval context is transient runtime turn state. ADR-079 does not add a persisted retrieval-plan table: the API validates the per-turn plan, reads existing `SkillDocumentChunk`, assistant knowledge, memory/chat, and Product/preset/subscription sources, then returns a bounded source-aware context block to the runtime. Skill references are derived from ready `SkillDocument`/`SkillDocumentChunk` rows for currently active assistant Skill assignments. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks.
 
-The active retrieval-policy contract is plan-managed rather than hard-coded. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior.
+The active retrieval-policy contract is plan-managed rather than hard-coded for user-uploaded assistant knowledge. Retrieval limits, helper toggles, fetch windows, and embedding-search enablement resolve from plan billing hints and materialize into active runtime/control-plane behavior. Admin-owned Product KB and Skill documents use the platform admin knowledge retrieval policy for model slots so admin KB indexing/rerank can be tuned independently from user plans.
 
 ## Durable assistant memory
 

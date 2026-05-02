@@ -2445,6 +2445,7 @@ export class TurnExecutionService {
   ): RuntimeTurnStreamEvent[] {
     const context = execution.retrievedKnowledgeContext;
     const activeSkillName = this.resolveActiveSkillActivityName(execution, context);
+    const activeSkillIconEmoji = this.resolveActiveSkillActivityIconEmoji(execution);
     if (context === null || context.items.length === 0) {
       if (!execution.routeDecision.retrievalPlan.useSkills || activeSkillName === undefined) {
         return [];
@@ -2457,7 +2458,8 @@ export class TurnExecutionService {
           source: "skill",
           phase: "start",
           resultCount: 0,
-          skillName: activeSkillName
+          skillName: activeSkillName,
+          ...(activeSkillIconEmoji === undefined ? {} : { skillIconEmoji: activeSkillIconEmoji })
         }
       ];
     }
@@ -2481,7 +2483,10 @@ export class TurnExecutionService {
         source,
         phase: "start",
         resultCount,
-        ...(skillName === undefined ? {} : { skillName })
+        ...(skillName === undefined ? {} : { skillName }),
+        ...(source !== "skill" || activeSkillIconEmoji === undefined
+          ? {}
+          : { skillIconEmoji: activeSkillIconEmoji })
       };
     });
   }
@@ -2498,6 +2503,18 @@ export class TurnExecutionService {
       }
     }
     return context === null ? undefined : this.resolveFirstRetrievedSkillName(context);
+  }
+
+  private resolveActiveSkillActivityIconEmoji(
+    execution: PreparedTurnExecution
+  ): string | undefined {
+    const activeSkillId = execution.routeDecision.autoSkillState?.activeSkillId;
+    if (typeof activeSkillId !== "string" || activeSkillId.trim().length === 0) {
+      return undefined;
+    }
+    const skill = execution.bundle.skills?.enabled.find((row) => row.id === activeSkillId) ?? null;
+    const iconEmoji = skill?.iconEmoji?.trim();
+    return iconEmoji && iconEmoji.length > 0 ? iconEmoji : undefined;
   }
 
   private resolveFirstRetrievedSkillName(
@@ -2680,6 +2697,14 @@ export class TurnExecutionService {
           turnState.artifacts[existingIndex] = artifact;
         } else {
           turnState.artifacts.push(artifact);
+        }
+        const existingFileIndex = turnState.fileRefs.findIndex(
+          (existingFileRef) => existingFileRef.fileRef === artifact.file.fileRef
+        );
+        if (existingFileIndex >= 0) {
+          turnState.fileRefs[existingFileIndex] = artifact.file;
+        } else {
+          turnState.fileRefs.push(artifact.file);
         }
       }
     }

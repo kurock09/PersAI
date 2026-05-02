@@ -16,6 +16,7 @@ import {
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { AssistantFileRegistryService } from "../assistant-file-registry.service";
 
 class MediaStorageQuotaExceededError extends Error {
   constructor(
@@ -40,6 +41,7 @@ export class InboundMediaService {
     private readonly preprocessor: MediaPreprocessorService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly assistantFileRegistryService: AssistantFileRegistryService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {}
 
@@ -137,6 +139,22 @@ export class InboundMediaService {
             textExtract: processed.textExtract
           })
         });
+        attachment.assistantFileId = (
+          await this.assistantFileRegistryService.ensureAttachmentFile({
+            assistantId: params.assistantId,
+            workspaceId: params.workspaceId,
+            origin: "uploaded_attachment",
+            sourceAttachmentId: attachment.id,
+            sourceMessageId: attachment.messageId,
+            sourceChatId: attachment.chatId,
+            objectKey: uploadResult.objectKey,
+            filename: attachment.originalFilename,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            contentBuffer: processed.normalizedBuffer,
+            source: raw.source
+          })
+        ).fileRef;
 
         attachments.push(attachment);
 

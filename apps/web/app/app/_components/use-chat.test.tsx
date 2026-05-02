@@ -944,6 +944,71 @@ describe("useChat", () => {
     expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-2");
   });
 
+  it("preserves active Skill detail on the final response-ready badge", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onActivity?: (payload: {
+            source: "skill" | "user" | "product" | "web";
+            resultCount: number;
+            skillName?: string | null;
+            skillIconEmoji?: string | null;
+          }) => void;
+          onRuntimeDone?: (payload: { respondedAt: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onActivity?.({
+          source: "skill",
+          resultCount: 0,
+          skillName: "Диетолог",
+          skillIconEmoji: "✈️"
+        });
+        handlers.onRuntimeDone?.({
+          respondedAt: "2026-04-14T10:08:00.000Z"
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("антисрыв-план на 3 строки");
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries).toHaveLength(1);
+    expect(activityEntries[0]?.event.label).toBe("Response generated");
+    expect(activityEntries[0]?.event.emphasis).toBe("strong");
+    expect(activityEntries[0]?.event.detail).toContain("Навык - ✈️");
+    expect(activityEntries[0]?.event.detail).not.toContain("Диетолог");
+    expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
+  });
+
   it("appends the shadow routing label for owner or admin viewers", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (

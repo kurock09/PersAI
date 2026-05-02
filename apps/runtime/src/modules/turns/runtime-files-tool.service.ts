@@ -86,7 +86,6 @@ type FilesSendRequest = {
   path: string | null;
   query: string | null;
   fileRefs: string[];
-  artifactIds: string[];
   caption: string | null;
   filename: string | null;
 };
@@ -253,7 +252,6 @@ export class RuntimeFilesToolService {
         content: null,
         job: null,
         fileRefs: items.map((item) => item.fileRef),
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -295,7 +293,6 @@ export class RuntimeFilesToolService {
         }),
         job: null,
         fileRefs: items.map((item) => item.fileRef),
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -343,7 +340,6 @@ export class RuntimeFilesToolService {
         content: null,
         job: null,
         fileRefs: [resolved.item.fileRef],
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -392,9 +388,10 @@ export class RuntimeFilesToolService {
       action: "read",
       args: {
         action: "read",
+        fileRef: resolved.item.fileRef,
         path: resolved.item.relativePath
       },
-      mountedFileRefs: []
+      mountedFileRefs: [resolved.item.fileRef]
     });
 
     return {
@@ -410,7 +407,6 @@ export class RuntimeFilesToolService {
         content: job.content,
         job,
         fileRefs: [resolved.item.fileRef],
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -455,7 +451,6 @@ export class RuntimeFilesToolService {
         content: null,
         job,
         fileRefs: items.map((item) => item.fileRef),
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -496,7 +491,6 @@ export class RuntimeFilesToolService {
       channel: params.channel,
       selection: {
         fileRefs: dedupedFileRefs,
-        artifactIds: [],
         caption: request.caption,
         filename: request.filename
       }
@@ -515,7 +509,6 @@ export class RuntimeFilesToolService {
         content: null,
         job: written.payload.job,
         fileRefs: dedupedFileRefs,
-        artifactIds: [],
         queuedArtifacts: queued.queuedArtifacts
       },
       artifacts: queued.artifacts,
@@ -564,11 +557,12 @@ export class RuntimeFilesToolService {
       action: "edit",
       args: {
         action: "edit",
+        fileRef: resolved.item.fileRef,
         path: resolved.item.relativePath,
         oldText: request.oldText,
         newText: request.newText
       },
-      mountedFileRefs: []
+      mountedFileRefs: [resolved.item.fileRef]
     });
     const items = this.toItemsFromJob(job);
     return {
@@ -584,7 +578,6 @@ export class RuntimeFilesToolService {
         content: null,
         job,
         fileRefs: items.map((item) => item.fileRef),
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -606,6 +599,7 @@ export class RuntimeFilesToolService {
     let deletedItem: RuntimeFilesToolItem | null = null;
     let warning: string | null = null;
     let targetPath = request.path;
+    let targetFileRef: string | null = null;
 
     if (request.fileRef !== null || request.query !== null) {
       const resolved = await this.resolveTarget({
@@ -633,6 +627,7 @@ export class RuntimeFilesToolService {
       deletedItem = resolved.item;
       warning = resolved.warning;
       targetPath = resolved.item.relativePath;
+      targetFileRef = resolved.item.fileRef;
     }
 
     if (targetPath === null) {
@@ -654,10 +649,11 @@ export class RuntimeFilesToolService {
       action: "delete",
       args: {
         action: "delete",
+        ...(targetFileRef === null ? {} : { fileRef: targetFileRef }),
         path: targetPath,
         recursive: request.recursive
       },
-      mountedFileRefs: []
+      mountedFileRefs: targetFileRef === null ? [] : [targetFileRef]
     });
     return {
       payload: {
@@ -672,7 +668,6 @@ export class RuntimeFilesToolService {
         content: null,
         job,
         fileRefs: [],
-        artifactIds: [],
         queuedArtifacts: 0
       },
       artifacts: [],
@@ -725,7 +720,6 @@ export class RuntimeFilesToolService {
       channel: params.channel,
       selection: {
         fileRefs: dedupedFileRefs,
-        artifactIds: request.artifactIds,
         caption: request.caption,
         filename: request.filename
       }
@@ -744,7 +738,6 @@ export class RuntimeFilesToolService {
         content: null,
         job: null,
         fileRefs: dedupedFileRefs,
-        artifactIds: request.artifactIds,
         queuedArtifacts: queued.queuedArtifacts
       },
       artifacts: queued.artifacts,
@@ -774,7 +767,6 @@ export class RuntimeFilesToolService {
     channel: "web" | "telegram" | "max_ru";
     selection: {
       fileRefs: string[];
-      artifactIds: string[];
       caption: string | null;
       filename: string | null;
     };
@@ -783,7 +775,6 @@ export class RuntimeFilesToolService {
       bundle: params.bundle,
       currentArtifacts: params.currentArtifacts,
       fileRefs: params.selection.fileRefs,
-      artifactIds: params.selection.artifactIds,
       caption: params.selection.caption,
       filename: params.selection.filename
     });
@@ -959,23 +950,12 @@ export class RuntimeFilesToolService {
               (item): item is string => typeof item === "string" && item.trim().length > 0
             )
           : [];
-        const artifactIds = Array.isArray(row.artifactIds)
-          ? row.artifactIds.filter(
-              (item): item is string => typeof item === "string" && item.trim().length > 0
-            )
-          : [];
         const fileRef = this.readNonEmptyString(row.fileRef);
         const path = this.readNonEmptyString(row.path);
         const query = this.readNonEmptyString(row.query);
-        if (
-          fileRefs.length === 0 &&
-          artifactIds.length === 0 &&
-          fileRef === null &&
-          path === null &&
-          query === null
-        ) {
+        if (fileRefs.length === 0 && fileRef === null && path === null && query === null) {
           return new Error(
-            "files.send requires fileRefs, artifactIds, or one target selector: fileRef, path, or query."
+            "files.send requires fileRefs or one target selector: fileRef, path, or query."
           );
         }
         return {
@@ -984,7 +964,6 @@ export class RuntimeFilesToolService {
           path,
           query,
           fileRefs,
-          artifactIds,
           caption: this.readNonEmptyString(row.caption),
           filename: this.readNonEmptyString(row.filename)
         };
@@ -1252,7 +1231,6 @@ export class RuntimeFilesToolService {
     bundle: AssistantRuntimeBundle;
     currentArtifacts: RuntimeOutputArtifact[];
     fileRefs: string[];
-    artifactIds: string[];
     caption: string | null;
     filename: string | null;
   }): Promise<RuntimeOutputArtifact[]> {
@@ -1261,19 +1239,6 @@ export class RuntimeFilesToolService {
         entry.toLowerCase()
       )
     );
-    const artifactMap = new Map(
-      input.currentArtifacts.map((artifact) => [artifact.artifactId, artifact] as const)
-    );
-    const selectedCurrentArtifacts = input.artifactIds.map(
-      (artifactId) => artifactMap.get(artifactId) ?? null
-    );
-    if (selectedCurrentArtifacts.some((artifact) => artifact === null)) {
-      throw new Error("One or more artifactIds do not refer to current-turn artifacts.");
-    }
-    for (const artifact of selectedCurrentArtifacts) {
-      this.assertMimeAllowed(artifact!.mimeType, allowlist);
-    }
-
     const refs = await this.runtimeAssistantFileRegistryService.listByFileRefs({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
@@ -1283,32 +1248,39 @@ export class RuntimeFilesToolService {
       throw new Error("One or more fileRefs are unavailable for this assistant.");
     }
 
+    const currentArtifactsByFileRef = new Map(
+      input.currentArtifacts.map((artifact) => [artifact.fileRef, artifact] as const)
+    );
     const resolvedFileArtifacts = refs.map((ref) => {
       this.assertMimeAllowed(ref.mimeType, allowlist);
+      const currentArtifact = currentArtifactsByFileRef.get(ref.fileRef);
+      if (currentArtifact !== undefined) {
+        return {
+          ...currentArtifact,
+          ...(input.caption !== null ? { caption: input.caption } : {}),
+          ...(input.filename !== null && input.fileRefs.length === 1
+            ? { filename: input.filename }
+            : {})
+        } satisfies RuntimeOutputArtifact;
+      }
       return {
         artifactId: randomUUID(),
         kind: this.toArtifactKind(ref.mimeType),
         objectKey: ref.objectKey,
         mimeType: ref.mimeType,
         filename:
-          input.filename !== null && input.fileRefs.length + input.artifactIds.length === 1
+          input.filename !== null && input.fileRefs.length === 1
             ? input.filename
             : (ref.displayName ?? ref.relativePath.split("/").pop() ?? "file"),
         sizeBytes: ref.sizeBytes,
         voiceNote: false,
-        caption: input.caption
+        caption: input.caption,
+        fileRef: ref.fileRef,
+        file: this.runtimeAssistantFileRegistryService.toRuntimeFileRef(ref)
       } satisfies RuntimeOutputArtifact;
     });
 
-    const resolvedCurrentArtifacts = selectedCurrentArtifacts.map((artifact) => ({
-      ...artifact!,
-      ...(input.caption !== null ? { caption: input.caption } : {}),
-      ...(input.filename !== null && input.fileRefs.length + input.artifactIds.length === 1
-        ? { filename: input.filename }
-        : {})
-    }));
-
-    return [...resolvedFileArtifacts, ...resolvedCurrentArtifacts];
+    return resolvedFileArtifacts;
   }
 
   private toItemsFromJob(job: RuntimeSandboxJobResult): RuntimeFilesToolItem[] {
@@ -1373,7 +1345,6 @@ export class RuntimeFilesToolService {
       content: null,
       job: null,
       fileRefs: [],
-      artifactIds: [],
       queuedArtifacts: 0
     };
   }

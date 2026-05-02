@@ -278,6 +278,7 @@ export interface AssistantWebChatStreamHandlers {
     phase: "start";
     resultCount: number;
     skillName?: string | null;
+    skillIconEmoji?: string | null;
   }) => void;
   onCompaction?: (payload: {
     phase: "start" | "end";
@@ -1950,6 +1951,7 @@ export async function uploadAssistantAvatar(
 
 export type ChatHistoryAttachment = {
   id: string;
+  fileRef: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -2834,14 +2836,11 @@ export type ForceReapplyAllSummary = {
   skipped: number;
 };
 
-export function getAttachmentDownloadUrl(
-  attachmentId: string,
+export function getAssistantFileDownloadUrl(
+  fileRef: string,
   options?: { download?: boolean }
 ): string {
-  const url = new URL(
-    `/api/attachment/${encodeURIComponent(attachmentId)}`,
-    "https://persai.local"
-  );
+  const url = new URL(`/api/assistant-file/${encodeURIComponent(fileRef)}`, "https://persai.local");
   if (options?.download === true) {
     url.searchParams.set("download", "1");
   }
@@ -2850,6 +2849,7 @@ export function getAttachmentDownloadUrl(
 
 export type UploadedAttachment = {
   id: string;
+  fileRef: string | null;
   messageId: string;
   chatId: string;
   attachmentType: string;
@@ -2980,13 +2980,31 @@ export type AdminKnowledgeRetrievalMetricSummary = {
 };
 
 export type AdminKnowledgeRetrievalSourceSummary = AdminKnowledgeRetrievalMetricSummary & {
-  source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+  source:
+    | "document"
+    | "global"
+    | "product"
+    | "skill"
+    | "memory"
+    | "chat"
+    | "preset"
+    | "subscription"
+    | "web";
 };
 
 export type AdminKnowledgeRetrievalRecentSearch = {
   at: string;
   eventKind: "search" | "fetch";
-  source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+  source:
+    | "document"
+    | "global"
+    | "product"
+    | "skill"
+    | "memory"
+    | "chat"
+    | "preset"
+    | "subscription"
+    | "web";
   retrievalMode: "lexical" | "hybrid";
   outcome: "success" | "empty" | "error";
   durationMs: number;
@@ -3008,6 +3026,24 @@ export type AdminKnowledgeObservabilityState = {
   totals: AdminKnowledgeRetrievalMetricSummary;
   bySource: AdminKnowledgeRetrievalSourceSummary[];
   recent: AdminKnowledgeRetrievalRecentSearch[];
+};
+
+export type AdminKnowledgeRetrievalPolicyState = {
+  schema: "persai.adminKnowledgeRetrievalPolicy.v1";
+  embeddingModelKey: string | null;
+  retrievalModelKey: string | null;
+  notes: string[];
+};
+
+export type AssistantFileState = {
+  fileRef: string;
+  origin: "uploaded_attachment" | "runtime_output" | "sandbox_output";
+  displayName: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  logicalSizeBytes: number | null;
+  createdAt: string;
 };
 
 export type AdminKnowledgeConnectorState = {
@@ -3119,6 +3155,59 @@ export async function uploadChatAttachment(
   }
   const data = (await res.json()) as { attachment: UploadedAttachment };
   return data.attachment;
+}
+
+export async function getAssistantFiles(
+  token: string,
+  options?: { query?: string | null; limit?: number }
+): Promise<AssistantFileState[]> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  const query = options?.query?.trim();
+  if (query) {
+    params.set("q", query);
+  }
+  if (typeof options?.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+  const qs = params.toString();
+  const res = await fetch(`${base}/assistant/files${qs ? `?${qs}` : ""}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load assistant files."));
+  }
+  const data = (await res.json()) as { files: AssistantFileState[] };
+  return data.files;
+}
+
+export async function patchAssistantFileDisplayName(
+  token: string,
+  fileRef: string,
+  displayName: string
+): Promise<AssistantFileState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/files/${encodeURIComponent(fileRef)}`, {
+    method: "PATCH",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify({ displayName })
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to rename assistant file."));
+  }
+  const data = (await res.json()) as { file: AssistantFileState };
+  return data.file;
+}
+
+export async function deleteAssistantFile(token: string, fileRef: string): Promise<void> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/assistant/files/${encodeURIComponent(fileRef)}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to delete assistant file."));
+  }
 }
 
 export async function uploadAssistantKnowledgeSource(
@@ -3269,6 +3358,47 @@ export async function getAdminKnowledgeObservability(
       recent: []
     }
   );
+}
+
+export async function getAdminKnowledgeRetrievalPolicy(
+  token: string
+): Promise<AdminKnowledgeRetrievalPolicyState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/retrieval-policy`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load admin retrieval policy."));
+  }
+  const data = (await res.json()) as { policy?: AdminKnowledgeRetrievalPolicyState };
+  return (
+    data.policy ?? {
+      schema: "persai.adminKnowledgeRetrievalPolicy.v1",
+      embeddingModelKey: null,
+      retrievalModelKey: null,
+      notes: []
+    }
+  );
+}
+
+export async function updateAdminKnowledgeRetrievalPolicy(
+  token: string,
+  input: { embeddingModelKey: string | null; retrievalModelKey: string | null }
+): Promise<AdminKnowledgeRetrievalPolicyState> {
+  const base = getApiBaseUrl();
+  const res = await fetch(`${base}/admin/knowledge-sources/retrieval-policy`, {
+    method: "POST",
+    headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+    body: JSON.stringify(input)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to save admin retrieval policy."));
+  }
+  const data = (await res.json()) as { policy?: AdminKnowledgeRetrievalPolicyState };
+  if (data.policy === undefined) {
+    throw new Error("Admin retrieval policy response is missing policy.");
+  }
+  return data.policy;
 }
 
 export async function getAdminKnowledgeConnectors(

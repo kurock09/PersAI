@@ -72,6 +72,7 @@ export interface RuntimeUrlMediaArtifact {
 
 export interface PersaiObjectStorageRuntimeMediaArtifact {
   source: "persai_object_storage";
+  fileRef?: string | null;
   objectKey: string;
   type: RuntimeMediaArtifactType;
   mimeType: string;
@@ -160,6 +161,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   activityPhase?: "start";
   activityResultCount?: number;
   activitySkillName?: string | null;
+  activitySkillIconEmoji?: string | null;
   runtimeTrace?: {
     scope: string;
     status: string;
@@ -214,6 +216,7 @@ export function runtimeOutputArtifactsToMediaArtifacts(
     mediaArtifacts.push({
       source: "persai_object_storage",
       objectKey: artifact.objectKey,
+      fileRef: artifact.fileRef,
       type,
       mimeType: artifact.mimeType,
       filename: artifact.filename,

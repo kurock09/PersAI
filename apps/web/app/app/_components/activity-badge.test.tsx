@@ -84,13 +84,14 @@ describe("ActivityBadge", () => {
           id: "activity-5",
           type: "info",
           label: "retrieval_skill_started",
-          detail: "Диетолог",
+          detail: "Навык - ✈️",
           emphasis: "strong"
         }}
       />
     );
 
     expect(screen.getAllByText("activityRetrievalSkillStart").length).toBeGreaterThan(0);
-    expect(screen.getByText("Диетолог")).toBeInTheDocument();
+    expect(screen.getByText("Навык -")).toBeInTheDocument();
+    expect(screen.getByText("✈️")).toBeInTheDocument();
   });
 });

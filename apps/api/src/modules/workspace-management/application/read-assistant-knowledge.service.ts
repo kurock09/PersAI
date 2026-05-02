@@ -1809,6 +1809,8 @@ export class ReadAssistantKnowledgeService {
       const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
         assistantId: input.assistantId,
         query: input.query.trim(),
+        retrievalModelKey:
+          await this.knowledgeModelPolicyService.resolveAdminKnowledgeRetrievalModelKey(),
         candidates: hits.map((hit) => ({
           referenceId: hit.referenceId,
           title: hit.title,
@@ -2391,7 +2393,7 @@ export class ReadAssistantKnowledgeService {
   }): Promise<UploadedGlobalSearchExecution> {
     const [assistant, resolvedEmbeddingModelKey, retrievalPolicy] = await Promise.all([
       this.resolveAssistantKnowledgeContext(input.assistantId),
-      this.knowledgeModelPolicyService.resolveAssistantEmbeddingModelKey(input.assistantId),
+      this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey(),
       this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(input.assistantId)
     ]);
     if (assistant === null) {

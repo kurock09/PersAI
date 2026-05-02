@@ -7,11 +7,14 @@ import {
   deleteAdminKnowledgeSource,
   getAdminKnowledgeConnectors,
   getAdminKnowledgeObservability,
+  getAdminKnowledgeRetrievalPolicy,
   getAdminKnowledgeSources,
   reindexAdminKnowledgeSource,
+  updateAdminKnowledgeRetrievalPolicy,
   uploadAdminKnowledgeSource,
   type AdminKnowledgeConnectorState,
   type AdminKnowledgeObservabilityState,
+  type AdminKnowledgeRetrievalPolicyState,
   type AdminKnowledgeSourceState
 } from "@/app/app/assistant-api-client";
 
@@ -46,8 +49,14 @@ export default function AdminKnowledgePage() {
   const [sources, setSources] = useState<AdminKnowledgeSourceState[]>([]);
   const [observability, setObservability] = useState<AdminKnowledgeObservabilityState | null>(null);
   const [connectors, setConnectors] = useState<AdminKnowledgeConnectorState[]>([]);
+  const [retrievalPolicy, setRetrievalPolicy] = useState<AdminKnowledgeRetrievalPolicyState | null>(
+    null
+  );
+  const [embeddingModelDraft, setEmbeddingModelDraft] = useState("");
+  const [retrievalModelDraft, setRetrievalModelDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [savingPolicy, setSavingPolicy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -61,14 +70,19 @@ export default function AdminKnowledgePage() {
     setLoading(true);
     setFeedback(null);
     try {
-      const [nextSources, nextObservability, nextConnectors] = await Promise.all([
-        getAdminKnowledgeSources(token, "product"),
-        getAdminKnowledgeObservability(token),
-        getAdminKnowledgeConnectors(token, "product")
-      ]);
+      const [nextSources, nextObservability, nextConnectors, nextRetrievalPolicy] =
+        await Promise.all([
+          getAdminKnowledgeSources(token, "product"),
+          getAdminKnowledgeObservability(token),
+          getAdminKnowledgeConnectors(token, "product"),
+          getAdminKnowledgeRetrievalPolicy(token)
+        ]);
       setSources(nextSources);
       setObservability(nextObservability);
       setConnectors(nextConnectors);
+      setRetrievalPolicy(nextRetrievalPolicy);
+      setEmbeddingModelDraft(nextRetrievalPolicy.embeddingModelKey ?? "");
+      setRetrievalModelDraft(nextRetrievalPolicy.retrievalModelKey ?? "");
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load knowledge sources.");
     }
@@ -154,6 +168,30 @@ export default function AdminKnowledgePage() {
     [getToken, load]
   );
 
+  const handleSaveRetrievalPolicy = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+    setSavingPolicy(true);
+    setFeedback(null);
+    try {
+      const nextPolicy = await updateAdminKnowledgeRetrievalPolicy(token, {
+        embeddingModelKey: embeddingModelDraft.trim() || null,
+        retrievalModelKey: retrievalModelDraft.trim() || null
+      });
+      setRetrievalPolicy(nextPolicy);
+      setEmbeddingModelDraft(nextPolicy.embeddingModelKey ?? "");
+      setRetrievalModelDraft(nextPolicy.retrievalModelKey ?? "");
+      setFeedback(
+        "Admin retrieval policy saved. Reindex Product KB and Skill documents to refresh embeddings."
+      );
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Failed to save retrieval policy.");
+    }
+    setSavingPolicy(false);
+  }, [embeddingModelDraft, getToken, retrievalModelDraft]);
+
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-24">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -198,6 +236,60 @@ export default function AdminKnowledgePage() {
         </span>
         <span className="ml-auto">{sources.length} files</span>
         <span>{formatBytes(totalBytes)}</span>
+      </div>
+
+      <div className="rounded-xl border border-border/70 bg-surface p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-text">Admin retrieval models</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">
+              Used for admin-owned Product KB and Skill documents. User-uploaded assistant knowledge
+              keeps using the assistant plan slots.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={savingPolicy}
+            onClick={() => {
+              void handleSaveRetrievalPolicy();
+            }}
+            className="inline-flex items-center gap-2 rounded-xl bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+          >
+            {savingPolicy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Save models
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Embedding index model
+            </span>
+            <input
+              value={embeddingModelDraft}
+              onChange={(event) => setEmbeddingModelDraft(event.target.value)}
+              placeholder="text-embedding-3-small"
+              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-text-subtle">
+              Retrieval helper model
+            </span>
+            <input
+              value={retrievalModelDraft}
+              onChange={(event) => setRetrievalModelDraft(event.target.value)}
+              placeholder="gpt-4.1-mini"
+              className="mt-1 w-full rounded-xl border border-border/70 bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent"
+            />
+          </label>
+        </div>
+        {retrievalPolicy?.notes.length ? (
+          <div className="mt-3 space-y-1 text-[11px] leading-relaxed text-text-muted">
+            {retrievalPolicy.notes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 md:grid-cols-4">

@@ -244,7 +244,10 @@ export class StreamNativeWebChatTurnService {
               activitySource: event.source,
               activityPhase: event.phase,
               activityResultCount: event.resultCount,
-              ...(event.skillName === undefined ? {} : { activitySkillName: event.skillName })
+              ...(event.skillName === undefined ? {} : { activitySkillName: event.skillName }),
+              ...(event.skillIconEmoji === undefined
+                ? {}
+                : { activitySkillIconEmoji: event.skillIconEmoji })
             };
             continue;
           case "interrupted": {

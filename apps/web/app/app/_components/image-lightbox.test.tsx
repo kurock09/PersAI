@@ -21,8 +21,8 @@ describe("ImageLightbox", () => {
     render(
       <ImageLightbox
         open
-        src="/api/attachment/image-1"
-        downloadUrl="/api/attachment/image-1?download=1"
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
         filename="image.png"
         alt="Generated image"
         onClose={() => undefined}
@@ -53,8 +53,8 @@ describe("ImageLightbox", () => {
     render(
       <ImageLightbox
         open
-        src="/api/attachment/image-1"
-        downloadUrl="/api/attachment/image-1?download=1"
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
         filename="image.png"
         alt="Generated image"
         onClose={() => undefined}
@@ -86,8 +86,8 @@ describe("ImageLightbox", () => {
     render(
       <ImageLightbox
         open
-        src="/api/attachment/image-1"
-        downloadUrl="/api/attachment/image-1?download=1"
+        src="/api/assistant-file/file-ref-image-1"
+        downloadUrl="/api/assistant-file/file-ref-image-1?download=1"
         filename="image.png"
         alt="Generated image"
         onClose={() => undefined}
@@ -99,7 +99,7 @@ describe("ImageLightbox", () => {
     await waitFor(() => {
       expect(nativeShare).toHaveBeenCalledWith(
         JSON.stringify({
-          url: "http://localhost:3000/api/attachment/image-1?download=1",
+          url: "http://localhost:3000/api/assistant-file/file-ref-image-1?download=1",
           filename: "image.png",
           title: "image.png",
           userAgent: navigator.userAgent

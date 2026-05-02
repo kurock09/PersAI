@@ -339,6 +339,7 @@ function buildRetrievalLiveActivity(params: {
   source: "skill" | "user" | "product" | "web";
   resultCount: number;
   skillName?: string | null;
+  skillIconEmoji?: string | null;
 }): LiveActivityEvent {
   const labelBySource = {
     skill: "retrieval_skill_started",
@@ -346,14 +347,19 @@ function buildRetrievalLiveActivity(params: {
     product: "retrieval_product_started",
     web: "retrieval_web_started"
   } satisfies Record<"skill" | "user" | "product" | "web", string>;
-  const detail = params.source === "skill" && params.skillName ? params.skillName : null;
+  const skillIconEmoji =
+    params.source === "skill" && params.skillIconEmoji ? params.skillIconEmoji.trim() : "";
+  const detail =
+    params.source === "skill" && (params.skillName || skillIconEmoji.length > 0)
+      ? `Навык${skillIconEmoji.length > 0 ? ` - ${skillIconEmoji}` : ""}`
+      : null;
   return {
     id: `activity-live-retrieval-${Date.now()}-${params.source}`,
     type: "info",
     label: labelBySource[params.source],
     ...(detail === null ? {} : { detail }),
     afterMessageId: params.assistantMessageId,
-    emphasis: params.resultCount > 0 ? "strong" : "default",
+    emphasis: detail !== null || params.resultCount > 0 ? "strong" : "default",
     source: "retrieval"
   };
 }
@@ -374,6 +380,22 @@ function buildRuntimeLiveActivity(params: {
     emphasis: "strong",
     source: "runtime"
   };
+}
+function buildRuntimeDoneDetail(params: {
+  respondedAt: string;
+  priorActivity: LiveActivityEvent | undefined;
+}): string {
+  const respondedAtLabel = new Date(params.respondedAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+  if (params.priorActivity?.source !== "retrieval") {
+    return respondedAtLabel;
+  }
+  const retrievalDetail = params.priorActivity.detail?.trim();
+  return retrievalDetail && retrievalDetail.length > 0
+    ? `${respondedAtLabel} · ${retrievalDetail}`
+    : respondedAtLabel;
 }
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
@@ -1725,7 +1747,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               }));
             },
-            onActivity: ({ source, resultCount, skillName }) => {
+            onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
               const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
               const assistantMessageId =
                 snapshot?.messages.find((message) => message.role === "assistant")?.id ?? null;
@@ -1738,7 +1760,8 @@ export function useChat(threadKey: string): UseChatReturn {
                   assistantMessageId,
                   source,
                   resultCount,
-                  ...(skillName === undefined ? {} : { skillName })
+                  ...(skillName === undefined ? {} : { skillName }),
+                  ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
                 })
               }));
             },
@@ -2063,6 +2086,7 @@ export function useChat(threadKey: string): UseChatReturn {
           : pendingFiles.map(() => createClientTurnId());
       const localAttachments: ChatAttachment[] = pendingFiles.map((f, i) => ({
         id: clientAttachmentIds[i] ?? `local-att-${Date.now()}-${String(i)}`,
+        fileRef: null,
         attachmentType: f.type.startsWith("image/")
           ? "image"
           : f.type.startsWith("audio/")
@@ -2242,6 +2266,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 }
                 next[i] = {
                   id: u.id,
+                  fileRef: u.fileRef,
                   attachmentType: u.attachmentType,
                   originalFilename: u.originalFilename ?? file.name,
                   mimeType: u.mimeType,
@@ -2454,7 +2479,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               }));
             },
-            onActivity: ({ source, resultCount, skillName }) => {
+            onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
               flushBufferedAssistantState(true);
               applyThreadLiveActivities(sendThreadKey, (prev) => ({
                 ...prev,
@@ -2462,7 +2487,8 @@ export function useChat(threadKey: string): UseChatReturn {
                   assistantMessageId: assistantMsgId,
                   source,
                   resultCount,
-                  ...(skillName === undefined ? {} : { skillName })
+                  ...(skillName === undefined ? {} : { skillName }),
+                  ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
                 })
               }));
             },
@@ -2513,7 +2539,11 @@ export function useChat(threadKey: string): UseChatReturn {
                   ...prev,
                   [assistantMsgId]: buildRuntimeLiveActivity({
                     assistantMessageId: assistantMsgId,
-                    respondedAt
+                    respondedAt,
+                    detail: buildRuntimeDoneDetail({
+                      respondedAt,
+                      priorActivity: current
+                    })
                   })
                 };
               });
@@ -2566,6 +2596,7 @@ export function useChat(threadKey: string): UseChatReturn {
                       userServerAttachments !== undefined && userServerAttachments.length > 0
                         ? userServerAttachments.map((a) => ({
                             id: a.id,
+                            fileRef: a.fileRef,
                             attachmentType: a.attachmentType,
                             originalFilename: a.originalFilename,
                             mimeType: a.mimeType,

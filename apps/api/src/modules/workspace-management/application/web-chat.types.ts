@@ -26,6 +26,7 @@ export interface AssistantWebChatState {
 
 export interface AssistantWebChatMessageAttachmentState {
   id: string;
+  fileRef: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;

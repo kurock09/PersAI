@@ -36,6 +36,31 @@ function buildActivityDetail(
     : event.shadowRoutingLabel;
 }
 
+function renderActivityDetail(detail: string) {
+  const skillIconMatch = detail.match(
+    /^(.*?)([\p{Emoji_Presentation}\p{Extended_Pictographic}][\p{Emoji_Modifier}\uFE0F\u20E3]?)(.*?)$/u
+  );
+  if (skillIconMatch === null) {
+    return <span className="opacity-50">{detail}</span>;
+  }
+  const [, beforeIcon, skillIcon, afterIcon] = skillIconMatch;
+  return (
+    <span className="inline-flex items-center gap-1 opacity-55">
+      <span>
+        {beforeIcon}
+        {afterIcon}
+      </span>
+      <span
+        className="text-[10px] opacity-60 grayscale"
+        style={{ filter: "grayscale(1) saturate(0)" }}
+        aria-hidden="true"
+      >
+        {skillIcon}
+      </span>
+    </span>
+  );
+}
+
 function normalizeActivityLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, "_");
 }
@@ -149,7 +174,7 @@ export function ActivityBadge({
           className={cn(isStrong ? "h-3 w-3 opacity-70" : "h-2.5 w-2.5 opacity-40", cfg.color)}
         />
         <span>{label}</span>
-        {detail && <span className="opacity-50">{detail}</span>}
+        {detail && renderActivityDetail(detail)}
       </div>
     </div>
   );

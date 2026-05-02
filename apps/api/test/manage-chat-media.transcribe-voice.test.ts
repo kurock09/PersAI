@@ -55,6 +55,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {} as never,
+    {} as never,
     metrics
   );
 
@@ -115,6 +116,7 @@ async function run(): Promise<void> {
     } as never,
     {} as never,
     {} as never,
+    {} as never,
     new PlatformHttpMetricsService()
   );
   (
@@ -157,6 +159,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     {} as never,
     {} as never,
     emptyMetrics

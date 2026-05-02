@@ -18,6 +18,7 @@ import {
   Loader2,
   AlertTriangle,
   Upload,
+  Files,
   GraduationCap,
   SlidersHorizontal,
   ChevronRight
@@ -79,6 +80,7 @@ import {
   type VoiceOption
 } from "./assistant-voice-options";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
+import { AssistantFilesManager } from "./assistant-files-manager";
 import { AssistantSkillsManager } from "./assistant-skills-manager";
 import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 
@@ -95,6 +97,7 @@ type SettingsSectionId =
   | "character"
   | "quickActions"
   | "knowledge"
+  | "files"
   | "skills"
   | "memory"
   | "tasks"
@@ -106,6 +109,7 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
   switch (value) {
     case "quickActions":
     case "knowledge":
+    case "files":
     case "skills":
     case "memory":
     case "tasks":
@@ -1691,7 +1695,17 @@ export function AssistantSettings({
         </div>
       </Section>
 
-      {/* 4. Skills */}
+      {/* 4. Files */}
+      <Section
+        icon={<Files className="h-4 w-4" />}
+        title={t("files")}
+        open={openSection === "files"}
+        onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
+      >
+        <AssistantFilesManager />
+      </Section>
+
+      {/* 5. Skills */}
       <Section
         icon={<GraduationCap className="h-4 w-4" />}
         title={t("skills")}
@@ -1711,7 +1725,7 @@ export function AssistantSettings({
         {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
       </Section>
 
-      {/* 4. Memory */}
+      {/* 6. Memory */}
       <Section
         icon={<Brain className="h-4 w-4" />}
         title={t("memory")}

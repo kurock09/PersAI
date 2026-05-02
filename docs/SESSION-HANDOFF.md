@@ -1,5 +1,179 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-081 Slice 5 cleanup and hardening) — final product fileRef path, no attachment download fallback (`apps/api`, `apps/web`; focused checks green)
+
+### What changed
+
+- Continued ADR-081 with Slice 5 cleanup/hardening.
+- Removed the old attachment download fallback from the active product path.
+- Web chat attachment cards now only create open/download URLs when an attachment has canonical `fileRef`, using `/api/assistant-file/:fileRef`.
+- Deleted the old web `/api/attachment/:id` proxy and removed API `GET /assistant/attachment/:attachmentId` plus its auth allowlist entry.
+- Assistant Files API state now returns product file metadata (`fileRef`, origin, display/filename, MIME/size, created time) without exposing storage-derived `relativePath`, `sha256`, `objectKey`, or raw paths.
+- Internal `objectKey`/relative-path/runtime `artifactId` use remains only for storage, sandbox execution, and runtime accounting, not model/product-facing selector truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/image-lightbox.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+ADR-081 implementation slices are complete. Next recommended step is a small product/live smoke: upload a file in chat, open Assistant Settings Files, open/download by `fileRef`, and ask a Skill/tool flow to read/send that file.
+
+---
+
+## 2026-05-02 (ADR-081 Slice 4 Assistant Settings Files UI) — compact visible Files surface backed by `fileRef` (`apps/web`; focused checks green)
+
+### What changed
+
+- Continued ADR-081 with Slice 4.
+- Added a compact Files section inside Assistant Settings, not a separate top-level route.
+- The Files section lists assistant Files with search/refresh, provenance badges, bounded scroll for large lists, and Open/Download/Rename/Delete actions backed by canonical `fileRef`.
+- Added an authenticated web proxy route for file open/download so users do not see storage internals and anchors can still work with Clerk auth.
+- Chat attachment cards now use the canonical Files route when an attachment has `fileRef`; attachment cards and settings rows therefore project the same File.
+- Knowledge remains separate and was not merged into Files.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/chat-message.test.tsx app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Continue ADR-081 with Slice 5: cleanup, contract hardening, and full verification to remove remaining obsolete selector leakage and prove the final `fileRef` architecture is the only active path.
+
+---
+
+## 2026-05-02 (ADR-081 Slice 3 runtime Files and Skill working files) — Skills can use chat/upload/generated/sandbox files by `fileRef` (`apps/runtime`; focused checks green)
+
+### What changed
+
+- Continued ADR-081 with Slice 3, bounded to runtime Files contract and Skill working-file behavior.
+- Runtime prompt hydration now labels chat attachments as working files and tells the model/Skill to use `fileRef` with the `files` tool for inspect/read/edit/resend operations.
+- The `files` tool definition now describes one fileRef-first surface across uploaded chat files, generated outputs, and sandbox-created files.
+- `files.read`, `files.edit`, and `files.delete` now pass the resolved `fileRef` into sandbox jobs as a required mount before operating by relative path, so uploaded PDFs and other chat files can be read/edited/deleted through the same registry-backed file handle.
+- Focused coverage now includes uploaded PDF query -> read with required fileRef mount, ambiguous query choices with `fileRef`, generated file send continuity, sandbox file send, and working-file prompt hydration.
+- Public Knowledge ingestion remains separate and was not changed.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Next recommended step
+
+Continue ADR-081 with Slice 4: Assistant Settings Files UI and chat attachment projection, so users get a visible file list/actions surface backed by the same `fileRef` truth.
+
+---
+
+## 2026-05-02 (ADR-079 Skill activity badge icon correction) — Skill-specific icon in live/final badge (`apps/api`, `apps/runtime`, `apps/web`; focused checks green)
+
+### What changed
+
+- Removed the hardcoded Skill badge emoji.
+- Added `iconEmoji` to enabled Skill prompt/runtime materialization and runtime bundle Skill summaries.
+- Runtime retrieval activity events now include the active Skill's own `skillIconEmoji` when auto Skill routing selected a Skill.
+- API forwards the Skill icon through native stream chunks and web SSE activity payloads.
+- Web activity badges now render `Навык - <iconEmoji>` from selected Skill metadata only; if a Skill has no icon, no generic emoji is invented.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/activity-badge.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- The ADR-081 generated Files runtime-suite failure noted during this slice was resolved later by ADR-081 Slice 3.
+
+### Next recommended step
+
+Deploy/retest the `Диетолог` live badge to confirm it shows the Skill's own seeded 🥦 and other Skills show their own configured icons.
+
+---
+
+## 2026-05-02 (ADR-079 admin-owned KB retrieval model policy) — separate Product/Skill retrieval slots (`apps/api`, `apps/web`; focused checks green)
+
+### What changed
+
+- Added `/admin/knowledge` controls for admin-owned KB retrieval model slots:
+  - `embeddingModelKey` for Product KB and Skill document indexing/vector search;
+  - `retrievalModelKey` for Product/Skill retrieval helper rerank.
+- Kept user-uploaded assistant knowledge on the existing assistant plan slots.
+- Product KB and Skill document indexing now resolve the admin-owned embedding model instead of `null`.
+- Skill retrieval now combines lexical candidates, pgvector candidates from `knowledge_vector_chunks`, helper rerank, and telemetry for vector/helper/model usage.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Deploy, set `/admin/knowledge` to the intended models (for example `text-embedding-3-small` and `gpt-4.1-mini`), reindex Product KB and Skill documents, then rerun the founder `Диетолог` live smoke with RU prompts against EN Skill docs.
+
+---
+
+## 2026-05-02 (ADR-081 Slice 2 runtime generated Files) — generated outputs use durable `fileRef` (`apps/runtime`, `apps/api`, `packages/runtime-contract`; production gate green)
+
+### What changed
+
+- Continued ADR-081 with the second slice.
+- Runtime image generation, image edit, video generation, and TTS now register generated outputs as canonical `AssistantFile` rows immediately after object-storage persistence.
+- `RuntimeOutputArtifact` now carries durable `fileRef` and full runtime file metadata; stream/done events can reconcile generated files through `fileRef`.
+- Model-visible tool-result JSON keeps `fileRef` and still hides `artifactId`, `objectKey`, filename, and size to avoid leaking delivery/storage internals into assistant prose.
+- `files.send` no longer accepts `artifactIds`; generated outputs are sent by `fileRef`, including same-turn generated files, with deduping against already queued artifacts.
+- API media delivery links delivered chat attachments to an existing runtime-generated `fileRef` when present instead of creating a second canonical registry row for the same object.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-tts-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Continue ADR-081 with Slice 3: make the broader runtime Files contract and Skill working-file behavior fully `fileRef`-first across uploads, sandbox files, generated outputs, and Skill-assisted file search/read/send flows.
+
+---
+
+## 2026-05-02 (ADR-081 Slice 1 canonical Files authority) — immediate `fileRef` for chat/upload attachments (`apps/api`, `packages/runtime-contract`; focused API checks green)
+
+### What changed
+
+- Implemented the first ADR-081 slice at the API/data-model boundary.
+- Added `assistant_chat_message_attachments.assistant_file_id` and a migration that backfills ready chat attachments into canonical `assistant_files`.
+- Direct chat uploads, staged web uploads, inbound channel media, and delivered assistant attachments now register an `AssistantFile` immediately and attach the resulting `fileRef` to the chat attachment.
+- Web/API attachment state and runtime inbound attachment refs now carry `fileRef`; `attachmentId` remains for chat rendering/download internals and `objectKey` remains storage-internal.
+- Added assistant-scoped Files read APIs for list/search, metadata, download, rename/update display metadata, and registry-row delete/archive semantics to support the future Assistant Settings Files UI.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Continue ADR-081 with Slice 2: generated/runtime outputs should become canonical Files immediately and model-facing `artifactId` send semantics should be removed in favor of durable `fileRef`.
+
+---
+
 ## 2026-05-02 (ADR-081 unified user Files architecture) — accepted one clean Files product/runtime model (`docs`; no code changes)
 
 ### What changed

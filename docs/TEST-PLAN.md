@@ -97,6 +97,86 @@ Interpretation rules:
 25. if `files.read` / `files.write` / `files.edit` or sandbox explicit mounts change, verify the normal canonical `files` path runs by hydrated workspace `relativePath` without redundant `mountedFileRefs`, and verify any remaining explicit mounted `fileRef` path is scoped to the same assistant/workspace and fails structurally after stale-row cleanup when the backing blob is missing
 26. if `files.delete` or default `files.list` presentation changes, verify recursive directory delete works, root delete stays blocked, single-file delete returns the canonical deleted item, and the default list summary groups `workspace`, `uploads`, and `artifacts` without exposing raw service-noise paths unnecessarily
 
+## ADR-081 Files authority focused checks
+
+When a change implements ADR-081 canonical Files authority, add the focused API checks below before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma
+corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts
+corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/inbound-media.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. direct chat uploads and staged web uploads must create a chat attachment and canonical `AssistantFile` in the same logical flow, and returned attachment states must include `fileRef`
+2. inbound channel media and delivered assistant attachments must also link to canonical `AssistantFile`; any generated-output model-contract changes still belong to ADR-081 Slice 2
+3. Files API responses must expose `fileRef`, name/type/origin/date/size metadata, and download/update/delete actions without exposing `objectKey` as a normal selector
+
+When a change implements ADR-081 generated/runtime output Files, add the focused runtime checks below before broad verification:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-tts-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-video-generate-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. generated image/edit/video/TTS outputs must have durable `fileRef` immediately when persisted
+2. model-facing generated-output send semantics must use `fileRef`, not `artifactId`
+3. API delivery must link chat attachments to existing generated `fileRef` when runtime supplies one
+
+When a change implements ADR-081 runtime Files/Skill working-file behavior, add these focused runtime checks:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. prompt hydration must present uploaded/current chat attachments as working files with durable `fileRef`
+2. `files.search/get/read/send` must operate over the unified assistant Files registry, including uploads, generated outputs, and sandbox outputs
+3. `files.read`/`files.edit`/`files.delete` must mount resolved registry files into sandbox by required `fileRef`, not by storage path or object key
+4. ambiguous query behavior must return clear candidate items with `fileRef`
+
+When a change implements ADR-081 Assistant Settings Files UI or chat attachment projection, add these focused web checks:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/chat-message.test.tsx app/app/assistant-api-client.test.ts
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Assistant Settings must expose Files as an inline section, not a separate route
+2. long file lists must stay scroll-bounded inside the section
+3. Open/Download/Rename/Delete actions must use canonical `fileRef` APIs/routes and must not expose `objectKey` or raw storage paths
+4. chat attachment cards must prefer the canonical Files route when `fileRef` exists
+
+When a change implements ADR-081 final cleanup or contract hardening, add these checks:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/image-lightbox.test.tsx app/app/assistant-api-client.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. product open/download links must use canonical `fileRef` routes, not `attachmentId` routes
+2. assistant Files API/UI state must not expose `objectKey`, storage paths, raw sandbox paths, or checksum internals as user-facing selectors
+3. any remaining `artifactId`, `objectKey`, or path usage must be internal storage/sandbox/runtime accounting, not model/product selector truth
+4. full verification gate still applies before closing the slice
+
 ## Web stream latency-trace focused checks
 
 When a change touches web SSE orchestration, replay wait behavior, pre-first-delta timing, or provider stream timing logs, add the focused pack below before calling the slice clean:

@@ -43,6 +43,7 @@ export class KnowledgeRetrievalHelperService {
   async rerankCandidates(params: {
     assistantId: string;
     query: string;
+    retrievalModelKey?: string | null;
     candidates: Array<{
       referenceId: string;
       title: string | null;
@@ -60,7 +61,11 @@ export class KnowledgeRetrievalHelperService {
       return null;
     }
     const retrievalModelKey =
-      await this.knowledgeModelPolicyService.resolveAssistantRetrievalModelKey(params.assistantId);
+      params.retrievalModelKey === undefined
+        ? await this.knowledgeModelPolicyService.resolveAssistantRetrievalModelKey(
+            params.assistantId
+          )
+        : params.retrievalModelKey;
     if (retrievalModelKey === null) {
       return null;
     }

@@ -99,6 +99,7 @@ const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
 
 function toAttachmentState(attachment: {
   id: string;
+  assistantFileId: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -108,6 +109,7 @@ function toAttachmentState(attachment: {
 }) {
   return {
     id: attachment.id,
+    fileRef: attachment.assistantFileId,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,
@@ -251,6 +253,7 @@ export class StreamWebChatTurnService {
         phase: "start";
         resultCount: number;
         skillName?: string | null;
+        skillIconEmoji?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
       /**
@@ -788,6 +791,7 @@ export class StreamWebChatTurnService {
         phase: "start";
         resultCount: number;
         skillName?: string | null;
+        skillIconEmoji?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
     };
@@ -940,7 +944,12 @@ export class StreamWebChatTurnService {
             source: chunk.activitySource,
             phase: chunk.activityPhase,
             resultCount: Math.max(0, chunk.activityResultCount ?? 0),
-            ...(chunk.activitySkillName === undefined ? {} : { skillName: chunk.activitySkillName })
+            ...(chunk.activitySkillName === undefined
+              ? {}
+              : { skillName: chunk.activitySkillName }),
+            ...(chunk.activitySkillIconEmoji === undefined
+              ? {}
+              : { skillIconEmoji: chunk.activitySkillIconEmoji })
           });
         }
 

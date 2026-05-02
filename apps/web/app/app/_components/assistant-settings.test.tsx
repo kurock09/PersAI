@@ -20,6 +20,7 @@ const routerMocks = vi.hoisted(() => ({
 const assistantApiMocks = vi.hoisted(() => ({
   getAssistantMemoryItems: vi.fn(),
   getAssistantTaskItems: vi.fn(),
+  getAssistantBackgroundTaskItems: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
   getWorkspaceMemoryItems: vi.fn(),
   searchWorkspaceMemory: vi.fn(),
@@ -34,6 +35,9 @@ const assistantApiMocks = vi.hoisted(() => ({
   postAssistantPublish: vi.fn(),
   postAssistantRollback: vi.fn(),
   postAssistantReset: vi.fn(),
+  getAssistantFiles: vi.fn(),
+  patchAssistantFileDisplayName: vi.fn(),
+  deleteAssistantFile: vi.fn(),
   uploadAssistantAvatar: vi.fn()
 }));
 
@@ -54,6 +58,7 @@ vi.mock("../assistant-api-client", async () => {
     ...actual,
     getAssistantMemoryItems: assistantApiMocks.getAssistantMemoryItems,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
+    getAssistantBackgroundTaskItems: assistantApiMocks.getAssistantBackgroundTaskItems,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
     getWorkspaceMemoryItems: assistantApiMocks.getWorkspaceMemoryItems,
     searchWorkspaceMemory: assistantApiMocks.searchWorkspaceMemory,
@@ -68,6 +73,9 @@ vi.mock("../assistant-api-client", async () => {
     postAssistantPublish: assistantApiMocks.postAssistantPublish,
     postAssistantRollback: assistantApiMocks.postAssistantRollback,
     postAssistantReset: assistantApiMocks.postAssistantReset,
+    getAssistantFiles: assistantApiMocks.getAssistantFiles,
+    patchAssistantFileDisplayName: assistantApiMocks.patchAssistantFileDisplayName,
+    deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar
   };
 });
@@ -221,12 +229,14 @@ beforeEach(() => {
   clerkMocks.getToken.mockResolvedValue("token-1");
   assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
+  assistantApiMocks.getAssistantBackgroundTaskItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
     schema: "persai.assistantVoiceSettings.v1",
     primaryProviderId: "openai",
     elevenlabs: null
   });
   assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([]);
+  assistantApiMocks.getAssistantFiles.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -338,6 +348,48 @@ describe("AssistantSettings character CTA", () => {
       "href",
       "/mobile/persai-android-release.apk"
     );
+  });
+});
+
+describe("AssistantSettings Files", () => {
+  it("renders a compact scrollable Files section with canonical file actions", async () => {
+    assistantApiMocks.getAssistantFiles.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => ({
+        fileRef: `file-ref-${index}`,
+        origin:
+          index % 3 === 0
+            ? "uploaded_attachment"
+            : index % 3 === 1
+              ? "runtime_output"
+              : "sandbox_output",
+        displayName: `Spec ${index}.pdf`,
+        filename: `file-${index}.pdf`,
+        mimeType: "application/pdf",
+        sizeBytes: 1024 + index,
+        logicalSizeBytes: 1024 + index,
+        createdAt: "2026-05-02T00:00:00.000Z"
+      }))
+    );
+
+    renderSettings(makeAppData(), "files");
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantFiles).toHaveBeenCalledWith("token-1", {
+        query: "",
+        limit: 100
+      });
+    });
+    expect(screen.getByText("Assistant files")).toBeInTheDocument();
+    expect(screen.getByText("Spec 0.pdf")).toBeInTheDocument();
+    expect(screen.getAllByTitle("Open")[0]).toHaveAttribute(
+      "href",
+      "/api/assistant-file/file-ref-0"
+    );
+    expect(screen.getAllByTitle("Download")[0]).toHaveAttribute(
+      "href",
+      "/api/assistant-file/file-ref-0?download=1"
+    );
+    expect(screen.getByText("Spec 11.pdf").closest(".max-h-\\[360px\\]")).not.toBeNull();
   });
 });
 

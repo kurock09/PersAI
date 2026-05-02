@@ -88,6 +88,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    {} as never,
     metrics
   );
 

@@ -522,7 +522,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     {
       role: "user",
       content:
-        '[Files attached by user:\n- attachment (document "notes.txt", fileRef: "file-ref-attachment-1", content preview: "first note preview")\nWhen you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nfirst user'
+        '[Working files from user attachments:\n- attachment (document "notes.txt", fileRef: "file-ref-attachment-1", content preview: "first note preview")\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nfirst user'
     },
     {
       role: "assistant",
@@ -539,7 +539,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text: '[Files attached by user:\n- attachment (audio "voice.mp3", transcription: "hello from attachment", fileRef: "file-ref-attachment-3")\n- attachment (image #1 "diagram.png", fileRef: "file-ref-attachment-4")\n- attachment (document "manual.pdf", fileRef: "file-ref-attachment-5")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nWhen you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+          text: '[Working files from user attachments:\n- attachment (audio "voice.mp3", transcription: "hello from attachment", fileRef: "file-ref-attachment-3")\n- attachment (image #1 "diagram.png", fileRef: "file-ref-attachment-4")\n- attachment (document "manual.pdf", fileRef: "file-ref-attachment-5")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
         },
         {
           type: "image",
@@ -609,7 +609,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text: '[Files attached by user:\n- attachment (file "runtime-fallback.pdf", fileRef: "file-ref-runtime-attachment-1")\n- attachment (file "runtime-large.pdf", fileRef: "file-ref-runtime-attachment-2")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nWhen you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
+          text: '[Working files from user attachments:\n- attachment (file "runtime-fallback.pdf", fileRef: "file-ref-runtime-attachment-1")\n- attachment (file "runtime-large.pdf", fileRef: "file-ref-runtime-attachment-2")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
         },
         {
           type: "pdf",
@@ -671,7 +671,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       content: [
         {
           type: "text",
-          text: '[Files attached by user:\n- attachment (image #1 "yard.png", fileRef: "file-ref-runtime-image-1")\n- attachment (image #2 "car.png", fileRef: "file-ref-runtime-image-2")\nCurrent-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image.\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nWhen you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nedit both images'
+          text: '[Working files from user attachments:\n- attachment (image #1 "yard.png", fileRef: "file-ref-runtime-image-1")\n- attachment (image #2 "car.png", fileRef: "file-ref-runtime-image-2")\nCurrent-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image.\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nedit both images'
         },
         {
           type: "image",

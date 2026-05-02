@@ -117,6 +117,7 @@ ADR-081 defines the active Files target state:
 - `AssistantFile` is the canonical durable registry for every user-visible or assistant-reusable file.
 - `fileRef` is the only stable model/product selector for reusable files.
 - chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage path, raw sandbox path, knowledge source id, and retrieval reference id are not primary model-facing file selectors.
+- product open/download links use the canonical Files route by `fileRef`; the old attachment download route is not active target-state UI/API truth.
 - media storage and sandbox storage are implementation details behind one user Files model.
 - Knowledge remains a separate product plane and is not merged into Files.
 

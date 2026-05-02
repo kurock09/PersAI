@@ -23,6 +23,7 @@ import {
 import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
+import { AssistantFileRegistryService } from "../assistant-file-registry.service";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -35,6 +36,7 @@ export class MediaDeliveryService {
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly assistantFileRegistryService: AssistantFileRegistryService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
@@ -117,17 +119,23 @@ export class MediaDeliveryService {
       originalFilename: sourceFilename,
       surface: "tool_output_persist"
     });
-    const objectKey = this.mediaObjectStorage.buildChatMessageObjectKey({
-      assistantId: params.assistantId,
-      chatId: params.chatId,
-      messageId: params.messageId,
-      extension: validated.normalizedExtension
-    });
-    const uploadResult = await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer: downloadResult.buffer,
-      mimeType: validated.effectiveMimeType
-    });
+    const uploadResult =
+      artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string"
+        ? {
+            objectKey: artifact.objectKey,
+            sizeBytes: downloadResult.buffer.length,
+            mimeType: validated.effectiveMimeType
+          }
+        : await this.mediaObjectStorage.saveObject({
+            objectKey: this.mediaObjectStorage.buildChatMessageObjectKey({
+              assistantId: params.assistantId,
+              chatId: params.chatId,
+              messageId: params.messageId,
+              extension: validated.normalizedExtension
+            }),
+            buffer: downloadResult.buffer,
+            mimeType: validated.effectiveMimeType
+          });
 
     const attachmentType = artifact.audioAsVoice ? "voice" : artifact.type;
     const filename = validated.originalFilename ?? sourceFilename;
@@ -152,8 +160,29 @@ export class MediaDeliveryService {
         ...(artifact.source === "runtime_url" ? { originalUrl: artifact.url } : {})
       })
     });
+    if (artifact.source === "persai_object_storage" && typeof artifact.fileRef === "string") {
+      attachment.assistantFileId = artifact.fileRef;
+    } else {
+      attachment.assistantFileId = (
+        await this.assistantFileRegistryService.ensureAttachmentFile({
+          assistantId: attachment.assistantId,
+          workspaceId: attachment.workspaceId,
+          origin: "runtime_output",
+          sourceAttachmentId: attachment.id,
+          sourceMessageId: attachment.messageId,
+          sourceChatId: attachment.chatId,
+          objectKey: uploadResult.objectKey,
+          filename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          contentBuffer: downloadResult.buffer,
+          source: "tool_output"
+        })
+      ).fileRef;
+    }
     if (
       artifact.source === "persai_object_storage" &&
+      typeof artifact.fileRef !== "string" &&
       artifact.objectKey !== uploadResult.objectKey &&
       this.isEphemeralRuntimeOutputObjectKey(artifact.objectKey)
     ) {
@@ -163,6 +192,7 @@ export class MediaDeliveryService {
     return {
       state: {
         id: attachment.id,
+        fileRef: attachment.assistantFileId,
         attachmentType: attachment.attachmentType,
         originalFilename: attachment.originalFilename,
         mimeType: attachment.mimeType,

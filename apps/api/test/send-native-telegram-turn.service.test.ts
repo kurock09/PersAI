@@ -201,6 +201,7 @@ describe("SendNativeTelegramTurnService", () => {
         {
           source: "persai_object_storage",
           objectKey: "assistant-media/assistants/assistant-1/runtime-output/reply.ogg",
+          fileRef: undefined,
           type: "audio",
           mimeType: "audio/ogg",
           filename: "reply.ogg",
@@ -441,6 +442,7 @@ describe("SendNativeTelegramTurnService", () => {
         {
           source: "persai_object_storage",
           objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+          fileRef: undefined,
           type: "image",
           mimeType: "image/png",
           filename: "degraded.png",

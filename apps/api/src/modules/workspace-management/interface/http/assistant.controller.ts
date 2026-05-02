@@ -1264,12 +1264,13 @@ export class AssistantController {
         onTool: ({ phase, toolName, toolCallId, isError }) => {
           sendSse("tool", { phase, toolName, toolCallId, isError });
         },
-        onActivity: ({ source, phase, resultCount, skillName }) => {
+        onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {
           sendSse("activity", {
             source,
             phase,
             resultCount,
-            ...(skillName === undefined ? {} : { skillName })
+            ...(skillName === undefined ? {} : { skillName }),
+            ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
           });
         },
         onDone: (respondedAt) => {

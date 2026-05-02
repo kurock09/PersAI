@@ -5,7 +5,7 @@ const apiBase = rawProxyTarget.replace(/\/$/, "").replace(/\/api\/v1$/, "") + "/
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ fileRef: string }> }
 ): Promise<Response> {
   const { getToken } = await auth();
   const token = await getToken();
@@ -13,9 +13,9 @@ export async function GET(
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = await params;
+  const { fileRef } = await params;
   const requestUrl = new URL(request.url);
-  const upstream = new URL(`${apiBase}/assistant/attachment/${encodeURIComponent(id)}`);
+  const upstream = new URL(`${apiBase}/assistant/files/${encodeURIComponent(fileRef)}/download`);
   const download = requestUrl.searchParams.get("download");
   if (download === "1") {
     upstream.searchParams.set("download", "1");

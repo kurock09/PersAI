@@ -270,6 +270,7 @@ export class ManageWebChatListService {
       const list = attachmentsByMessageId.get(att.messageId) ?? [];
       list.push({
         id: att.id,
+        fileRef: att.assistantFileId,
         attachmentType: att.attachmentType,
         originalFilename: att.originalFilename,
         mimeType: att.mimeType,

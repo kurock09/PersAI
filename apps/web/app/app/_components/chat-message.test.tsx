@@ -21,7 +21,8 @@ vi.mock("./image-lightbox", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  getAttachmentDownloadUrl: () => "/dummy"
+  getAssistantFileDownloadUrl: (fileRef: string, options?: { download?: boolean }) =>
+    `/api/assistant-file/${fileRef}${options?.download ? "?download=1" : ""}`
 }));
 
 // react-markdown is heavy and unrelated to the indicator under test —
@@ -98,6 +99,7 @@ function makeUserMessage(
 function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
+    fileRef: null,
     attachmentType: "image",
     originalFilename: "photo.jpg",
     mimeType: "image/jpeg",
@@ -299,6 +301,31 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
     // the bubble renders content unchanged so future regressions in the
     // composer can't silently swallow user-visible text.
     expect(screen.getByText(ATTACHMENTS_ONLY_PLACEHOLDER_TEXT)).toBeInTheDocument();
+  });
+});
+
+describe("ChatMessageBubble — canonical file attachments", () => {
+  it("uses fileRef download URLs when an attachment is linked to a canonical File", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              ...makeImageAttachment("att-file-ref"),
+              attachmentType: "document",
+              originalFilename: "spec.pdf",
+              mimeType: "application/pdf",
+              fileRef: "file-ref-1"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getByRole("link", { name: /spec\.pdf/i })).toHaveAttribute(
+      "href",
+      "/api/assistant-file/file-ref-1?download=1"
+    );
   });
 });
 

@@ -77,11 +77,18 @@ export function inferAttachmentTypeFromMime(mime: string): AttachmentType {
 export function toRuntimeAttachmentRef(
   attachment: Pick<
     AssistantChatMessageAttachment,
-    "id" | "attachmentType" | "storagePath" | "mimeType" | "originalFilename" | "sizeBytes"
+    | "id"
+    | "assistantFileId"
+    | "attachmentType"
+    | "storagePath"
+    | "mimeType"
+    | "originalFilename"
+    | "sizeBytes"
   >
 ): RuntimeAttachmentRef {
   return {
     attachmentId: attachment.id,
+    fileRef: attachment.assistantFileId,
     kind: toRuntimeAttachmentKind(attachment.attachmentType),
     objectKey: attachment.storagePath,
     mimeType: attachment.mimeType,

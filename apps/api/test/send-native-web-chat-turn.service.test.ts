@@ -138,6 +138,7 @@ describe("SendNativeWebChatTurnService", () => {
         {
           source: "persai_object_storage",
           objectKey: "assistant-media/assistants/assistant-1/runtime-output/one.png",
+          fileRef: undefined,
           type: "image",
           mimeType: "image/png",
           filename: "one.png",

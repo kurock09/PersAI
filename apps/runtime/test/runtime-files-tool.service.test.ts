@@ -118,6 +118,18 @@ class FakeSandboxClientService {
 function createArtifact(overrides?: Partial<RuntimeOutputArtifact>): RuntimeOutputArtifact {
   return {
     artifactId: "artifact-1",
+    fileRef: "file-ref-generated-1",
+    file: {
+      fileRef: "file-ref-generated-1",
+      origin: "runtime_output",
+      sourceToolCode: null,
+      objectKey: "assistant-media/runtime-output/generated.png",
+      relativePath: "artifacts/artifact-1/generated.png",
+      displayName: "generated.png",
+      mimeType: "image/png",
+      sizeBytes: 128,
+      logicalSizeBytes: 128
+    },
     kind: "image",
     objectKey: "assistant-media/runtime-output/generated.png",
     mimeType: "image/png",
@@ -182,6 +194,23 @@ async function run(): Promise<void> {
       createdAt: new Date("2026-04-19T12:02:00.000Z")
     },
     {
+      id: "file-ref-uploaded-pdf",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "uploaded_attachment" as const,
+      sourceToolCode: null,
+      objectKey: "assistant-media/uploads/tz/TZ.pdf",
+      relativePath: "uploads/bdf7ec74-23fa-4a47-98cd-8ccb3726d92a/TZ.pdf",
+      displayName: "ТЗ.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: BigInt(2048),
+      logicalSizeBytes: BigInt(2048),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:02:30.000Z")
+    },
+    {
       id: "file-ref-artifact",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
@@ -197,6 +226,23 @@ async function run(): Promise<void> {
       sha256: null,
       metadata: null,
       createdAt: new Date("2026-04-19T12:03:00.000Z")
+    },
+    {
+      id: "file-ref-generated-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      sandboxJobId: null,
+      origin: "runtime_output" as const,
+      sourceToolCode: null,
+      objectKey: "assistant-media/runtime-output/generated.png",
+      relativePath: "artifacts/artifact-1/generated.png",
+      displayName: "generated.png",
+      mimeType: "image/png",
+      sizeBytes: BigInt(128),
+      logicalSizeBytes: BigInt(128),
+      sha256: null,
+      metadata: null,
+      createdAt: new Date("2026-04-19T12:04:00.000Z")
     }
   ];
   const prisma = {
@@ -206,11 +252,43 @@ async function run(): Promise<void> {
           id?: { in: string[] };
           assistantId?: string;
           workspaceId?: string;
+          OR?: Array<Record<string, unknown>>;
         };
+        take?: number;
       }) {
         const ids = input?.where?.id?.in;
         if (ids === undefined) {
-          return canonicalRows;
+          const filtered = canonicalRows.filter((row) => {
+            if (
+              input?.where?.assistantId !== undefined &&
+              input.where.assistantId !== row.assistantId
+            ) {
+              return false;
+            }
+            if (
+              input?.where?.workspaceId !== undefined &&
+              input.where.workspaceId !== row.workspaceId
+            ) {
+              return false;
+            }
+            if (input?.where?.OR === undefined) {
+              return true;
+            }
+            const queries = input.where.OR.flatMap((condition) =>
+              Object.values(condition).flatMap((value) => {
+                if (value !== null && typeof value === "object" && "contains" in value) {
+                  return [String((value as { contains: unknown }).contains).toLowerCase()];
+                }
+                return [];
+              })
+            );
+            return queries.some((query) =>
+              [row.id, row.displayName ?? "", row.relativePath, row.objectKey].some((value) =>
+                value.toLowerCase().includes(query)
+              )
+            );
+          });
+          return input?.take === undefined ? filtered : filtered.slice(0, input.take);
         }
         if (ids.some((id) => id.includes("/"))) {
           throw new Error(
@@ -333,14 +411,63 @@ async function run(): Promise<void> {
   assert.match(listUploadsRecursive.payload.content ?? "", /Available files in "uploads"/);
   assert.match(listUploadsRecursive.payload.content ?? "", /Uploads:/);
   assert.match(listUploadsRecursive.payload.content ?? "", /KB\.txt/);
+  assert.match(listUploadsRecursive.payload.content ?? "", /ТЗ\.pdf/);
   assert.doesNotMatch(
     listUploadsRecursive.payload.content ?? "",
     /94ec8468-10ce-4761-9065-2498de7130ee/
   );
-  assert.deepEqual(listUploadsRecursive.payload.fileRefs, ["file-ref-kb"]);
+  assert.deepEqual(listUploadsRecursive.payload.fileRefs, ["file-ref-kb", "file-ref-uploaded-pdf"]);
   assert.equal(
     listUploadsRecursive.payload.items[0]?.relativePath,
     "uploads/94ec8468-10ce-4761-9065-2498de7130ee/KB.txt"
+  );
+
+  const readUploadedPdfByQuery = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-read-uploaded-pdf",
+      name: "files",
+      arguments: {
+        action: "read",
+        query: "ТЗ"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1c",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(readUploadedPdfByQuery.isError, false);
+  assert.equal(readUploadedPdfByQuery.payload.item?.fileRef, "file-ref-uploaded-pdf");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.fileRef, "file-ref-uploaded-pdf");
+  assert.equal(
+    sandboxClientService.calls.at(-1)?.args.path,
+    "uploads/bdf7ec74-23fa-4a47-98cd-8ccb3726d92a/TZ.pdf"
+  );
+  assert.deepEqual(sandboxClientService.calls.at(-1)?.mountedFileRefs, ["file-ref-uploaded-pdf"]);
+
+  const ambiguousGet = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tool-call-get-ambiguous",
+      name: "files",
+      arguments: {
+        action: "get",
+        query: "hello"
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-1d",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    channel: "web"
+  });
+  assert.equal(ambiguousGet.isError, true);
+  assert.equal(ambiguousGet.payload.reason, "ambiguous_file_query");
+  assert.deepEqual(
+    ambiguousGet.payload.items.map((item) => item.fileRef),
+    ["file-ref-root", "file-ref-artifact"]
   );
 
   const readResult = await service.executeToolCall({
@@ -365,8 +492,9 @@ async function run(): Promise<void> {
   assert.equal(readResult.payload.content, "file body");
   assert.equal(sandboxClientService.calls.at(-1)?.toolCode, "files");
   assert.equal(sandboxClientService.calls.at(-1)?.args.action, "read");
+  assert.equal(sandboxClientService.calls.at(-1)?.args.fileRef, "file-ref-1");
   assert.equal(sandboxClientService.calls.at(-1)?.args.path, "reports/report.txt");
-  assert.deepEqual(sandboxClientService.calls.at(-1)?.mountedFileRefs, []);
+  assert.deepEqual(sandboxClientService.calls.at(-1)?.mountedFileRefs, ["file-ref-1"]);
 
   const deleteResult = await service.executeToolCall({
     bundle: createBundle(),
@@ -394,29 +522,55 @@ async function run(): Promise<void> {
   assert.equal(sandboxClientService.calls.at(-1)?.args.recursive, true);
 
   const currentArtifact = createArtifact();
-  const sendCurrentArtifact = await service.executeToolCall({
-    bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
+  const generatedFileRefRow = canonicalRows.find((row) => row.id === currentArtifact.fileRef);
+  assert.ok(generatedFileRefRow !== undefined);
+  const sendCurrentGeneratedFile = await service.executeToolCall({
+    bundle: createBundle({
+      artifactMimeAllowlist: ["image/png"],
+      maxArtifactSendCountPerTurn: 1
+    }),
     toolCall: {
       id: "tool-call-send-artifact",
       name: "files",
       arguments: {
         action: "send",
-        artifactIds: [currentArtifact.artifactId],
+        fileRefs: [currentArtifact.fileRef],
         caption: "Updated caption"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-3",
     currentArtifacts: [currentArtifact],
-    currentFileRefs: [],
+    currentFileRefs: [
+      registry.toRuntimeFileRef({
+        fileRef: generatedFileRefRow.id,
+        assistantId: generatedFileRefRow.assistantId,
+        workspaceId: generatedFileRefRow.workspaceId,
+        sandboxJobId: generatedFileRefRow.sandboxJobId,
+        origin: generatedFileRefRow.origin,
+        sourceToolCode: generatedFileRefRow.sourceToolCode,
+        objectKey: generatedFileRefRow.objectKey,
+        relativePath: generatedFileRefRow.relativePath,
+        displayName: generatedFileRefRow.displayName,
+        mimeType: generatedFileRefRow.mimeType,
+        sizeBytes: Number(generatedFileRefRow.sizeBytes),
+        logicalSizeBytes:
+          generatedFileRefRow.logicalSizeBytes === null
+            ? null
+            : Number(generatedFileRefRow.logicalSizeBytes),
+        sha256: generatedFileRefRow.sha256,
+        metadata: generatedFileRefRow.metadata,
+        createdAt: generatedFileRefRow.createdAt
+      })
+    ],
     channel: "web"
   });
-  assert.equal(sendCurrentArtifact.isError, false);
-  assert.equal(sendCurrentArtifact.payload.requestedAction, "send");
-  assert.equal(sendCurrentArtifact.payload.action, "queued");
-  assert.equal(sendCurrentArtifact.artifacts.length, 1);
-  assert.equal(sendCurrentArtifact.artifacts[0]?.artifactId, currentArtifact.artifactId);
-  assert.equal(sendCurrentArtifact.artifacts[0]?.caption, "Updated caption");
+  assert.equal(sendCurrentGeneratedFile.isError, false);
+  assert.equal(sendCurrentGeneratedFile.payload.requestedAction, "send");
+  assert.equal(sendCurrentGeneratedFile.payload.action, "queued");
+  assert.equal(sendCurrentGeneratedFile.artifacts.length, 1);
+  assert.equal(sendCurrentGeneratedFile.artifacts[0]?.fileRef, currentArtifact.fileRef);
+  assert.equal(sendCurrentGeneratedFile.artifacts[0]?.caption, "Updated caption");
 
   const sendFileRef = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
@@ -599,7 +753,7 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        artifactIds: [currentArtifact.artifactId]
+        fileRefs: [currentArtifact.fileRef]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
@@ -623,7 +777,7 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        artifactIds: [currentArtifact.artifactId]
+        fileRefs: [currentArtifact.fileRef]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",

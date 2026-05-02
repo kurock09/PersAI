@@ -20,7 +20,7 @@ vi.mock("./image-lightbox", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  getAttachmentDownloadUrl: () => "/dummy"
+  getAssistantFileDownloadUrl: () => "/dummy"
 }));
 
 afterEach(() => {

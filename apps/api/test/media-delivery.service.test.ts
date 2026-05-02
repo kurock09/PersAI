@@ -12,6 +12,7 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
+    assistantFileId: null,
     attachmentType: "document",
     storagePath: "chat/out.bin",
     originalFilename: "out.bin",
@@ -27,6 +28,12 @@ function createAttachment(
     ...overrides
   };
 }
+
+const fakeAssistantFileRegistry = {
+  async ensureAttachmentFile(input: { sourceAttachmentId: string }) {
+    return { fileRef: `file-${input.sourceAttachmentId}` };
+  }
+};
 
 async function run(): Promise<void> {
   const originalFetch = globalThis.fetch;
@@ -56,6 +63,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     blockedMetrics
   );
 
@@ -125,6 +133,7 @@ async function run(): Promise<void> {
         };
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     safeMetrics
   );
 
@@ -150,6 +159,7 @@ async function run(): Promise<void> {
 
   assert.equal(uploadedMime, "image/png");
   assert.equal(delivered.attachments.length, 1);
+  assert.equal(delivered.attachments[0]?.fileRef, "file-att-1");
   assert.equal(delivered.attachments[0]?.mimeType, "image/png");
   assert.equal(delivered.attachments[0]?.originalFilename, "render.png");
   const successSeries = safeMetrics
@@ -206,6 +216,7 @@ async function run(): Promise<void> {
         deletedObjectKey = objectKey;
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     nativeMetrics
   );
 
@@ -276,6 +287,7 @@ async function run(): Promise<void> {
         persistedAttachmentDeletedObjectKey = objectKey;
       }
     } as never,
+    fakeAssistantFileRegistry as never,
     new PlatformHttpMetricsService()
   );
 
@@ -358,6 +370,7 @@ async function run(): Promise<void> {
       },
       async deleteObject() {}
     } as never,
+    fakeAssistantFileRegistry as never,
     new PlatformHttpMetricsService()
   );
 

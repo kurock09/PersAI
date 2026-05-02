@@ -1143,6 +1143,8 @@ async function run(): Promise<void> {
     {
       resolveAssistantEmbeddingModelKey: async () => null,
       resolveAssistantRetrievalModelKey: async () => null,
+      resolveAdminKnowledgeEmbeddingModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalModelKey: async () => null,
       resolveAssistantRetrievalPolicy: async () => ({
         defaultMaxResults: 5,
         maxMaxResults: 8,

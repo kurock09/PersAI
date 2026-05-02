@@ -202,7 +202,6 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/chat/:chatId/message/:messageId/attachment",
         method: RequestMethod.POST
       },
-      { path: "api/v1/assistant/attachment/:attachmentId", method: RequestMethod.GET },
       { path: "api/v1/assistant/voice/transcribe", method: RequestMethod.POST }
     );
   }

@@ -69,6 +69,8 @@ Current admin knowledge routes are served by `apps/api`:
 - `GET /api/v1/admin/knowledge-sources?scope=product`
 - `GET /api/v1/admin/knowledge-sources/observability`
 - `GET /api/v1/admin/knowledge-sources/connectors?scope=product`
+- `GET /api/v1/admin/knowledge-sources/retrieval-policy`
+- `POST /api/v1/admin/knowledge-sources/retrieval-policy`
 - `POST /api/v1/admin/knowledge-sources/:scope`
 - `DELETE /api/v1/admin/knowledge-sources/:sourceId`
 - `POST /api/v1/admin/knowledge-sources/:sourceId/reindex`
@@ -80,6 +82,7 @@ Active boundary rules:
 - admin global-knowledge writes are workspace-scoped and require explicit admin authorization
 - workspace knowledge-storage quota is enforced for admin global-knowledge uploads/deletes
 - upload/reindex creates DB-backed indexing jobs for Product sources; processing is source-agnostic and shares the ADR-079 worker path with assistant knowledge and Skill documents
+- `/admin/knowledge` owns the admin Product/Skill KB retrieval model slots (`embeddingModelKey`, `retrievalModelKey`); user-uploaded assistant knowledge remains plan-slot owned
 - retrieval observability is a durable API surface, not a process-local debug cache
 
 ### Admin document processing
@@ -174,6 +177,14 @@ ADR-081 defines the active target-state file boundary.
 The public/product file surface should expose assistant-scoped Files through canonical `fileRef` handles backed by `AssistantFile`. Chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors.
 
 Sandbox and media delivery may continue to use their internal endpoints and storage paths, but those details must be hidden behind the single Files product/runtime contract. Knowledge remains a separate API/product plane and must not be folded into Files.
+
+ADR-081 Slice 1 exposes the first assistant-scoped Files API under `/api/v1/assistant/files`: list/search, metadata by `fileRef`, download, display-name update, and registry-row delete/archive semantics. These responses expose `fileRef` and product metadata, not `objectKey`.
+
+ADR-081 Slice 3 makes the runtime Files tool model-facing contract `fileRef`-first across uploaded chat files, generated outputs, and sandbox-created files. Runtime may still mount files into sandbox by relative path internally, but the required selector passed between model/tool/runtime is `fileRef`; sandbox/object storage paths remain internal implementation details.
+
+ADR-081 Slice 4 adds the first visible product Files surface inside Assistant Settings. The web UI consumes the assistant-scoped Files API by `fileRef` and uses a Clerk-authenticated web proxy for open/download links. Chat attachment cards prefer the same canonical file route when `fileRef` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
+
+ADR-081 Slice 5 removes the old attachment-download fallback from the active product/API path. Product open/download links are now canonical `fileRef` links only, and assistant Files API state exposes product metadata without storage-derived `relativePath`, `sha256`, `objectKey`, or raw path fields.
 
 ### Provider gateway
 

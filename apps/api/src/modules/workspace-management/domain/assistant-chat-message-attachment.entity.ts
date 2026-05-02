@@ -8,6 +8,7 @@ export type AssistantChatMessageAttachment = {
   chatId: string;
   assistantId: string;
   workspaceId: string;
+  assistantFileId: string | null;
   attachmentType: AttachmentType;
   storagePath: string;
   originalFilename: string | null;

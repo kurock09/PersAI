@@ -703,6 +703,7 @@ export class MaterializeAssistantPublishedVersionService {
           description: card.description,
           category: card.category,
           tags: card.tags.slice(0, 2),
+          iconEmoji: card.iconEmoji,
           routingExamples: card.examples.slice(0, 2)
         }))
       },
@@ -1206,6 +1207,7 @@ export class MaterializeAssistantPublishedVersionService {
       displayOrder: assignment.skill.displayOrder,
       status: assignment.skill.status,
       instructionCard: normalizeInstructionCard(assignment.skill.instructionCard),
+      iconEmoji: assignment.skill.iconEmoji,
       assignmentStatus: assignment.status,
       assignmentEnabledAt: assignment.enabledAt
     }));

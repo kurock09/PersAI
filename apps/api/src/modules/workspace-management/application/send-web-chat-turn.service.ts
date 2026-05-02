@@ -92,6 +92,7 @@ function normalizeOptionalClientTurnId(value: unknown): string | undefined {
 
 function toAttachmentState(attachment: {
   id: string;
+  assistantFileId: string | null;
   attachmentType: string;
   originalFilename: string | null;
   mimeType: string;
@@ -101,6 +102,7 @@ function toAttachmentState(attachment: {
 }) {
   return {
     id: attachment.id,
+    fileRef: attachment.assistantFileId,
     attachmentType: attachment.attachmentType,
     originalFilename: attachment.originalFilename,
     mimeType: attachment.mimeType,

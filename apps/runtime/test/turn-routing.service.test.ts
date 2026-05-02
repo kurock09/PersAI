@@ -222,6 +222,7 @@ function createBundle(
               description: "Accounting and tax support",
               category: "finance",
               tags: ["tax", "books"],
+              iconEmoji: "🧾",
               routingExamples: ["Explain quarterly tax categories", "Compare bookkeeping options"]
             },
             {
@@ -230,6 +231,7 @@ function createBundle(
               description: "Legal drafting support",
               category: "law",
               tags: ["contracts", "risk"],
+              iconEmoji: "⚖️",
               routingExamples: ["Draft a contract clause", "Review legal risk"]
             }
           ]

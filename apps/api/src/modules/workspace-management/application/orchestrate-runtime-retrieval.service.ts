@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import type {
   RuntimeRetrievedKnowledgeContext,
   RuntimeRetrievedKnowledgeContextItem,
@@ -6,13 +6,22 @@ import type {
   RuntimeRetrievalPlan
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
+import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
+import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
+import {
+  KNOWLEDGE_VECTOR_INDEX,
+  type KnowledgeVectorIndex,
+  type KnowledgeVectorSearchHit
+} from "./knowledge-vector-index";
 import { ReadAssistantKnowledgeService } from "./read-assistant-knowledge.service";
 
 const MAX_CONTEXT_ITEMS = 6;
 const MAX_ITEM_CHARS = 1_200;
 const MAX_RENDERED_BLOCK_CHARS = 6_000;
 const MAX_PER_SOURCE_RESULTS = 3;
+const MIN_SKILL_VECTOR_SCORE = 0.18;
 
 type RuntimeRetrievalInput = {
   assistantId: string;
@@ -24,12 +33,15 @@ type RuntimeRetrievalInput = {
 type OrchestratedRetrievalTelemetrySource = "skill" | "document" | "product" | "web";
 
 type SkillChunkRow = {
+  id: string;
   skillDocumentId: string;
   skillId: string;
+  workspaceId: string;
   sourceVersion: number;
   chunkIndex: number;
   locator: string | null;
   content: string;
+  embeddingModelKey?: string | null;
   skillDocument: {
     id: string;
     displayName: string | null;
@@ -44,12 +56,39 @@ type SkillChunkRow = {
   };
 };
 
+type RankedSkillCandidate = {
+  row: SkillChunkRow;
+  score: number;
+  lexicalScore: number;
+  vectorScore: number | null;
+  referenceId: string;
+};
+
+type SkillReferenceSearchResult = {
+  items: RuntimeRetrievedKnowledgeContextItem[];
+  lexicalCandidateCount: number;
+  vectorCandidateCount: number;
+  helperApplied: boolean;
+  embeddingModelKey: string | null;
+  helperModelKey: string | null;
+  helperProviderKey: string | null;
+  helperInputTokens: number | null;
+  helperOutputTokens: number | null;
+  helperTotalTokens: number | null;
+  retrievalMode: "lexical" | "hybrid";
+};
+
 @Injectable()
 export class OrchestrateRuntimeRetrievalService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly readAssistantKnowledgeService: ReadAssistantKnowledgeService,
-    private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService
+    private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService,
+    private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
+    private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService,
+    private readonly knowledgeRetrievalHelperService: KnowledgeRetrievalHelperService,
+    @Inject(KNOWLEDGE_VECTOR_INDEX)
+    private readonly knowledgeVectorIndex: KnowledgeVectorIndex
   ) {}
 
   parseInput(body: unknown): RuntimeRetrievalInput {
@@ -69,14 +108,7 @@ export class OrchestrateRuntimeRetrievalService {
     const workspaceId = await this.resolveAssistantWorkspaceId(input.assistantId);
     const items: RuntimeRetrievedKnowledgeContextItem[] = [];
     if (input.retrievalPlan.useSkills) {
-      items.push(
-        ...(await this.withTelemetry({
-          workspaceId,
-          assistantId: input.assistantId,
-          source: "skill",
-          execute: () => this.searchSkillReferences(input)
-        }))
-      );
+      items.push(...(await this.searchSkillReferences(input, workspaceId)));
     }
     if (input.retrievalPlan.useUserKnowledge) {
       items.push(
@@ -165,13 +197,63 @@ export class OrchestrateRuntimeRetrievalService {
   }
 
   private async searchSkillReferences(
-    input: RuntimeRetrievalInput
+    input: RuntimeRetrievalInput,
+    workspaceId: string | null
   ): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
+    const startedAt = Date.now();
+    try {
+      const result = await this.executeSkillReferenceSearch(input, workspaceId);
+      await this.recordTelemetry({
+        workspaceId,
+        assistantId: input.assistantId,
+        source: "skill",
+        durationMs: Date.now() - startedAt,
+        resultCount: result.items.length,
+        outcome: result.items.length > 0 ? "success" : "empty",
+        errorCode: null,
+        retrievalMode: result.retrievalMode,
+        lexicalCandidateCount: result.lexicalCandidateCount,
+        vectorCandidateCount: result.vectorCandidateCount,
+        helperApplied: result.helperApplied,
+        embeddingModelKey: result.embeddingModelKey,
+        helperModelKey: result.helperModelKey,
+        helperProviderKey: result.helperProviderKey,
+        helperInputTokens: result.helperInputTokens,
+        helperOutputTokens: result.helperOutputTokens,
+        helperTotalTokens: result.helperTotalTokens
+      });
+      return result.items;
+    } catch (error) {
+      await this.recordTelemetry({
+        workspaceId,
+        assistantId: input.assistantId,
+        source: "skill",
+        durationMs: Date.now() - startedAt,
+        resultCount: 0,
+        outcome: "error",
+        errorCode: this.resolveTelemetryErrorCode(error)
+      });
+      throw error;
+    }
+  }
+
+  private async executeSkillReferenceSearch(
+    input: RuntimeRetrievalInput,
+    workspaceId: string | null
+  ): Promise<SkillReferenceSearchResult> {
     const enabledSkillIds = await this.resolveEnabledSkillIds(input);
     if (enabledSkillIds.length === 0) {
-      return [];
+      return this.emptySkillReferenceSearchResult();
     }
+    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+      input.assistantId
+    );
+    const embeddingModelKey =
+      await this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey();
+    const retrievalModelKey =
+      await this.knowledgeModelPolicyService.resolveAdminKnowledgeRetrievalModelKey();
     const terms = this.buildSearchTerms(input.query);
+    const rankedByReferenceId = new Map<string, RankedSkillCandidate>();
     const rows = (await this.prisma.skillDocumentChunk.findMany({
       where: {
         skillId: { in: enabledSkillIds },
@@ -211,34 +293,126 @@ export class OrchestrateRuntimeRetrievalService {
         { sourceVersion: "desc" },
         { chunkIndex: "asc" }
       ],
-      take: 40
+      take: retrievalPolicy.lexicalCandidateLimit
     })) as SkillChunkRow[];
-    return rows
-      .map((row) => ({
+    for (const row of rows) {
+      const score = this.scoreSkillRow(row, input.query);
+      if (score <= 0) {
+        continue;
+      }
+      this.upsertSkillCandidate(rankedByReferenceId, {
         row,
-        score: this.scoreText(row.content, input.query) + (row.skillDocument.displayName ? 3 : 0)
-      }))
-      .filter((candidate) => candidate.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, MAX_PER_SOURCE_RESULTS)
-      .map(({ row, score }) => ({
-        label: "skill_reference" as const,
-        referenceId: `skill:${row.skillId}:document:${row.skillDocumentId}:${String(row.sourceVersion)}:${String(row.chunkIndex)}`,
-        title: `${this.localize(row.skill.name, input.locale)} / ${
-          row.skillDocument.displayName ?? row.skillDocument.originalFilename
-        }`,
-        locator: row.locator,
-        content: this.truncate(row.content, MAX_ITEM_CHARS),
         score,
-        metadata: {
-          skillId: row.skillId,
-          skillCategory: row.skill.category,
-          skillDocumentId: row.skillDocumentId,
-          sourceVersion: row.sourceVersion,
-          chunkIndex: row.chunkIndex,
-          mimeType: row.skillDocument.mimeType
+        lexicalScore: score,
+        vectorScore: null,
+        referenceId: this.buildSkillReferenceId(row)
+      });
+    }
+
+    let vectorCandidateCount = 0;
+    let retrievalMode: "lexical" | "hybrid" = "lexical";
+    const queryEmbedding =
+      workspaceId === null || !retrievalPolicy.embeddingSearchEnabled || embeddingModelKey === null
+        ? null
+        : ((
+            await this.knowledgeEmbeddingService.generateEmbeddings({
+              modelKey: embeddingModelKey,
+              texts: [input.query]
+            })
+          )[0] ?? null);
+    if (workspaceId !== null && queryEmbedding !== null && embeddingModelKey !== null) {
+      retrievalMode = "hybrid";
+      const vectorHits = await this.knowledgeVectorIndex.searchNearest({
+        workspaceId,
+        embeddingModelKey,
+        queryVector: queryEmbedding,
+        limit: retrievalPolicy.vectorCandidateLimit,
+        sourceTypes: ["skill_document"],
+        skillIds: enabledSkillIds
+      });
+      vectorCandidateCount = vectorHits.length;
+      await this.mergeSkillVectorHits({
+        vectorHits,
+        enabledSkillIds,
+        query: input.query,
+        rankedByReferenceId
+      });
+    }
+
+    const helperCandidateLimit = Math.max(
+      MAX_PER_SOURCE_RESULTS,
+      Math.min(retrievalPolicy.helperCandidateLimit, 8)
+    );
+    let selected = this.selectSkillCandidates(
+      [...rankedByReferenceId.values()].sort((left, right) => right.score - left.score),
+      helperCandidateLimit
+    );
+    const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
+      assistantId: input.assistantId,
+      query: input.query,
+      retrievalModelKey,
+      candidates: selected.map((candidate) => ({
+        referenceId: candidate.referenceId,
+        title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
+          candidate.row.skillDocument.displayName ?? candidate.row.skillDocument.originalFilename
+        }`,
+        locator: candidate.row.locator,
+        snippet: this.buildSnippet(candidate.row.content, terms)
+      }))
+    });
+    if (helperRanking !== null) {
+      const helperRankIndex = new Map(
+        helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
+      );
+      selected = [...selected].sort((left, right) => {
+        const leftRank = helperRankIndex.get(left.referenceId);
+        const rightRank = helperRankIndex.get(right.referenceId);
+        if (leftRank !== undefined || rightRank !== undefined) {
+          if (leftRank === undefined) {
+            return 1;
+          }
+          if (rightRank === undefined) {
+            return -1;
+          }
+          return leftRank - rightRank;
         }
-      }));
+        return right.score - left.score;
+      });
+    }
+
+    const items = selected.slice(0, MAX_PER_SOURCE_RESULTS).map(({ row, score, vectorScore }) => ({
+      label: "skill_reference" as const,
+      referenceId: this.buildSkillReferenceId(row),
+      title: `${this.localize(row.skill.name, input.locale)} / ${
+        row.skillDocument.displayName ?? row.skillDocument.originalFilename
+      }`,
+      locator: row.locator,
+      content: this.truncate(row.content, MAX_ITEM_CHARS),
+      score,
+      metadata: {
+        skillId: row.skillId,
+        skillCategory: row.skill.category,
+        skillDocumentId: row.skillDocumentId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex,
+        mimeType: row.skillDocument.mimeType,
+        retrievalMode,
+        vectorScore
+      }
+    }));
+    return {
+      items,
+      lexicalCandidateCount: rows.length,
+      vectorCandidateCount,
+      helperApplied: helperRanking !== null,
+      embeddingModelKey,
+      helperModelKey: helperRanking?.modelKey ?? null,
+      helperProviderKey: helperRanking?.providerKey ?? null,
+      helperInputTokens: helperRanking?.usage?.inputTokens ?? null,
+      helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
+      helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
+      retrievalMode
+    };
   }
 
   private async withTelemetry(input: {
@@ -282,6 +456,16 @@ export class OrchestrateRuntimeRetrievalService {
     resultCount: number;
     outcome: "success" | "empty" | "error";
     errorCode: string | null;
+    retrievalMode?: "lexical" | "hybrid";
+    lexicalCandidateCount?: number;
+    vectorCandidateCount?: number;
+    helperApplied?: boolean;
+    embeddingModelKey?: string | null;
+    helperModelKey?: string | null;
+    helperProviderKey?: string | null;
+    helperInputTokens?: number | null;
+    helperOutputTokens?: number | null;
+    helperTotalTokens?: number | null;
   }): Promise<void> {
     if (input.workspaceId === null) {
       return;
@@ -290,13 +474,18 @@ export class OrchestrateRuntimeRetrievalService {
       workspaceId: input.workspaceId,
       assistantId: input.assistantId,
       source: input.source,
-      retrievalMode: "hybrid",
+      retrievalMode: input.retrievalMode ?? "hybrid",
       durationMs: input.durationMs,
       resultCount: input.resultCount,
-      lexicalCandidateCount: input.resultCount,
-      vectorCandidateCount: 0,
-      helperApplied: false,
-      embeddingModelKey: null,
+      lexicalCandidateCount: input.lexicalCandidateCount ?? input.resultCount,
+      vectorCandidateCount: input.vectorCandidateCount ?? 0,
+      helperApplied: input.helperApplied ?? false,
+      embeddingModelKey: input.embeddingModelKey ?? null,
+      helperModelKey: input.helperModelKey ?? null,
+      helperProviderKey: input.helperProviderKey ?? null,
+      helperInputTokens: input.helperInputTokens ?? null,
+      helperOutputTokens: input.helperOutputTokens ?? null,
+      helperTotalTokens: input.helperTotalTokens ?? null,
       outcome: input.outcome,
       errorCode: input.errorCode
     });
@@ -413,6 +602,173 @@ export class OrchestrateRuntimeRetrievalService {
     return this.buildSearchTerms(query).reduce((total, term) => {
       return lowered.includes(term.toLowerCase()) ? total + (term.includes(" ") ? 6 : 2) : total;
     }, 0);
+  }
+
+  private emptySkillReferenceSearchResult(): SkillReferenceSearchResult {
+    return {
+      items: [],
+      lexicalCandidateCount: 0,
+      vectorCandidateCount: 0,
+      helperApplied: false,
+      embeddingModelKey: null,
+      helperModelKey: null,
+      helperProviderKey: null,
+      helperInputTokens: null,
+      helperOutputTokens: null,
+      helperTotalTokens: null,
+      retrievalMode: "lexical"
+    };
+  }
+
+  private async mergeSkillVectorHits(input: {
+    vectorHits: KnowledgeVectorSearchHit[];
+    enabledSkillIds: string[];
+    query: string;
+    rankedByReferenceId: Map<string, RankedSkillCandidate>;
+  }): Promise<void> {
+    const vectorScoresByReferenceId = new Map<string, number>();
+    for (const hit of input.vectorHits) {
+      if (hit.score < MIN_SKILL_VECTOR_SCORE) {
+        continue;
+      }
+      const referenceId = `skill:${hit.skillId ?? "unknown"}:document:${hit.sourceId}:${String(hit.sourceVersion)}:${String(hit.chunkIndex)}`;
+      vectorScoresByReferenceId.set(
+        referenceId,
+        Math.max(vectorScoresByReferenceId.get(referenceId) ?? 0, hit.score)
+      );
+    }
+    if (vectorScoresByReferenceId.size === 0) {
+      return;
+    }
+    const rows = (await this.prisma.skillDocumentChunk.findMany({
+      where: {
+        skillId: { in: input.enabledSkillIds },
+        skillDocument: { status: "ready" },
+        skill: {
+          status: "active",
+          archivedAt: null
+        },
+        OR: input.vectorHits.map((hit) => ({
+          skillDocumentId: hit.sourceId,
+          sourceVersion: hit.sourceVersion,
+          chunkIndex: hit.chunkIndex
+        }))
+      },
+      include: {
+        skillDocument: {
+          select: {
+            id: true,
+            displayName: true,
+            originalFilename: true,
+            mimeType: true,
+            status: true
+          }
+        },
+        skill: {
+          select: {
+            id: true,
+            name: true,
+            category: true
+          }
+        }
+      }
+    })) as SkillChunkRow[];
+    for (const row of rows) {
+      const referenceId = this.buildSkillReferenceId(row);
+      const vectorScore = vectorScoresByReferenceId.get(referenceId);
+      if (vectorScore === undefined) {
+        continue;
+      }
+      const lexicalScore = this.scoreSkillRow(row, input.query);
+      this.upsertSkillCandidate(input.rankedByReferenceId, {
+        row,
+        score: vectorScore * 42 + lexicalScore * 0.35,
+        lexicalScore,
+        vectorScore,
+        referenceId
+      });
+    }
+  }
+
+  private scoreSkillRow(row: SkillChunkRow, query: string): number {
+    return (
+      this.scoreText(row.content, query) +
+      this.scoreText(row.locator ?? "", query) * 0.6 +
+      this.scoreText(row.skillDocument.displayName ?? row.skillDocument.originalFilename, query) *
+        1.2 +
+      this.scoreText(this.localize(row.skill.name, null), query) * 1.4 +
+      (row.skillDocument.displayName ? 3 : 0)
+    );
+  }
+
+  private upsertSkillCandidate(
+    candidates: Map<string, RankedSkillCandidate>,
+    candidate: RankedSkillCandidate
+  ): void {
+    const existing = candidates.get(candidate.referenceId);
+    if (
+      existing === undefined ||
+      candidate.score > existing.score ||
+      (candidate.score === existing.score && candidate.lexicalScore > existing.lexicalScore)
+    ) {
+      candidates.set(candidate.referenceId, candidate);
+    }
+  }
+
+  private selectSkillCandidates(
+    candidates: RankedSkillCandidate[],
+    maxResults: number
+  ): RankedSkillCandidate[] {
+    const selected: RankedSkillCandidate[] = [];
+    const seenContent = new Set<string>();
+    const perDocumentCounts = new Map<string, number>();
+    for (const candidate of candidates) {
+      const dedupeKey = [
+        candidate.row.skillDocumentId,
+        this.normalizeSearchText(candidate.row.locator ?? ""),
+        this.normalizeSearchText(candidate.row.content).slice(0, 180)
+      ].join(":");
+      if (seenContent.has(dedupeKey)) {
+        continue;
+      }
+      const documentCount = perDocumentCounts.get(candidate.row.skillDocumentId) ?? 0;
+      if (documentCount >= 2) {
+        continue;
+      }
+      seenContent.add(dedupeKey);
+      perDocumentCounts.set(candidate.row.skillDocumentId, documentCount + 1);
+      selected.push(candidate);
+      if (selected.length >= maxResults) {
+        break;
+      }
+    }
+    return selected;
+  }
+
+  private buildSkillReferenceId(row: SkillChunkRow): string {
+    return `skill:${row.skillId}:document:${row.skillDocumentId}:${String(row.sourceVersion)}:${String(row.chunkIndex)}`;
+  }
+
+  private buildSnippet(content: string, terms: string[]): string | null {
+    const normalized = this.truncate(content, 320);
+    if (normalized.length === 0) {
+      return null;
+    }
+    const lowered = normalized.toLowerCase();
+    const matchIndex =
+      terms
+        .map((term) => lowered.indexOf(term.toLowerCase()))
+        .filter((index) => index >= 0)
+        .sort((left, right) => left - right)[0] ?? 0;
+    const start = Math.max(0, matchIndex - 120);
+    const end = Math.min(normalized.length, start + 320);
+    const prefix = start > 0 ? "..." : "";
+    const suffix = end < normalized.length ? "..." : "";
+    return `${prefix}${normalized.slice(start, end).trim()}${suffix}`;
+  }
+
+  private normalizeSearchText(value: string): string {
+    return value.replace(/\s+/g, " ").trim().toLowerCase();
   }
 
   private localize(value: unknown, locale: string | null): string {

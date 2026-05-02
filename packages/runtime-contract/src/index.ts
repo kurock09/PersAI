@@ -90,6 +90,8 @@ export interface RuntimeAttachmentRef {
 
 export interface RuntimeOutputArtifact {
   artifactId: string;
+  fileRef: string;
+  file: RuntimeFileRef;
   kind: PersaiRuntimeAttachmentKind;
   objectKey: string;
   mimeType: string;
@@ -272,7 +274,6 @@ export interface RuntimeFilesToolResult {
   content: string | null;
   job: RuntimeSandboxJobResult | null;
   fileRefs: string[];
-  artifactIds: string[];
   queuedArtifacts: number;
 }
 
@@ -389,6 +390,7 @@ export interface RuntimeRetrievalActivityEvent {
   phase: "start";
   resultCount: number;
   skillName?: string | null;
+  skillIconEmoji?: string | null;
 }
 
 export interface RuntimeToolPolicy {

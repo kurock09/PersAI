@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compactChat,
-  getAttachmentDownloadUrl,
+  getAssistantFileDownloadUrl,
+  getAssistantFiles,
   getChatCompactionState,
   getAdminRuntimeProviderSettings,
   postAdminPlatformRollout,
@@ -378,15 +379,45 @@ describe("memory center close-open-loop client (ADR-074 M3.1)", () => {
   });
 });
 
-describe("attachment download urls", () => {
-  it("returns the inline attachment url by default", () => {
-    expect(getAttachmentDownloadUrl("attachment-1")).toBe("/api/attachment/attachment-1");
+describe("assistant files client", () => {
+  it("returns the inline assistant file url by default", () => {
+    expect(getAssistantFileDownloadUrl("file-ref-1")).toBe("/api/assistant-file/file-ref-1");
   });
 
-  it("adds explicit download mode when requested", () => {
-    expect(getAttachmentDownloadUrl("attachment-1", { download: true })).toBe(
-      "/api/attachment/attachment-1?download=1"
+  it("adds explicit assistant file download mode when requested", () => {
+    expect(getAssistantFileDownloadUrl("file-ref-1", { download: true })).toBe(
+      "/api/assistant-file/file-ref-1?download=1"
     );
+  });
+
+  it("loads assistant files with query and limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          files: [
+            {
+              fileRef: "file-ref-1",
+              origin: "uploaded_attachment",
+              displayName: "spec.pdf",
+              filename: "spec.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 1024,
+              logicalSizeBytes: 1024,
+              createdAt: "2026-05-02T00:00:00.000Z"
+            }
+          ]
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    global.fetch = fetchMock;
+
+    await expect(getAssistantFiles("token-1", { query: "spec", limit: 20 })).resolves.toHaveLength(
+      1
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/assistant/files?q=spec&limit=20", {
+      headers: { Authorization: "Bearer token-1" }
+    });
   });
 });
 

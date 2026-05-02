@@ -12,6 +12,7 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
+    assistantFileId: null,
     attachmentType: "image",
     storagePath: "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-1/image.png",
     originalFilename: "image.png",

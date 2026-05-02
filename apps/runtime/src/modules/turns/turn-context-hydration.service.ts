@@ -1218,7 +1218,7 @@ export class TurnContextHydrationService {
     }
 
     const attachmentBlock = this.buildAttachmentBlock({
-      title: "Files attached by user",
+      title: "Working files from user attachments",
       lines: attachmentLines,
       totalImageCount,
       directImageCount: input.directImageCount,
@@ -1560,7 +1560,7 @@ export class TurnContextHydrationService {
       }
     }
     block.push(
-      "When you need to resend or operate on an existing attachment, prefer its fileRef instead of guessing from the filename alone."
+      "When you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone."
     );
     block.push("Use the attachment metadata, transcription, and content preview when available.]");
     return block.join("\n");

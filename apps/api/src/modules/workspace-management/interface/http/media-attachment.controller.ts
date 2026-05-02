@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   Body,
+  Delete,
   Controller,
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -19,11 +21,20 @@ import {
   ResponseWithPlatformContext
 } from "../../../platform-core/interface/http/request-http.types";
 import { ManageChatMediaService } from "../../application/manage-chat-media.service";
+import {
+  AssistantFileRegistryService,
+  type AssistantFileRegistryRecord
+} from "../../application/assistant-file-registry.service";
+import { GetAssistantByUserIdService } from "../../application/get-assistant-by-user-id.service";
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 
 @Controller("api/v1")
 export class MediaAttachmentController {
-  constructor(private readonly manageChatMediaService: ManageChatMediaService) {}
+  constructor(
+    private readonly manageChatMediaService: ManageChatMediaService,
+    private readonly getAssistantByUserIdService: GetAssistantByUserIdService,
+    private readonly assistantFileRegistryService: AssistantFileRegistryService
+  ) {}
 
   @Post("assistant/chat/web/stage-attachment")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: MAX_MEDIA_FILE_BYTES } }))
@@ -63,6 +74,7 @@ export class MediaAttachmentController {
       messageId: result.messageId,
       attachment: {
         id: result.attachment.id,
+        fileRef: result.attachment.assistantFileId,
         messageId: result.attachment.messageId,
         chatId: result.attachment.chatId,
         attachmentType: result.attachment.attachmentType,
@@ -99,6 +111,7 @@ export class MediaAttachmentController {
       requestId: req.requestId ?? null,
       attachment: {
         id: attachment.id,
+        fileRef: attachment.assistantFileId,
         messageId: attachment.messageId,
         chatId: attachment.chatId,
         attachmentType: attachment.attachmentType,
@@ -133,30 +146,112 @@ export class MediaAttachmentController {
     };
   }
 
-  @Get("assistant/attachment/:attachmentId")
-  async downloadAttachment(
+  @Get("assistant/files")
+  async listAssistantFiles(
+    @Req() req: RequestWithPlatformContext,
+    @Query("q") query?: string,
+    @Query("limit") limit?: string
+  ) {
+    const assistant = await this.resolveRequestAssistant(req);
+    const files = await this.assistantFileRegistryService.listAssistantFiles({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      query: typeof query === "string" ? query : null,
+      limit: this.parseLimit(limit)
+    });
+    return {
+      requestId: req.requestId ?? null,
+      files: files.map((file) => this.toFileState(file))
+    };
+  }
+
+  @Get("assistant/files/:fileRef")
+  async getAssistantFile(
+    @Req() req: RequestWithPlatformContext,
+    @Param("fileRef") fileRef: string
+  ) {
+    const assistant = await this.resolveRequestAssistant(req);
+    const file = await this.assistantFileRegistryService.findAssistantFile({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      fileRef
+    });
+    if (file === null) {
+      throw new NotFoundException("File not found.");
+    }
+    return {
+      requestId: req.requestId ?? null,
+      file: this.toFileState(file)
+    };
+  }
+
+  @Get("assistant/files/:fileRef/download")
+  async downloadAssistantFile(
     @Req() req: RequestWithPlatformContext,
     @Res() res: ResponseWithPlatformContext,
-    @Param("attachmentId") attachmentId: string,
+    @Param("fileRef") fileRef: string,
     @Query("download") download?: string
   ): Promise<void> {
-    const userId = this.resolveRequestUserId(req);
-
-    const result = await this.manageChatMediaService.downloadAttachment({
-      userId,
-      attachmentId
+    const assistant = await this.resolveRequestAssistant(req);
+    const result = await this.assistantFileRegistryService.downloadAssistantFile({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      fileRef
     });
 
     res.statusCode = 200;
     res.setHeader("Content-Type", result.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
-    if (result.filename) {
+    if (result.file.displayName) {
       res.setHeader(
         "Content-Disposition",
-        this.buildContentDisposition(result.filename, download === "1" ? "attachment" : "inline")
+        this.buildContentDisposition(
+          result.file.displayName,
+          download === "1" ? "attachment" : "inline"
+        )
       );
     }
     res.end(result.buffer);
+  }
+
+  @Patch("assistant/files/:fileRef")
+  async updateAssistantFile(
+    @Req() req: RequestWithPlatformContext,
+    @Param("fileRef") fileRef: string,
+    @Body() body: { displayName?: unknown }
+  ) {
+    const assistant = await this.resolveRequestAssistant(req);
+    const displayName =
+      typeof body.displayName === "string" && body.displayName.trim().length > 0
+        ? body.displayName.trim()
+        : null;
+    const file = await this.assistantFileRegistryService.updateAssistantFileMetadata({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      fileRef,
+      displayName
+    });
+    return {
+      requestId: req.requestId ?? null,
+      file: this.toFileState(file)
+    };
+  }
+
+  @Delete("assistant/files/:fileRef")
+  async deleteAssistantFile(
+    @Req() req: RequestWithPlatformContext,
+    @Param("fileRef") fileRef: string
+  ) {
+    const assistant = await this.resolveRequestAssistant(req);
+    await this.assistantFileRegistryService.deleteAssistantFile({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      fileRef
+    });
+    return {
+      requestId: req.requestId ?? null,
+      deleted: true
+    };
   }
 
   private buildContentDisposition(filename: string, mode: "attachment" | "inline"): string {
@@ -170,5 +265,40 @@ export class MediaAttachmentController {
       throw new UnauthorizedException("Authenticated user context is missing.");
     }
     return req.resolvedAppUser.id;
+  }
+
+  private async resolveRequestAssistant(req: RequestWithPlatformContext) {
+    const userId = this.resolveRequestUserId(req);
+    const assistant = await this.getAssistantByUserIdService.execute(userId);
+    if (assistant === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+    return assistant;
+  }
+
+  private parseLimit(value: string | undefined): number {
+    const parsed = typeof value === "string" ? Number.parseInt(value, 10) : 50;
+    if (!Number.isFinite(parsed)) {
+      return 50;
+    }
+    return Math.min(Math.max(parsed, 1), 100);
+  }
+
+  private toFileState(file: AssistantFileRegistryRecord) {
+    return {
+      fileRef: file.fileRef,
+      origin: file.origin,
+      displayName: file.displayName,
+      filename: this.basename(file.relativePath),
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      logicalSizeBytes: file.logicalSizeBytes,
+      createdAt: file.createdAt.toISOString()
+    };
+  }
+
+  private basename(relativePath: string): string {
+    const parts = relativePath.split("/").filter((part) => part.length > 0);
+    return parts.at(-1) ?? relativePath;
   }
 }

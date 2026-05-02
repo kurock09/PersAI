@@ -172,6 +172,8 @@ This ADR should be implemented in large, complete slices. Do not split into tiny
 
 Goal: make `AssistantFile` the durable product authority for user-visible files at the API boundary.
 
+Status: implemented 2026-05-02 for chat/upload attachment origins. Chat attachments now link to `AssistantFile` through `assistant_file_id`, upload/inbound/delivery paths register canonical rows immediately, API/runtime attachment responses can carry `fileRef`, and the first assistant-scoped Files read APIs exist for list/search, metadata, download, rename/update metadata, and registry-row delete/archive semantics.
+
 Scope:
 
 - extend the data model where needed so chat attachments can link to canonical `AssistantFile` rows
@@ -197,6 +199,8 @@ Out of scope:
 
 Goal: remove turn-local generated-file semantics from the model-facing runtime contract.
 
+Status: implemented 2026-05-02 for generated media outputs. Runtime image generation, image edit, video generation, and TTS now register canonical `AssistantFile` rows immediately and return durable `fileRef` metadata with generated artifacts. Model-visible tool results keep `fileRef` while hiding storage/delivery internals, `files.send` no longer accepts `artifactIds`, and same-turn generated files are delivered/reused through `fileRef`. API media delivery links chat attachments to the canonical generated file instead of creating a duplicate registry row when runtime already supplies `fileRef`.
+
 Scope:
 
 - make image/video/TTS/document-producing tools persist outputs as canonical Files immediately
@@ -220,6 +224,8 @@ Out of scope:
 ### Slice 3 — Runtime Files contract and Skill working-file behavior
 
 Goal: make `files` and Skill-assisted work use one stable file selector across uploads, generated outputs, and sandbox files.
+
+Status: implemented 2026-05-02 for runtime Files and Skill working-file behavior. Chat attachments are now presented in prompt hydration as working files with durable `fileRef`, the Files tool schema describes one unified fileRef-first surface across uploads/generated/sandbox files, and `files.read`/`files.edit`/`files.delete` mount resolved assistant Files into sandbox jobs by required `fileRef` before path-based sandbox operations. Focused tests cover uploaded PDF query -> read with required fileRef mount, ambiguous query choices with fileRef, sandbox-created file send, generated file search/read/send continuity, and working-file prompt hydration. Knowledge ingestion remains separate.
 
 Scope:
 
@@ -246,6 +252,8 @@ Out of scope:
 
 Goal: give the user one visible Files surface without introducing a separate top-level app route.
 
+Status: implemented 2026-05-02 for the first product Files surface. Assistant Settings now includes a compact Files section with search/refresh, provenance badges, inline scroll for large lists, and Open/Download/Rename/Delete actions backed by canonical `fileRef`. Chat attachment cards now use the canonical Files download/open route whenever `fileRef` exists, so chat cards and settings rows point to the same File without exposing `objectKey`, raw sandbox paths, or storage internals. Knowledge remains separate.
+
 Scope:
 
 - add a Files section inside Assistant Settings
@@ -271,6 +279,8 @@ Out of scope:
 ### Slice 5 — Cleanup, contract hardening, and full verification
 
 Goal: remove obsolete selectors and prove the final architecture is the only active path.
+
+Status: implemented 2026-05-02 for final cleanup/hardening. The product Files API response now exposes only `fileRef`, provenance, display filename, MIME/size metadata, and created time; it no longer returns storage-derived `relativePath` or `sha256`. Web chat attachment cards no longer fall back to the old attachment download route and only create open/download URLs for canonical `fileRef` files. The obsolete web `/api/attachment/:id` proxy, API `GET /assistant/attachment/:attachmentId` route, and auth allowlist entry were removed from the active path. The remaining `artifactId`, `objectKey`, and relative-path usage is internal runtime/API storage and sandbox execution state, not model/product-facing selector truth.
 
 Scope:
 

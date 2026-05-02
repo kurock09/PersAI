@@ -114,7 +114,27 @@ async function run(): Promise<void> {
   const service = new OrchestrateRuntimeRetrievalService(
     prisma as never,
     readKnowledge as never,
-    observability as never
+    observability as never,
+    {
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: 5,
+        maxMaxResults: 8,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: true,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true
+      }),
+      resolveAdminKnowledgeEmbeddingModelKey: async () => null,
+      resolveAdminKnowledgeRetrievalModelKey: async () => null
+    } as never,
+    { generateEmbeddings: async () => [] } as never,
+    { rerankCandidates: async () => null } as never,
+    { searchNearest: async () => [] } as never
   );
 
   const context = await service.execute(

@@ -31,7 +31,7 @@
  * `provider`, `usage`) pass through verbatim, so the model still receives
  * everything semantically meaningful for its next response.
  *
- * Fields kept for the model: `kind`, `mimeType`, `voiceNote`, `caption`.
+ * Fields kept for the model: `fileRef`, `kind`, `mimeType`, `voiceNote`, `caption`.
  * Fields stripped from the model-visible JSON: `artifactId`, `objectKey`,
  * `filename`, `sizeBytes`. `caption` is kept because if the runtime ever
  * synthesizes a caption (e.g., a tool says "cropped to focus on subject"),
@@ -39,7 +39,13 @@
  * presentation-only token.
  */
 
-const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set(["kind", "mimeType", "voiceNote", "caption"]);
+const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set([
+  "fileRef",
+  "kind",
+  "mimeType",
+  "voiceNote",
+  "caption"
+]);
 
 function isRuntimeOutputArtifactShape(value: Record<string, unknown>): boolean {
   return typeof value.artifactId === "string" && typeof value.kind === "string";

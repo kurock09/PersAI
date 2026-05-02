@@ -203,6 +203,7 @@ describe("StreamNativeWebChatTurnService", () => {
             {
               source: "persai_object_storage",
               objectKey: "assistant-media/assistants/assistant-1/runtime-output/stream.png",
+              fileRef: undefined,
               type: "image",
               mimeType: "image/png",
               filename: "stream.png",
@@ -526,6 +527,7 @@ describe("StreamNativeWebChatTurnService", () => {
             {
               source: "persai_object_storage",
               objectKey: "assistant-media/assistants/assistant-1/runtime-output/degraded.png",
+              fileRef: undefined,
               type: "image",
               mimeType: "image/png",
               filename: "degraded.png",

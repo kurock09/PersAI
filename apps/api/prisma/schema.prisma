@@ -730,6 +730,7 @@ model PlatformRuntimeProviderSettings {
   availableModelsByProvider       Json                            @map("available_models_by_provider") @db.JsonB
   availableModelCatalogByProvider Json                            @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
   documentProcessingPolicy        Json                            @default("{}") @map("document_processing_policy") @db.JsonB
+  adminKnowledgeRetrievalPolicy   Json                            @default("{}") @map("admin_knowledge_retrieval_policy") @db.JsonB
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
   createdAt                       DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1225,6 +1226,7 @@ model AssistantFile {
   assistant        Assistant         @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   sandboxJob       SandboxJob?       @relation(fields: [sandboxJobId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  chatAttachments  AssistantChatMessageAttachment[]
 
   @@unique([assistantId, workspaceId, origin, objectKey])
   @@index([assistantId, createdAt(sort: Desc)])
@@ -1281,6 +1283,7 @@ model AssistantChatMessageAttachment {
   chatId             String                     @map("chat_id") @db.Uuid
   assistantId        String                     @map("assistant_id") @db.Uuid
   workspaceId        String                     @map("workspace_id") @db.Uuid
+  assistantFileId    String?                    @map("assistant_file_id") @db.Uuid
   attachmentType     AttachmentType             @map("attachment_type")
   storagePath        String                     @map("storage_path") @db.VarChar(512)
   originalFilename   String?                    @map("original_filename") @db.VarChar(255)
@@ -1299,12 +1302,14 @@ model AssistantChatMessageAttachment {
   chat               AssistantChat              @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   assistant          Assistant                  @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace          Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  assistantFile      AssistantFile?             @relation(fields: [assistantFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([assistantId, chatId, clientAttachmentId])
   @@index([messageId])
   @@index([chatId])
   @@index([chatId, clientTurnId])
   @@index([assistantId])
+  @@index([assistantFileId])
   @@index([workspaceId, createdAt(sort: Desc)])
   @@map("assistant_chat_message_attachments")
 }

@@ -22,6 +22,7 @@ const baseCandidate = (
     guardrails: ["Do not guarantee legal outcomes."],
     examples: ["Explain the relevant rule."]
   },
+  iconEmoji: "📌",
   assignmentStatus: "active",
   assignmentEnabledAt: "2026-05-01T12:00:00.000Z",
   ...overrides

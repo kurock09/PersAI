@@ -353,6 +353,8 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         );
       }
       const downloaded = await this.downloadSourceObject(source.storagePath);
+      const embeddingModelKey =
+        await this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey();
       return {
         normalizedSource: {
           sourceType: job.sourceType,
@@ -382,7 +384,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           originalFilename: source.originalFilename,
           sizeBytes: Number(source.sizeBytes)
         },
-        embeddingModelKey: null
+        embeddingModelKey
       };
     }
 
@@ -404,6 +406,8 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       );
     }
     const downloaded = await this.downloadSourceObject(source.storagePath);
+    const embeddingModelKey =
+      await this.knowledgeModelPolicyService.resolveAdminKnowledgeEmbeddingModelKey();
     return {
       normalizedSource: {
         sourceType: job.sourceType,
@@ -432,7 +436,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         originalFilename: source.originalFilename,
         sizeBytes: Number(source.sizeBytes)
       },
-      embeddingModelKey: null
+      embeddingModelKey
     };
   }
 

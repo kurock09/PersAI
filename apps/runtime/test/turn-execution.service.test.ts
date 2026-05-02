@@ -1311,6 +1311,41 @@ class FakePersaiMediaObjectStorageService {
   }
 }
 
+const fakeRuntimeAssistantFileRegistryService = {
+  async ensureAttachmentBackedFile(input: {
+    referenceId: string;
+    objectKey: string;
+    filename: string | null;
+    mimeType: string;
+    sizeBytes: number;
+  }) {
+    return {
+      fileRef: `file-${input.referenceId}`,
+      origin: "runtime_output",
+      sourceToolCode: null,
+      objectKey: input.objectKey,
+      relativePath: `artifacts/${input.referenceId}/${input.filename ?? "file"}`,
+      displayName: input.filename,
+      mimeType: input.mimeType,
+      sizeBytes: input.sizeBytes,
+      logicalSizeBytes: input.sizeBytes
+    };
+  },
+  toRuntimeFileRef(record: {
+    fileRef: string;
+    origin: "runtime_output";
+    sourceToolCode: null;
+    objectKey: string;
+    relativePath: string;
+    displayName: string | null;
+    mimeType: string;
+    sizeBytes: number;
+    logicalSizeBytes: number;
+  }) {
+    return record;
+  }
+};
+
 const TEMPORARY_SUMMARY_TEXT = "Stable facts:\n- Temporary summary text";
 
 const TEMPORARY_SUMMARY_PAYLOAD = {
@@ -1566,12 +1601,23 @@ class FakeRuntimeFilesToolService {
             ]
           },
           fileRefs: ["file-ref-1"],
-          artifactIds: [],
           queuedArtifacts: 1
         },
         artifacts: [
           {
             artifactId: "artifact-sent-1",
+            fileRef: "file-ref-1",
+            file: {
+              fileRef: "file-ref-1",
+              origin: "sandbox_output" as const,
+              sourceToolCode: "files",
+              objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+              relativePath: "outputs/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64
+            },
             kind: "file" as const,
             objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
             mimeType: "text/plain",
@@ -1598,12 +1644,23 @@ class FakeRuntimeFilesToolService {
           content: null,
           job: null,
           fileRefs: ["file-ref-1"],
-          artifactIds: [],
           queuedArtifacts: 1
         },
         artifacts: [
           {
             artifactId: "artifact-sent-1",
+            fileRef: "file-ref-1",
+            file: {
+              fileRef: "file-ref-1",
+              origin: "sandbox_output" as const,
+              sourceToolCode: "files",
+              objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
+              relativePath: "outputs/report.txt",
+              displayName: "report.txt",
+              mimeType: "text/plain",
+              sizeBytes: 64,
+              logicalSizeBytes: 64
+            },
             kind: "file" as const,
             objectKey: "assistant-media/sandbox/jobs/sandbox-job-1/report.txt",
             mimeType: "text/plain",
@@ -1648,7 +1705,6 @@ class FakeRuntimeFilesToolService {
           }
         ],
         fileRefs: ["file-ref-1"],
-        artifactIds: [],
         queuedArtifacts: 0,
         job: {
           jobId: "sandbox-job-1",
@@ -1850,12 +1906,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never
+    mediaObjectStorage as never,
+    fakeRuntimeAssistantFileRegistryService as never
   );
   const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never
+    mediaObjectStorage as never,
+    fakeRuntimeAssistantFileRegistryService as never
   );
   const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -1869,7 +1927,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never
+    mediaObjectStorage as never,
+    fakeRuntimeAssistantFileRegistryService as never
   );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -1880,7 +1939,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeTtsToolService = new RuntimeTtsToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never
+    mediaObjectStorage as never,
+    fakeRuntimeAssistantFileRegistryService as never
   );
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
@@ -2648,6 +2708,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           description: "Nutrition coaching.",
           category: "health",
           tags: ["nutrition"],
+          iconEmoji: "🥦",
           routingExamples: ["nutrition for adults with type 1 diabetes"]
         }
       ]
@@ -2681,6 +2742,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(emptySkillRetrievalActivity?.resultCount, 0);
   assert.equal(emptySkillRetrievalActivity?.skillName, "Диетолог");
+  assert.equal(emptySkillRetrievalActivity?.skillIconEmoji, "🥦");
   persaiInternalApiClientService.orchestrateRetrievalOutcome = previousOrchestrateRetrievalOutcome;
   if (bundleRegistry.entry !== null) {
     if (previousBundleSkills === undefined) {
