@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PROMPT_TEMPLATE_DEFAULTS } from "../prisma/bootstrap-preset-data";
 import { CompilePromptConstructorService } from "../src/modules/workspace-management/application/compile-prompt-constructor.service";
 
 const baseInput = () => ({
@@ -285,11 +286,38 @@ async function runFallbackCompile(): Promise<void> {
   );
 }
 
+async function runDefaultPromptTemplateCompile(): Promise<void> {
+  const service = new CompilePromptConstructorService();
+  const compiled = service.compile({
+    ...baseInput(),
+    promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS }
+  });
+  const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
+  const soulPrompt = compiled.promptDocuments.soul;
+
+  assert.match(
+    systemPrompt,
+    /Each follow-up action must be written as a user-style imperative request/,
+    "default system prompt must require user-voice quick actions"
+  );
+  assert.match(
+    systemPrompt,
+    /Do not use Markdown formatting inside follow-up actions/,
+    "default system prompt must forbid markdown inside quick-action labels"
+  );
+  assert.match(
+    soulPrompt,
+    /female -> use feminine forms like "поняла", "подобрала", "сделала"/,
+    "default soul prompt must spell out feminine Russian self-reference guidance"
+  );
+}
+
 async function run(): Promise<void> {
   await runTemplatedCompile();
   await runCachedPrefixInvariant();
   await runPresenceCachedPrefixInvariant();
   await runFallbackCompile();
+  await runDefaultPromptTemplateCompile();
 }
 
 void run();

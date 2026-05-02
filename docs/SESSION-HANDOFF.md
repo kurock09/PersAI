@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (prompt and action-chip continuity polish) — gender-safe default prompt, plain user actions, quieter mobile chips (`apps/api`, `apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Removed the gender-conflicting `Понял`-style default from the system `Response UI Contract` examples and replaced it with neutral openings.
+- Tightened the default prompt so quick actions must be short plain-text user requests, not assistant-offer phrases like `Могу...` or `Хочешь, я...`, and must not contain markdown formatting.
+- Added explicit Soul guidance for Russian self-reference: `female -> поняла/сделала`, `male -> понял/сделал`, `neutral -> avoid gendered self-reference`.
+- Added a web UI safety net: parsed assistant action chips now strip inline markdown and normalize common assistant-style prefixes before drafting text back into the input.
+- Restyled assistant action chips to be quieter on mobile: they now read like understated underlined text actions instead of heavy pill buttons.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message-blocks.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+If the current environment already has an admin-edited prompt-template row, reset that prompt to default or reapply the updated text in Admin so the new wording reaches runtime materialization; then live-smoke a female assistant in Russian and confirm both the opening line and quick-action chips stay user-sendable.
+
+---
+
 ## 2026-05-02 (ADR-079 auto-skill background recheck continuity) — legacy/null chats bootstrap again and inactive chats re-check every 5 messages (`apps/api`, `docs`; focused checks green)
 
 ### What changed

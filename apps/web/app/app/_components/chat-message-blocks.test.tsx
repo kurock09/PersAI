@@ -178,6 +178,28 @@ console.log(title);
     expect(screen.getByTestId("assistant-response-actions")).toBeInTheDocument();
   });
 
+  it("normalizes assistant-voice action chips into plain user requests", () => {
+    const onAction = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        message={assistantMessage(`Коротко
+
+### Дальше
+- Могу **сравнить** Legion Tab, Xiaomi Pad 8 Pro и iPad
+- Могу ещё показать цены в РФ`)}
+        onAssistantAction={onAction}
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Сравнить Legion Tab, Xiaomi Pad 8 Pro и iPad" })
+    );
+
+    expect(onAction).toHaveBeenCalledWith("Сравнить Legion Tab, Xiaomi Pad 8 Pro и iPad");
+    expect(screen.getByRole("button", { name: "Показать цены в РФ" })).toBeInTheDocument();
+  });
+
   it("does not parse live streaming tail into action chips before the message is committed", () => {
     render(
       <ChatMessageBubble

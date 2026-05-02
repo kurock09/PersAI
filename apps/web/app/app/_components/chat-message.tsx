@@ -113,8 +113,35 @@ const CALLOUT_HEADING_RE =
 function stripInlineMarkdown(value: string): string {
   return value
     .replace(/^\s{0,3}#{1,6}\s+/, "")
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/(\*\*|__)(.*?)\1/g, "$2")
+    .replace(/(\*|_)(.*?)\1/g, "$2")
+    .replace(/~~(.*?)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
     .replace(/^[*>_`~]+|[*>_`~]+$/g, "")
+    .replace(/[*_`~]+/g, "")
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeActionLabel(value: string): string {
+  const text = stripInlineMarkdown(value)
+    .replace(
+      /^(?:(?:if you want|if you'd like),?\s*i can|i can(?: also| still| just)?|want me to)\s+/i,
+      ""
+    )
+    .replace(
+      /^(?:(?:если\s+хочешь|если\s+хотите|хочешь|хотите),?\s*(?:я\s+)?)|(?:(?:я\s+)?могу(?:\s+ещ[её])?(?:\s+сразу)?(?:\s+ещ[её])?\s+)/i,
+      ""
+    )
+    .replace(/^[,.:;!?-]+/, "")
+    .trim();
+
+  if (text.length === 0) {
+    return "";
+  }
+  return text[0]?.toLocaleUpperCase("ru-RU") + text.slice(1);
 }
 
 function isShortHeaderCandidate(value: string): boolean {
@@ -132,12 +159,15 @@ function isDividerLine(line: string): boolean {
 
 function parseActionLine(line: string): string | null {
   const explicit = line.match(/^\s*(?:[-*]\s*)?\[\[?action:\s*(.+?)\]?\]\s*$/i);
-  if (explicit) return stripInlineMarkdown(explicit[1] ?? "");
+  if (explicit) {
+    const text = normalizeActionLabel(explicit[1] ?? "");
+    return text.length === 0 ? null : text;
+  }
 
   const bullet = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+?)\s*$/);
   if (!bullet) return null;
 
-  const text = stripInlineMarkdown(bullet[1] ?? "");
+  const text = normalizeActionLabel(bullet[1] ?? "");
   if (!text || text.length > 72) return null;
   if (/```|`{3,}/.test(text)) return null;
   return text;
@@ -607,7 +637,7 @@ function AssistantActionChips({
 
   return (
     <div
-      className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap"
+      className="flex flex-col items-start gap-1.5 pt-1 sm:flex-row sm:flex-wrap"
       data-testid="assistant-response-actions"
     >
       {actions.slice(0, 4).map((action) => (
