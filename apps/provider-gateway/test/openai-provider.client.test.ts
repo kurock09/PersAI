@@ -209,6 +209,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    parallel_tool_calls?: unknown;
     text?: unknown;
     metadata?: unknown;
     prompt_cache_key?: unknown;
@@ -218,6 +219,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     input?: unknown;
     tools?: unknown;
     tool_choice?: unknown;
+    parallel_tool_calls?: unknown;
     text?: unknown;
     metadata?: unknown;
     prompt_cache_key?: unknown;
@@ -305,6 +307,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
           input: unknown;
           tools?: unknown;
           tool_choice?: unknown;
+          parallel_tool_calls?: unknown;
           model?: string;
         },
         options?: { signal?: AbortSignal }
@@ -601,6 +604,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   ]);
   assert.equal(capturedGeneratePayload!.tool_choice, "auto");
+  assert.equal(capturedGeneratePayload!.parallel_tool_calls, true);
   assert.deepEqual(capturedGeneratePayload!.metadata, {
     persai_request_classification: "tool_loop_followup",
     persai_runtime_request_id: "request-1",
@@ -719,6 +723,7 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
   const toolStream = await client.streamText(toolRequest);
   const toolStreamEvents = await collectStream(toolStream);
   assert.equal(capturedStreamPayload!.tool_choice, "auto");
+  assert.equal(capturedStreamPayload!.parallel_tool_calls, true);
   assert.deepEqual(capturedStreamPayload!.metadata, {
     persai_request_classification: "tool_loop_followup",
     persai_runtime_request_id: "request-1",

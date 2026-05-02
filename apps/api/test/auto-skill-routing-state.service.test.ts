@@ -46,7 +46,7 @@ async function run(): Promise<void> {
       currentUserMessageIndex: 4,
       recentMessages: [{ role: "user", text: "Unrelated" }]
     }),
-    false
+    true
   );
   assert.equal(
     service.shouldRunBackgroundCheck({
@@ -63,6 +63,38 @@ async function run(): Promise<void> {
       recentMessages: [{ role: "user", text: "А если добавить кардио?" }]
     }),
     true
+  );
+  assert.equal(
+    service.shouldRunBackgroundCheck({
+      state: {
+        status: "inactive",
+        activeSkillId: null,
+        activeSkillName: null,
+        topicSummary: "weight loss and diabetes",
+        confidence: "medium",
+        checkedAtMessageIndex: 19,
+        messageCountSinceCheck: 5
+      },
+      currentUserMessageIndex: 24,
+      recentMessages: [{ role: "user", text: "Составь меню на день при диабете 1 типа" }]
+    }),
+    true
+  );
+  assert.equal(
+    service.shouldRunBackgroundCheck({
+      state: {
+        status: "inactive",
+        activeSkillId: null,
+        activeSkillName: null,
+        topicSummary: "weight loss and diabetes",
+        confidence: "medium",
+        checkedAtMessageIndex: 22,
+        messageCountSinceCheck: 1
+      },
+      currentUserMessageIndex: 23,
+      recentMessages: [{ role: "user", text: "Именно про диабет" }]
+    }),
+    false
   );
 }
 

@@ -742,6 +742,10 @@ class FakeProviderGatewayClientService {
   }> = [];
   webSearchCalls: ProviderGatewayWebSearchRequest[] = [];
   webFetchCalls: ProviderGatewayWebFetchRequest[] = [];
+  webFetchDelayQueueMs: number[] = [];
+  webFetchResultQueue: ProviderGatewayWebFetchResult[] = [];
+  webFetchInFlight = 0;
+  webFetchMaxInFlight = 0;
   browserActionCalls: Array<{
     input: ProviderGatewayBrowserActionRequest;
     options?: { timeoutMs?: number };
@@ -1025,7 +1029,18 @@ class FakeProviderGatewayClientService {
     if (this.webFetchError !== null) {
       throw this.webFetchError;
     }
-    return this.webFetchResult;
+    const delayMs = this.webFetchDelayQueueMs.shift() ?? 0;
+    const result = this.webFetchResultQueue.shift() ?? this.webFetchResult;
+    this.webFetchInFlight += 1;
+    this.webFetchMaxInFlight = Math.max(this.webFetchMaxInFlight, this.webFetchInFlight);
+    try {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return result;
+    } finally {
+      this.webFetchInFlight -= 1;
+    }
   }
 
   async browserAction(
@@ -1136,6 +1151,9 @@ class FakePersaiInternalApiClientService {
   reminderTaskListCalls: string[] = [];
   reminderTaskControlCalls: Array<Record<string, unknown>> = [];
   memoryWriteCalls: Array<Record<string, unknown>> = [];
+  memoryWriteDelayQueueMs: number[] = [];
+  memoryWriteInFlight = 0;
+  memoryWriteMaxInFlight = 0;
   consumeOutcome: ConsumeToolDailyLimitOutcome = {
     allowed: true,
     currentCount: 1,
@@ -1263,7 +1281,17 @@ class FakePersaiInternalApiClientService {
     if (this.memoryWriteError !== null) {
       throw this.memoryWriteError;
     }
-    return this.memoryWriteOutcome;
+    const delayMs = this.memoryWriteDelayQueueMs.shift() ?? 0;
+    this.memoryWriteInFlight += 1;
+    this.memoryWriteMaxInFlight = Math.max(this.memoryWriteMaxInFlight, this.memoryWriteInFlight);
+    try {
+      if (delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return this.memoryWriteOutcome;
+    } finally {
+      this.memoryWriteInFlight -= 1;
+    }
   }
 
   async orchestrateRetrieval(input: Record<string, unknown>) {
@@ -3783,6 +3811,124 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     assert.equal(streamToolLoopCompletedEvent.result.assistantText, "reply after summary");
   }
 
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.web_fetch = {
+      refKey: "tool_web_fetch",
+      configured: true,
+      providerId: "firecrawl",
+      secretRef: {
+        source: "assistant",
+        provider: "tool_web_fetch",
+        id: "tool/web_fetch/api-key"
+      }
+    };
+  }
+  providerGatewayClient.webFetchDelayQueueMs = [25, 5];
+  providerGatewayClient.webFetchMaxInFlight = 0;
+  providerGatewayClient.streamEventsQueue = [
+    [
+      {
+        type: "tool_calls",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: null,
+          respondedAt: "2026-04-11T12:00:05.250Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 12,
+            outputTokens: 0,
+            totalTokens: 12
+          },
+          stopReason: "tool_calls",
+          toolCalls: [
+            {
+              id: "tool-stream-par-1",
+              name: "web_fetch",
+              arguments: {
+                url: "https://example.com/parallel-a",
+                extractMode: "text",
+                maxChars: 5000
+              }
+            },
+            {
+              id: "tool-stream-par-2",
+              name: "web_fetch",
+              arguments: {
+                url: "https://example.com/parallel-b",
+                extractMode: "text",
+                maxChars: 5000
+              }
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        type: "text_delta",
+        delta: "parallel done",
+        accumulatedText: "parallel done"
+      },
+      {
+        type: "completed",
+        result: {
+          provider: "openai",
+          model: "gpt-5.4",
+          text: "parallel done",
+          respondedAt: "2026-04-11T12:00:05.750Z",
+          usage: {
+            providerKey: "openai",
+            modelKey: "gpt-5.4",
+            inputTokens: 20,
+            outputTokens: 10,
+            totalTokens: 30
+          },
+          stopReason: "completed",
+          toolCalls: []
+        }
+      }
+    ]
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const parallelToolLoopStream = await service.streamTurn(request);
+  const parallelToolLoopEvents = await collectStreamEvents(parallelToolLoopStream);
+  assert.deepEqual(
+    parallelToolLoopEvents.map((event) => event.type),
+    [
+      "started",
+      "tool_started",
+      "tool_started",
+      "tool_finished",
+      "tool_finished",
+      "text_delta",
+      "completed"
+    ]
+  );
+  const parallelStartedIds = parallelToolLoopEvents
+    .filter(
+      (event): event is Extract<RuntimeTurnStreamEvent, { type: "tool_started" }> =>
+        event.type === "tool_started"
+    )
+    .map((event) => event.toolCallId);
+  const parallelFinishedIds = parallelToolLoopEvents
+    .filter(
+      (event): event is Extract<RuntimeTurnStreamEvent, { type: "tool_finished" }> =>
+        event.type === "tool_finished"
+    )
+    .map((event) => event.toolCallId);
+  assert.deepEqual(parallelStartedIds, ["tool-stream-par-1", "tool-stream-par-2"]);
+  assert.deepEqual(parallelFinishedIds, ["tool-stream-par-1", "tool-stream-par-2"]);
+  assert.equal(
+    providerGatewayClient.webFetchMaxInFlight >= 2,
+    true,
+    "ADR-074 R2 regression: streamed safe web_fetch calls must overlap in flight while keeping declaration-ordered lifecycle events."
+  );
+  providerGatewayClient.webFetchDelayQueueMs = [];
+
   providerGatewayClient.streamEventsQueue = [
     [
       {
@@ -5803,6 +5949,31 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       }
     }))
   });
+  const buildMemoryWriteToolCallsResult = (
+    callIds: readonly string[],
+    respondedAt: string
+  ): ProviderGatewayTextGenerateResult => ({
+    provider: "openai",
+    model: "gpt-5.4",
+    text: null,
+    respondedAt,
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 18,
+      outputTokens: 0,
+      totalTokens: 18
+    },
+    stopReason: "tool_calls",
+    toolCalls: callIds.map<ProviderGatewayToolCall>((callId, index) => ({
+      id: callId,
+      name: "memory_write",
+      arguments: {
+        kind: "preference",
+        memory: `Preference memory ${String(index + 1)}`
+      }
+    }))
+  });
   const buildCompletionResult = (
     text: string,
     respondedAt: string
@@ -5945,6 +6116,114 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(perToolCapPayload.limit, 5);
   assert.equal(perToolCapPayload.observed, 6);
+  await flushTaskQueue();
+
+  // ── R2 Test 1 — safe read-only tools run in parallel, but results stay in model order ──
+  providerGatewayClient.webFetchDelayQueueMs = [30, 5, 15];
+  providerGatewayClient.webFetchMaxInFlight = 0;
+  providerGatewayClient.webFetchResultQueue = [
+    {
+      ...providerGatewayClient.webFetchResult,
+      url: "https://example.com/a",
+      finalUrl: "https://example.com/a",
+      title: "Article A",
+      content: "Fetched page A"
+    },
+    {
+      ...providerGatewayClient.webFetchResult,
+      url: "https://example.com/b",
+      finalUrl: "https://example.com/b",
+      title: "Article B",
+      content: "Fetched page B"
+    },
+    {
+      ...providerGatewayClient.webFetchResult,
+      url: "https://example.com/c",
+      finalUrl: "https://example.com/c",
+      title: "Article C",
+      content: "Fetched page C"
+    }
+  ];
+  providerGatewayClient.resultQueue = [
+    {
+      ...buildWebFetchToolCallsResult(
+        ["r2-par-1", "r2-par-2", "r2-par-3"],
+        "2026-04-13T12:00:12.000Z"
+      ),
+      toolCalls: [
+        {
+          id: "r2-par-1",
+          name: "web_fetch",
+          arguments: { url: "https://example.com/a", extractMode: "text", maxChars: 5000 }
+        },
+        {
+          id: "r2-par-2",
+          name: "web_fetch",
+          arguments: { url: "https://example.com/b", extractMode: "text", maxChars: 5000 }
+        },
+        {
+          id: "r2-par-3",
+          name: "web_fetch",
+          arguments: { url: "https://example.com/c", extractMode: "text", maxChars: 5000 }
+        }
+      ]
+    },
+    buildCompletionResult("parallel wrap-up reply", "2026-04-13T12:00:13.000Z")
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const parallelSafeCompleted = await service.createTurn(request);
+  assert.equal(parallelSafeCompleted.assistantText, "parallel wrap-up reply");
+  assert.equal(
+    providerGatewayClient.webFetchMaxInFlight >= 2,
+    true,
+    "ADR-074 R2 regression: multiple safe web_fetch calls from one model response must overlap in flight instead of running strictly one-by-one."
+  );
+  assert.deepEqual(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.map((entry) => entry.toolCall.id),
+    ["r2-par-1", "r2-par-2", "r2-par-3"],
+    "ADR-074 R2 regression: toolHistory must remain in model-declared order even when safe calls finish out of order."
+  );
+  const parallelSafeHistoryUrls = (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
+    (entry) => {
+      const payload = JSON.parse(entry.toolResult.content) as {
+        document?: { url?: string | null };
+      };
+      return payload.document?.url ?? null;
+    }
+  );
+  assert.deepEqual(parallelSafeHistoryUrls, [
+    "https://example.com/a",
+    "https://example.com/b",
+    "https://example.com/c"
+  ]);
+  providerGatewayClient.webFetchDelayQueueMs = [];
+  providerGatewayClient.webFetchResultQueue = [];
+  await flushTaskQueue();
+
+  // ── R2 Test 2 — serial-only tools stay sequential even in one emitted batch ──
+  persaiInternalApiClientService.memoryWriteDelayQueueMs = [20, 20];
+  persaiInternalApiClientService.memoryWriteMaxInFlight = 0;
+  providerGatewayClient.resultQueue = [
+    buildMemoryWriteToolCallsResult(["r2-mem-1", "r2-mem-2"], "2026-04-13T12:00:14.000Z"),
+    buildCompletionResult("serial memory wrap-up", "2026-04-13T12:00:15.000Z")
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  const serialMemoryCompleted = await service.createTurn(request);
+  assert.equal(serialMemoryCompleted.assistantText, "serial memory wrap-up");
+  assert.equal(
+    persaiInternalApiClientService.memoryWriteMaxInFlight,
+    1,
+    "ADR-074 R2 regression: memory_write must remain fully sequential and never overlap in flight."
+  );
+  assert.deepEqual(
+    providerGatewayClient.calls.at(-1)?.toolHistory?.map((entry) => entry.toolCall.id),
+    ["r2-mem-1", "r2-mem-2"]
+  );
+  persaiInternalApiClientService.memoryWriteDelayQueueMs = [];
   await flushTaskQueue();
 
   // ── L1 Test 3 — premium mode allows more iterations than normal ──

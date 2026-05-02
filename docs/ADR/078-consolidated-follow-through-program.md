@@ -93,7 +93,7 @@ This block carries the still-open Phase 4 follow-through from ADR-074, narrowed 
 
 `R3` compound tools are cancelled. The reason is product/runtime simplicity: adding more compound tools would grow the tool model and make tool choice more confusing instead of more reliable.
 
-No other ADR-074 slice remains active here.
+Current state: ADR-074 `R2` implementation is landed in code with focused runtime/provider/prompt regressions green. The remaining work is smoke evidence on `tool-heavy-search` plus latency comparison / memory-write integrity confirmation, not more architecture work.
 
 ### 4. Assistant background-task final verification and cleanup
 
@@ -139,7 +139,7 @@ These remain historical records only.
 | Knowledge, Skills, document processing, and orchestrated retrieval | live-smoke | ADR-079 implementation is complete through Step 12 plus follow-up hardening; Step 13 remains for deploy/reindex/live founder validation and narrow fixes discovered during that validation     |
 | Mobile shell reliability and rollout                               | completed  | Founder verified this path as working on 2026-05-02; reopen only for concrete mobile rollout regressions                                                                                       |
 | Unified user Files architecture                                    | live-smoke | ADR-081 slices 1-5 are implemented; remaining work is live Files smoke after deploy plus narrow fixes found around `fileRef` list/open/download, chat projection, and Skill/tool file handling |
-| Runtime/tool efficiency follow-through                             | planned    | ADR-074 `R2` only; `R3` compound tools are cancelled by founder decision because they would grow/confuse the tool model                                                                        |
+| Runtime/tool efficiency follow-through                             | live-smoke | ADR-074 `R2` code is landed; remaining work is `tool-heavy-search` smoke evidence for batched fetch round-trips, latency improvement, and `memory_write` integrity. `R3` remains cancelled. |
 | Assistant background-task final verification/test cleanup          | completed  | Founder verified this path as working on 2026-05-02; reopen only for concrete background-task regressions                                                                                      |
 | Long-tail deferred research                                        | deferred   | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                                                               |
 
@@ -147,7 +147,7 @@ These remain historical records only.
 
 Excluding live smoke and validation fixes for ADR-079/081, the real remaining ADR-078 backlog is:
 
-1. Runtime/tool efficiency follow-through: ADR-074 `R2` only.
+There is no remaining code-implementation backlog outside live smoke / validation for ADR-079, ADR-081, and ADR-074 `R2`.
 
 Mobile shell reliability/rollout and assistant background-task final verification are founder-verified as working and are no longer active backlog. ADR-074 `R3` compound tools are cancelled. The long-tail research items stay deferred and should not be pulled into active work without new evidence or an explicit founder decision.
 

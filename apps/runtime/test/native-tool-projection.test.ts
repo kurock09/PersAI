@@ -285,7 +285,7 @@ async function run(): Promise<void> {
   assert.equal(routeControl, undefined);
   assert.equal(
     webSearch?.description,
-    "Search the public web for current external facts. Use this when the answer depends on recent external information or links."
+    "Search the public web for current external facts. Use this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
   assert.match(files?.description ?? "", /write-and-send/);
   assert.match(files?.description ?? "", /files\.write_and_send when the user asks/);

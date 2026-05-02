@@ -56,6 +56,10 @@ function appendPerTurnCapHint(base: string, toolCode: string, policy: RuntimeToo
   return hint === null ? base : `${base} ${hint}`;
 }
 
+function appendToolDefinitionHint(base: string, hint: string): string {
+  return base.includes(hint) ? base : `${base} ${hint}`;
+}
+
 /**
  * ADR-074 Slice L1.1 — resolve the effective `image_generate.count.maximum`
  * the model should see in its tool schema. Returns the smaller of the
@@ -367,13 +371,14 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
 function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "web_search",
-    description: resolveToolDefinitionDescription(
+    description: resolveToolDefinitionDescriptionWithHint(
       policy,
       appendPerTurnCapHint(
         "Search the public web through the currently configured search provider.",
         "web_search",
         policy
-      )
+      ),
+      "May be called in parallel with other independent searches."
     ),
     inputSchema: {
       type: "object",
@@ -401,9 +406,10 @@ function createKnowledgeSearchToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "knowledge_search",
-    description: resolveToolDefinitionDescription(
+    description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets."
+      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
+      "May be called in parallel with other independent searches."
     ),
     inputSchema: {
       type: "object",
@@ -436,9 +442,10 @@ function createKnowledgeFetchToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "knowledge_fetch",
-    description: resolveToolDefinitionDescription(
+    description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search."
+      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
+      "May be called in parallel with other independent fetches when you already have the needed referenceIds."
     ),
     inputSchema: {
       type: "object",
@@ -462,13 +469,14 @@ function createKnowledgeFetchToolDefinition(
 function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "web_fetch",
-    description: resolveToolDefinitionDescription(
+    description: resolveToolDefinitionDescriptionWithHint(
       policy,
       appendPerTurnCapHint(
         "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
         "web_fetch",
         policy
-      )
+      ),
+      "May be called in parallel with other independent fetches."
     ),
     inputSchema: {
       type: "object",
@@ -1081,6 +1089,14 @@ function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: s
   const description = policy.description?.trim() || fallback;
   const guidance = policy.usageGuidance?.trim();
   return guidance ? `${description} ${guidance}` : description;
+}
+
+function resolveToolDefinitionDescriptionWithHint(
+  policy: RuntimeToolPolicy,
+  fallback: string,
+  hint: string
+): string {
+  return appendToolDefinitionHint(resolveToolDefinitionDescription(policy, fallback), hint);
 }
 
 function resolveConfiguredCredentialRef(

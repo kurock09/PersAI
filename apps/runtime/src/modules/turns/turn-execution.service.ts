@@ -174,6 +174,18 @@ type ToolExecutionOutcome = {
   };
 };
 
+type PlannedToolExecution = {
+  toolCall: ProviderGatewayToolCall;
+  reservation: ReturnType<ToolBudgetPolicy["reserve"]>;
+  parallelSafe: boolean;
+};
+
+type ExecutedToolCallResult = {
+  toolCall: ProviderGatewayToolCall;
+  outcome?: ToolExecutionOutcome;
+  error?: unknown;
+};
+
 class TurnExecutionError extends Error {
   constructor(
     readonly code: string,
@@ -221,6 +233,13 @@ const TTS_TOOL_CODE = "tts";
 const FILES_TOOL_CODE = "files";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
+const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
+  WEB_SEARCH_TOOL_CODE,
+  WEB_FETCH_TOOL_CODE,
+  "knowledge_search",
+  "knowledge_fetch",
+  QUOTA_STATUS_TOOL_CODE
+]);
 const DELIVERY_CLAIM_PATTERNS = [
   /\b(i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:already\s+|just\s+)?(?:sent|attached|uploaded)\b/i,
   /\b(?:file|document|attachment)\s+(?:is|was|has been)\s+(?:sent|attached|uploaded)\b/i,
@@ -760,47 +779,103 @@ export class TurnExecutionService {
             }
 
             let durableCompactionExecuted = false;
-            for (const toolCall of event.result.toolCalls) {
-              yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
-              let outcome: ToolExecutionOutcome;
-              const reservation = toolBudgetPolicy.reserve(toolCall.name, iteration);
-              if (reservation.exhausted) {
-                outcome = this.createToolBudgetExhaustedOutcome({
-                  toolCall,
-                  reservation,
-                  trace,
-                  iteration,
-                  acceptedTurn
-                });
-              } else {
-                try {
-                  outcome = await this.executeProjectedToolCall(
-                    execution,
-                    acceptedTurn,
-                    input,
-                    toolCall,
-                    input.idempotencyKey,
-                    turnState.artifacts,
-                    turnState.fileRefs
-                  );
-                } catch (error) {
-                  yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
-                  throw error;
-                }
-              }
-              toolHistory.push(outcome.exchange);
-              this.applyToolExecutionOutcome(turnState, outcome, iteration);
-              durableCompactionExecuted =
-                durableCompactionExecuted ||
-                outcome.sharedCompaction?.durableStatePersisted === true;
-              yield this.createToolFinishedStreamEvent(
-                acceptedTurn,
-                toolCall,
-                outcome.exchange.toolResult.isError
+            const plannedToolExecutions = this.planToolExecutions(
+              event.result.toolCalls,
+              toolBudgetPolicy,
+              iteration
+            );
+            for (
+              let batchStart = 0;
+              batchStart < plannedToolExecutions.length;
+              batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+            ) {
+              const batch = plannedToolExecutions.slice(
+                batchStart,
+                this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
               );
-              if (outcome.artifacts !== undefined) {
-                for (const artifact of outcome.artifacts) {
-                  yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+              if (batch[0]?.parallelSafe) {
+                for (const entry of batch) {
+                  yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
+                }
+                const batchResults = await this.executeParallelToolChunk({
+                  plannedToolExecutions: batch,
+                  execution,
+                  acceptedTurn,
+                  input,
+                  turnState,
+                  trace,
+                  iteration
+                });
+                let firstError: unknown = null;
+                for (const result of batchResults) {
+                  if (result.outcome !== undefined) {
+                    toolHistory.push(result.outcome.exchange);
+                    this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+                    durableCompactionExecuted =
+                      durableCompactionExecuted ||
+                      result.outcome.sharedCompaction?.durableStatePersisted === true;
+                    yield this.createToolFinishedStreamEvent(
+                      acceptedTurn,
+                      result.toolCall,
+                      result.outcome.exchange.toolResult.isError
+                    );
+                    if (result.outcome.artifacts !== undefined) {
+                      for (const artifact of result.outcome.artifacts) {
+                        yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                      }
+                    }
+                    continue;
+                  }
+                  firstError ??= result.error;
+                  yield this.createToolFinishedStreamEvent(acceptedTurn, result.toolCall, true);
+                }
+                if (firstError !== null) {
+                  throw firstError;
+                }
+                continue;
+              }
+              for (const entry of batch) {
+                const toolCall = entry.toolCall;
+                yield this.createToolStartedStreamEvent(acceptedTurn, toolCall);
+                let outcome: ToolExecutionOutcome;
+                if (entry.reservation.exhausted) {
+                  outcome = this.createToolBudgetExhaustedOutcome({
+                    toolCall,
+                    reservation: entry.reservation,
+                    trace,
+                    iteration,
+                    acceptedTurn
+                  });
+                } else {
+                  try {
+                    outcome = await this.executeProjectedToolCall(
+                      execution,
+                      acceptedTurn,
+                      input,
+                      toolCall,
+                      input.idempotencyKey,
+                      turnState.artifacts,
+                      turnState.fileRefs
+                    );
+                  } catch (error) {
+                    yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
+                    throw error;
+                  }
+                }
+                toolHistory.push(outcome.exchange);
+                this.applyToolExecutionOutcome(turnState, outcome, iteration);
+                durableCompactionExecuted =
+                  durableCompactionExecuted ||
+                  outcome.sharedCompaction?.durableStatePersisted === true;
+                yield this.createToolFinishedStreamEvent(
+                  acceptedTurn,
+                  toolCall,
+                  outcome.exchange.toolResult.isError
+                );
+                if (outcome.artifacts !== undefined) {
+                  for (const artifact of outcome.artifacts) {
+                    yield this.createArtifactStreamEvent(acceptedTurn, artifact);
+                  }
                 }
               }
             }
@@ -1646,33 +1721,72 @@ export class TurnExecutionService {
       }
       forceFinalTextOnly = false;
 
-      const exchanges: ProviderGatewayToolExchange[] = [];
       let durableCompactionExecuted = false;
-      for (const toolCall of providerResult.toolCalls) {
-        const reservation = toolBudgetPolicy.reserve(toolCall.name, iteration);
-        const outcome = reservation.exhausted
-          ? this.createToolBudgetExhaustedOutcome({
-              toolCall,
-              reservation,
-              trace: undefined,
-              iteration,
-              acceptedTurn
-            })
-          : await this.executeProjectedToolCall(
-              execution,
-              acceptedTurn,
-              input,
-              toolCall,
-              input.idempotencyKey,
-              turnState.artifacts,
-              turnState.fileRefs
-            );
-        exchanges.push(outcome.exchange);
-        this.applyToolExecutionOutcome(turnState, outcome, iteration);
-        durableCompactionExecuted =
-          durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
+      const plannedToolExecutions = this.planToolExecutions(
+        providerResult.toolCalls,
+        toolBudgetPolicy,
+        iteration
+      );
+      for (
+        let batchStart = 0;
+        batchStart < plannedToolExecutions.length;
+        batchStart = this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+      ) {
+        const batch = plannedToolExecutions.slice(
+          batchStart,
+          this.findToolExecutionChunkEnd(plannedToolExecutions, batchStart)
+        );
+        if (batch[0]?.parallelSafe) {
+          const batchResults = await this.executeParallelToolChunk({
+            plannedToolExecutions: batch,
+            execution,
+            acceptedTurn,
+            input,
+            turnState,
+            trace: undefined,
+            iteration
+          });
+          let firstError: unknown = null;
+          for (const result of batchResults) {
+            if (result.outcome !== undefined) {
+              toolHistory.push(result.outcome.exchange);
+              this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
+              durableCompactionExecuted =
+                durableCompactionExecuted ||
+                result.outcome.sharedCompaction?.durableStatePersisted === true;
+              continue;
+            }
+            firstError ??= result.error;
+          }
+          if (firstError !== null) {
+            throw firstError;
+          }
+          continue;
+        }
+        for (const entry of batch) {
+          const outcome = entry.reservation.exhausted
+            ? this.createToolBudgetExhaustedOutcome({
+                toolCall: entry.toolCall,
+                reservation: entry.reservation,
+                trace: undefined,
+                iteration,
+                acceptedTurn
+              })
+            : await this.executeProjectedToolCall(
+                execution,
+                acceptedTurn,
+                input,
+                entry.toolCall,
+                input.idempotencyKey,
+                turnState.artifacts,
+                turnState.fileRefs
+              );
+          toolHistory.push(outcome.exchange);
+          this.applyToolExecutionOutcome(turnState, outcome, iteration);
+          durableCompactionExecuted =
+            durableCompactionExecuted || outcome.sharedCompaction?.durableStatePersisted === true;
+        }
       }
-      toolHistory.push(...exchanges);
       if (durableCompactionExecuted) {
         execution.providerRequest = await this.refreshProviderRequestMessages(execution, input);
       }
@@ -1683,6 +1797,87 @@ export class TurnExecutionService {
       new ServiceUnavailableException(
         `Native tool loop exceeded ${String(maxToolLoopIterations)} iterations (mode=${toolBudgetPolicy.executionModeName()}, loopLimit=${String(toolBudgetPolicy.loopLimit())}, wrapUp=${String(NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS)}).`
       )
+    );
+  }
+
+  private planToolExecutions(
+    toolCalls: readonly ProviderGatewayToolCall[],
+    toolBudgetPolicy: ToolBudgetPolicy,
+    iteration: number
+  ): PlannedToolExecution[] {
+    return toolCalls.map((toolCall) => ({
+      toolCall,
+      reservation: toolBudgetPolicy.reserve(toolCall.name, iteration),
+      parallelSafe: SAFE_PARALLEL_TOOL_CODES.has(toolCall.name)
+    }));
+  }
+
+  private findToolExecutionChunkEnd(
+    plannedToolExecutions: readonly PlannedToolExecution[],
+    startIndex: number
+  ): number {
+    const current = plannedToolExecutions[startIndex];
+    if (current === undefined) {
+      return startIndex;
+    }
+    if (!current.parallelSafe) {
+      return startIndex + 1;
+    }
+    let endIndex = startIndex + 1;
+    while (
+      endIndex < plannedToolExecutions.length &&
+      plannedToolExecutions[endIndex]?.parallelSafe === true
+    ) {
+      endIndex += 1;
+    }
+    return endIndex;
+  }
+
+  private async executeParallelToolChunk(params: {
+    plannedToolExecutions: readonly PlannedToolExecution[];
+    execution: PreparedTurnExecution;
+    acceptedTurn: AcceptedRuntimeTurn;
+    input: RuntimeTurnRequest;
+    turnState: TurnExecutionState;
+    trace: RuntimeStreamTraceCollector | undefined;
+    iteration: number;
+  }): Promise<ExecutedToolCallResult[]> {
+    const currentArtifacts = [...params.turnState.artifacts];
+    const currentFileRefs = [...params.turnState.fileRefs];
+    return Promise.all(
+      params.plannedToolExecutions.map(async (entry) => {
+        if (entry.reservation.exhausted) {
+          return {
+            toolCall: entry.toolCall,
+            outcome: this.createToolBudgetExhaustedOutcome({
+              toolCall: entry.toolCall,
+              reservation: entry.reservation,
+              trace: params.trace,
+              iteration: params.iteration,
+              acceptedTurn: params.acceptedTurn
+            })
+          } satisfies ExecutedToolCallResult;
+        }
+        try {
+          return {
+            toolCall: entry.toolCall,
+            outcome: await this.executeProjectedToolCall(
+              params.execution,
+              params.acceptedTurn,
+              params.input,
+              entry.toolCall,
+              params.input.idempotencyKey,
+              currentArtifacts,
+              currentFileRefs
+            )
+          } satisfies ExecutedToolCallResult;
+        } catch (error) {
+          return {
+            toolCall: entry.toolCall,
+            error
+          } satisfies ExecutedToolCallResult;
+        }
+      })
     );
   }
 

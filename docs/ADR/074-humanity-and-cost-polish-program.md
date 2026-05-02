@@ -1175,6 +1175,7 @@ The `WHERE chosenAt IS NULL` clause makes the backfill idempotent: rerunning the
 
 ### Slice R2 — Parallel tool calls + diagnostic for unused parallelism
 
+- **Status (2026-05-02):** Code-landed in the native runtime/provider path with focused regressions green. Remaining acceptance work is the smoke benchmark on `tool-heavy-search` plus explicit latency / `memory_write` integrity evidence.
 - **Goal:** Make the runtime actually execute multiple tool calls returned in one model response in parallel, set OpenAI `parallel_tool_calls: true` explicitly, and add a system-prompt hint encouraging parallel emission.
 - **Founder anchor:** From Q10-B. Diagnoses founder's observation: "model has parallel-tools but doesn't use it".
 

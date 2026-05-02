@@ -136,7 +136,8 @@ Greet on birthdays. Respect timezone for scheduling.`,
   tools: `Native tool runtime:
 
 Use only the machine-readable tools declared for this turn.
-Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.`,
+Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
+When you need multiple independent tool results, return them in a single response so they can run in parallel; keep dependent calls separate.`,
 
   heartbeat: `# Background Task Evaluation
 

@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-079 auto-skill background recheck continuity) — legacy/null chats bootstrap again and inactive chats re-check every 5 messages (`apps/api`, `docs`; focused checks green)
+
+### What changed
+
+- Fixed the background Skill-routing scheduler so chats with `autoSkillRoutingState=null` bootstrap immediately instead of only on turns `1/2/3`. This restores routing for older chats after a Skill is newly enabled or when no state was previously persisted.
+- Fixed the periodic re-check gate so persisted `inactive` Skill state follows the same every-5-message cadence as `active` state. Previously only `active` chats could re-enter the background check branch.
+- Added focused regression coverage for new-chat bootstrap, legacy-chat bootstrap, inactive periodic re-check, and the non-ready inactive branch.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Run a live GKE smoke on the reported assistant/chat path and confirm `classification=turn_routing` appears again for post-bootstrap diet-related turns, then verify a brand-new chat still gets checks on turns `1/2/3`.
+
+---
+
+## 2026-05-02 (ADR-074 R2 runtime parallel tool calls) — safe-parallel execution, explicit OpenAI parallel emission, deterministic ordering (`apps/runtime`, `apps/provider-gateway`, `apps/api`, `docs`; focused checks green)
+
+### What changed
+
+- Implemented ADR-074 R2 in the native runtime with a strict preserve-order contract: tool budgets are still reserved in model declaration order, `toolHistory` / `toolInvocations` stay deterministic, and only the ADR-approved read-only tools (`web_search`, `web_fetch`, `knowledge_search`, `knowledge_fetch`, `quota_status`) can execute in parallel.
+- Runtime execution now batches contiguous safe-read tool calls concurrently while keeping serial-only tools such as `memory_write`, compaction, scheduling, files/media, browser, `exec`, and `shell` sequential.
+- OpenAI provider payloads now explicitly set `parallel_tool_calls: true` when tools are present.
+- Prompt/tool guidance now tells the model that independent tool calls may be returned together and run in parallel, while dependent chains must stay separate.
+- Added focused regressions for safe-parallel `web_fetch`, serial-only `memory_write`, stable streamed lifecycle ordering, OpenAI payload emission, prompt guidance, and projected tool descriptions.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/openai-provider.client.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/compile-prompt-constructor.service.test.ts`
+
+### Next recommended step
+
+Run the ADR-074 `tool-heavy-search` smoke scenario and record the R2 acceptance evidence: batched fetches should complete in `<=2` round-trips, latency should drop materially versus the current baseline, and `memory_write` should remain deterministic.
+
+---
+
 ## 2026-05-02 (Android release CTA polish) — quieter APK button and clearer native update copy (`apps/web`, `persai-mobile`, `docs`; release export refreshed)
 
 ### What changed

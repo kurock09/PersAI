@@ -94,6 +94,7 @@ async function runTemplatedCompile(): Promise<void> {
 
 Use only the machine-readable tools declared for this turn.
 Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
+When you need multiple independent tool results, return them in a single response so they can run in parallel; keep dependent calls separate.
 
 {{tools_catalog_block}}`,
       agents: "# Governance\n\nUse memory_write carefully.\nUse scheduled_action carefully.",
@@ -129,6 +130,7 @@ Do not rely on old TOOLS.md text, catalog alias names, or undeclared helpers.
   assert.doesNotMatch(compiled.promptDocuments.tools, /web_search/);
   assert.doesNotMatch(compiled.promptDocuments.tools, /summarize_context/);
   assert.match(compiled.promptDocuments.tools, /Native tool runtime/);
+  assert.match(compiled.promptDocuments.tools, /run in parallel; keep dependent calls separate/);
 
   assert.equal(
     compiled.promptConstructor.ordinary.stablePrefix?.text,

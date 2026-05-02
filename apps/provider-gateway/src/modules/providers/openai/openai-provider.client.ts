@@ -153,6 +153,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
+        payload.parallel_tool_calls = true;
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;
@@ -559,6 +560,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       if ((input.tools?.length ?? 0) > 0) {
         payload.tools = this.toOpenAITools(input) as OpenAIResponseToolsParam;
+        payload.parallel_tool_calls = true;
       }
       if (toolChoice !== undefined) {
         payload.tool_choice = toolChoice;

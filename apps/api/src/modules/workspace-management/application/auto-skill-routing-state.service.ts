@@ -68,14 +68,23 @@ export class AutoSkillRoutingStateService {
   }
 
   shouldRunBackgroundCheck(context: RuntimeSkillRoutingContext): boolean {
-    const state = context.state;
-    if (state?.status === "active") {
-      return (
-        context.currentUserMessageIndex > state.checkedAtMessageIndex &&
-        state.messageCountSinceCheck >= BACKGROUND_RECHECK_INTERVAL_MESSAGES
-      );
+    const currentUserMessageIndex = context.currentUserMessageIndex;
+    if (currentUserMessageIndex <= 0) {
+      return false;
     }
-    return INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES.has(context.currentUserMessageIndex);
+    const state = context.state;
+    if (state === null) {
+      // Bootstrap routing immediately when a chat has Skills but no persisted state yet.
+      // This keeps newly enabled Skills working for pre-existing chats as well.
+      return true;
+    }
+    if (INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES.has(currentUserMessageIndex)) {
+      return true;
+    }
+    if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
+      return false;
+    }
+    return state.messageCountSinceCheck >= BACKGROUND_RECHECK_INTERVAL_MESSAGES;
   }
 
   runBackgroundCheck(input: {
