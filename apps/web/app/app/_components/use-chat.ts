@@ -139,7 +139,10 @@ export interface ChatSendOptions {
   clientAttachmentIds?: string[] | undefined;
 }
 type LiveActivitySource = "tool" | "compaction" | "runtime" | "retrieval";
-type LiveActivityEvent = ActivityEvent & { source: LiveActivitySource };
+type LiveActivityEvent = ActivityEvent & {
+  source: LiveActivitySource;
+  skillDetail?: string | undefined;
+};
 type ActiveTurnSnapshot = {
   clientTurnId: string;
   messages: ChatMessage[];
@@ -357,28 +360,28 @@ function buildRetrievalLiveActivity(params: {
     id: `activity-live-retrieval-${Date.now()}-${params.source}`,
     type: "info",
     label: labelBySource[params.source],
-    ...(detail === null ? {} : { detail }),
+    ...(detail === null ? {} : { detail, skillDetail: detail }),
     afterMessageId: params.assistantMessageId,
     emphasis: detail !== null || params.resultCount > 0 ? "strong" : "default",
     source: "retrieval"
   };
 }
-function preservePriorSkillDetail(
+function applyPriorSkillDetail(
   nextActivity: LiveActivityEvent,
   priorActivity: LiveActivityEvent | undefined
 ): LiveActivityEvent {
-  const priorDetail = priorActivity?.source === "retrieval" ? priorActivity.detail?.trim() : null;
-  if (
-    nextActivity.source !== "retrieval" ||
-    nextActivity.detail ||
-    !priorDetail ||
-    !priorDetail.startsWith("Навык")
-  ) {
+  const priorSkillDetail = priorActivity?.skillDetail?.trim();
+  if (!priorSkillDetail || nextActivity.skillDetail?.trim()) {
     return nextActivity;
   }
+  const nextDetail = nextActivity.detail?.trim();
   return {
     ...nextActivity,
-    detail: priorDetail,
+    skillDetail: priorSkillDetail,
+    detail:
+      nextDetail && !nextDetail.includes(priorSkillDetail)
+        ? `${nextDetail} · ${priorSkillDetail}`
+        : (nextDetail ?? priorSkillDetail),
     emphasis: "strong"
   };
 }
@@ -408,13 +411,10 @@ function buildRuntimeDoneDetail(params: {
     hour: "2-digit",
     minute: "2-digit"
   });
-  if (params.priorActivity?.source !== "retrieval") {
+  if (!params.priorActivity?.skillDetail) {
     return respondedAtLabel;
   }
-  const retrievalDetail = params.priorActivity.detail?.trim();
-  return retrievalDetail && retrievalDetail.length > 0
-    ? `${respondedAtLabel} · ${retrievalDetail}`
-    : respondedAtLabel;
+  return `${respondedAtLabel} · ${params.priorActivity.skillDetail}`;
 }
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
@@ -1758,12 +1758,15 @@ export function useChat(threadKey: string): UseChatReturn {
               }
               applyThreadLiveActivities(targetThreadKey, (prev) => ({
                 ...prev,
-                [assistantMessageId]: buildToolLiveActivity({
-                  assistantMessageId,
-                  toolName,
-                  phase,
-                  isError
-                })
+                [assistantMessageId]: applyPriorSkillDetail(
+                  buildToolLiveActivity({
+                    assistantMessageId,
+                    toolName,
+                    phase,
+                    isError
+                  }),
+                  prev[assistantMessageId]
+                )
               }));
             },
             onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
@@ -1783,7 +1786,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 });
                 return {
                   ...prev,
-                  [assistantMessageId]: preservePriorSkillDetail(
+                  [assistantMessageId]: applyPriorSkillDetail(
                     nextActivity,
                     prev[assistantMessageId]
                   )
@@ -2496,12 +2499,15 @@ export function useChat(threadKey: string): UseChatReturn {
               flushBufferedAssistantState(true);
               applyThreadLiveActivities(sendThreadKey, (prev) => ({
                 ...prev,
-                [assistantMsgId]: buildToolLiveActivity({
-                  assistantMessageId: assistantMsgId,
-                  toolName,
-                  phase,
-                  isError
-                })
+                [assistantMsgId]: applyPriorSkillDetail(
+                  buildToolLiveActivity({
+                    assistantMessageId: assistantMsgId,
+                    toolName,
+                    phase,
+                    isError
+                  }),
+                  prev[assistantMsgId]
+                )
               }));
             },
             onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
@@ -2516,7 +2522,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 });
                 return {
                   ...prev,
-                  [assistantMsgId]: preservePriorSkillDetail(nextActivity, prev[assistantMsgId])
+                  [assistantMsgId]: applyPriorSkillDetail(nextActivity, prev[assistantMsgId])
                 };
               });
             },
@@ -2536,17 +2542,20 @@ export function useChat(threadKey: string): UseChatReturn {
               const activityDetail = willRetry ? t("compactionWillRetry") : null;
               applyThreadLiveActivities(sendThreadKey, (prev) => ({
                 ...prev,
-                [assistantMsgId]: buildCompactionLiveActivity({
-                  assistantMessageId: assistantMsgId,
-                  phase,
-                  detail: activityDetail ?? undefined,
-                  label:
-                    phase === "start"
-                      ? t("compactionPhaseStart")
-                      : completed
-                        ? t("compactionPhaseDone")
-                        : t("compactionPhaseEnded")
-                })
+                [assistantMsgId]: applyPriorSkillDetail(
+                  buildCompactionLiveActivity({
+                    assistantMessageId: assistantMsgId,
+                    phase,
+                    detail: activityDetail ?? undefined,
+                    label:
+                      phase === "start"
+                        ? t("compactionPhaseStart")
+                        : completed
+                          ? t("compactionPhaseDone")
+                          : t("compactionPhaseEnded")
+                  }),
+                  prev[assistantMsgId]
+                )
               }));
             },
             onRuntimeDone: ({ respondedAt }) => {
@@ -2565,14 +2574,17 @@ export function useChat(threadKey: string): UseChatReturn {
                 }
                 return {
                   ...prev,
-                  [assistantMsgId]: buildRuntimeLiveActivity({
-                    assistantMessageId: assistantMsgId,
-                    respondedAt,
-                    detail: buildRuntimeDoneDetail({
+                  [assistantMsgId]: applyPriorSkillDetail(
+                    buildRuntimeLiveActivity({
+                      assistantMessageId: assistantMsgId,
                       respondedAt,
-                      priorActivity: current
-                    })
-                  })
+                      detail: buildRuntimeDoneDetail({
+                        respondedAt,
+                        priorActivity: current
+                      })
+                    }),
+                    current
+                  )
                 };
               });
             },

@@ -6,13 +6,14 @@ import {
   ChevronDown,
   Archive,
   Download,
-  ExternalLink,
+  Eye,
   FileText,
   Loader2,
   Pencil,
   RefreshCw,
   Search,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -25,20 +26,17 @@ import {
   type AssistantFilesCleanupSummary,
   type AssistantFileState
 } from "../assistant-api-client";
+import { ImageLightbox } from "./image-lightbox";
+import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 type FileBucket = AssistantFileState["fileBucket"];
 
-const FILE_BUCKETS: FileBucket[] = [
-  "user_files",
-  "assistant_created",
-  "media_uploads",
-  "cache_history"
-];
+const FILE_BUCKETS: FileBucket[] = ["media_uploads", "assistant_created", "user_files"];
 
 const DEFAULT_EXPANDED_BUCKETS: Record<FileBucket, boolean> = {
-  user_files: true,
-  assistant_created: true,
-  media_uploads: true,
+  user_files: false,
+  assistant_created: false,
+  media_uploads: false,
   cache_history: false
 };
 
@@ -65,6 +63,10 @@ function fileKind(file: AssistantFileState): "image" | "audio" | "video" | "pdf"
   if (file.mimeType.startsWith("video/")) return "video";
   if (file.mimeType === "application/pdf") return "pdf";
   return "file";
+}
+
+function isPreviewableMedia(file: AssistantFileState): boolean {
+  return file.mimeType.startsWith("image/") || file.mimeType.startsWith("video/");
 }
 
 function originLabel(
@@ -123,6 +125,78 @@ function groupFiles(files: AssistantFileState[]): Array<{
   }).filter((group) => group.files.length > 0);
 }
 
+function VideoPreviewModal({
+  file,
+  src,
+  downloadUrl,
+  onClose
+}: {
+  file: AssistantFileState;
+  src: string;
+  downloadUrl: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations("settings");
+  const name = fileDisplayName(file);
+  useHistoryBackToClose(true, onClose);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-3"
+      role="dialog"
+      aria-modal="true"
+      aria-label={name}
+      onClick={onClose}
+    >
+      <div className="absolute top-3 right-3 left-3 z-10 flex items-center justify-end gap-2">
+        <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/45 p-1 text-white/90 shadow-lg shadow-black/20 backdrop-blur-md">
+          <a
+            href={downloadUrl}
+            download={name}
+            onClick={(event) => event.stopPropagation()}
+            aria-label={t("filesDownload")}
+            title={t("filesDownload")}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-xs font-medium transition hover:bg-white/10 hover:text-white"
+          >
+            <Download className="h-4 w-4" />
+            <span className="hidden sm:inline">{t("filesDownload")}</span>
+          </a>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose();
+            }}
+            aria-label={t("filesPreviewClose")}
+            title={t("filesPreviewClose")}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+      <video
+        controls
+        playsInline
+        preload="metadata"
+        src={src}
+        className="max-h-full max-w-full rounded-2xl border border-white/10 bg-black"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <track kind="captions" />
+      </video>
+    </div>
+  );
+}
+
 export function AssistantFilesManager() {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
@@ -141,12 +215,24 @@ export function AssistantFilesManager() {
     useState<Record<FileBucket, boolean>>(DEFAULT_EXPANDED_BUCKETS);
   const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
   const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [previewFileRef, setPreviewFileRef] = useState<string | null>(null);
 
   const totalBytes = useMemo(
-    () => files.reduce((sum, file) => sum + Math.max(0, file.sizeBytes), 0),
+    () =>
+      files
+        .filter((file) => !file.cleanupEligible)
+        .reduce((sum, file) => sum + Math.max(0, file.sizeBytes), 0),
+    [files]
+  );
+  const visibleFileCount = useMemo(
+    () => files.filter((file) => !file.cleanupEligible).length,
     [files]
   );
   const groupedFiles = useMemo(() => groupFiles(files), [files]);
+  const previewFile = useMemo(
+    () => files.find((file) => file.fileRef === previewFileRef) ?? null,
+    [files, previewFileRef]
+  );
 
   const loadFiles = useCallback(
     async (nextQuery: string) => {
@@ -214,6 +300,9 @@ export function AssistantFilesManager() {
       try {
         await deleteAssistantFile(token, fileRef);
         setFiles((current) => current.filter((file) => file.fileRef !== fileRef));
+        if (previewFileRef === fileRef) {
+          setPreviewFileRef(null);
+        }
         setFeedback({ type: "ok", text: t("filesDeleted") });
       } catch (error) {
         setFeedback({
@@ -224,7 +313,7 @@ export function AssistantFilesManager() {
         setBusyRef(null);
       }
     },
-    [getToken, t]
+    [getToken, previewFileRef, t]
   );
 
   const handleCleanupCache = useCallback(async () => {
@@ -264,7 +353,7 @@ export function AssistantFilesManager() {
           </p>
         </div>
         <div className="shrink-0 rounded-full border border-border/60 bg-surface-raised px-2.5 py-1 text-[11px] text-text-subtle">
-          {files.length} · {formatBytes(totalBytes)}
+          {visibleFileCount} · {formatBytes(totalBytes)}
         </div>
       </div>
 
@@ -297,7 +386,7 @@ export function AssistantFilesManager() {
       </div>
 
       {cleanupSummary.eligibleCount > 0 ? (
-        <div className="mt-2 rounded-2xl border border-border/50 bg-surface-raised/35 px-3 py-2">
+        <div className="mt-2 rounded-2xl border border-accent/20 bg-accent/8 px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2 text-xs text-text-subtle">
               <Archive className="h-3.5 w-3.5 shrink-0" />
@@ -311,7 +400,7 @@ export function AssistantFilesManager() {
             <button
               type="button"
               onClick={() => setCleanupConfirmOpen((current) => !current)}
-              className="rounded-full border border-border/70 bg-surface px-2.5 py-1 text-[11px] font-medium text-text-muted transition-colors hover:text-text"
+              className="rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/15"
             >
               {t("filesCleanupAction")}
             </button>
@@ -340,7 +429,7 @@ export function AssistantFilesManager() {
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t("filesLoading")}
           </div>
-        ) : files.length === 0 ? (
+        ) : groupedFiles.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border/80 bg-surface-raised/40 px-4 py-6 text-center">
             <p className="text-sm font-medium text-text">{t("filesEmptyTitle")}</p>
             <p className="mt-1 text-xs text-text-muted">{t("filesEmptyBody")}</p>
@@ -384,31 +473,88 @@ export function AssistantFilesManager() {
                         const name = fileDisplayName(file);
                         const isEditing = editingRef === file.fileRef;
                         const busy = busyRef === file.fileRef;
-                        const openUrl = getAssistantFileDownloadUrl(file.fileRef);
                         const downloadUrl = getAssistantFileDownloadUrl(file.fileRef, {
                           download: true
                         });
                         return (
-                          <div key={file.fileRef} className="px-3 py-3">
-                            <div className="flex min-w-0 items-start gap-2.5">
-                              <FileText className="mt-0.5 h-4 w-4 shrink-0 text-text-subtle" />
+                          <div key={file.fileRef} className="px-3 py-2.5">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <FileText className="h-4 w-4 shrink-0 text-text-subtle" />
                               <div className="min-w-0 flex-1">
-                                {isEditing ? (
-                                  <input
-                                    value={draftName}
-                                    onChange={(event) => setDraftName(event.target.value)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter") void handleRename(file.fileRef);
-                                      if (event.key === "Escape") setEditingRef(null);
-                                    }}
-                                    className="h-9 w-full rounded-xl border border-border bg-surface px-2 text-sm text-text outline-none focus:border-border-strong"
-                                    autoFocus
-                                  />
-                                ) : (
-                                  <p className="truncate text-sm font-medium leading-5 text-text">
-                                    {name}
-                                  </p>
-                                )}
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {isEditing ? (
+                                    <input
+                                      value={draftName}
+                                      onChange={(event) => setDraftName(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") void handleRename(file.fileRef);
+                                        if (event.key === "Escape") setEditingRef(null);
+                                      }}
+                                      className="h-9 min-w-0 flex-1 rounded-xl border border-border bg-surface px-2 text-sm text-text outline-none focus:border-border-strong"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <p className="min-w-0 flex-1 truncate text-sm font-medium leading-5 text-text">
+                                      {name}
+                                    </p>
+                                  )}
+                                  {isEditing ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRename(file.fileRef)}
+                                      disabled={busy || draftName.trim().length === 0}
+                                      className="rounded-full bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+                                    >
+                                      {busy ? "..." : t("save")}
+                                    </button>
+                                  ) : (
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      {isPreviewableMedia(file) ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewFileRef(file.fileRef)}
+                                          className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                          title={t("filesPreview")}
+                                          aria-label={t("filesPreview")}
+                                        >
+                                          <Eye className="h-3.5 w-3.5" />
+                                        </button>
+                                      ) : null}
+                                      <a
+                                        href={downloadUrl}
+                                        download={name}
+                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                        title={t("filesDownload")}
+                                      >
+                                        <Download className="h-3.5 w-3.5" />
+                                      </a>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingRef(file.fileRef);
+                                          setDraftName(name);
+                                        }}
+                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
+                                        title={t("filesRename")}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDelete(file.fileRef)}
+                                        disabled={busy}
+                                        className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+                                        title={t("filesDelete")}
+                                      >
+                                        {busy ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-text-subtle">
                                   <span className="rounded-full bg-surface px-2 py-0.5">
                                     {originLabel(file, t)}
@@ -417,63 +563,6 @@ export function AssistantFilesManager() {
                                   <span>{formatBytes(file.sizeBytes)}</span>
                                 </div>
                               </div>
-                            </div>
-
-                            <div className="mt-2 flex items-center gap-1.5 pl-6">
-                              {isEditing ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleRename(file.fileRef)}
-                                  disabled={busy || draftName.trim().length === 0}
-                                  className="rounded-full bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
-                                >
-                                  {busy ? "..." : t("save")}
-                                </button>
-                              ) : (
-                                <>
-                                  <a
-                                    href={openUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                    title={t("filesOpen")}
-                                  >
-                                    <ExternalLink className="h-3.5 w-3.5" />
-                                  </a>
-                                  <a
-                                    href={downloadUrl}
-                                    download={name}
-                                    className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                    title={t("filesDownload")}
-                                  >
-                                    <Download className="h-3.5 w-3.5" />
-                                  </a>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingRef(file.fileRef);
-                                      setDraftName(name);
-                                    }}
-                                    className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:text-text"
-                                    title={t("filesRename")}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => void handleDelete(file.fileRef)}
-                                    disabled={busy}
-                                    className="rounded-xl border border-border bg-surface px-2.5 py-2 text-text-muted transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
-                                    title={t("filesDelete")}
-                                  >
-                                    {busy ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    )}
-                                  </button>
-                                </>
-                              )}
                             </div>
                           </div>
                         );
@@ -497,6 +586,24 @@ export function AssistantFilesManager() {
           {feedback.text}
         </p>
       )}
+      {previewFile?.mimeType.startsWith("image/") ? (
+        <ImageLightbox
+          open
+          src={getAssistantFileDownloadUrl(previewFile.fileRef)}
+          downloadUrl={getAssistantFileDownloadUrl(previewFile.fileRef, { download: true })}
+          filename={fileDisplayName(previewFile)}
+          alt={fileDisplayName(previewFile)}
+          onClose={() => setPreviewFileRef(null)}
+        />
+      ) : null}
+      {previewFile?.mimeType.startsWith("video/") ? (
+        <VideoPreviewModal
+          file={previewFile}
+          src={getAssistantFileDownloadUrl(previewFile.fileRef)}
+          downloadUrl={getAssistantFileDownloadUrl(previewFile.fileRef, { download: true })}
+          onClose={() => setPreviewFileRef(null)}
+        />
+      ) : null}
     </div>
   );
 }

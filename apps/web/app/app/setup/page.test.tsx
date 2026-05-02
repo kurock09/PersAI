@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantLifecycleState } from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import SetupWizardPage from "./page";
+import { consumeBackPress } from "../_components/back-handler-stack";
 
 const clerkMocks = vi.hoisted(() => ({
   getToken: vi.fn()
@@ -429,6 +430,22 @@ describe("SetupWizardPage", () => {
       </NextIntlClientProvider>
     );
   }
+
+  it("consumes system Back as previous-step navigation instead of leaving setup", async () => {
+    renderWithIntl(<SetupWizardPage />);
+
+    expect(await screen.findByText(enMessages.setup.step0Title)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Alex")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(await screen.findByText(enMessages.setup.step1Title)).toBeInTheDocument();
+    act(() => {
+      expect(consumeBackPress()).toBe(true);
+    });
+
+    expect(await screen.findByText(enMessages.setup.step0Title)).toBeInTheDocument();
+    expect(routerMocks.replace).not.toHaveBeenCalled();
+  });
 
   it("prefills recreate profile fields from /me and normalizes birthday", async () => {
     renderWithIntl(<SetupWizardPage />);

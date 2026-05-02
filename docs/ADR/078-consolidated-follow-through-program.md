@@ -69,7 +69,7 @@ Current open themes inside this block:
 - push decision for mobile (`Telegram-only` vs native push)
 - richer mobile camera path only if it becomes a real product ask
 
-Current state: founder-verified as working on 2026-05-02. This block is closed unless a new mobile-specific production rollout issue is discovered.
+Current state: founder-verified as working on 2026-05-02. Subsequent live polish on 2026-05-02 fixed setup/recreate Android Back step handling and prevented transient assistant-load failures from being interpreted as "assistant missing" during bad-network startup. This block remains closed unless another mobile-specific production rollout issue is discovered.
 
 ### 2. Unified user Files architecture
 
@@ -134,14 +134,14 @@ These remain historical records only.
 
 ## Execution ledger
 
-| Program item                                                       | Status       | Notes                                                                                                                                                                                         |
-| ------------------------------------------------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Knowledge, Skills, document processing, and orchestrated retrieval | live-smoke   | ADR-079 implementation is complete through Step 12 plus follow-up hardening; Step 13 remains for deploy/reindex/live founder validation and narrow fixes discovered during that validation    |
-| Mobile shell reliability and rollout                               | completed    | Founder verified this path as working on 2026-05-02; reopen only for concrete mobile rollout regressions                                                                                      |
-| Unified user Files architecture                                    | live-smoke   | ADR-081 slices 1-5 are implemented; remaining work is live Files smoke after deploy plus narrow fixes found around `fileRef` list/open/download, chat projection, and Skill/tool file handling |
-| Runtime/tool efficiency follow-through                             | planned      | ADR-074 `R2` only; `R3` compound tools are cancelled by founder decision because they would grow/confuse the tool model                                                                       |
-| Assistant background-task final verification/test cleanup          | completed    | Founder verified this path as working on 2026-05-02; reopen only for concrete background-task regressions                                                                                     |
-| Long-tail deferred research                                        | deferred     | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                                                              |
+| Program item                                                       | Status     | Notes                                                                                                                                                                                          |
+| ------------------------------------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Knowledge, Skills, document processing, and orchestrated retrieval | live-smoke | ADR-079 implementation is complete through Step 12 plus follow-up hardening; Step 13 remains for deploy/reindex/live founder validation and narrow fixes discovered during that validation     |
+| Mobile shell reliability and rollout                               | completed  | Founder verified this path as working on 2026-05-02; reopen only for concrete mobile rollout regressions                                                                                       |
+| Unified user Files architecture                                    | live-smoke | ADR-081 slices 1-5 are implemented; remaining work is live Files smoke after deploy plus narrow fixes found around `fileRef` list/open/download, chat projection, and Skill/tool file handling |
+| Runtime/tool efficiency follow-through                             | planned    | ADR-074 `R2` only; `R3` compound tools are cancelled by founder decision because they would grow/confuse the tool model                                                                        |
+| Assistant background-task final verification/test cleanup          | completed  | Founder verified this path as working on 2026-05-02; reopen only for concrete background-task regressions                                                                                      |
+| Long-tail deferred research                                        | deferred   | `Q11-C`, `Q12-C`, `Q13-C`, and optional web push only when justified by evidence                                                                                                               |
 
 ## Current real tails after ADR-079/081 implementation
 

@@ -57,6 +57,7 @@ import {
   YANDEX_VOICE_OPTIONS
 } from "../_components/assistant-voice-options";
 import { AssistantSkillsManager } from "../_components/assistant-skills-manager";
+import { useHistoryBackToClose } from "../_components/use-history-back-to-close";
 
 const AVATARS = [
   { id: "nova", emoji: "🌟", label: "Nova" },
@@ -616,6 +617,10 @@ export default function SetupWizardPage() {
       : setupMode === "recreate"
         ? t("recreateAssistant")
         : t("createAssistant");
+  const handleBackStep = useCallback(() => {
+    setStep((current) => Math.max(0, current - 1));
+  }, []);
+  useHistoryBackToClose(step > 0 && completionScreen === null && !creating, handleBackStep);
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden bg-bg">

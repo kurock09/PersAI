@@ -1,5 +1,103 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (Android release CTA polish) — quieter APK button and clearer native update copy (`apps/web`, `persai-mobile`, `docs`; release export refreshed)
+
+### What changed
+
+- Made the shared Android APK download/update pill quieter across landing and Assistant Settings: smaller footprint, softer border, lower contrast icon, and no heavy outer glow.
+- Changed the native-shell update CTA from ambiguous `Update` / `Обновить` to `Update app` / `Обновить app`.
+- Rebuilt and re-exported the Android release APK to `apps/web/public/mobile` at version `1.0.1 (2)`.
+
+### Verification
+
+- `corepack pnpm run android:release` from `persai-mobile`
+
+### Next recommended step
+
+Live mobile smoke: open Assistant Settings in the native shell and confirm the APK action reads `Обновить app` and stays visually quiet.
+
+---
+
+## 2026-05-02 (ADR-079 Skill final activity badge polish) — Skill badge survives non-response final banners (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Fixed the chat live-activity merge invariant so once a turn receives Skill metadata, the compact `Навык - <emoji>` detail is carried forward to later retrieval, tool, compaction, and runtime-complete banners.
+- This keeps Skill visibility even when the last visible banner is something like image/file/knowledge completion rather than `Ответ готов`.
+- Kept long Skill names out of the compact mobile banner; the persisted display remains only the short Skill marker and emoji.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `ReadLints` on `apps/web/app/app/_components/use-chat.ts` and `apps/web/app/app/_components/use-chat.test.tsx`
+
+### Next recommended step
+
+Live mobile smoke: trigger a Skill-assisted turn that ends with a non-`Ответ готов` final banner, for example a media/tool or knowledge-finished banner, and confirm the final activity pill still shows `Навык - <emoji>`.
+
+---
+
+## 2026-05-02 (ADR-081 Files mobile density and cache visibility polish) — collapsed groups, media-first order, voice cleanup (`apps/api`, `apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Reordered Assistant Settings Files sections for mobile: `Медиа`, then assistant-created, then user files.
+- Made all useful sections collapsed by default so opening settings is quiet. Rows are only shown after the user expands a section.
+- Moved row actions onto the filename line, on the right, to reduce card height and visual noise.
+- Stopped showing cache/history rows such as voice recordings in the main Files list. Uploaded transient audio (`audio/webm`, `audio/ogg`, `audio/opus` from chat/staged upload) is backend-classified as `cache_history` and cleanup-eligible.
+- Made `Очистить кэш` more visible as a quiet accent cleanup banner whenever backend cleanup candidates exist.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-file-registry.cleanup.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Live mobile smoke: open Files and confirm all groups are collapsed, order is `Медиа -> Создано ассистентом -> Файлы пользователя`, voice rows are absent from useful groups, and `Очистить кэш` appears when voice/cache artifacts exist.
+
+---
+
+## 2026-05-02 (mobile setup/recreate continuity polish) — Android Back steps and no false setup redirect on bad network (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Fixed setup/recreate wizard behavior in the Capacitor Android shell: hardware Back now moves to the previous setup step when `step > 0` instead of falling through to WebView history/app exit and then remounting setup at the first step.
+- Fixed cold-start/reopen behavior under bad network: a rejected assistant fetch no longer marks `assistantResolved=true` with `assistant=null`. Only a real successful `getAssistant -> null` is treated as "assistant does not exist", so an already configured user is not redirected to setup just because bootstrap/client fallback failed.
+- Added focused regressions for both paths.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-app-data.test.tsx app/app/setup/page.test.tsx app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Live mobile smoke: start recreate/setup, advance to step 1+, press Android Back and confirm it returns to the previous step in-app; then test poor network/VPN startup and confirm an existing configured assistant does not get sent to setup on transient assistant-load failure.
+
+---
+
+## 2026-05-02 (ADR-081 Files preview action polish) — remove generic Open and keep media preview in-app (`apps/web`, `docs`; focused checks green)
+
+### What changed
+
+- Removed the generic `Open` action from Assistant Settings Files rows. It was not reliable enough in Capacitor and was noisy on desktop web.
+- Kept `Download` as the only universal file action.
+- Added a quiet `Preview` eye action only for image/video Files: images reuse the existing in-app lightbox, videos open in a fullscreen in-app player with controls and download.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Live mobile smoke: open Assistant Settings Files, confirm PDFs/text/docs only show download/rename/delete, images and videos show a preview eye, and preview stays inside the app instead of navigating the WebView.
+
+---
+
 ## 2026-05-02 (ADR-081 mobile text download encoding polish) — UTF-8 text downloads survive Capacitor/Android viewers (`apps/api`, `persai-mobile/android`, `docs`; focused checks green)
 
 ### What changed

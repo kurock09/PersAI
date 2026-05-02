@@ -30,7 +30,7 @@ export function LandingAndroidAppDownload({ cta }: { cta: string }) {
   return (
     <div className="mb-4 flex justify-center">
       <AndroidAppDownloadBanner
-        className="scale-[0.96] border-white/[0.055] bg-surface-raised/25 text-text-subtle/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_12px_28px_rgba(0,0,0,0.14)] hover:bg-surface-raised/40 hover:text-text-muted"
+        className="scale-[0.94] bg-surface-raised/20 text-text-subtle/70"
         copy={{ cta }}
       />
     </div>

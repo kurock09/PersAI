@@ -53,8 +53,8 @@ async function run(): Promise<void> {
       id: "file-cache-1",
       origin: "uploaded_attachment",
       objectKey: "objects/voice.webm",
-      relativePath: "uploads/att-voice/voice-123.webm",
-      displayName: "voice-123.webm",
+      relativePath: "uploads/att-voice/recording.webm",
+      displayName: "recording.webm",
       mimeType: "audio/webm",
       sizeBytes: BigInt(30),
       metadata: { source: "web_staged_upload" }

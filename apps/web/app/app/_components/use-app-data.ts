@@ -182,8 +182,6 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
         setAssistant(assistantRes.value);
         setAssistantResolved(true);
       } else if (assistantRes.status === "rejected") {
-        setAssistant(null);
-        setAssistantResolved(true);
         setError(
           assistantRes.reason instanceof Error
             ? assistantRes.reason.message

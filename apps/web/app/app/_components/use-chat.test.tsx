@@ -1013,6 +1013,82 @@ describe("useChat", () => {
     expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
   });
 
+  it("preserves active Skill detail when the final badge is a tool completion", async () => {
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onActivity?: (payload: {
+            source: "skill" | "user" | "product" | "web";
+            resultCount: number;
+            skillName?: string | null;
+            skillIconEmoji?: string | null;
+          }) => void;
+          onTool?: (payload: {
+            phase: "start" | "end";
+            toolName: string;
+            toolCallId: string;
+            isError: boolean;
+          }) => void;
+          onRuntimeDone?: (payload: { respondedAt: string }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1" }
+        });
+        handlers.onActivity?.({
+          source: "skill",
+          resultCount: 0,
+          skillName: "Диетолог",
+          skillIconEmoji: "🥦"
+        });
+        handlers.onTool?.({
+          phase: "end",
+          toolName: "image_generate",
+          toolCallId: "tool-1",
+          isError: false
+        });
+        handlers.onRuntimeDone?.({
+          respondedAt: "2026-04-14T10:08:00.000Z"
+        });
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: {
+              id: "assistant-msg-1",
+              attachments: []
+            },
+            userMessage: {
+              id: "user-msg-1",
+              attachments: []
+            },
+            runtime: null
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1"));
+
+    await act(async () => {
+      await result.current.send("сделай картинку с меню");
+    });
+
+    const activityEntries = result.current.entries.filter(
+      (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+        entry.kind === "activity"
+    );
+
+    expect(activityEntries).toHaveLength(1);
+    expect(activityEntries[0]?.event.label).toBe("Image ready");
+    expect(activityEntries[0]?.event.emphasis).toBe("strong");
+    expect(activityEntries[0]?.event.detail).toBe("Навык - 🥦");
+    expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
+  });
+
   it("appends the shadow routing label for owner or admin viewers", async () => {
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (

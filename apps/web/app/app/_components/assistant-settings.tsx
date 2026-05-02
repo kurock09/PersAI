@@ -2355,7 +2355,7 @@ export function AssistantSettings({
 
       <div className="flex justify-center px-5 pt-10 pb-12">
         <AndroidAppDownloadBanner
-          className="min-w-[12.5rem] opacity-90"
+          className="min-w-[11rem] opacity-80"
           copy={{
             cta: nativeShell ? t("androidAppUpdateCta") : t("androidAppCta")
           }}

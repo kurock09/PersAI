@@ -90,6 +90,11 @@ vi.mock("./assistant-knowledge-manager", () => ({
   AssistantKnowledgeManager: () => null
 }));
 
+vi.mock("./image-lightbox", () => ({
+  ImageLightbox: ({ open, alt }: { open: boolean; alt?: string }) =>
+    open ? <div data-testid="files-image-lightbox">{alt}</div> : null
+}));
+
 function makeAssistantState(): AssistantLifecycleState {
   return {
     id: "assistant-1",
@@ -349,7 +354,7 @@ describe("AssistantSettings character CTA", () => {
 
     renderSettings(makeAppData(), "character");
 
-    expect(await screen.findByRole("link", { name: "Update" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Update app" })).toHaveAttribute(
       "href",
       "/mobile/persai-android-release.apk"
     );
@@ -357,7 +362,7 @@ describe("AssistantSettings character CTA", () => {
 });
 
 describe("AssistantSettings Files", () => {
-  it("renders a compact scrollable Files section with canonical file actions", async () => {
+  it("renders a compact scrollable Files section with download-first file actions", async () => {
     assistantApiMocks.getAssistantFiles.mockResolvedValue({
       files: Array.from({ length: 12 }, (_, index) => ({
         fileRef: `file-ref-${index}`,
@@ -367,9 +372,10 @@ describe("AssistantSettings Files", () => {
             : index % 3 === 1
               ? "runtime_output"
               : "sandbox_output",
-        displayName: `Spec ${index}.pdf`,
-        filename: `file-${index}.pdf`,
-        mimeType: "application/pdf",
+        displayName:
+          index === 1 ? "Image 1.png" : index === 2 ? "Video 2.mp4" : `Spec ${index}.pdf`,
+        filename: index === 1 ? "image-1.png" : index === 2 ? "video-2.mp4" : `file-${index}.pdf`,
+        mimeType: index === 1 ? "image/png" : index === 2 ? "video/mp4" : "application/pdf",
         sizeBytes: 1024 + index,
         logicalSizeBytes: 1024 + index,
         fileBucket:
@@ -390,21 +396,58 @@ describe("AssistantSettings Files", () => {
       });
     });
     expect(screen.getByText("Assistant files")).toBeInTheDocument();
-    expect(screen.getByText("Spec 0.pdf")).toBeInTheDocument();
-    expect(screen.getAllByTitle("Open")[0]).toHaveAttribute(
-      "href",
-      "/api/assistant-file/file-ref-0"
-    );
+    const mediaBucket = screen.getByText("Media");
+    const assistantBucket = screen.getByText("Created by assistant");
+    const userBucket = screen.getByText("User files");
+    expect(
+      mediaBucket.compareDocumentPosition(assistantBucket) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      assistantBucket.compareDocumentPosition(userBucket) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.queryByText("Spec 0.pdf")).toBeNull();
+    expect(screen.queryByText("Video 2.mp4")).toBeNull();
+    expect(screen.queryByTitle("Open")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Media/i }));
+    expect(screen.getByText("Video 2.mp4")).toBeInTheDocument();
     expect(screen.getAllByTitle("Download")[0]).toHaveAttribute(
       "href",
-      "/api/assistant-file/file-ref-0?download=1"
+      "/api/assistant-file/file-ref-2?download=1"
     );
-    expect(screen.getByText("User files")).toBeInTheDocument();
-    expect(screen.getByText("Created by assistant")).toBeInTheDocument();
-    expect(screen.getByText("Media")).toBeInTheDocument();
+    expect(screen.getAllByTitle("Preview")).toHaveLength(1);
   });
 
-  it("keeps cache history collapsed and cleans only eligible cache files", async () => {
+  it("opens image files in an in-app preview instead of a raw open link", async () => {
+    assistantApiMocks.getAssistantFiles.mockResolvedValue({
+      files: [
+        {
+          fileRef: "file-image-1",
+          origin: "uploaded_attachment",
+          displayName: "photo.png",
+          filename: "photo.png",
+          mimeType: "image/png",
+          sizeBytes: 2048,
+          logicalSizeBytes: 2048,
+          fileBucket: "media_uploads",
+          cleanupEligible: false,
+          cleanupReason: null,
+          createdAt: "2026-05-02T00:00:00.000Z"
+        }
+      ],
+      cleanup: { eligibleCount: 0, eligibleBytes: 0 }
+    });
+
+    renderSettings(makeAppData(), "files");
+
+    expect(await screen.findByText("Media")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Media/i }));
+    expect(screen.getByText("photo.png")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Preview"));
+
+    expect(screen.getByTestId("files-image-lightbox")).toHaveTextContent("photo.png");
+  });
+
+  it("keeps cache files out of the main groups and cleans only eligible cache files", async () => {
     assistantApiMocks.getAssistantFiles.mockResolvedValue({
       files: [
         {
@@ -445,16 +488,17 @@ describe("AssistantSettings Files", () => {
 
     renderSettings(makeAppData(), "files");
 
-    expect(await screen.findByText("notes.md")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Clean cache" })).toBeInTheDocument();
+    expect(screen.queryByText("notes.md")).toBeNull();
     expect(screen.queryByText("voice-1.webm")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /History and cache/i }));
-    expect(screen.getByText("voice-1.webm")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /History and cache/i })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Clean cache" }));
     fireEvent.click(screen.getByRole("button", { name: "Clean" }));
 
     await waitFor(() => {
       expect(assistantApiMocks.cleanupAssistantFilesCache).toHaveBeenCalledWith("token-1");
     });
+    fireEvent.click(screen.getByRole("button", { name: /User files/i }));
     expect(screen.getByText("notes.md")).toBeInTheDocument();
     expect(screen.queryByText("voice-1.webm")).toBeNull();
   });

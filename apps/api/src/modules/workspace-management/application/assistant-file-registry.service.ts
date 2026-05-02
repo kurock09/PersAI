@@ -416,11 +416,7 @@ export class AssistantFileRegistryService {
   }
 
   private isMediaMime(mimeType: string): boolean {
-    return (
-      mimeType.startsWith("image/") ||
-      mimeType.startsWith("audio/") ||
-      mimeType.startsWith("video/")
-    );
+    return mimeType.startsWith("image/") || mimeType.startsWith("video/");
   }
 
   private isVoiceUploadCache(input: {
@@ -436,6 +432,14 @@ export class AssistantFileRegistryService {
     const source = input.metadata?.source;
     if (source !== "chat_upload" && source !== "web_staged_upload") {
       return false;
+    }
+    const normalizedMime = input.mimeType.toLowerCase();
+    if (
+      normalizedMime === "audio/webm" ||
+      normalizedMime === "audio/ogg" ||
+      normalizedMime === "audio/opus"
+    ) {
+      return true;
     }
     const name = (input.displayName ?? input.relativePath).toLowerCase();
     return /(^|[/\\-])voice[-_]/.test(name) || name.includes("voice-note");
