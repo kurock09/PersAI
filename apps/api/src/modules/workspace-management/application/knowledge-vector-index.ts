@@ -105,7 +105,8 @@ export class PostgresPgvectorKnowledgeIndex implements KnowledgeVectorIndex {
             "chunk_index",
             "embedding_model_key",
             "embedding_vector",
-            "metadata"
+            "metadata",
+            "updated_at"
           )
           VALUES (
             ${chunk.workspaceId}::uuid,
@@ -118,7 +119,8 @@ export class PostgresPgvectorKnowledgeIndex implements KnowledgeVectorIndex {
             ${chunk.chunkIndex},
             ${chunk.embeddingModelKey},
             ${serializePgvector(chunk.embeddingVector)}::vector,
-            ${JSON.stringify(metadata)}::jsonb
+            ${JSON.stringify(metadata)}::jsonb,
+            now()
           )
           ON CONFLICT (
             "source_type",

@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-079 vector insert timestamp fix) — pgvector rows now satisfy `updated_at` on first insert (`apps/api`, docs; focused checks green)
+
+### What changed
+
+- Fixed the next live blocker after OpenAI embeddings started working: `PostgresPgvectorKnowledgeIndex.replaceSourceChunks()` inserted `knowledge_vector_chunks` without `updated_at`, while the live column is `NOT NULL`.
+- The raw insert now includes `updated_at = now()` for new vector rows; the existing conflict-update path still refreshes `updated_at`.
+- Live pre-fix evidence after deploy `9a6ebae9`: reindex jobs generated real `text-embedding-3-large` vectors, then failed with PostgreSQL `23502` on `knowledge_vector_chunks.updated_at`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-vector-index-boundary.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-embedding.service.test.ts`
+- `ReadLints` on `apps/api/src/modules/workspace-management/application/knowledge-vector-index.ts`
+
+### Next recommended step
+
+Run required gates, deploy this API fix, save `/admin/knowledge` retrieval policy again to queue another backfill, then verify Skill jobs complete with `embeddingChunkCount > 0`, `knowledge_vector_chunks` rows exist, and Skill retrieval records hybrid search plus non-zero fetch telemetry.
+
+---
+
 ## 2026-05-02 (ADR-079 live embedding credential fix) — Skill/Product embeddings use the configured OpenAI provider key (`apps/api`, `docs`; focused check green)
 
 ### What changed
