@@ -363,6 +363,25 @@ function buildRetrievalLiveActivity(params: {
     source: "retrieval"
   };
 }
+function preservePriorSkillDetail(
+  nextActivity: LiveActivityEvent,
+  priorActivity: LiveActivityEvent | undefined
+): LiveActivityEvent {
+  const priorDetail = priorActivity?.source === "retrieval" ? priorActivity.detail?.trim() : null;
+  if (
+    nextActivity.source !== "retrieval" ||
+    nextActivity.detail ||
+    !priorDetail ||
+    !priorDetail.startsWith("Навык")
+  ) {
+    return nextActivity;
+  }
+  return {
+    ...nextActivity,
+    detail: priorDetail,
+    emphasis: "strong"
+  };
+}
 function buildRuntimeLiveActivity(params: {
   assistantMessageId: string;
   respondedAt: string;
@@ -1754,16 +1773,22 @@ export function useChat(threadKey: string): UseChatReturn {
               if (assistantMessageId === null) {
                 return;
               }
-              applyThreadLiveActivities(targetThreadKey, (prev) => ({
-                ...prev,
-                [assistantMessageId]: buildRetrievalLiveActivity({
+              applyThreadLiveActivities(targetThreadKey, (prev) => {
+                const nextActivity = buildRetrievalLiveActivity({
                   assistantMessageId,
                   source,
                   resultCount,
                   ...(skillName === undefined ? {} : { skillName }),
                   ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-                })
-              }));
+                });
+                return {
+                  ...prev,
+                  [assistantMessageId]: preservePriorSkillDetail(
+                    nextActivity,
+                    prev[assistantMessageId]
+                  )
+                };
+              });
             },
             onCompleted: async () => {
               const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
@@ -2481,16 +2506,19 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
               flushBufferedAssistantState(true);
-              applyThreadLiveActivities(sendThreadKey, (prev) => ({
-                ...prev,
-                [assistantMsgId]: buildRetrievalLiveActivity({
+              applyThreadLiveActivities(sendThreadKey, (prev) => {
+                const nextActivity = buildRetrievalLiveActivity({
                   assistantMessageId: assistantMsgId,
                   source,
                   resultCount,
                   ...(skillName === undefined ? {} : { skillName }),
                   ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-                })
-              }));
+                });
+                return {
+                  ...prev,
+                  [assistantMsgId]: preservePriorSkillDetail(nextActivity, prev[assistantMsgId])
+                };
+              });
             },
             onCompaction: ({ phase, completed, willRetry }) => {
               flushBufferedAssistantState(true);

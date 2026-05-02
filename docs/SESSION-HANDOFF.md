@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-05-02 (ADR-081 live Files auth/download hotfix) — Clerk guard restored for Files routes and no `chat.html` fallback (`apps/api`, `apps/web`; focused checks green)
+
+### What changed
+
+- Investigated founder screenshots showing Assistant Settings Files error `Authenticated user context is missing`, broken chat media previews, and file download returning `chat.html`.
+- Checked GKE logs for `api`/`web`; live API showed `401` with `userId:null` on `/api/v1/assistant/files`, `/api/v1/assistant/files/:fileRef/download`, confirming the new Files routes were missing from `ClerkAuthMiddleware`.
+- Added Clerk middleware coverage for `GET /assistant/files`, metadata/update/delete by `fileRef`, and `GET /assistant/files/:fileRef/download`.
+- Chat attachment rows without canonical `fileRef` now render as disabled metadata instead of `<a href="#">`, preventing browsers from downloading the current app shell as `chat.html`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx app/app/_components/image-lightbox.test.tsx app/app/assistant-api-client.test.ts`
+
+### Next recommended step
+
+Run the full gate, deploy, then live-smoke Assistant Settings Files list, chat image previews, and `fileRef` download.
+
+---
+
 ## 2026-05-02 (ADR-081 Slice 5 cleanup and hardening) — final product fileRef path, no attachment download fallback (`apps/api`, `apps/web`; focused checks green)
 
 ### What changed
@@ -77,9 +97,9 @@ Continue ADR-081 with Slice 4: Assistant Settings Files UI and chat attachment p
 
 - Removed the hardcoded Skill badge emoji.
 - Added `iconEmoji` to enabled Skill prompt/runtime materialization and runtime bundle Skill summaries.
-- Runtime retrieval activity events now include the active Skill's own `skillIconEmoji` when auto Skill routing selected a Skill.
+- Runtime retrieval activity events now include the active Skill's own `skillIconEmoji` when auto Skill routing or `retrievalPlan.selectedSkillIds` selected a Skill, even if no Skill chunks were found.
 - API forwards the Skill icon through native stream chunks and web SSE activity payloads.
-- Web activity badges now render `Навык - <iconEmoji>` from selected Skill metadata only; if a Skill has no icon, no generic emoji is invented.
+- Web activity badges now render `Навык - <iconEmoji>` from selected Skill metadata only; if a Skill has no icon, no generic emoji is invented. The Skill detail is preserved through later Product/user/web retrieval activity until the final `runtime_done` badge.
 
 ### Verification
 

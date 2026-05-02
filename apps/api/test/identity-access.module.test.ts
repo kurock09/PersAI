@@ -154,7 +154,12 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     { path: "api/v1/assistant/skills", method: RequestMethod.GET },
     { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
     { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
-    { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET }
+    { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
+    { path: "api/v1/assistant/files", method: RequestMethod.GET },
+    { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.GET },
+    { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.PATCH },
+    { path: "api/v1/assistant/files/:fileRef", method: RequestMethod.DELETE },
+    { path: "api/v1/assistant/files/:fileRef/download", method: RequestMethod.GET }
   ]) {
     assert.equal(
       hasRoute(consumer.routes, route),

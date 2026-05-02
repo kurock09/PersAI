@@ -2502,19 +2502,46 @@ export class TurnExecutionService {
         return activeName;
       }
     }
-    return context === null ? undefined : this.resolveFirstRetrievedSkillName(context);
+    const retrievedSkillName =
+      context === null ? undefined : this.resolveFirstRetrievedSkillName(context);
+    if (retrievedSkillName !== undefined) {
+      return retrievedSkillName;
+    }
+    return this.resolveSelectedSkillActivitySummary(execution)?.name;
   }
 
   private resolveActiveSkillActivityIconEmoji(
     execution: PreparedTurnExecution
   ): string | undefined {
-    const activeSkillId = execution.routeDecision.autoSkillState?.activeSkillId;
-    if (typeof activeSkillId !== "string" || activeSkillId.trim().length === 0) {
-      return undefined;
-    }
-    const skill = execution.bundle.skills?.enabled.find((row) => row.id === activeSkillId) ?? null;
+    const skill = this.resolveSelectedSkillActivitySummary(execution);
     const iconEmoji = skill?.iconEmoji?.trim();
     return iconEmoji && iconEmoji.length > 0 ? iconEmoji : undefined;
+  }
+
+  private resolveSelectedSkillActivitySummary(
+    execution: PreparedTurnExecution
+  ): { name: string; iconEmoji?: string | null } | undefined {
+    const activeSkillId = execution.routeDecision.autoSkillState?.activeSkillId;
+    const selectedSkillIds =
+      typeof activeSkillId === "string" && activeSkillId.trim().length > 0
+        ? [activeSkillId]
+        : execution.routeDecision.retrievalPlan.selectedSkillIds;
+    for (const skillId of selectedSkillIds) {
+      const normalizedSkillId = typeof skillId === "string" ? skillId.trim() : "";
+      if (normalizedSkillId.length === 0) {
+        continue;
+      }
+      const skill =
+        execution.bundle.skills?.enabled.find((row) => row.id === normalizedSkillId) ?? null;
+      if (skill === null) {
+        continue;
+      }
+      const name = skill.name.trim();
+      if (name.length > 0) {
+        return skill.iconEmoji === undefined ? { name } : { name, iconEmoji: skill.iconEmoji };
+      }
+    }
+    return undefined;
   }
 
   private resolveFirstRetrievedSkillName(

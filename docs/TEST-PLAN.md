@@ -175,7 +175,9 @@ Interpretation rules:
 1. product open/download links must use canonical `fileRef` routes, not `attachmentId` routes
 2. assistant Files API/UI state must not expose `objectKey`, storage paths, raw sandbox paths, or checksum internals as user-facing selectors
 3. any remaining `artifactId`, `objectKey`, or path usage must be internal storage/sandbox/runtime accounting, not model/product selector truth
-4. full verification gate still applies before closing the slice
+4. API `assistant/files*` routes must be covered by `ClerkAuthMiddleware`; missing coverage appears in live logs as `401` with `userId:null` and controller text `Authenticated user context is missing`
+5. chat attachments without canonical `fileRef` must not render fallback `<a href="#">` download links, because browsers can save the app shell as `chat.html`
+6. full verification gate still applies before closing the slice
 
 ## Web stream latency-trace focused checks
 

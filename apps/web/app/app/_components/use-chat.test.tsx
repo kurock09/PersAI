@@ -971,6 +971,10 @@ describe("useChat", () => {
           skillName: "Диетолог",
           skillIconEmoji: "✈️"
         });
+        handlers.onActivity?.({
+          source: "product",
+          resultCount: 1
+        });
         handlers.onRuntimeDone?.({
           respondedAt: "2026-04-14T10:08:00.000Z"
         });

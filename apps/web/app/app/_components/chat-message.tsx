@@ -850,16 +850,8 @@ function AttachmentStrip({
           );
         }
 
-        return (
-          <a
-            key={att.id}
-            href={downloadUrl ?? "#"}
-            download={att.originalFilename ?? undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs transition-colors",
-              downloadUrl ? "hover:border-border-strong hover:bg-surface-hover" : "opacity-50"
-            )}
-          >
+        const fileContent = (
+          <>
             {isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
             ) : (
@@ -869,6 +861,29 @@ function AttachmentStrip({
               {att.originalFilename ?? "File"}
             </span>
             <span className="text-text-subtle">{progressLabel ?? formatBytes(att.sizeBytes)}</span>
+          </>
+        );
+
+        if (!downloadUrl) {
+          return (
+            <div
+              key={att.id}
+              aria-disabled="true"
+              className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs opacity-50"
+            >
+              {fileContent}
+            </div>
+          );
+        }
+
+        return (
+          <a
+            key={att.id}
+            href={downloadUrl}
+            download={att.originalFilename ?? undefined}
+            className="flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2 text-xs transition-colors hover:border-border-strong hover:bg-surface-hover"
+          >
+            {fileContent}
           </a>
         );
       })}

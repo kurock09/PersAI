@@ -327,6 +327,27 @@ describe("ChatMessageBubble — canonical file attachments", () => {
       "/api/assistant-file/file-ref-1?download=1"
     );
   });
+
+  it("does not render a fallback download link when a committed file lacks fileRef", () => {
+    render(
+      <ChatMessageBubble
+        message={makeUserMessage("committed", {
+          attachments: [
+            {
+              ...makeImageAttachment("att-without-file-ref"),
+              attachmentType: "document",
+              originalFilename: "legacy.pdf",
+              mimeType: "application/pdf",
+              fileRef: null
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.queryByRole("link", { name: /legacy\.pdf/i })).toBeNull();
+    expect(screen.getByText("legacy.pdf")).toBeInTheDocument();
+  });
 });
 
 describe("ChatMessageBubble — pre-response status", () => {
