@@ -1,5 +1,227 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (web chat send auth latency hardening) — ordinary chat sends no longer force a fresh Clerk token every message
+
+### What changed
+
+- Investigated the founder-reported web chat send lag and confirmed the ordinary `useChat.send()` path was always awaiting `getToken({ skipCache: true })` before the real stream request, so each message could pay an extra Clerk refresh round-trip even when the cached session token was still valid.
+- Narrowed the fix to the hot chat-message send path only: `apps/web/app/app/_components/use-chat.ts` now starts ordinary sends with `getToken()` and retries the stream exactly once with `getToken({ skipCache: true })` only if the first stream attempt fails pre-headers with HTTP `401`.
+- Kept the broader auth/reconcile/reattach helpers unchanged in this slice, because several non-send helper paths still collapse auth failures into generic or structured errors and are riskier to retune together.
+- Added a focused regression proving the new sequence: cached token first, single fresh-token retry on `401`, successful completion without duplicating the turn.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This improves the ordinary chat-message send path only. Attachment staging, reattach, turn-status polling, and retry/reconcile flows still keep their earlier auth behavior until their helper error contracts preserve `401` cleanly enough for the same cached-first fallback pattern.
+- If the cached Clerk token is already invalid, the first stream attempt will still fail once before the fresh-token retry repairs it. That trade-off is intentional here because the goal is lower steady-state latency for normal chat sends.
+
+### Next recommended step
+
+Measure live web desktop `Enter -> headers accepted` latency again after this slice. If chat feels materially better, the next safe follow-up is to normalize auth error handling in chat-status/reattach helpers and then bring the same cached-first pattern there too.
+
+---
+
+## 2026-05-04 (Clerk redirect hardening for pricing/auth routes) — auth screens now preserve safe redirect targets
+
+### What changed
+
+- Hardened the custom Clerk auth flow so protected-route intent survives screen switches instead of getting lost between `sign-in`, `sign-up`, forgot-password, and SSO callback handling.
+- Added a shared helper in `apps/web/app/lib/clerk-navigation.ts` to carry forward only validated `redirect_url` values, then applied it to the custom auth links between `SignInPage` and `SignUpPage`.
+- `SignUpPage` no longer hardcodes post-verification navigation only to `/app/setup`; it now respects a safe `redirect_url` when present and still falls back to `/app/setup` for ordinary registration.
+- `sso-callback` now uses the same safe redirect resolution for Clerk finalize/setActive flows and also preserves the target when it has to fall back to the custom `sign-in` page.
+- Added focused regressions for sign-in, sign-up, and SSO callback so future pricing/auth route work cannot silently drop redirect preservation again.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/sign-in/[[...sign-in]]/page.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/sign-up/[[...sign-up]]/page.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/sso-callback/page.test.tsx`
+
+### Risks / residuals
+
+- Redirect preservation is now consistent for the custom auth screens and SSO callback, but full live confidence still depends on a real Clerk session smoke in browser/mobile shell because cookie timing remains provider/runtime-dependent.
+- Safe redirect policy is intentionally still limited to `/app*` and `/admin*`; public marketing pages are not accepted as auth redirect targets by design.
+
+### Next recommended step
+
+Live-smoke the pricing/auth path in web and Capacitor: guest opens `/pricing`, enters `/app/pricing`, gets redirected through auth, and returns to the intended in-app pricing route after sign-in/sign-up.
+
+---
+
+## 2026-05-04 (web desktop send UX hardening) — sending feedback is faster and composer focus survives send rerenders
+
+### What changed
+
+- Audited the founder-reported web desktop send UX and confirmed the perceived post-`Enter` spinner lag was not backend latency: `apps/web/app/app/_components/chat-message.tsx` intentionally delayed the off-bubble `sending` indicator by `1000 ms` before rendering it.
+- Reduced that UI-only delay to `250 ms` so slow sends still avoid a flash on the fast path, but users now get near-immediate visible feedback when a turn stays in `sending`.
+- Hardened desktop composer refocus in `apps/web/app/app/_components/chat-input.tsx`: after send we now keep a short post-send refocus window across the `Send -> Stop` rerender path, and desktop pointer-down on the send/stop button no longer steals focus away from the textarea before the restore logic runs.
+- Added focused web regressions for both behaviors, including a desktop wrapper case where clicking `Send` rerenders the button into `Stop` and the composer must still retain focus.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/_components/chat-message.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- This fixes the explicit UI delay and the most likely desktop focus-loss path inside the current composer. If the founder still sees focus drop in live browser usage, the next place to inspect is browser-specific focus transfer caused by higher-level shell/layout interactions outside `ChatInput`.
+- The send indicator is still intentionally delayed a little (`250 ms`) to avoid flashing on very fast commits; if the product direction changes to "always show pending immediately", that can now be reduced further with a small localized UI change.
+
+### Next recommended step
+
+Re-smoke on real web desktop with keyboard-first usage: send by `Enter`, immediately type the next message, and confirm the textarea keeps focus while the slower pending indicator appears noticeably sooner on longer sends.
+
+---
+
+## 2026-05-04 (ADR-084 Slice 2 pricing page delivery) — public and in-app pricing now render from Admin Plans
+
+### What changed
+
+- Finished the actual ADR-084 Slice 2 pricing surface instead of stopping at the admin-groundwork layer: `apps/web` now exposes a public `/pricing` page for guests and an in-app `/app/pricing` page for signed-in users, both rendered from admin-owned plan `presentation` data plus live plan limits.
+- Added a dedicated public read-only API surface `GET /api/v1/public/plans/pricing` so guest pricing no longer depends on admin endpoints or hard-coded marketing data. The endpoint returns only active plans with `presentation.showOnPricingPage=true`, ordered by `presentation.displayOrder`.
+- The pricing UI is mobile-first and Capacitor-safe: in-app navigation lands on a real route inside `AppShell`, hardware Back keeps working through the existing shell history bridge, and the public page mounts the same `BackButtonBridge` so Android Back behaves correctly there too.
+- `Assistant Settings > Limits & Plan` now includes a real `Change plan` action that closes the slide-over and routes into `/app/pricing`; the landing-page `Plans` link now points to `/pricing` for unauthenticated access.
+- Public pricing cards now show localized RU/EN presentation copy, current-plan state for signed-in users, quiet fact chips derived from real plan limits, and support-driven logged-in CTA behavior while ADR-084 Slice 3 checkout/provider work remains pending.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/page.test.tsx`
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/web files
+
+### Risks / residuals
+
+- Slice 2 now renders the pricing surface, but it still does not create payment intents or switch plans directly. Signed-in pricing CTA remains a support path until ADR-084 Slice 3 lands checkout/session creation and provider-neutral payment plumbing.
+- Pricing-card highlight bullets are still admin-authored copy. The page also shows real derived limit chips to reduce drift, but semantic enforcement between marketing bullets and entitlement truth is still a future hardening item if needed.
+
+### Next recommended step
+
+Continue ADR-084 with Slice 3: provider-neutral payment-intent + checkout-session creation, then replace the temporary support CTA on non-current signed-in pricing cards with real upgrade/downgrade billing actions.
+
+---
+
+## 2026-05-04 (ADR-079 background skill recheck force-check fix) — enabled Skills no longer pin every later web turn to sticky reuse
+
+### What changed
+
+- Investigated the founder-reported live regression on assistant `2f8cf38e-a6d9-4609-b83a-2b748246fcec`: after a Skill had been enabled, several later non-Skill web turns in the same chat were still persisted as `source=precheck`, `reasonCode=sticky_skill_reuse`, `useSkills=true` on every message instead of only using the background re-check cadence.
+- Confirmed the documented every-5-message scheduler still existed, but the API background path was calling runtime `skill-routing-check` with the ordinary `skillRoutingContext`, so an already-active Skill could immediately short-circuit back into sticky reuse rather than re-running drift classification.
+- Fixed both sync and stream web paths to mark background Skill-routing checks with `forceCheck=true` before calling `checkSkillRouting`, preserving the existing cadence gate while making the background pass actually perform a classifier re-check.
+- Added focused regressions for both web paths so future refactors cannot silently drop the `forceCheck` flag from background Skill rechecks.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `ReadLints` on touched API files
+
+### Risks / residuals
+
+- This fix corrects the API background recheck handoff only. If live rollout still shows unnecessary retrieval on every message after this patch, the next place to inspect is runtime precheck policy for product-knowledge questions rather than Skill sticky state.
+- Live logs for the same assistant also showed expected non-Skill product-pricing retrieval on tariff questions (`useProductKnowledge=true`), so those turns should not be used as the success/failure signal for this specific Skill-regression fix.
+
+### Next recommended step
+
+Deploy this API-only fix to `persai-dev`, then re-smoke the same assistant/chat pattern: after enabling a Skill, ordinary off-topic follow-up turns should stop persisting `sticky_skill_reuse` on every message, while the background recheck should only re-run on the documented cadence.
+
+---
+
+## 2026-05-04 (ADR-084 Slice 2 pricing presentation groundwork) — Admin Plans now owns public pricing-card fields
+
+### What changed
+
+- Added a production-ready `presentation` block to admin plan truth so `Admin > Plans` can own the future pricing-card data directly instead of relying on hard-coded UI content or a second marketing-only config layer.
+- The new plan presentation shape covers: show-on-pricing toggle, display order, highlighted-card flag, structured price (`amount`, `currency`, `billingPeriod`), localized RU/EN public title/subtitle/notes/badge/CTA, and localized feature-bullet arrays for concise tariff highlights.
+- The API/admin-plan service now parses, validates, persists, and rehydrates those fields through `billingProviderHints.presentation`, the OpenAPI/contracts surface exposes them, and `Admin > Plans` now edits them with local guards so a visible pricing card cannot be saved without RU/EN titles and a complete price label.
+- Real plan limits were intentionally not duplicated into separate marketing number fields; the new localized feature bullets are display copy only, while quota/entitlement truth remains the existing plan limits model.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This is Slice 2 groundwork, not the full pricing-page delivery: guest/logged-in pricing cards, current-plan markers, and upgrade/downgrade CTA behavior still need to be rendered on the actual pricing surface.
+- The new presentation block is intentionally display-only. If admins enter copy that promises something the real plan limits do not grant, the system will store it; enforcement here is by admin discipline plus future pricing-page shaping, not by automatic semantic validation.
+
+### Next recommended step
+
+Continue ADR-084 Slice 2 by building the actual pricing page/cards from these admin-owned presentation fields plus existing plan limits, using the new `showOnPricingPage` and `displayOrder` values as the card source of truth.
+
+---
+
+## 2026-05-03 (ADR-084 Slice 2 billing visibility UI polish) — Limits & Plan now matches monthly-media and mobile billing truth
+
+### What changed
+
+- Reworked the user-facing `Limits & Plan` block in `Assistant Settings` for the current billing-readiness UI pass: the plan code is gone, the main emphasis is now on the token budget, and the secondary quota buckets (`Active chats`, `Media storage`, `Knowledge storage`) render as compact cards beneath it for a tighter mobile-first layout.
+- Added shared billing-summary UI helpers so both `Assistant Settings` and the sidebar account popup derive the same localized lifecycle badge (`Trial`, `Active`, etc.) and the same localized next relevant date line (`Trial until`, `Next billing`, `Grace until`, etc.) from `effectivePlan` without hard-coded copy.
+- `Monthly media` now renders only media tools that are actually enabled in the current tool catalog, while `Tool limits` became a collapsed-by-default accordion that shows the full catalog when expanded: enabled tools first, disabled tools after that, including media tools and rows without an explicit daily cap.
+- The sidebar account popup now shows the compact billing snapshot requested for the dev menu: localized lifecycle badge plus token-percent summary, with the next billing/trial date shown quietly below the token bar when present.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/app/_components/sidebar.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice only updates the already-exposed billing visibility surfaces; it does not add checkout, pricing-page cards, provider payment methods, or live billing mutations.
+- The compact billing date line currently depends on `effectivePlan` timestamps already returned by plan visibility. If a plan has no relevant lifecycle date yet, the summary intentionally stays quiet instead of inventing placeholder copy.
+
+### Next recommended step
+
+Continue with ADR-084 Slice 2: pricing cards from Admin Plans, reusing the same localized billing-status/date copy so the public pricing and logged-in billing surfaces stay visually consistent.
+
+---
+
+## 2026-05-03 (ADR-082 quota-status media visibility) — monthly media truth no longer hides behind daily tool copy
+
+### What changed
+
+- Fixed the assistant-facing `quota_status` path after another live founder check showed the model still reasoning about image/video quotas from daily-tool rows instead of the newer monthly media snapshot.
+- `ReadInternalRuntimeQuotaStatusService` now excludes `image_generate`, `image_edit`, and `video_generate` from the legacy daily `tools[]` quota rows, so media paid-usage truth is exposed only through `monthlyMediaQuotas`.
+- Updated the model-facing `quota_status` descriptions and usage guidance in the runtime tool definition, bootstrap prompt defaults, and tool catalog seed text so the model is explicitly told to read non-media daily counters separately from monthly media quotas.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/runtime-tool-policy.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- GKE logs for assistant `275e2382-cb4e-41d8-98da-fe04d4569f55` showed the relevant web turn completed, but current runtime logging still does not emit a rich per-turn `quota_status` trace, so live validation here depended more on code/test inspection than on deep runtime log evidence.
+- This fix hardens model-visible quota truth; if the assistant still answers badly after rollout, the next likely issue is prompt prioritization or turn-level tool-result summarization rather than the internal quota snapshot itself.
+
+### Next recommended step
+
+Re-test the same assistant in the live environment by asking explicitly about image/video monthly limits and remaining quota, then continue with ADR-084 Slice 2: pricing cards from Admin Plans.
+
+---
+
 ## 2026-05-03 (ADR-083 legacy-user normalization) — Ops can initialize lifecycle truth for old fallback users
 
 ### What changed

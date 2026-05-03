@@ -7,8 +7,8 @@ Accepted; implementation pending.
 Current continuation state:
 
 - **Purpose:** finish the PersAI-owned billing/provider boundary so only concrete provider adapter wiring remains for YooKassa, CloudPayments, Stripe, or another provider.
-- **Completed through:** Slice 1 — ADR and provider-readiness policy.
-- **Next active item:** Slice 2 — pricing cards from Admin Plans.
+- **Completed through:** Slice 2 — pricing cards from Admin Plans, including guest and in-app pricing pages.
+- **Next active item:** Slice 3 — payment intent, checkout session, and provider port wiring.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -105,6 +105,8 @@ Plan presentation fields should include:
 - call-to-action label
 - concise feature bullets
 - limit highlights derived from real plan limits where possible
+
+For the active PersAI implementation path, these fields should live on the admin plan surface itself (currently persisted in plan billing hints as a dedicated presentation block), so the pricing page reads admin-managed plan truth rather than a separate marketing-only table.
 
 The source plan remains the contract. Marketing text cannot promise features or limits that the plan does not grant.
 

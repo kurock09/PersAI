@@ -39,6 +39,10 @@ function createAutoSkillRoutingStateServiceMock() {
       currentUserMessageIndex: 1,
       recentMessages: []
     }),
+    createBackgroundCheckContext: (context: Record<string, unknown>) => ({
+      ...context,
+      forceCheck: true
+    }),
     persistFromTurnRouting: async () => undefined,
     shouldRunBackgroundCheck: () => false,
     runBackgroundCheck: () => undefined
@@ -245,6 +249,129 @@ describe("SendWebChatTurnService", () => {
       executionMode: "premium",
       source: "llm"
     });
+  });
+
+  test("forces classifier drift checks for background skill rechecks", async () => {
+    let backgroundCheckContext: Record<string, unknown> | null = null;
+    let backgroundCheckPromise: Promise<unknown> | null = null;
+
+    const service = new SendWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:02.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        completeWebTurnProcessing: async () => undefined,
+        releaseWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async () => ({
+          assistantMessage: "native",
+          respondedAt: "2026-04-05T12:00:01.000Z",
+          media: []
+        }),
+        checkSkillRouting: async (input: { skillRoutingContext?: Record<string, unknown> }) => {
+          backgroundCheckContext = input.skillRoutingContext ?? null;
+          return { turnRouting: null };
+        }
+      } as never,
+      {
+        execute: async () => ({
+          chat: {
+            id: "chat-1",
+            assistantId: "assistant-1",
+            surface: "web",
+            surfaceThreadKey: "thread-1",
+            title: "Chat",
+            deepModeEnabled: false,
+            autoSkillRoutingState: {
+              status: "active",
+              activeSkillId: "skill-1",
+              activeSkillName: "Psychologist",
+              topicSummary: "pricing topic drift",
+              confidence: "high",
+              checkedAtMessageIndex: 19,
+              messageCountSinceCheck: 5
+            },
+            archivedAt: null,
+            lastMessageAt: null,
+            createdAt: "2026-04-05T12:00:00.000Z",
+            updatedAt: "2026-04-05T12:00:00.000Z"
+          },
+          userMessage: {
+            id: "user-msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            author: "user",
+            content: "какой тариф лучше",
+            attachments: [],
+            createdAt: "2026-04-05T12:00:00.000Z"
+          },
+          assistant: {
+            id: "assistant-1",
+            workspaceId: "workspace-1"
+          },
+          assistantId: "assistant-1",
+          publishedVersionId: "version-1",
+          runtimeTier: "paid_shared_restricted",
+          quotaDegradeModelOverride: null,
+          quotaDegradeReason: null,
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          workspaceTimezone: "UTC"
+        })
+      } as never,
+      {
+        resolveByUserId: async () => ({
+          assistantId: "assistant-1"
+        })
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      {
+        buildRuntimeContext: async (input: { state?: unknown }) => ({
+          state: input.state ?? null,
+          currentUserMessageIndex: 24,
+          recentMessages: [{ role: "user", text: "какой тариф лучше" }]
+        }),
+        createBackgroundCheckContext: (context: Record<string, unknown>) => ({
+          ...context,
+          forceCheck: true
+        }),
+        persistFromTurnRouting: async () => undefined,
+        shouldRunBackgroundCheck: () => true,
+        runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
+          backgroundCheckPromise = input.execute();
+        }
+      } as never
+    );
+
+    await service.execute("user-1", {
+      surfaceThreadKey: "thread-1",
+      message: "какой тариф лучше"
+    });
+    await backgroundCheckPromise;
+
+    assert.equal(backgroundCheckContext?.forceCheck, true);
+    assert.equal(backgroundCheckContext?.currentUserMessageIndex, 24);
   });
 
   test("uses the admin-managed onboarding prompt for welcome sync turns", async () => {

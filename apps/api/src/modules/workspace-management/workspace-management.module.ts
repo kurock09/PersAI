@@ -5,6 +5,7 @@ import { PrismaService } from "../identity-access/infrastructure/persistence/pri
 import { AppBootstrapController } from "./interface/http/app-bootstrap.controller";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
+import { PublicPricingPlansController } from "./interface/http/public-pricing-plans.controller";
 import { AdminBillingLifecycleSettingsController } from "./interface/http/admin-billing-lifecycle-settings.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
@@ -261,6 +262,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AssistantController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
+    PublicPricingPlansController,
     AdminBillingLifecycleSettingsController,
     AdminSecurityController,
     AdminAbuseControlsController,

@@ -264,6 +264,11 @@ export function AppShell({
                 data={appData}
                 initialSection={settingsInitialSection}
                 onOpenTelegramSettings={() => setTelegramOpen(true)}
+                onOpenPricingPage={() => {
+                  setSettingsOpen(false);
+                  setSettingsInitialSection(undefined);
+                  router.push("/app/pricing" as Route);
+                }}
               />
             )}
           </SlideOver>

@@ -49,6 +49,10 @@ function createAutoSkillRoutingStateServiceMock() {
       currentUserMessageIndex: 1,
       recentMessages: []
     }),
+    createBackgroundCheckContext: (context: Record<string, unknown>) => ({
+      ...context,
+      forceCheck: true
+    }),
     persistFromTurnRouting: async () => undefined,
     shouldRunBackgroundCheck: () => false,
     runBackgroundCheck: () => undefined
@@ -458,6 +462,179 @@ describe("StreamWebChatTurnService", () => {
       String(quotaWrites[0]?.assistantContent ?? ""),
       /Поправка: файл не был реально доставлен в этот чат/
     );
+  });
+
+  test("forces classifier drift checks for background skill rechecks after streamed turns", async () => {
+    let backgroundCheckContext: Record<string, unknown> | null = null;
+    let backgroundCheckPromise: Promise<unknown> | null = null;
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => ({
+          id: messageId,
+          chatId: "chat-1",
+          assistantId,
+          author: "assistant",
+          content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          deepModeEnabled: false,
+          autoSkillRoutingState: {
+            status: "active",
+            activeSkillId: "skill-1",
+            activeSkillName: "Psychologist",
+            topicSummary: "pricing topic drift",
+            confidence: "high",
+            checkedAtMessageIndex: 19,
+            messageCountSinceCheck: 5
+          },
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "delta",
+            delta: "native",
+            accumulated: "native"
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            turnRouting: {
+              mode: "active",
+              executionMode: "normal",
+              source: "precheck"
+            }
+          };
+        }
+      } as never,
+      {
+        checkSkillRouting: async (input: { skillRoutingContext?: Record<string, unknown> }) => {
+          backgroundCheckContext = input.skillRoutingContext ?? null;
+          return { turnRouting: null };
+        }
+      } as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        execute: async () => undefined
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      {
+        buildRuntimeContext: async (input: { state?: unknown }) => ({
+          state: input.state ?? null,
+          currentUserMessageIndex: 24,
+          recentMessages: [{ role: "user", text: "какой тариф лучше" }]
+        }),
+        createBackgroundCheckContext: (context: Record<string, unknown>) => ({
+          ...context,
+          forceCheck: true
+        }),
+        persistFromTurnRouting: async () => undefined,
+        shouldRunBackgroundCheck: () => true,
+        runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
+          backgroundCheckPromise = input.execute();
+        }
+      } as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          deepModeEnabled: false,
+          autoSkillRoutingState: {
+            status: "active",
+            activeSkillId: "skill-1",
+            activeSkillName: "Psychologist",
+            topicSummary: "pricing topic drift",
+            confidence: "high",
+            checkedAtMessageIndex: 19,
+            messageCountSinceCheck: 5
+          },
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "какой тариф лучше",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onDone: () => undefined
+      }
+    );
+    await backgroundCheckPromise;
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(backgroundCheckContext?.forceCheck, true);
+    assert.equal(backgroundCheckContext?.currentUserMessageIndex, 24);
   });
 
   test("routes stream web turns through the native runtime service", async () => {

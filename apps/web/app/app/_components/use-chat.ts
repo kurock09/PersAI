@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
+import { ContractsApiError } from "@persai/contracts";
 import { useTranslations } from "next-intl";
 import {
   compactChat,
@@ -42,6 +43,11 @@ const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
 const PENDING_RECONCILE_INTERVAL_MS = 1_000;
 const PENDING_RECONCILE_MAX_ATTEMPTS = 30;
 const ACTIVE_WEB_TURN_STORAGE_PREFIX = "persai.active-web-turn.v1.";
+
+function isStreamAuthRetryable(error: unknown): error is ContractsApiError {
+  return error instanceof ContractsApiError && error.status === 401;
+}
+
 export type ChatMessageRole = "user" | "assistant";
 /** * Lifecycle of a message bubble. * * "sending" / "send_failed" are the new pending-slot states from * ADR-075 T� "Single-slot pending send". Only user bubbles can be in those * states; assistant bubbles still go committed ��� streaming ��� partial. * * - "sending"     : optimistic user message, request is in-flight (staging *                   attachments and/or waiting for the stream to return 2xx *                   headers). Composer is disabled, no second send allowed. * - "send_failed" : pre-headers failure (offline / stall / 10s timeout / etc). *                   Bubble shows a small red exclamation with Retry / Cancel *                   inline; composer stays disabled until user resolves it. */ export type ChatMessageStatus =
 
@@ -2261,15 +2267,15 @@ export function useChat(threadKey: string): UseChatReturn {
       releasePreflight();
       let token: string;
       try {
-        const freshToken = await getToken({ skipCache: true });
-        if (freshToken === null) {
+        const cachedToken = await getToken();
+        if (cachedToken === null) {
           setIssue(toWebChatUxIssue(t("sessionExpired")));
           sendFailedCleanup(true);
           markStreaming(sendThreadKey, false);
           releaseAbortController();
           return;
         }
-        token = freshToken;
+        token = cachedToken;
       } catch (error) {
         setIssue(toWebChatUxIssue(error));
         sendFailedCleanup(true);
@@ -2446,444 +2452,480 @@ export function useChat(threadKey: string): UseChatReturn {
           }
         }
       }, HEADERS_TIMEOUT_MS);
-      try {
-        await streamAssistantWebChatTurn(
-          token,
-          {
-            surfaceThreadKey: threadKey,
-            message: trimmed,
-            clientTurnId,
-            ...(options?.deepModeEnabled === undefined
-              ? {}
-              : { deepModeEnabled: options.deepModeEnabled })
-          },
-          {
-            onHeadersOk: () => {
-              headersOk = true;
-              clearTimeout(headersTimer);
-              /* Server accepted the request ��� clear the pending-slot UI. */ applyThreadMessages(
-                sendThreadKey,
-                (prev) =>
-                  prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
-              );
-              setThreadPendingSend(sendThreadKey, null);
-            },
-            onStarted: ({ chat, userMessage }) => {
-              const c = chat as { id?: string } | null;
-              if (typeof c?.id === "string") {
-                setThreadChatId(sendThreadKey, c.id);
-              }
-              const u = userMessage as { id?: string } | null;
-              if (typeof u?.id === "string") {
-                applyThreadMessages(sendThreadKey, (prev) =>
-                  prev.map((message) =>
-                    message.id === userMsgId
-                      ? { ...message, id: u.id!, status: "committed" }
-                      : message
-                  )
-                );
-                const startedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-                if (startedSnapshot !== undefined) {
-                  const nextSnapshot = {
-                    ...startedSnapshot,
-                    liveUserMessageId: u.id
-                  };
-                  activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
-                  auditActiveTurnSnapshotMessages("send:onStarted", sendThreadKey, nextSnapshot);
-                }
-              }
-            },
-            onThinking: ({ accumulated }) => {
-              pendingThought.text = accumulated;
-              if (!pendingThought.startedAt) {
-                pendingThought.startedAt = new Date().toISOString();
-              }
-              if (!pendingThought.raf) {
-                pendingThought.raf = requestAnimationFrame(flushThought);
-              }
-            },
-            onDelta: ({ delta }) => {
-              pendingDelta.text += delta;
-              if (!pendingDelta.raf) {
-                pendingDelta.raf = requestAnimationFrame(flushDelta);
-              }
-            },
-            onStreamReset: () => {
-              cancelBufferedAssistantFlush();
-              pendingDelta.text = "";
-              pendingThought.text = "";
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
-              );
-            },
-            onTool: ({ phase, toolName, isError }) => {
-              flushBufferedAssistantState(true);
-              applyThreadLiveActivities(sendThreadKey, (prev) => ({
-                ...prev,
-                [assistantMsgId]: applyPriorSkillDetail(
-                  buildToolLiveActivity({
-                    assistantMessageId: assistantMsgId,
-                    toolName,
-                    phase,
-                    isError
-                  }),
-                  prev[assistantMsgId]
-                )
-              }));
-            },
-            onActivity: ({ source, resultCount, skillName, skillIconEmoji }) => {
-              flushBufferedAssistantState(true);
-              applyThreadLiveActivities(sendThreadKey, (prev) => {
-                const nextActivity = buildRetrievalLiveActivity({
+      const streamPayload = {
+        surfaceThreadKey: threadKey,
+        message: trimmed,
+        clientTurnId,
+        ...(options?.deepModeEnabled === undefined
+          ? {}
+          : { deepModeEnabled: options.deepModeEnabled })
+      };
+      const streamHandlers = {
+        onHeadersOk: () => {
+          headersOk = true;
+          clearTimeout(headersTimer);
+          /* Server accepted the request ��� clear the pending-slot UI. */ applyThreadMessages(
+            sendThreadKey,
+            (prev) =>
+              prev.map((m) => (m.id === userMsgId ? { ...m, status: "committed" as const } : m))
+          );
+          setThreadPendingSend(sendThreadKey, null);
+        },
+        onStarted: ({ chat, userMessage }: { chat: unknown; userMessage: unknown }) => {
+          const c = chat as { id?: string } | null;
+          if (typeof c?.id === "string") {
+            setThreadChatId(sendThreadKey, c.id);
+          }
+          const u = userMessage as { id?: string } | null;
+          if (typeof u?.id === "string") {
+            applyThreadMessages(sendThreadKey, (prev) =>
+              prev.map((message) =>
+                message.id === userMsgId ? { ...message, id: u.id!, status: "committed" } : message
+              )
+            );
+            const startedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (startedSnapshot !== undefined) {
+              const nextSnapshot = {
+                ...startedSnapshot,
+                liveUserMessageId: u.id
+              };
+              activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
+              auditActiveTurnSnapshotMessages("send:onStarted", sendThreadKey, nextSnapshot);
+            }
+          }
+        },
+        onThinking: ({ accumulated }: { accumulated: string }) => {
+          pendingThought.text = accumulated;
+          if (!pendingThought.startedAt) {
+            pendingThought.startedAt = new Date().toISOString();
+          }
+          if (!pendingThought.raf) {
+            pendingThought.raf = requestAnimationFrame(flushThought);
+          }
+        },
+        onDelta: ({ delta }: { delta: string }) => {
+          pendingDelta.text += delta;
+          if (!pendingDelta.raf) {
+            pendingDelta.raf = requestAnimationFrame(flushDelta);
+          }
+        },
+        onStreamReset: () => {
+          cancelBufferedAssistantFlush();
+          pendingDelta.text = "";
+          pendingThought.text = "";
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.map((m) => (m.id === assistantMsgId ? { ...m, content: "" } : m))
+          );
+        },
+        onTool: ({
+          phase,
+          toolName,
+          isError
+        }: {
+          phase: "start" | "end";
+          toolName: string;
+          isError: boolean;
+        }) => {
+          flushBufferedAssistantState(true);
+          applyThreadLiveActivities(sendThreadKey, (prev) => ({
+            ...prev,
+            [assistantMsgId]: applyPriorSkillDetail(
+              buildToolLiveActivity({
+                assistantMessageId: assistantMsgId,
+                toolName,
+                phase,
+                isError
+              }),
+              prev[assistantMsgId]
+            )
+          }));
+        },
+        onActivity: ({
+          source,
+          resultCount,
+          skillName,
+          skillIconEmoji
+        }: {
+          source: "skill" | "user" | "product" | "web";
+          resultCount: number;
+          skillName?: string | null;
+          skillIconEmoji?: string | null;
+        }) => {
+          flushBufferedAssistantState(true);
+          applyThreadLiveActivities(sendThreadKey, (prev) => {
+            const nextActivity = buildRetrievalLiveActivity({
+              assistantMessageId: assistantMsgId,
+              source,
+              resultCount,
+              ...(skillName === undefined ? {} : { skillName }),
+              ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
+            });
+            return {
+              ...prev,
+              [assistantMsgId]: applyPriorSkillDetail(nextActivity, prev[assistantMsgId])
+            };
+          });
+        },
+        onCompaction: ({
+          phase,
+          completed,
+          willRetry
+        }: {
+          phase: "start" | "end";
+          completed: boolean;
+          willRetry: boolean;
+        }) => {
+          flushBufferedAssistantState(true);
+          const nextCompactionRunning = phase === "start" || willRetry;
+          const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+          if (snapshot !== undefined) {
+            activeTurnSnapshotsRef.current.set(sendThreadKey, {
+              ...snapshot,
+              compactionRunning: nextCompactionRunning
+            });
+          }
+          if (currentThreadKeyRef.current === sendThreadKey) {
+            setCompactionRunning(nextCompactionRunning);
+          }
+          const activityDetail = willRetry ? t("compactionWillRetry") : null;
+          applyThreadLiveActivities(sendThreadKey, (prev) => ({
+            ...prev,
+            [assistantMsgId]: applyPriorSkillDetail(
+              buildCompactionLiveActivity({
+                assistantMessageId: assistantMsgId,
+                phase,
+                detail: activityDetail ?? undefined,
+                label:
+                  phase === "start"
+                    ? t("compactionPhaseStart")
+                    : completed
+                      ? t("compactionPhaseDone")
+                      : t("compactionPhaseEnded")
+              }),
+              prev[assistantMsgId]
+            )
+          }));
+        },
+        onRuntimeDone: ({ respondedAt }: { respondedAt: string }) => {
+          flushBufferedAssistantState(true);
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
+                ? { ...m, thoughtFinishedAt: respondedAt }
+                : m
+            )
+          );
+          applyThreadLiveActivities(sendThreadKey, (prev) => {
+            const current = prev[assistantMsgId];
+            if (current?.source === "tool") {
+              return prev;
+            }
+            return {
+              ...prev,
+              [assistantMsgId]: applyPriorSkillDetail(
+                buildRuntimeLiveActivity({
                   assistantMessageId: assistantMsgId,
-                  source,
-                  resultCount,
-                  ...(skillName === undefined ? {} : { skillName }),
-                  ...(skillIconEmoji === undefined ? {} : { skillIconEmoji })
-                });
+                  respondedAt,
+                  detail: buildRuntimeDoneDetail({
+                    respondedAt,
+                    priorActivity: current
+                  })
+                }),
+                current
+              )
+            };
+          });
+        },
+        onCompleted: ({ transport }: { transport: unknown }) => {
+          flushBufferedAssistantState(true);
+          const t = transport as {
+            userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
+            assistantMessage?: {
+              id?: string;
+              content?: string;
+              attachments?: ChatAttachment[];
+            };
+            runtime?: RuntimeTransportMeta;
+          } | null;
+          const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
+          const newAssistantId =
+            typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+          const authoritativeAssistantContent =
+            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
+          const assistantAttachments =
+            Array.isArray(t?.assistantMessage?.attachments) &&
+            t.assistantMessage.attachments.length > 0
+              ? (t.assistantMessage.attachments as ChatAttachment[])
+              : undefined;
+          const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
+            ? t.userMessage.attachments
+            : undefined;
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.map((m) => {
+              if (m.id === assistantMsgId) {
                 return {
-                  ...prev,
-                  [assistantMsgId]: applyPriorSkillDetail(nextActivity, prev[assistantMsgId])
+                  ...m,
+                  ...(newAssistantId ? { id: newAssistantId } : {}),
+                  ...(authoritativeAssistantContent !== null
+                    ? { content: authoritativeAssistantContent }
+                    : {}),
+                  status: "committed" as const,
+                  attachments: assistantAttachments
                 };
-              });
-            },
-            onCompaction: ({ phase, completed, willRetry }) => {
-              flushBufferedAssistantState(true);
-              const nextCompactionRunning = phase === "start" || willRetry;
-              const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-              if (snapshot !== undefined) {
-                activeTurnSnapshotsRef.current.set(sendThreadKey, {
-                  ...snapshot,
-                  compactionRunning: nextCompactionRunning
-                });
               }
-              if (currentThreadKeyRef.current === sendThreadKey) {
-                setCompactionRunning(nextCompactionRunning);
-              }
-              const activityDetail = willRetry ? t("compactionWillRetry") : null;
-              applyThreadLiveActivities(sendThreadKey, (prev) => ({
-                ...prev,
-                [assistantMsgId]: applyPriorSkillDetail(
-                  buildCompactionLiveActivity({
-                    assistantMessageId: assistantMsgId,
-                    phase,
-                    detail: activityDetail ?? undefined,
-                    label:
-                      phase === "start"
-                        ? t("compactionPhaseStart")
-                        : completed
-                          ? t("compactionPhaseDone")
-                          : t("compactionPhaseEnded")
-                  }),
-                  prev[assistantMsgId]
-                )
-              }));
-            },
-            onRuntimeDone: ({ respondedAt }) => {
-              flushBufferedAssistantState(true);
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId && m.thought && !m.thoughtFinishedAt
-                    ? { ...m, thoughtFinishedAt: respondedAt }
-                    : m
-                )
-              );
-              applyThreadLiveActivities(sendThreadKey, (prev) => {
-                const current = prev[assistantMsgId];
-                if (current?.source === "tool") {
-                  return prev;
+              if (m.id === userMsgId && realUserMsgId) {
+                for (const a of m.attachments ?? []) {
+                  if (a.localPreviewUrl) URL.revokeObjectURL(a.localPreviewUrl);
                 }
+                const nextUserAtts =
+                  userServerAttachments !== undefined && userServerAttachments.length > 0
+                    ? userServerAttachments.map((a) => ({
+                        id: a.id,
+                        fileRef: a.fileRef,
+                        attachmentType: a.attachmentType,
+                        originalFilename: a.originalFilename,
+                        mimeType: a.mimeType,
+                        sizeBytes: a.sizeBytes,
+                        processingStatus: a.processingStatus,
+                        createdAt: a.createdAt
+                      }))
+                    : (m.attachments ?? []).map((a) => {
+                        const next = { ...a };
+                        delete next.localPreviewUrl;
+                        return next;
+                      });
                 return {
-                  ...prev,
-                  [assistantMsgId]: applyPriorSkillDetail(
-                    buildRuntimeLiveActivity({
-                      assistantMessageId: assistantMsgId,
-                      respondedAt,
-                      detail: buildRuntimeDoneDetail({
-                        respondedAt,
-                        priorActivity: current
-                      })
-                    }),
-                    current
-                  )
+                  ...m,
+                  id: realUserMsgId,
+                  status: "committed" as const,
+                  attachments: nextUserAtts
                 };
-              });
-            },
-            onCompleted: ({ transport }) => {
-              flushBufferedAssistantState(true);
-              const t = transport as {
-                userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
-                assistantMessage?: {
-                  id?: string;
-                  content?: string;
-                  attachments?: ChatAttachment[];
-                };
-                runtime?: RuntimeTransportMeta;
-              } | null;
-              const realUserMsgId =
-                typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
-              const newAssistantId =
-                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
-              const assistantAttachments =
-                Array.isArray(t?.assistantMessage?.attachments) &&
-                t.assistantMessage.attachments.length > 0
-                  ? (t.assistantMessage.attachments as ChatAttachment[])
-                  : undefined;
-              const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
-                ? t.userMessage.attachments
-                : undefined;
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.map((m) => {
-                  if (m.id === assistantMsgId) {
-                    return {
-                      ...m,
-                      ...(newAssistantId ? { id: newAssistantId } : {}),
-                      ...(authoritativeAssistantContent !== null
-                        ? { content: authoritativeAssistantContent }
-                        : {}),
-                      status: "committed" as const,
-                      attachments: assistantAttachments
-                    };
-                  }
-                  if (m.id === userMsgId && realUserMsgId) {
-                    for (const a of m.attachments ?? []) {
-                      if (a.localPreviewUrl) URL.revokeObjectURL(a.localPreviewUrl);
-                    }
-                    const nextUserAtts =
-                      userServerAttachments !== undefined && userServerAttachments.length > 0
-                        ? userServerAttachments.map((a) => ({
-                            id: a.id,
-                            fileRef: a.fileRef,
-                            attachmentType: a.attachmentType,
-                            originalFilename: a.originalFilename,
-                            mimeType: a.mimeType,
-                            sizeBytes: a.sizeBytes,
-                            processingStatus: a.processingStatus,
-                            createdAt: a.createdAt
-                          }))
-                        : (m.attachments ?? []).map((a) => {
-                            const next = { ...a };
-                            delete next.localPreviewUrl;
-                            return next;
-                          });
-                    return {
-                      ...m,
-                      id: realUserMsgId,
-                      status: "committed" as const,
-                      attachments: nextUserAtts
-                    };
-                  }
-                  return m;
-                })
-              );
-              if (realUserMsgId && realUserMsgId !== userMsgId) {
-                knowledgeActivityAnchorId = realUserMsgId;
-                setActivities((prev) =>
-                  prev.map((a) =>
-                    a.afterMessageId === userMsgId ? { ...a, afterMessageId: realUserMsgId } : a
-                  )
-                );
               }
-              if (newAssistantId) {
-                setActivities((prev) =>
-                  prev.map((a) =>
-                    a.afterMessageId === assistantMsgId
-                      ? { ...a, afterMessageId: newAssistantId }
-                      : a
-                  )
-                );
+              return m;
+            })
+          );
+          if (realUserMsgId && realUserMsgId !== userMsgId) {
+            knowledgeActivityAnchorId = realUserMsgId;
+            setActivities((prev) =>
+              prev.map((a) =>
+                a.afterMessageId === userMsgId ? { ...a, afterMessageId: realUserMsgId } : a
+              )
+            );
+          }
+          if (newAssistantId) {
+            setActivities((prev) =>
+              prev.map((a) =>
+                a.afterMessageId === assistantMsgId ? { ...a, afterMessageId: newAssistantId } : a
+              )
+            );
+          }
+          const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
+          if (newAssistantId) {
+            setShadowRoutingLabelsByMessageId((prev) => {
+              const current = prev[assistantMsgId];
+              if (!current || newAssistantId === assistantMsgId) {
+                return prev;
               }
-              const resolvedAssistantMessageId = newAssistantId ?? assistantMsgId;
-              if (newAssistantId) {
-                setShadowRoutingLabelsByMessageId((prev) => {
-                  const current = prev[assistantMsgId];
-                  if (!current || newAssistantId === assistantMsgId) {
-                    return prev;
-                  }
-                  const next = { ...prev };
-                  delete next[assistantMsgId];
-                  next[newAssistantId] = current;
-                  return next;
-                });
-              }
-              applyThreadLiveActivities(sendThreadKey, (prev) => {
-                let next = prev;
-                if (newAssistantId) {
-                  const current = prev[assistantMsgId];
-                  if (current && newAssistantId !== assistantMsgId) {
-                    next = { ...prev };
-                    delete next[assistantMsgId];
-                    next[newAssistantId] = { ...current, afterMessageId: newAssistantId };
-                  }
-                }
-                return next;
-              });
-              if (t?.runtime?.turnRouting?.mode === "shadow") {
-                const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
-                const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-                if (snapshot !== undefined) {
-                  activeTurnSnapshotsRef.current.set(sendThreadKey, {
-                    ...snapshot,
-                    shadowRoutingLabelsByMessageId: {
-                      ...snapshot.shadowRoutingLabelsByMessageId,
-                      [assistantMsgId]: routingLabel,
-                      [resolvedAssistantMessageId]: routingLabel
-                    }
-                  });
-                }
-                if (currentThreadKeyRef.current === sendThreadKey) {
-                  setShadowRoutingLabelsByMessageId((prev) => ({
-                    ...prev,
-                    [assistantMsgId]: routingLabel,
-                    [resolvedAssistantMessageId]: routingLabel
-                  }));
-                }
-              }
-              const completedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-              if (completedSnapshot !== undefined) {
-                const nextSnapshot = {
-                  ...completedSnapshot,
-                  liveUserMessageId: realUserMsgId ?? completedSnapshot.liveUserMessageId,
-                  liveAssistantMessageId: newAssistantId ?? completedSnapshot.liveAssistantMessageId
-                };
-                activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
-                auditActiveTurnSnapshotMessages("send:onCompleted", sendThreadKey, nextSnapshot);
-              }
-              appendQuotaFallbackActivity({
-                setActivities,
-                runtime: t?.runtime,
-                assistantMessageId: resolvedAssistantMessageId
-              });
-              const resolvedChatId =
-                typeof t?.userMessage?.chatId === "string"
-                  ? t.userMessage.chatId
-                  : resolveKnownChatIdForThread(sendThreadKey);
-              if (resolvedChatId) {
-                void refreshCompactionState(resolvedChatId, {
-                  baselineCompaction: compactionBeforeTurn
-                });
-              }
-              completedSuccessfully = true;
-              setThreadPendingSend(
-                sendThreadKey,
-                null
-              ); /* Files are already staged before the stream ��� no post-stream upload needed */
-            },
-            onInterrupted: ({ transport }) => {
-              flushBufferedAssistantState();
-              clearThreadLiveActivity(sendThreadKey, assistantMsgId);
-              const interruptedAt = new Date().toISOString();
-              const t = transport as {
-                assistantMessage?: { id?: string; content?: string };
-              } | null;
-              const newAssistantId =
-                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.flatMap((m) => {
-                  if (
-                    m.id !== assistantMsgId &&
-                    m.role === "assistant" &&
-                    m.status === "streaming" &&
-                    m.content.trim().length === 0 &&
-                    isOptimisticLocalMessage(m)
-                  ) {
-                    return [];
-                  }
-                  if (m.id !== assistantMsgId) {
-                    return [m];
-                  }
-                  const nextContent = authoritativeAssistantContent ?? m.content;
-                  return [
-                    {
-                      ...m,
-                      ...(newAssistantId ? { id: newAssistantId } : {}),
-                      ...(authoritativeAssistantContent !== null
-                        ? { content: authoritativeAssistantContent }
-                        : {}),
-                      status: nextContent.trim().length > 0 ? "partial" : "committed",
-                      thoughtFinishedAt:
-                        m.thought && !m.thoughtFinishedAt
-                          ? interruptedAt
-                          : (m.thoughtFinishedAt ?? null)
-                    }
-                  ];
-                })
-              );
-              if (newAssistantId) {
-                clearThreadLiveActivity(sendThreadKey, newAssistantId);
-                const interruptedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-                if (interruptedSnapshot !== undefined) {
-                  activeTurnSnapshotsRef.current.set(sendThreadKey, {
-                    ...interruptedSnapshot,
-                    liveAssistantMessageId: newAssistantId
-                  });
-                }
-              }
-            },
-            onFailed: (payload) => {
-              flushBufferedAssistantState();
-              clearThreadLiveActivity(sendThreadKey, assistantMsgId);
-              setIssue(toWebChatUxIssue(payload));
-              const failedAt = new Date().toISOString();
-              const t = payload.transport as {
-                assistantMessage?: { id?: string; content?: string };
-              } | null;
-              const newAssistantId =
-                typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
-              const authoritativeAssistantContent =
-                typeof t?.assistantMessage?.content === "string"
-                  ? t.assistantMessage.content
-                  : null;
-              applyThreadMessages(sendThreadKey, (prev) =>
-                prev.flatMap((m) => {
-                  if (
-                    m.id !== assistantMsgId &&
-                    m.role === "assistant" &&
-                    m.status === "streaming" &&
-                    m.content.trim().length === 0 &&
-                    isOptimisticLocalMessage(m)
-                  ) {
-                    return [];
-                  }
-                  if (m.id !== assistantMsgId) {
-                    return [m];
-                  }
-                  return [
-                    {
-                      ...m,
-                      ...(newAssistantId ? { id: newAssistantId } : {}),
-                      ...(authoritativeAssistantContent !== null
-                        ? { content: authoritativeAssistantContent }
-                        : {}),
-                      status: "partial" as const,
-                      thoughtFinishedAt:
-                        m.thought && !m.thoughtFinishedAt ? failedAt : (m.thoughtFinishedAt ?? null)
-                    }
-                  ];
-                })
-              );
-              if (newAssistantId) {
-                clearThreadLiveActivity(sendThreadKey, newAssistantId);
-                const failedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
-                if (failedSnapshot !== undefined) {
-                  activeTurnSnapshotsRef.current.set(sendThreadKey, {
-                    ...failedSnapshot,
-                    liveAssistantMessageId: newAssistantId
-                  });
-                }
+              const next = { ...prev };
+              delete next[assistantMsgId];
+              next[newAssistantId] = current;
+              return next;
+            });
+          }
+          applyThreadLiveActivities(sendThreadKey, (prev) => {
+            let next = prev;
+            if (newAssistantId) {
+              const current = prev[assistantMsgId];
+              if (current && newAssistantId !== assistantMsgId) {
+                next = { ...prev };
+                delete next[assistantMsgId];
+                next[newAssistantId] = { ...current, afterMessageId: newAssistantId };
               }
             }
-          },
+            return next;
+          });
+          if (t?.runtime?.turnRouting?.mode === "shadow") {
+            const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
+            const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (snapshot !== undefined) {
+              activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                ...snapshot,
+                shadowRoutingLabelsByMessageId: {
+                  ...snapshot.shadowRoutingLabelsByMessageId,
+                  [assistantMsgId]: routingLabel,
+                  [resolvedAssistantMessageId]: routingLabel
+                }
+              });
+            }
+            if (currentThreadKeyRef.current === sendThreadKey) {
+              setShadowRoutingLabelsByMessageId((prev) => ({
+                ...prev,
+                [assistantMsgId]: routingLabel,
+                [resolvedAssistantMessageId]: routingLabel
+              }));
+            }
+          }
+          const completedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+          if (completedSnapshot !== undefined) {
+            const nextSnapshot = {
+              ...completedSnapshot,
+              liveUserMessageId: realUserMsgId ?? completedSnapshot.liveUserMessageId,
+              liveAssistantMessageId: newAssistantId ?? completedSnapshot.liveAssistantMessageId
+            };
+            activeTurnSnapshotsRef.current.set(sendThreadKey, nextSnapshot);
+            auditActiveTurnSnapshotMessages("send:onCompleted", sendThreadKey, nextSnapshot);
+          }
+          appendQuotaFallbackActivity({
+            setActivities,
+            runtime: t?.runtime,
+            assistantMessageId: resolvedAssistantMessageId
+          });
+          const resolvedChatId =
+            typeof t?.userMessage?.chatId === "string"
+              ? t.userMessage.chatId
+              : resolveKnownChatIdForThread(sendThreadKey);
+          if (resolvedChatId) {
+            void refreshCompactionState(resolvedChatId, {
+              baselineCompaction: compactionBeforeTurn
+            });
+          }
+          completedSuccessfully = true;
+          setThreadPendingSend(
+            sendThreadKey,
+            null
+          ); /* Files are already staged before the stream ��� no post-stream upload needed */
+        },
+        onInterrupted: ({ transport }: { transport: unknown }) => {
+          flushBufferedAssistantState();
+          clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          const interruptedAt = new Date().toISOString();
+          const t = transport as {
+            assistantMessage?: { id?: string; content?: string };
+          } | null;
+          const newAssistantId =
+            typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+          const authoritativeAssistantContent =
+            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.flatMap((m) => {
+              if (
+                m.id !== assistantMsgId &&
+                m.role === "assistant" &&
+                m.status === "streaming" &&
+                m.content.trim().length === 0 &&
+                isOptimisticLocalMessage(m)
+              ) {
+                return [];
+              }
+              if (m.id !== assistantMsgId) {
+                return [m];
+              }
+              const nextContent = authoritativeAssistantContent ?? m.content;
+              return [
+                {
+                  ...m,
+                  ...(newAssistantId ? { id: newAssistantId } : {}),
+                  ...(authoritativeAssistantContent !== null
+                    ? { content: authoritativeAssistantContent }
+                    : {}),
+                  status: nextContent.trim().length > 0 ? "partial" : "committed",
+                  thoughtFinishedAt:
+                    m.thought && !m.thoughtFinishedAt
+                      ? interruptedAt
+                      : (m.thoughtFinishedAt ?? null)
+                }
+              ];
+            })
+          );
+          if (newAssistantId) {
+            clearThreadLiveActivity(sendThreadKey, newAssistantId);
+            const interruptedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (interruptedSnapshot !== undefined) {
+              activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                ...interruptedSnapshot,
+                liveAssistantMessageId: newAssistantId
+              });
+            }
+          }
+        },
+        onFailed: (payload: { code?: string; message: string; transport: unknown }) => {
+          flushBufferedAssistantState();
+          clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+          setIssue(toWebChatUxIssue(payload));
+          const failedAt = new Date().toISOString();
+          const t = payload.transport as {
+            assistantMessage?: { id?: string; content?: string };
+          } | null;
+          const newAssistantId =
+            typeof t?.assistantMessage?.id === "string" ? t.assistantMessage.id : null;
+          const authoritativeAssistantContent =
+            typeof t?.assistantMessage?.content === "string" ? t.assistantMessage.content : null;
+          applyThreadMessages(sendThreadKey, (prev) =>
+            prev.flatMap((m) => {
+              if (
+                m.id !== assistantMsgId &&
+                m.role === "assistant" &&
+                m.status === "streaming" &&
+                m.content.trim().length === 0 &&
+                isOptimisticLocalMessage(m)
+              ) {
+                return [];
+              }
+              if (m.id !== assistantMsgId) {
+                return [m];
+              }
+              return [
+                {
+                  ...m,
+                  ...(newAssistantId ? { id: newAssistantId } : {}),
+                  ...(authoritativeAssistantContent !== null
+                    ? { content: authoritativeAssistantContent }
+                    : {}),
+                  status: "partial" as const,
+                  thoughtFinishedAt:
+                    m.thought && !m.thoughtFinishedAt ? failedAt : (m.thoughtFinishedAt ?? null)
+                }
+              ];
+            })
+          );
+          if (newAssistantId) {
+            clearThreadLiveActivity(sendThreadKey, newAssistantId);
+            const failedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
+            if (failedSnapshot !== undefined) {
+              activeTurnSnapshotsRef.current.set(sendThreadKey, {
+                ...failedSnapshot,
+                liveAssistantMessageId: newAssistantId
+              });
+            }
+          }
+        }
+      };
+      const runStreamWithToken = async (streamToken: string) => {
+        await streamAssistantWebChatTurn(
+          streamToken,
+          streamPayload,
+          streamHandlers,
           controller.signal
         );
+      };
+      try {
+        try {
+          await runStreamWithToken(token);
+        } catch (error) {
+          if (!headersOk && isStreamAuthRetryable(error)) {
+            const freshToken = await getToken({ skipCache: true });
+            if (freshToken === null) {
+              setIssue(toWebChatUxIssue(t("sessionExpired")));
+              sendFailedCleanup(true);
+              markStreaming(sendThreadKey, false);
+              releaseAbortController();
+              return;
+            }
+            await runStreamWithToken(freshToken);
+          } else {
+            throw error;
+          }
+        }
       } catch (error) {
         clearTimeout(headersTimer);
         flushBufferedAssistantState();

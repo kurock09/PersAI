@@ -4165,6 +4165,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /public/plans/pricing:
+    get:
+      operationId: getPublicPricingPlans
+      summary: List visible pricing-card plans for guest and product pricing pages
+      responses:
+        "200":
+          description: Public pricing plans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetPublicPricingPlansResponse"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/plans/{code}:
     patch:
       operationId: patchAdminPlan
@@ -8495,6 +8512,86 @@ components:
         notes:
           type: string
           nullable: true
+    AdminPlanLocalizedText:
+      type: object
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: string
+          nullable: true
+        en:
+          type: string
+          nullable: true
+    AdminPlanLocalizedTextList:
+      type: object
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: array
+          items:
+            type: string
+        en:
+          type: array
+          items:
+            type: string
+    AdminPlanPresentationPrice:
+      type: object
+      required:
+        - amount
+        - currency
+        - billingPeriod
+      properties:
+        amount:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        billingPeriod:
+          type: string
+          nullable: true
+          enum:
+            - month
+            - year
+    AdminPlanPresentation:
+      type: object
+      required:
+        - showOnPricingPage
+        - displayOrder
+        - highlighted
+        - title
+        - subtitle
+        - notes
+        - badge
+        - ctaLabel
+        - price
+        - highlightItems
+      properties:
+        showOnPricingPage:
+          type: boolean
+        displayOrder:
+          type: integer
+          minimum: 0
+        highlighted:
+          type: boolean
+        title:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        subtitle:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        notes:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        badge:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        ctaLabel:
+          $ref: "#/components/schemas/AdminPlanLocalizedText"
+        price:
+          $ref: "#/components/schemas/AdminPlanPresentationPrice"
+        highlightItems:
+          $ref: "#/components/schemas/AdminPlanLocalizedTextList"
     AdminPlanContextPolicy:
       type: object
       required:
@@ -8672,6 +8769,7 @@ components:
         - trialDurationDays
         - lifecyclePolicy
         - metadata
+        - presentation
         - entitlements
         - contextPolicy
         - retrievalPolicy
@@ -8702,6 +8800,8 @@ components:
           $ref: "#/components/schemas/AdminPlanLifecyclePolicy"
         metadata:
           $ref: "#/components/schemas/AdminPlanMetadata"
+        presentation:
+          $ref: "#/components/schemas/AdminPlanPresentation"
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
@@ -8763,6 +8863,42 @@ components:
             $ref: "#/components/schemas/AdminPlanToolActivation"
         toolBudgets:
           $ref: "#/components/schemas/AdminPlanToolBudgets"
+    PublicPricingPlanState:
+      type: object
+      required:
+        - code
+        - displayName
+        - description
+        - trialEnabled
+        - trialDurationDays
+        - defaultOnRegistration
+        - entitlements
+        - quotaLimits
+        - skillPolicy
+        - presentation
+      properties:
+        code:
+          type: string
+        displayName:
+          type: string
+        description:
+          type: string
+          nullable: true
+        trialEnabled:
+          type: boolean
+        trialDurationDays:
+          type: integer
+          nullable: true
+        defaultOnRegistration:
+          type: boolean
+        entitlements:
+          $ref: "#/components/schemas/AdminPlanEntitlements"
+        quotaLimits:
+          $ref: "#/components/schemas/AdminPlanQuotaLimits"
+        skillPolicy:
+          $ref: "#/components/schemas/AdminPlanSkillPolicy"
+        presentation:
+          $ref: "#/components/schemas/AdminPlanPresentation"
     AdminPlanToolActivation:
       type: object
       required:
@@ -8879,6 +9015,7 @@ components:
         - trialDurationDays
         - lifecyclePolicy
         - metadata
+        - presentation
         - entitlements
         - contextPolicy
         - retrievalPolicy
@@ -8905,6 +9042,8 @@ components:
           $ref: "#/components/schemas/AdminPlanLifecyclePolicy"
         metadata:
           $ref: "#/components/schemas/AdminPlanMetadata"
+        presentation:
+          $ref: "#/components/schemas/AdminPlanPresentation"
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
@@ -9090,6 +9229,18 @@ components:
           nullable: true
         visibility:
           $ref: "#/components/schemas/AdminPlanVisibilityState"
+    GetPublicPricingPlansResponse:
+      type: object
+      required:
+        - plans
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicPricingPlanState"
     AdminOpsIncidentSignal:
       type: object
       required:

@@ -78,6 +78,7 @@ describe("Landing page", () => {
       "href",
       "/mobile/persai-android-release.apk"
     );
+    expect(screen.getByRole("link", { name: "Plans" })).toHaveAttribute("href", "/pricing");
     expect(screen.queryByText(/^Telegram$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^VK$/)).not.toBeInTheDocument();
     expect(screen.queryByText(/^WhatsApp$/)).not.toBeInTheDocument();

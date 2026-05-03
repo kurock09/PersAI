@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
-import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import {
+  getSafeRedirectPathFromSearch,
+  navigateAfterClerkAuth,
+  withSafeRedirectParam
+} from "@/app/lib/clerk-navigation";
 
 export default function SSOCallbackPage() {
   const t = useTranslations("auth");
@@ -24,11 +28,13 @@ export default function SSOCallbackPage() {
       const navigateTo = async (path: Route) => {
         router.push(path);
       };
+      const signInHref = withSafeRedirectParam("/sign-in", window.location.search);
+      const redirectTarget = getSafeRedirectPathFromSearch(window.location.search);
 
       const finalizeSignIn = async () => {
         await signIn.finalize({
           navigate: async ({ decorateUrl }) => {
-            navigateAfterClerkAuth(decorateUrl("/app"));
+            navigateAfterClerkAuth(decorateUrl(redirectTarget ?? "/app"));
           }
         });
       };
@@ -36,7 +42,7 @@ export default function SSOCallbackPage() {
       const finalizeSignUp = async () => {
         await signUp.finalize({
           navigate: async ({ decorateUrl }) => {
-            navigateAfterClerkAuth(decorateUrl("/app/setup"));
+            navigateAfterClerkAuth(decorateUrl(redirectTarget ?? "/app/setup"));
           }
         });
       };
@@ -52,7 +58,7 @@ export default function SSOCallbackPage() {
           await finalizeSignIn();
           return;
         }
-        return navigateTo("/sign-in" as Route);
+        return navigateTo(signInHref as Route);
       }
 
       if (signIn.isTransferable) {
@@ -61,7 +67,7 @@ export default function SSOCallbackPage() {
           await finalizeSignUp();
           return;
         }
-        return navigateTo("/sign-in" as Route);
+        return navigateTo(signInHref as Route);
       }
 
       if (signUp.status === "complete") {
@@ -75,14 +81,14 @@ export default function SSOCallbackPage() {
           await clerk.setActive({
             session: sessionId,
             navigate: async ({ decorateUrl }) => {
-              navigateAfterClerkAuth(decorateUrl("/app"));
+              navigateAfterClerkAuth(decorateUrl(redirectTarget ?? "/app"));
             }
           });
           return;
         }
       }
 
-      return navigateTo("/sign-in" as Route);
+      return navigateTo(signInHref as Route);
     })();
   }, [clerk, signIn, signUp, router]);
 

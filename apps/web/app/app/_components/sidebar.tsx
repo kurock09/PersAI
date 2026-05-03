@@ -35,6 +35,7 @@ import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { useTheme } from "./use-theme";
 import { useClerkAvatar } from "./use-clerk-avatar";
 import { useNetworkOnline } from "./use-network-online";
+import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
@@ -376,6 +377,8 @@ function AccountFooter({
   onClose?: () => void;
 }) {
   const t = useTranslations("sidebar");
+  const ts = useTranslations("settings");
+  const locale = useLocale();
   const { user } = useUser();
   const { signOut } = useClerk();
   const router = useRouter();
@@ -406,6 +409,7 @@ function AccountFooter({
   const tokenUsage = tokenBucket?.percent ?? 0;
   const tokenUsed = tokenBucket?.used ?? 0;
   const tokenLimit = tokenBucket?.limit ?? null;
+  const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
 
   const telegramConnected = data.telegram?.connectionStatus === "connected";
   const telegramStatusLabel =
@@ -488,8 +492,8 @@ function AccountFooter({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-text">{displayName}</span>
-          <span className="block truncate text-[11px] text-text-muted">
-            {planName} · {tokenUsage}%
+          <span className="block truncate text-[11px] uppercase tracking-wide text-text-muted">
+            {ts(billingSummary.statusKey)} · {tokenUsage}%
           </span>
         </span>
         <MoreHorizontal className="h-4 w-4 shrink-0 text-text-subtle" />
@@ -540,9 +544,16 @@ function AccountFooter({
                 />
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-text-subtle">{t("tokenPercent", { pct: tokenUsage })}</span>
+                <span className="text-text-subtle uppercase tracking-wide">
+                  {ts(billingSummary.statusKey)} · {tokenUsage}%
+                </span>
                 <span className="max-w-[140px] truncate text-text-muted">{planName}</span>
               </div>
+              {billingSummary.dateKey && billingSummary.dateLabel ? (
+                <p className="mt-1 text-[10px] text-text-subtle">
+                  {ts(billingSummary.dateKey, { date: billingSummary.dateLabel })}
+                </p>
+              ) : null}
             </button>
 
             <div className="my-1 border-t border-border" />

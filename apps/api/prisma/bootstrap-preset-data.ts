@@ -237,9 +237,9 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("memory_write", "usage_guidance")]:
     'Default action is "write": capture stable user facts, preferences, and real open loops the moment you learn them — do not wait for the user to ask you to remember. Write one concise memory per item, prefer refining an existing memory over near-duplicates, and skip transient turn context, full conversation summaries, secrets, or anything the user asked not to remember. When the user resolves an open loop you were tracking and that loop appears in the cross-session continuity block above with a `[ref: …]` marker, prefer the structured close: call memory_write with action:"close" and ref set to that exact value (kind/memory/closeOpenLoop must be omitted). If the loop has no visible ref, fall back to a normal write with closeOpenLoop:true.',
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "description")]:
-    "Read live PersAI quota status for the current assistant, including daily tool counters and the main token, chat, media, and knowledge quota buckets.",
+    "Read live PersAI quota status for the current assistant, including non-media daily tool counters, main quota buckets, and monthly media quotas.",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:
-    "Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
+    "Use this when the user asks about remaining usage or whether a quota-governed capability is currently available. For image/video/edit quotas, read `monthlyMediaQuotas` instead of `dailyCallLimit`. Do not use this for factual subscription details; use knowledge_search or knowledge_fetch with source=subscription for plan facts.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "description")]:
     "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "usage_guidance")]:

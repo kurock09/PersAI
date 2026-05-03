@@ -20,6 +20,40 @@ function createPlanState(): AdminPlanState {
       commercialTag: null,
       notes: null
     },
+    presentation: {
+      showOnPricingPage: true,
+      displayOrder: 2,
+      highlighted: true,
+      title: {
+        ru: "Премиум",
+        en: "Premium"
+      },
+      subtitle: {
+        ru: "Для серьёзной работы",
+        en: "For serious work"
+      },
+      notes: {
+        ru: "Лучший выбор",
+        en: "Best choice"
+      },
+      badge: {
+        ru: "Популярный",
+        en: "Popular"
+      },
+      ctaLabel: {
+        ru: "Выбрать",
+        en: "Choose"
+      },
+      price: {
+        amount: 4900,
+        currency: "RUB",
+        billingPeriod: "month"
+      },
+      highlightItems: {
+        ru: ["30 картинок в месяц", "10 навыков"],
+        en: ["30 images per month", "10 skills"]
+      }
+    },
     entitlements: {
       toolClasses: {
         costDrivingTools: true,
@@ -146,6 +180,14 @@ describe("admin plans page helpers", () => {
     expect(draft.videoGenerateMonthlyUnitsLimit).toBe("4");
     expect(draft.trialFallbackPlanCode).toBe("");
     expect(draft.paidFallbackPlanCode).toBe("starter");
+    expect(draft.presentationShowOnPricingPage).toBe(true);
+    expect(draft.presentationDisplayOrder).toBe("2");
+    expect(draft.presentationTitleRu).toBe("Премиум");
+    expect(draft.presentationTitleEn).toBe("Premium");
+    expect(draft.presentationPriceAmount).toBe("4900");
+    expect(draft.presentationPriceCurrency).toBe("RUB");
+    expect(draft.presentationPriceBillingPeriod).toBe("month");
+    expect(draft.presentationHighlightItemsRu).toContain("30 картинок в месяц");
 
     expect(draftToPayload(draft).imageGenerateModelKey).toBe("gpt-image-2");
     expect(draftToPayload(draft).imageGenerateFallbackModelKey).toBe("gpt-image-1.5");
@@ -165,6 +207,14 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");
     expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
+    expect(draftToPayload(draft).presentation.showOnPricingPage).toBe(true);
+    expect(draftToPayload(draft).presentation.displayOrder).toBe(2);
+    expect(draftToPayload(draft).presentation.price.amount).toBe(4900);
+    expect(draftToPayload(draft).presentation.price.currency).toBe("RUB");
+    expect(draftToPayload(draft).presentation.highlightItems.ru).toEqual([
+      "30 картинок в месяц",
+      "10 навыков"
+    ]);
     expect(
       draftToPayload({
         ...draft,
@@ -174,6 +224,17 @@ describe("admin plans page helpers", () => {
       }).lifecyclePolicy?.trialFallbackPlanCode
     ).toBe("starter_fallback");
     expect(draftToPayload(draft).lifecyclePolicy?.paidFallbackPlanCode).toBe("starter");
+    expect(() =>
+      draftToPayload({
+        ...draft,
+        presentationShowOnPricingPage: true,
+        presentationTitleRu: "",
+        presentationTitleEn: "Premium",
+        presentationPriceAmount: "",
+        presentationPriceCurrency: "",
+        presentationPriceBillingPeriod: ""
+      })
+    ).toThrow(/Pricing card needs/);
     expect(() =>
       draftToPayload({
         ...draft,

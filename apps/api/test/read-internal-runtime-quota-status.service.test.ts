@@ -98,10 +98,9 @@ async function run(): Promise<void> {
   assert.equal(result.planCode, "pro");
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
-    result.tools.find((tool) => tool.toolCode === "image_generate")?.dailyCallLimit,
-    null
+    result.tools.some((tool) => tool.toolCode === "image_generate"),
+    false
   );
-  assert.equal(result.tools.find((tool) => tool.toolCode === "image_generate")?.currentCount, 0);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);

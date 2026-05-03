@@ -23,3 +23,11 @@ export function getSafeRedirectPathFromSearch(search: string): string | null {
   if (!pathOnly.startsWith("/app") && !pathOnly.startsWith("/admin")) return null;
   return raw;
 }
+
+/** Preserve a validated `redirect_url` when switching auth screens. */
+export function withSafeRedirectParam(path: string, search: string): string {
+  const redirectPath = getSafeRedirectPathFromSearch(search);
+  if (redirectPath === null) return path;
+  const params = new URLSearchParams({ redirect_url: redirectPath });
+  return `${path}?${params.toString()}`;
+}

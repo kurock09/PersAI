@@ -15,6 +15,7 @@ import type {
   AdminCreatePlanInput,
   AdminPlanInput,
   AdminPlanRetrievalPolicy,
+  PublicPricingPlanState,
   AdminPlanState,
   AdminPlanRuntimeTier,
   AdminPlanToolActivationInput
@@ -60,6 +61,32 @@ function toNullableString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+const MAX_PLAN_HIGHLIGHT_ITEMS = 8;
+
+function parseCurrencyCode(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new BadRequestException(`${fieldName} must be a string or null.`);
+  }
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z]{3,8}$/.test(normalized)) {
+    throw new BadRequestException(`${fieldName} must be an uppercase currency code like RUB.`);
+  }
+  return normalized;
+}
+
+function parseBillingPeriod(value: unknown, fieldName: string): "month" | "year" | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (value === "month" || value === "year") {
+    return value;
+  }
+  throw new BadRequestException(`${fieldName} must be 'month', 'year', or null.`);
 }
 
 function parseStatus(value: unknown): "active" | "inactive" {
@@ -165,6 +192,78 @@ function parseObject(value: unknown, fieldName: string): Record<string, unknown>
     throw new BadRequestException(`${fieldName} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function parseStringList(value: unknown, fieldName: string): string[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new BadRequestException(`${fieldName} must be an array of strings.`);
+  }
+  const items = value
+    .map((item, idx) => {
+      if (typeof item !== "string") {
+        throw new BadRequestException(`${fieldName}[${String(idx)}] must be a string.`);
+      }
+      return item.trim();
+    })
+    .filter((item) => item.length > 0);
+  if (items.length > MAX_PLAN_HIGHLIGHT_ITEMS) {
+    throw new BadRequestException(
+      `${fieldName} must contain at most ${String(MAX_PLAN_HIGHLIGHT_ITEMS)} items.`
+    );
+  }
+  return items;
+}
+
+function parseLocalizedText(
+  value: unknown,
+  fieldName: string
+): { ru: string | null; en: string | null } {
+  const parsed = value === undefined || value === null ? {} : parseObject(value, fieldName);
+  return {
+    ru: toNullableString(parsed.ru),
+    en: toNullableString(parsed.en)
+  };
+}
+
+function parseLocalizedTextList(
+  value: unknown,
+  fieldName: string
+): {
+  ru: string[];
+  en: string[];
+} {
+  const parsed = value === undefined || value === null ? {} : parseObject(value, fieldName);
+  return {
+    ru: parseStringList(parsed.ru, `${fieldName}.ru`),
+    en: parseStringList(parsed.en, `${fieldName}.en`)
+  };
+}
+
+function parsePlanPresentation(value: unknown): AdminPlanInput["presentation"] {
+  const parsed = value === undefined || value === null ? {} : parseObject(value, "presentation");
+  const priceRaw =
+    parsed.price === undefined || parsed.price === null
+      ? {}
+      : parseObject(parsed.price, "presentation.price");
+  return {
+    showOnPricingPage: toBoolean(parsed.showOnPricingPage),
+    displayOrder: toNullableNonNegativeInt(parsed.displayOrder) ?? 0,
+    highlighted: toBoolean(parsed.highlighted),
+    title: parseLocalizedText(parsed.title, "presentation.title"),
+    subtitle: parseLocalizedText(parsed.subtitle, "presentation.subtitle"),
+    notes: parseLocalizedText(parsed.notes, "presentation.notes"),
+    badge: parseLocalizedText(parsed.badge, "presentation.badge"),
+    ctaLabel: parseLocalizedText(parsed.ctaLabel, "presentation.ctaLabel"),
+    price: {
+      amount: toNullableNonNegativeInt(priceRaw.amount),
+      currency: parseCurrencyCode(priceRaw.currency, "presentation.price.currency"),
+      billingPeriod: parseBillingPeriod(priceRaw.billingPeriod, "presentation.price.billingPeriod")
+    },
+    highlightItems: parseLocalizedTextList(parsed.highlightItems, "presentation.highlightItems")
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -355,6 +454,31 @@ export class ManageAdminPlansService {
     }
 
     return plans.map((plan) => this.toAdminPlanState(plan));
+  }
+
+  async listPublicPricingPlans(): Promise<PublicPricingPlanState[]> {
+    const plans = await this.planCatalogRepository.listAll();
+    return plans
+      .map((plan) => this.toAdminPlanState(plan))
+      .filter((plan) => plan.status === "active" && plan.presentation.showOnPricingPage)
+      .sort((left, right) => {
+        if (left.presentation.displayOrder !== right.presentation.displayOrder) {
+          return left.presentation.displayOrder - right.presentation.displayOrder;
+        }
+        return left.code.localeCompare(right.code);
+      })
+      .map((plan) => ({
+        code: plan.code,
+        displayName: plan.displayName,
+        description: plan.description,
+        trialEnabled: plan.trialEnabled,
+        trialDurationDays: plan.trialDurationDays,
+        defaultOnRegistration: plan.defaultOnRegistration,
+        entitlements: plan.entitlements,
+        quotaLimits: plan.quotaLimits,
+        skillPolicy: plan.skillPolicy,
+        presentation: plan.presentation
+      }));
   }
 
   parseCreateInput(body: unknown): AdminCreatePlanInput {
@@ -554,6 +678,7 @@ export class ManageAdminPlansService {
       ? parseObject(entitlements.mediaClasses, "entitlements.mediaClasses")
       : {};
     const metadata = parseObject(parsed.metadata, "metadata");
+    const presentation = parsePlanPresentation(parsed.presentation);
     const lifecyclePolicyRaw =
       parsed.lifecyclePolicy !== undefined && parsed.lifecyclePolicy !== null
         ? parseObject(parsed.lifecyclePolicy, "lifecyclePolicy")
@@ -603,6 +728,7 @@ export class ManageAdminPlansService {
         commercialTag: toNullableString(metadata.commercialTag),
         notes: toNullableString(metadata.notes)
       },
+      presentation,
       entitlements: {
         toolClasses: {
           costDrivingTools: toBoolean(toolClasses.costDrivingTools),
@@ -781,6 +907,19 @@ export class ManageAdminPlansService {
         providerAgnostic: true,
         commercialTag: input.metadata.commercialTag,
         notes: input.metadata.notes,
+        presentation: {
+          schema: "persai.planPresentation.v1",
+          showOnPricingPage: input.presentation.showOnPricingPage,
+          displayOrder: input.presentation.displayOrder,
+          highlighted: input.presentation.highlighted,
+          title: input.presentation.title,
+          subtitle: input.presentation.subtitle,
+          notes: input.presentation.notes,
+          badge: input.presentation.badge,
+          ctaLabel: input.presentation.ctaLabel,
+          price: input.presentation.price,
+          highlightItems: input.presentation.highlightItems
+        },
         lifecyclePolicy: {
           schema: "persai.planLifecyclePolicy.v1",
           trialFallbackPlanCode: input.lifecyclePolicy.trialFallbackPlanCode,
@@ -986,6 +1125,12 @@ export class ManageAdminPlansService {
       !Array.isArray(billingHints.lifecyclePolicy)
         ? (billingHints.lifecyclePolicy as Record<string, unknown>)
         : {};
+    const presentationRaw =
+      billingHints.presentation !== null &&
+      typeof billingHints.presentation === "object" &&
+      !Array.isArray(billingHints.presentation)
+        ? (billingHints.presentation as Record<string, unknown>)
+        : {};
     const entitlement = plan.entitlementModel;
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
@@ -1010,6 +1155,36 @@ export class ManageAdminPlansService {
       metadata: {
         commercialTag: toNullableString(billingHints.commercialTag),
         notes: toNullableString(billingHints.notes)
+      },
+      presentation: {
+        showOnPricingPage: toBoolean(presentationRaw.showOnPricingPage),
+        displayOrder: toNullableNonNegativeInt(presentationRaw.displayOrder) ?? 0,
+        highlighted: toBoolean(presentationRaw.highlighted),
+        title: parseLocalizedText(presentationRaw.title, "presentation.title"),
+        subtitle: parseLocalizedText(presentationRaw.subtitle, "presentation.subtitle"),
+        notes: parseLocalizedText(presentationRaw.notes, "presentation.notes"),
+        badge: parseLocalizedText(presentationRaw.badge, "presentation.badge"),
+        ctaLabel: parseLocalizedText(presentationRaw.ctaLabel, "presentation.ctaLabel"),
+        price: {
+          amount:
+            isRecord(presentationRaw.price) &&
+            toNullableNonNegativeInt(presentationRaw.price.amount) !== null
+              ? toNullableNonNegativeInt(presentationRaw.price.amount)
+              : null,
+          currency: isRecord(presentationRaw.price)
+            ? parseCurrencyCode(presentationRaw.price.currency, "presentation.price.currency")
+            : null,
+          billingPeriod: isRecord(presentationRaw.price)
+            ? parseBillingPeriod(
+                presentationRaw.price.billingPeriod,
+                "presentation.price.billingPeriod"
+              )
+            : null
+        },
+        highlightItems: parseLocalizedTextList(
+          presentationRaw.highlightItems,
+          "presentation.highlightItems"
+        )
       },
       entitlements: {
         toolClasses: {

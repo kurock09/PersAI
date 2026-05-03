@@ -1,9 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import SignUpPage from "./page";
+
+const routerState = vi.hoisted(() => ({
+  searchParams: new URLSearchParams()
+}));
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -26,8 +30,15 @@ vi.mock("@clerk/nextjs", () => ({
   })
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => routerState.searchParams
+}));
+
 vi.mock("@/app/lib/clerk-navigation", () => ({
-  navigateAfterClerkAuth: vi.fn()
+  getSafeRedirectPathFromSearch: () => "/app/pricing",
+  navigateAfterClerkAuth: vi.fn(),
+  withSafeRedirectParam: (path: string, search: string) =>
+    search.length > 0 ? `${path}${path.includes("?") ? "&" : "?"}${search}` : path
 }));
 
 vi.mock("@/app/app/_components/redirect-signed-in-to-app", () => ({
@@ -43,12 +54,35 @@ function renderWithIntl(ui: ReactNode) {
 }
 
 describe("SignUpPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
+    routerState.searchParams = new URLSearchParams();
+  });
+
   it("links to the custom forgot-password flow", () => {
     renderWithIntl(<SignUpPage />);
 
     expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute(
       "href",
       "/sign-in?mode=forgot-password"
+    );
+  });
+
+  it("preserves redirect_url for sign-in and forgot-password links", () => {
+    routerState.searchParams = new URLSearchParams("redirect_url=%2Fapp%2Fpricing");
+
+    renderWithIntl(<SignUpPage />);
+
+    expect(screen.getByRole("link", { name: "Forgot password?" })).toHaveAttribute(
+      "href",
+      "/sign-in?mode=forgot-password&redirect_url=%2Fapp%2Fpricing"
+    );
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/sign-in?redirect_url=%2Fapp%2Fpricing"
     );
   });
 });

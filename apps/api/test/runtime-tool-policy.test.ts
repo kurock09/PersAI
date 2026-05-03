@@ -189,6 +189,10 @@ async function run(): Promise<void> {
   assert.match(markdown, /\*\*`quota_status`\*\*\nRead live PersAI quota status/);
   assert.match(
     markdown,
+    /non-media daily tool counters, main quota buckets, and monthly media quotas/
+  );
+  assert.match(
+    markdown,
     /\*\*`knowledge_search`\*\*\nSearch assistant-owned or PersAI-owned knowledge/
   );
   assert.match(markdown, /\*\*`web_search`\*\*\nSearch the public web\./);

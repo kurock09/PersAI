@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { ContractsApiError } from "@persai/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useChat } from "./use-chat";
 import { StreamingThreadsProvider } from "./streaming-threads";
@@ -2825,7 +2826,7 @@ describe("useChat", () => {
       let secondPromise: Promise<void> | undefined;
       await act(async () => {
         // First call claims the optimistic local slot, then suspends inside
-        // `await getToken({ skipCache: true })`.
+        // `await getToken()`.
         firstPromise = result.current.send("first");
         // Yield one microtask so the first call has hit the token refresh.
         await Promise.resolve();
@@ -2857,6 +2858,72 @@ describe("useChat", () => {
       expect(userMessages).toHaveLength(1);
       expect(userMessages[0]?.content).toBe("first");
       expect(assistantMessages).toHaveLength(1);
+    });
+
+    it("retries the stream once with a fresh Clerk token after a cached-token 401", async () => {
+      clerkMocks.getToken
+        .mockResolvedValueOnce("cached-token")
+        .mockResolvedValueOnce("fresh-token");
+      assistantApiMocks.streamAssistantWebChatTurn
+        .mockRejectedValueOnce(
+          new ContractsApiError("Session expired. Sign in again and refresh the page.", 401, null)
+        )
+        .mockImplementationOnce(
+          async (
+            _token: string,
+            payload: { message?: string; clientTurnId?: string },
+            handlers: {
+              onStarted?: (p: { chat: unknown; userMessage: unknown }) => void;
+              onCompleted?: (p: { transport: unknown }) => void;
+            }
+          ) => {
+            handlers.onStarted?.({
+              chat: { id: "chat-1" },
+              userMessage: { id: `server-user-${payload.clientTurnId ?? "x"}` }
+            });
+            handlers.onCompleted?.({
+              transport: {
+                userMessage: {
+                  id: `server-user-${payload.clientTurnId ?? "x"}`,
+                  chatId: "chat-1"
+                },
+                assistantMessage: {
+                  id: `server-assistant-${payload.clientTurnId ?? "x"}`,
+                  content: payload.message ?? ""
+                }
+              }
+            });
+          }
+        );
+
+      const { result } = renderHook(() => useChat("thread-1"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("retry auth once");
+      });
+
+      expect(clerkMocks.getToken).toHaveBeenNthCalledWith(1);
+      expect(clerkMocks.getToken).toHaveBeenNthCalledWith(2, { skipCache: true });
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenNthCalledWith(
+        1,
+        "cached-token",
+        expect.any(Object),
+        expect.any(Object),
+        expect.any(AbortSignal)
+      );
+      expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenNthCalledWith(
+        2,
+        "fresh-token",
+        expect.any(Object),
+        expect.any(Object),
+        expect.any(AbortSignal)
+      );
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages.some((message) => message.content === "retry auth once")).toBe(
+        true
+      );
     });
 
     it("blocks a third send() fired in the same microtask as the second (triple-press defence)", async () => {

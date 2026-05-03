@@ -87,6 +87,13 @@ export class AutoSkillRoutingStateService {
     return state.messageCountSinceCheck >= BACKGROUND_RECHECK_INTERVAL_MESSAGES;
   }
 
+  createBackgroundCheckContext(context: RuntimeSkillRoutingContext): RuntimeSkillRoutingContext {
+    return {
+      ...context,
+      forceCheck: true
+    };
+  }
+
   runBackgroundCheck(input: {
     chatId: string;
     execute: () => Promise<RuntimeSkillRoutingCheckResult>;

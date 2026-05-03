@@ -7,6 +7,7 @@
 import type { AdminPlanStateStatus } from "./adminPlanStateStatus";
 import type { AdminPlanLifecyclePolicy } from "./adminPlanLifecyclePolicy";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
+import type { AdminPlanPresentation } from "./adminPlanPresentation";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
 import type { AdminPlanSkillPolicy } from "./adminPlanSkillPolicy";
@@ -29,6 +30,7 @@ export interface AdminPlanState {
   trialDurationDays: number | null;
   lifecyclePolicy: AdminPlanLifecyclePolicy;
   metadata: AdminPlanMetadata;
+  presentation: AdminPlanPresentation;
   entitlements: AdminPlanEntitlements;
   quotaLimits?: AdminPlanQuotaLimits;
   skillPolicy?: AdminPlanSkillPolicy;

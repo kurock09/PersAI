@@ -83,6 +83,35 @@ export type AdminPlanRetrievalPolicy = {
 
 export type AdminPlanSandboxPolicy = RuntimeSandboxPolicy;
 
+export type AdminPlanLocalizedText = {
+  ru: string | null;
+  en: string | null;
+};
+
+export type AdminPlanLocalizedTextList = {
+  ru: string[];
+  en: string[];
+};
+
+export type AdminPlanPresentationPrice = {
+  amount: number | null;
+  currency: string | null;
+  billingPeriod: "month" | "year" | null;
+};
+
+export type AdminPlanPresentation = {
+  showOnPricingPage: boolean;
+  displayOrder: number;
+  highlighted: boolean;
+  title: AdminPlanLocalizedText;
+  subtitle: AdminPlanLocalizedText;
+  notes: AdminPlanLocalizedText;
+  badge: AdminPlanLocalizedText;
+  ctaLabel: AdminPlanLocalizedText;
+  price: AdminPlanPresentationPrice;
+  highlightItems: AdminPlanLocalizedTextList;
+};
+
 export type AdminPlanInput = {
   displayName: string;
   description: string | null;
@@ -98,6 +127,7 @@ export type AdminPlanInput = {
     commercialTag: string | null;
     notes: string | null;
   };
+  presentation: AdminPlanPresentation;
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
@@ -156,6 +186,7 @@ export type AdminPlanState = {
     commercialTag: string | null;
     notes: string | null;
   };
+  presentation: AdminPlanPresentation;
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
@@ -190,4 +221,17 @@ export type AdminPlanState = {
   toolBudgets: AdminPlanToolBudgets;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PublicPricingPlanState = {
+  code: string;
+  displayName: string;
+  description: string | null;
+  trialEnabled: boolean;
+  trialDurationDays: number | null;
+  defaultOnRegistration: boolean;
+  entitlements: AdminPlanEntitlementControls;
+  quotaLimits: AdminPlanState["quotaLimits"];
+  skillPolicy: AdminPlanState["skillPolicy"];
+  presentation: AdminPlanPresentation;
 };

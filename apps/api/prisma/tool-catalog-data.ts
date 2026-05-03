@@ -194,9 +194,9 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description:
       "Read live tool quota usage/caps from PersAI control plane for the current assistant.",
     modelDescription:
-      "Read live quota status for the current assistant, including daily tool counters and main quota buckets.",
+      "Read live quota status for the current assistant, including non-media daily tool counters, main quota buckets, and monthly media quotas.",
     modelUsageGuidance:
-      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed tool is available.",
+      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed tool is available. For image/video/edit quota questions, read the monthly media quota block instead of daily counters.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"

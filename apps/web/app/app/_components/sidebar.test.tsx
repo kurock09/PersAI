@@ -169,4 +169,68 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(pushState).not.toHaveBeenCalled();
     expect(navigationMocks.push).not.toHaveBeenCalled();
   });
+
+  it("renders compact billing summary in the account footer", async () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          plan: {
+            effectivePlan: {
+              code: "starter_trial",
+              displayName: "Starter Trial",
+              status: "active",
+              source: "plan",
+              subscriptionStatus: "trialing",
+              trialEndsAt: "2026-05-12T00:00:00.000Z",
+              graceStartedAt: null,
+              graceEndsAt: null,
+              currentPeriodEndsAt: null,
+              isTrialPlan: true,
+              trialFallbackPlanCode: null,
+              paidFallbackPlanCode: null
+            },
+            entitlements: {
+              channelsAndSurfaces: {
+                webChat: true,
+                telegram: true,
+                whatsapp: false,
+                max: false
+              }
+            },
+            limits: {
+              quotaBuckets: [
+                {
+                  bucketCode: "token_budget",
+                  displayName: "Token budget",
+                  unit: "tokens",
+                  used: 2100,
+                  limit: 10000,
+                  percent: 21,
+                  usageAvailable: true,
+                  status: "ok"
+                }
+              ],
+              monthlyMediaQuotas: {
+                planCode: "starter_trial",
+                periodStartedAt: "2026-05-01T00:00:00.000Z",
+                periodEndsAt: "2026-06-01T00:00:00.000Z",
+                periodSource: "subscription_period",
+                tools: []
+              },
+              toolDailyLimits: []
+            },
+            updatedAt: "2026-05-01T10:00:00.000Z"
+          } as unknown as AppData["plan"]
+        })}
+      />
+    );
+
+    expect(screen.getByText("billingStatusTrial · 21%")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("billingStatusTrial · 21%").closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("billingDateTrialEnds")).toBeInTheDocument();
+    });
+  });
 });

@@ -134,23 +134,23 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     vi.useFakeTimers();
   });
 
-  it("does not render the spinner before the 1s delay elapses", () => {
+  it("does not render the spinner before the short delay elapses", () => {
     render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(999);
+      vi.advanceTimersByTime(249);
     });
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
   });
 
-  it("renders the spinner after 1s of sustained `sending`", () => {
+  it("renders the spinner after the short sustained `sending` delay", () => {
     render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(250);
     });
 
     expect(screen.getByTestId(SENDING_INDICATOR_TESTID)).toBeInTheDocument();
@@ -166,7 +166,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     );
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(250);
     });
 
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
@@ -194,7 +194,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(250);
     });
     expect(screen.getByTestId(SENDING_INDICATOR_TESTID)).toBeInTheDocument();
 
@@ -203,11 +203,11 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
   });
 
-  it("never shows the spinner when `send_failed` lands before the 1s delay", () => {
+  it("never shows the spinner when `send_failed` lands before the short delay", () => {
     const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 
     act(() => {
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(100);
     });
     expect(screen.queryByTestId(SENDING_INDICATOR_TESTID)).not.toBeInTheDocument();
 
@@ -231,7 +231,7 @@ describe("ChatMessageBubble — sending indicator (ADR-076 Section M)", () => {
     const { rerender } = render(<ChatMessageBubble message={makeUserMessage("sending")} />);
 
     act(() => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(250);
     });
     expect(screen.getByTestId(SENDING_INDICATOR_TESTID)).toBeInTheDocument();
 

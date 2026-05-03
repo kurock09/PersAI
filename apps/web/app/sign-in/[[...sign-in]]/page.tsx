@@ -5,7 +5,11 @@ import { useAuth, useSignIn } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
-import { getSafeRedirectPathFromSearch, navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import {
+  getSafeRedirectPathFromSearch,
+  navigateAfterClerkAuth,
+  withSafeRedirectParam
+} from "@/app/lib/clerk-navigation";
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 import { PasswordField } from "@/app/app/_components/password-field";
 import { useSearchParams } from "next/navigation";
@@ -17,6 +21,8 @@ export default function SignInPage() {
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
   const searchParams = useSearchParams();
+  const currentSearch = searchParams.toString();
+  const signUpHref = withSafeRedirectParam("/sign-up", currentSearch);
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -510,7 +516,7 @@ export default function SignInPage() {
         <p className="mt-6 text-xs text-text-subtle">
           {t("noAccount")}{" "}
           <a
-            href="/sign-up"
+            href={signUpHref}
             className="font-medium text-accent transition-colors hover:text-accent-hover"
           >
             {t("signUpLink")}

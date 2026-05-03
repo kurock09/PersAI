@@ -80,6 +80,7 @@ import type {
   GetKnowledgeIndexingJobsResponse,
   GetMeResponse,
   GetProductKnowledgeTextEntriesResponse,
+  GetPublicPricingPlansResponse,
   GlobalKnowledgeSourceScope,
   OnboardingRequest,
   PatchAdminIdleReengagementNotificationPolicyRequest,
@@ -6102,6 +6103,43 @@ export const postAdminPlatformRolloutRollback = async (
       method: "POST"
     }
   );
+};
+
+/**
+ * @summary List visible pricing-card plans for guest and product pricing pages
+ */
+export type getPublicPricingPlansResponse200 = {
+  data: GetPublicPricingPlansResponse;
+  status: 200;
+};
+
+export type getPublicPricingPlansResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getPublicPricingPlansResponseSuccess = getPublicPricingPlansResponse200 & {
+  headers: Headers;
+};
+export type getPublicPricingPlansResponseError = getPublicPricingPlansResponse500 & {
+  headers: Headers;
+};
+
+export type getPublicPricingPlansResponse =
+  | getPublicPricingPlansResponseSuccess
+  | getPublicPricingPlansResponseError;
+
+export const getGetPublicPricingPlansUrl = () => {
+  return `/public/plans/pricing`;
+};
+
+export const getPublicPricingPlans = async (
+  options?: RequestInit
+): Promise<getPublicPricingPlansResponse> => {
+  return customFetch<getPublicPricingPlansResponse>(getGetPublicPricingPlansUrl(), {
+    ...options,
+    method: "GET"
+  });
 };
 
 /**

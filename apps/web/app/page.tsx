@@ -16,7 +16,7 @@ export default async function HomePage() {
   const t = await getTranslations("landing");
   const headlineLine2 = t("headlineLine2").trim();
   const footerLinks = [
-    { label: t("plans"), href: "/sign-up" },
+    { label: t("plans"), href: "/pricing" },
     { label: t("termsLink"), href: "#terms" },
     { label: t("privacyLink"), href: "#privacy" },
     { label: t("contactsLink"), href: "mailto:support@persai.app" },

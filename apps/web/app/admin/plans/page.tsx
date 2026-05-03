@@ -63,6 +63,24 @@ export type PlanDraft = {
   paidFallbackPlanCode: string;
   metadataCommercialTag: string;
   metadataNotes: string;
+  presentationShowOnPricingPage: boolean;
+  presentationDisplayOrder: string;
+  presentationHighlighted: boolean;
+  presentationTitleRu: string;
+  presentationTitleEn: string;
+  presentationSubtitleRu: string;
+  presentationSubtitleEn: string;
+  presentationNotesRu: string;
+  presentationNotesEn: string;
+  presentationBadgeRu: string;
+  presentationBadgeEn: string;
+  presentationCtaLabelRu: string;
+  presentationCtaLabelEn: string;
+  presentationPriceAmount: string;
+  presentationPriceCurrency: string;
+  presentationPriceBillingPeriod: "" | "month" | "year";
+  presentationHighlightItemsRu: string;
+  presentationHighlightItemsEn: string;
   toolCostDriving: boolean;
   toolUtility: boolean;
   toolCostDrivingQuotaGoverned: boolean;
@@ -144,6 +162,8 @@ export type PlanDraft = {
 };
 
 type NumericDraftField =
+  | "presentationDisplayOrder"
+  | "presentationPriceAmount"
   | "tokenBudgetLimit"
   | "activeWebChatsLimit"
   | "imageGenerateMonthlyUnitsLimit"
@@ -324,6 +344,21 @@ function toNullable(value: string): string | null {
   return t.length > 0 ? t : null;
 }
 
+function splitMultilineItems(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function joinMultilineItems(items: string[] | null | undefined): string {
+  return items?.join("\n") ?? "";
+}
+
+function isUpperCurrencyCode(value: string): boolean {
+  return /^[A-Z]{3,8}$/.test(value.trim());
+}
+
 function applyContextPolicyPreset(
   preset: ContextPolicyPresetWithDefaults
 ): Pick<
@@ -393,6 +428,8 @@ function parseStrictIntegerDraft(
 }
 
 const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
+  { field: "presentationDisplayOrder", label: "Pricing display order", min: 0 },
+  { field: "presentationPriceAmount", label: "Pricing amount", min: 0, allowBlank: true },
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
   { field: "activeWebChatsLimit", label: "Active web chats", min: 1, allowBlank: true },
   {
@@ -535,6 +572,42 @@ function isDraftTrialFieldsInvalid(
   );
 }
 
+function isDraftPricingFieldsInvalid(
+  draft: Pick<
+    PlanDraft,
+    | "presentationShowOnPricingPage"
+    | "presentationTitleRu"
+    | "presentationTitleEn"
+    | "presentationPriceAmount"
+    | "presentationPriceCurrency"
+    | "presentationPriceBillingPeriod"
+  >
+): boolean {
+  if (!draft.presentationShowOnPricingPage) {
+    return false;
+  }
+  if (
+    draft.presentationTitleRu.trim().length === 0 ||
+    draft.presentationTitleEn.trim().length === 0 ||
+    draft.presentationPriceCurrency.trim().length === 0 ||
+    draft.presentationPriceBillingPeriod === ""
+  ) {
+    return true;
+  }
+  if (!isUpperCurrencyCode(draft.presentationPriceCurrency)) {
+    return true;
+  }
+  try {
+    parseStrictIntegerDraft(draft.presentationPriceAmount, {
+      label: "Pricing amount",
+      min: 0
+    });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 function emptyDraft(): PlanDraft {
   return {
     displayName: "",
@@ -547,6 +620,24 @@ function emptyDraft(): PlanDraft {
     paidFallbackPlanCode: "",
     metadataCommercialTag: "",
     metadataNotes: "",
+    presentationShowOnPricingPage: false,
+    presentationDisplayOrder: "0",
+    presentationHighlighted: false,
+    presentationTitleRu: "",
+    presentationTitleEn: "",
+    presentationSubtitleRu: "",
+    presentationSubtitleEn: "",
+    presentationNotesRu: "",
+    presentationNotesEn: "",
+    presentationBadgeRu: "",
+    presentationBadgeEn: "",
+    presentationCtaLabelRu: "",
+    presentationCtaLabelEn: "",
+    presentationPriceAmount: "",
+    presentationPriceCurrency: "RUB",
+    presentationPriceBillingPeriod: "month",
+    presentationHighlightItemsRu: "",
+    presentationHighlightItemsEn: "",
     toolCostDriving: false,
     toolUtility: true,
     toolCostDrivingQuotaGoverned: true,
@@ -626,6 +717,24 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     paidFallbackPlanCode: plan.lifecyclePolicy.paidFallbackPlanCode ?? "",
     metadataCommercialTag: plan.metadata.commercialTag ?? "",
     metadataNotes: plan.metadata.notes ?? "",
+    presentationShowOnPricingPage: plan.presentation.showOnPricingPage,
+    presentationDisplayOrder: String(plan.presentation.displayOrder),
+    presentationHighlighted: plan.presentation.highlighted,
+    presentationTitleRu: plan.presentation.title.ru ?? "",
+    presentationTitleEn: plan.presentation.title.en ?? "",
+    presentationSubtitleRu: plan.presentation.subtitle.ru ?? "",
+    presentationSubtitleEn: plan.presentation.subtitle.en ?? "",
+    presentationNotesRu: plan.presentation.notes.ru ?? "",
+    presentationNotesEn: plan.presentation.notes.en ?? "",
+    presentationBadgeRu: plan.presentation.badge.ru ?? "",
+    presentationBadgeEn: plan.presentation.badge.en ?? "",
+    presentationCtaLabelRu: plan.presentation.ctaLabel.ru ?? "",
+    presentationCtaLabelEn: plan.presentation.ctaLabel.en ?? "",
+    presentationPriceAmount: plan.presentation.price.amount?.toString() ?? "",
+    presentationPriceCurrency: plan.presentation.price.currency ?? "RUB",
+    presentationPriceBillingPeriod: plan.presentation.price.billingPeriod ?? "month",
+    presentationHighlightItemsRu: joinMultilineItems(plan.presentation.highlightItems.ru),
+    presentationHighlightItemsEn: joinMultilineItems(plan.presentation.highlightItems.en),
     toolCostDriving: plan.entitlements.toolClasses.costDrivingTools,
     toolUtility: plan.entitlements.toolClasses.utilityTools,
     toolCostDrivingQuotaGoverned: plan.entitlements.toolClasses.costDrivingQuotaGoverned,
@@ -738,6 +847,24 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   if (isDraftTrialFieldsInvalid(draft)) {
     throw new Error("Trial plan needs duration and fallback plan.");
   }
+  if (isDraftPricingFieldsInvalid(draft)) {
+    throw new Error("Pricing card needs RU/EN titles, amount, currency, and billing period.");
+  }
+  const presentationDisplayOrder = parseStrictIntegerDraft(draft.presentationDisplayOrder, {
+    label: "Pricing display order",
+    min: 0
+  })!;
+  const presentationPriceAmount = parseStrictIntegerDraft(draft.presentationPriceAmount, {
+    label: "Pricing amount",
+    min: 0,
+    allowBlank: true
+  });
+  if (
+    draft.presentationShowOnPricingPage &&
+    !isUpperCurrencyCode(draft.presentationPriceCurrency)
+  ) {
+    throw new Error("Pricing currency must be an uppercase code like RUB.");
+  }
   const tokenBudgetLimit = parseStrictIntegerDraft(draft.tokenBudgetLimit, {
     label: "Token budget",
     min: 1,
@@ -811,6 +938,46 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     metadata: {
       commercialTag: toNullable(draft.metadataCommercialTag),
       notes: toNullable(draft.metadataNotes)
+    },
+    presentation: {
+      showOnPricingPage: draft.presentationShowOnPricingPage,
+      displayOrder: presentationDisplayOrder,
+      highlighted: draft.presentationHighlighted,
+      title: {
+        ru: toNullable(draft.presentationTitleRu),
+        en: toNullable(draft.presentationTitleEn)
+      },
+      subtitle: {
+        ru: toNullable(draft.presentationSubtitleRu),
+        en: toNullable(draft.presentationSubtitleEn)
+      },
+      notes: {
+        ru: toNullable(draft.presentationNotesRu),
+        en: toNullable(draft.presentationNotesEn)
+      },
+      badge: {
+        ru: toNullable(draft.presentationBadgeRu),
+        en: toNullable(draft.presentationBadgeEn)
+      },
+      ctaLabel: {
+        ru: toNullable(draft.presentationCtaLabelRu),
+        en: toNullable(draft.presentationCtaLabelEn)
+      },
+      price: {
+        amount: presentationPriceAmount,
+        currency: draft.presentationShowOnPricingPage
+          ? (toNullable(draft.presentationPriceCurrency)?.toUpperCase() ?? null)
+          : null,
+        billingPeriod: draft.presentationShowOnPricingPage
+          ? draft.presentationPriceBillingPeriod === ""
+            ? null
+            : draft.presentationPriceBillingPeriod
+          : null
+      },
+      highlightItems: {
+        ru: splitMultilineItems(draft.presentationHighlightItemsRu),
+        en: splitMultilineItems(draft.presentationHighlightItemsEn)
+      }
     },
     entitlements: {
       toolClasses: {
@@ -1226,6 +1393,31 @@ function Input({
       placeholder={placeholder}
       className={cn(
         "w-full rounded border bg-surface-raised px-2 py-1 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1",
+        invalid ? "border-red-400/70 focus:ring-red-400/50" : "border-border focus:ring-accent/50",
+        extra
+      )}
+      {...rest}
+    />
+  );
+}
+
+function TextArea({
+  value,
+  onValue,
+  invalid = false,
+  className: extra,
+  ...rest
+}: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange"> & {
+  value: string;
+  onValue: (value: string) => void;
+  invalid?: boolean;
+}) {
+  return (
+    <textarea
+      value={value}
+      onChange={(e) => onValue(e.target.value)}
+      className={cn(
+        "w-full rounded border bg-surface-raised px-2 py-1.5 text-[11px] text-text placeholder:text-text-subtle focus:outline-none focus:ring-1",
         invalid ? "border-red-400/70 focus:ring-red-400/50" : "border-border focus:ring-accent/50",
         extra
       )}
@@ -1757,7 +1949,174 @@ function PlanForm({
         </div>
       </div>
 
-      {/* row 4: access + plan defaults */}
+      <Panel
+        title="Pricing card"
+        hint="Public card fields for the future pricing page. Keep the copy quiet, premium, and consistent with real plan limits."
+      >
+        <div className="grid gap-3 lg:grid-cols-[minmax(240px,0.9fr)_minmax(0,1.1fr)]">
+          <SubPanel
+            title="Visibility and price"
+            hint="Admin chooses if this plan is visible on pricing, card order, and structured price facts."
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Check
+                label="Show on pricing page"
+                checked={draft.presentationShowOnPricingPage}
+                onChange={(v) => onPatch({ presentationShowOnPricingPage: v })}
+              />
+              <Check
+                label="Highlighted card"
+                checked={draft.presentationHighlighted}
+                onChange={(v) => onPatch({ presentationHighlighted: v })}
+              />
+              <FieldRow label="Display order" tip="Lower numbers appear first on the pricing page.">
+                <Input
+                  value={draft.presentationDisplayOrder}
+                  onValue={(v) => onPatch({ presentationDisplayOrder: v })}
+                  invalid={Boolean(validationErrors.presentationDisplayOrder)}
+                  inputMode="numeric"
+                />
+              </FieldRow>
+              <FieldRow
+                label="Price amount"
+                tip="Whole-number price for the card. Use 0 for a free/trial card."
+              >
+                <Input
+                  value={draft.presentationPriceAmount}
+                  onValue={(v) => onPatch({ presentationPriceAmount: v })}
+                  invalid={Boolean(validationErrors.presentationPriceAmount)}
+                  inputMode="numeric"
+                />
+              </FieldRow>
+              <FieldRow label="Currency" tip="Uppercase ISO-style code, for example RUB or USD.">
+                <Input
+                  value={draft.presentationPriceCurrency}
+                  onValue={(v) => onPatch({ presentationPriceCurrency: v.toUpperCase() })}
+                />
+              </FieldRow>
+              <FieldRow
+                label="Billing period"
+                tip="Presentation period for the price label. Checkout/provider logic is a later slice."
+              >
+                <select
+                  value={draft.presentationPriceBillingPeriod}
+                  onChange={(e) =>
+                    onPatch({
+                      presentationPriceBillingPeriod: e.target.value as "" | "month" | "year"
+                    })
+                  }
+                  className="w-full rounded border border-border bg-surface-raised px-2 py-1 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+                >
+                  <option value="">No period</option>
+                  <option value="month">Month</option>
+                  <option value="year">Year</option>
+                </select>
+              </FieldRow>
+            </div>
+          </SubPanel>
+
+          <SubPanel
+            title="Localized copy"
+            hint="Public marketing strings for the pricing page. RU and EN title are required when the card is visible."
+          >
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                  RU
+                </p>
+                <FieldRow label="Title" tip="Short premium title for the pricing card.">
+                  <Input
+                    value={draft.presentationTitleRu}
+                    onValue={(v) => onPatch({ presentationTitleRu: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Subtitle" tip="One calm sentence about who this plan is for.">
+                  <Input
+                    value={draft.presentationSubtitleRu}
+                    onValue={(v) => onPatch({ presentationSubtitleRu: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Notes" tip="Quiet supporting note under the main pricing content.">
+                  <Input
+                    value={draft.presentationNotesRu}
+                    onValue={(v) => onPatch({ presentationNotesRu: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Badge" tip="Optional small badge, for example Популярный.">
+                  <Input
+                    value={draft.presentationBadgeRu}
+                    onValue={(v) => onPatch({ presentationBadgeRu: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="CTA label" tip="Optional button label for the pricing card.">
+                  <Input
+                    value={draft.presentationCtaLabelRu}
+                    onValue={(v) => onPatch({ presentationCtaLabelRu: v })}
+                  />
+                </FieldRow>
+                <FieldRow
+                  label="Feature bullets"
+                  tip="One line per visible benefit. Keep these short and aligned with real plan limits."
+                >
+                  <TextArea
+                    value={draft.presentationHighlightItemsRu}
+                    onValue={(v) => onPatch({ presentationHighlightItemsRu: v })}
+                    rows={5}
+                  />
+                </FieldRow>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-text-subtle">
+                  EN
+                </p>
+                <FieldRow label="Title" tip="Short premium title for the pricing card.">
+                  <Input
+                    value={draft.presentationTitleEn}
+                    onValue={(v) => onPatch({ presentationTitleEn: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Subtitle" tip="One calm sentence about who this plan is for.">
+                  <Input
+                    value={draft.presentationSubtitleEn}
+                    onValue={(v) => onPatch({ presentationSubtitleEn: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Notes" tip="Quiet supporting note under the main pricing content.">
+                  <Input
+                    value={draft.presentationNotesEn}
+                    onValue={(v) => onPatch({ presentationNotesEn: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="Badge" tip="Optional small badge, for example Popular.">
+                  <Input
+                    value={draft.presentationBadgeEn}
+                    onValue={(v) => onPatch({ presentationBadgeEn: v })}
+                  />
+                </FieldRow>
+                <FieldRow label="CTA label" tip="Optional button label for the pricing card.">
+                  <Input
+                    value={draft.presentationCtaLabelEn}
+                    onValue={(v) => onPatch({ presentationCtaLabelEn: v })}
+                  />
+                </FieldRow>
+                <FieldRow
+                  label="Feature bullets"
+                  tip="One line per visible benefit. Keep these short and aligned with real plan limits."
+                >
+                  <TextArea
+                    value={draft.presentationHighlightItemsEn}
+                    onValue={(v) => onPatch({ presentationHighlightItemsEn: v })}
+                    rows={5}
+                  />
+                </FieldRow>
+              </div>
+            </div>
+          </SubPanel>
+        </div>
+      </Panel>
+
+      {/* row 5: access + plan defaults */}
       <div className="grid items-start gap-3 lg:grid-cols-[minmax(280px,0.92fr)_minmax(0,1.45fr)]">
         <Panel
           title="Access surface"
@@ -2765,6 +3124,11 @@ function PlanCardReadOnly({
       {/* collapsed summary line */}
       {!expanded && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 border-t border-border/50 px-3 py-1.5 text-[10px]">
+          <KV label="Pricing">
+            {plan.presentation.showOnPricingPage
+              ? `#${String(plan.presentation.displayOrder)}`
+              : "hidden"}
+          </KV>
           <KV label="Channels">{channels.join(", ")}</KV>
           <KV label="Tools">{toolClasses.join(", ")}</KV>
           <KV label="Skills">{plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}</KV>
@@ -2779,6 +3143,19 @@ function PlanCardReadOnly({
         <div className="space-y-2 border-t border-border/50 px-3 py-2">
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <KV label="Description">{plan.description ?? "—"}</KV>
+            <KV label="Pricing page">
+              {plan.presentation.showOnPricingPage
+                ? `visible (#${String(plan.presentation.displayOrder)})`
+                : "hidden"}
+            </KV>
+            {plan.presentation.price.amount !== null && plan.presentation.price.currency && (
+              <KV label="Card price">
+                {plan.presentation.price.amount} {plan.presentation.price.currency}
+                {plan.presentation.price.billingPeriod
+                  ? ` / ${plan.presentation.price.billingPeriod}`
+                  : ""}
+              </KV>
+            )}
             {plan.trialEnabled && (
               <KV label="Trial fallback">
                 {plan.lifecyclePolicy.trialFallbackPlanCode ?? "missing"}
@@ -2789,6 +3166,8 @@ function PlanCardReadOnly({
             </KV>
             {plan.metadata.commercialTag && <KV label="Tag">{plan.metadata.commercialTag}</KV>}
             {plan.metadata.notes && <KV label="Notes">{plan.metadata.notes}</KV>}
+            {plan.presentation.title.ru && <KV label="Title RU">{plan.presentation.title.ru}</KV>}
+            {plan.presentation.title.en && <KV label="Title EN">{plan.presentation.title.en}</KV>}
           </div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-1 rounded border border-border bg-surface px-3 py-1.5">
             <Sec label="Tool classes">
@@ -3328,7 +3707,11 @@ export default function AdminPlansPage() {
           <div className="mt-3 flex gap-2">
             <button
               type="submit"
-              disabled={saving || isDraftTrialFieldsInvalid(createDraft)}
+              disabled={
+                saving ||
+                isDraftTrialFieldsInvalid(createDraft) ||
+                isDraftPricingFieldsInvalid(createDraft)
+              }
               className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
             >
               {saving ? <Loader2 className="inline h-3 w-3 animate-spin" /> : "Save"}
@@ -3346,6 +3729,12 @@ export default function AdminPlansPage() {
                 Trial plan needs duration and fallback plan
               </span>
             )}
+            {!isDraftTrialFieldsInvalid(createDraft) &&
+              isDraftPricingFieldsInvalid(createDraft) && (
+                <span className="self-center text-[10px] font-medium text-red-500/80">
+                  Visible pricing card needs RU/EN titles, amount, currency, and billing period
+                </span>
+              )}
           </div>
         </form>
       )}
@@ -3395,7 +3784,11 @@ export default function AdminPlansPage() {
                   <div className="mt-3 flex gap-2">
                     <button
                       type="submit"
-                      disabled={saving || isDraftTrialFieldsInvalid(editDraft)}
+                      disabled={
+                        saving ||
+                        isDraftTrialFieldsInvalid(editDraft) ||
+                        isDraftPricingFieldsInvalid(editDraft)
+                      }
                       className="rounded bg-accent px-3 py-1 text-[11px] font-semibold text-bg hover:opacity-90 disabled:opacity-40"
                     >
                       {saving ? (
@@ -3417,6 +3810,13 @@ export default function AdminPlansPage() {
                         Trial plan needs duration and fallback plan
                       </span>
                     )}
+                    {!isDraftTrialFieldsInvalid(editDraft) &&
+                      isDraftPricingFieldsInvalid(editDraft) && (
+                        <span className="self-center text-[10px] font-medium text-red-500/80">
+                          Visible pricing card needs RU/EN titles, amount, currency, and billing
+                          period
+                        </span>
+                      )}
                   </div>
                 </form>
               );

@@ -59,6 +59,10 @@ function restoreComposerFocusAfterSend(el: HTMLTextAreaElement): void {
   window.setTimeout(restore, 80);
 }
 
+function shouldKeepDesktopComposerFocusOnPointerDown(): boolean {
+  return shouldRestoreComposerFocusAfterSend();
+}
+
 function fileIcon(mime: string) {
   if (mime.startsWith("image/")) return null;
   if (mime.startsWith("audio/")) return <Music className="h-5 w-5 text-text-subtle" />;
@@ -168,6 +172,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const recordingStartTimeRef = useRef<number>(0);
   const recordingAttemptIdRef = useRef(0);
   const touchRecordingIntentActiveRef = useRef(false);
+  const focusRestoreDeadlineRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -176,6 +181,27 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       cameraPreviewStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
+
+  useEffect(() => {
+    const deadline = focusRestoreDeadlineRef.current;
+    if (deadline === 0 || Date.now() > deadline) {
+      focusRestoreDeadlineRef.current = 0;
+      return;
+    }
+    if (isTouchDevice && !shouldRestoreComposerFocusAfterSend()) {
+      focusRestoreDeadlineRef.current = 0;
+      return;
+    }
+    const el = textareaRef.current;
+    if (el === null) {
+      return;
+    }
+    if (document.activeElement === el) {
+      focusRestoreDeadlineRef.current = 0;
+      return;
+    }
+    restoreComposerFocusAfterSend(el);
+  }, [isStreaming, pendingSendStatus, isTouchDevice]);
 
   const stopCameraPreview = useCallback(() => {
     cameraPreviewStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -238,6 +264,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setAddToKnowledgeBase(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (!isTouchDevice || shouldRestoreComposerFocusAfterSend()) {
+      focusRestoreDeadlineRef.current = Date.now() + 400;
       restoreComposerFocusAfterSend(el);
     }
   }, [addToKnowledgeBase, isTouchDevice, onSend, pendingFiles, sendBlockedByFailedSlot]);
@@ -1030,6 +1057,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {isStreaming ? (
             <button
               type="button"
+              onMouseDown={(e) => {
+                if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                  e.preventDefault();
+                }
+              }}
               onClick={onStop}
               className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
               title={t("stop")}
@@ -1039,6 +1071,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           ) : (
             <button
               type="button"
+              onMouseDown={(e) => {
+                if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                  e.preventDefault();
+                }
+              }}
               onClick={handleSend}
               disabled={inputDisabled}
               className={cn(

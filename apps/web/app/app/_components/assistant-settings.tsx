@@ -28,7 +28,7 @@ import type {
   AssistantTaskRegistryItemState,
   UserPlanVisibilityState
 } from "@persai/contracts";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import type { AppData } from "./use-app-data";
 import {
@@ -70,6 +70,7 @@ import {
   type AssistantSkillsState
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
+import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
   filterVoiceOptions,
   findVoiceOption,
@@ -88,6 +89,7 @@ interface AssistantSettingsProps {
   data: AppData;
   initialSection?: string | undefined;
   onOpenTelegramSettings?: (() => void) | undefined;
+  onOpenPricingPage?: (() => void) | undefined;
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
@@ -95,6 +97,7 @@ type ActionFeedback = { type: "ok" | "err"; text: string } | null;
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
 type MonthlyMediaQuotaToolState =
   UserPlanVisibilityState["limits"]["monthlyMediaQuotas"]["tools"][number];
+type ToolDailyLimitState = UserPlanVisibilityState["limits"]["toolDailyLimits"][number];
 type SettingsSectionId =
   | "character"
   | "quickActions"
@@ -467,13 +470,16 @@ export function mergeMemoryViews(
 export function AssistantSettings({
   data,
   initialSection,
-  onOpenTelegramSettings
+  onOpenTelegramSettings,
+  onOpenPricingPage
 }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken } = useAuth();
   const t = useTranslations("settings");
+  const locale = useLocale();
   const tp = useTranslations("persona");
   const [nativeShell, setNativeShell] = useState(false);
+  const [toolLimitsExpanded, setToolLimitsExpanded] = useState(false);
   const assistant = data.assistant;
   const statusLabel = t(
     (
@@ -494,18 +500,6 @@ export function AssistantSettings({
     media_storage_bytes: t("mediaStorage"),
     knowledge_storage_bytes: t("knowledgeStorage")
   };
-  const limitedQuotaBuckets =
-    data.plan?.limits.quotaBuckets.filter((bucket) => bucket.limit !== null) ?? [];
-  const limitedMonthlyMediaQuotas =
-    data.plan?.limits.monthlyMediaQuotas.tools.filter((tool) => tool.limitUnits !== null) ?? [];
-  const limitedToolDailyLimits =
-    data.plan?.limits.toolDailyLimits.filter(
-      (tool) =>
-        tool.dailyCallLimit !== null &&
-        tool.toolCode !== "image_generate" &&
-        tool.toolCode !== "image_edit" &&
-        tool.toolCode !== "video_generate"
-    ) ?? [];
   const monthlyMediaQuotaLabels: Record<MonthlyMediaQuotaToolState["toolCode"], string> = {
     image_generate: t("monthlyMediaImageGenerate"),
     image_edit: t("monthlyMediaImageEdit"),
@@ -526,6 +520,34 @@ export function AssistantSettings({
     web_fetch: t("toolLimitWebFetch"),
     web_search: t("toolLimitWebSearch")
   };
+  const tokenBucket =
+    data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
+  const compactQuotaBuckets =
+    data.plan?.limits.quotaBuckets.filter((bucket) =>
+      ["active_web_chats", "media_storage_bytes", "knowledge_storage_bytes"].includes(
+        bucket.bucketCode
+      )
+    ) ?? [];
+  const enabledToolCodes = new Set(
+    (data.plan?.limits.toolDailyLimits ?? [])
+      .filter((tool) => tool.active)
+      .map((tool) => tool.toolCode)
+  );
+  const visibleMonthlyMediaQuotas =
+    data.plan?.limits.monthlyMediaQuotas.tools.filter(
+      (tool) => tool.limitUnits !== null && enabledToolCodes.has(tool.toolCode)
+    ) ?? [];
+  const allToolDailyLimits =
+    [...(data.plan?.limits.toolDailyLimits ?? [])].sort((left, right) => {
+      if (left.active !== right.active) {
+        return left.active ? -1 : 1;
+      }
+      const leftLabel = toolLimitLabels[left.toolCode] ?? left.displayName;
+      const rightLabel = toolLimitLabels[right.toolCode] ?? right.displayName;
+      return leftLabel.localeCompare(rightLabel, locale);
+    }) ?? [];
+  const activeToolCount = allToolDailyLimits.filter((tool) => tool.active).length;
+  const billingSummary = resolveBillingSummaryCopy(data.plan?.effectivePlan, locale);
   const formatQuotaBucketValue = (bucket: QuotaBucketState): string => {
     const limitLabel =
       bucket.limit === null ? "∞" : formatQuotaBucketScalar(bucket, Math.max(0, bucket.limit));
@@ -2346,28 +2368,68 @@ export function AssistantSettings({
       >
         {data.plan ? (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-text">
-                {data.plan.effectivePlan.displayName ?? t("freePlan")}
-              </p>
-              {data.plan.effectivePlan.code && (
-                <span className="text-[11px] text-text-muted">{data.plan.effectivePlan.code}</span>
+            <div className="rounded-xl border border-border/80 bg-surface-raised/40 p-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
+                    {t("currentPlan")}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-text">
+                    {data.plan.effectivePlan.displayName ?? t("freePlan")}
+                  </p>
+                  {billingSummary.dateKey && billingSummary.dateLabel && (
+                    <p className="mt-1 text-[11px] text-text-muted">
+                      {t(billingSummary.dateKey, { date: billingSummary.dateLabel })}
+                    </p>
+                  )}
+                </div>
+                <span className="shrink-0 rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                  {t(billingSummary.statusKey)}
+                </span>
+              </div>
+
+              <div className="mt-3 flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => onOpenPricingPage?.()}
+                  className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface px-3.5 text-xs font-medium text-text-muted transition-colors hover:border-accent/25 hover:text-text"
+                >
+                  {t("changePlan")}
+                </button>
+              </div>
+
+              {tokenBucket && (
+                <div className="mt-4">
+                  <LimitBar
+                    label={quotaBucketLabels[tokenBucket.bucketCode] ?? tokenBucket.displayName}
+                    pct={tokenBucket.percent}
+                    valueLabel={formatQuotaBucketValue(tokenBucket)}
+                    unavailable={!tokenBucket.usageAvailable}
+                    size="lg"
+                  />
+                </div>
               )}
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {compactQuotaBuckets.map((bucket) => (
+                  <LimitMetricCard
+                    key={bucket.bucketCode}
+                    label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
+                    value={formatQuotaBucketValue(bucket)}
+                    secondary={
+                      bucket.percent === null
+                        ? null
+                        : t("tokenPercentCompact", { pct: bucket.percent })
+                    }
+                  />
+                ))}
+              </div>
             </div>
-            {limitedQuotaBuckets.map((bucket) => (
-              <LimitBar
-                key={bucket.bucketCode}
-                label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
-                pct={bucket.percent}
-                valueLabel={formatQuotaBucketValue(bucket)}
-                unavailable={!bucket.usageAvailable}
-              />
-            ))}
-            {limitedMonthlyMediaQuotas.length > 0 && (
+            {visibleMonthlyMediaQuotas.length > 0 && (
               <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
                 <p className="mb-2 text-xs font-medium text-text">{t("monthlyMediaQuotas")}</p>
                 <div className="space-y-2">
-                  {limitedMonthlyMediaQuotas.map((tool) => (
+                  {visibleMonthlyMediaQuotas.map((tool) => (
                     <LimitBar
                       key={tool.toolCode}
                       label={monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
@@ -2382,31 +2444,45 @@ export function AssistantSettings({
                 </p>
               </div>
             )}
-            {limitedToolDailyLimits.length > 0 && (
-              <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
-                <p className="mb-2 text-xs font-medium text-text">{t("toolLimits")}</p>
-                <ul className="space-y-1.5">
-                  {limitedToolDailyLimits.map((tool) => (
-                    <li key={tool.toolCode} className="flex items-center gap-2 text-[11px]">
-                      <span
-                        className={cn(
-                          "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                          tool.dailyCallLimit !== null && tool.dailyCallsUsed >= tool.dailyCallLimit
-                            ? "bg-destructive"
-                            : "bg-accent"
-                        )}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-text">
-                        {toolLimitLabels[tool.toolCode] ?? tool.displayName}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-text-muted">
-                        {tool.dailyCallsUsed}/{tool.dailyCallLimit}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <div className="rounded-lg border border-border/80 bg-surface-raised/40">
+              <button
+                type="button"
+                onClick={() => setToolLimitsExpanded((value) => !value)}
+                className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-left"
+                aria-expanded={toolLimitsExpanded}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-text">{t("toolLimits")}</p>
+                  <p className="mt-0.5 text-[11px] text-text-subtle">
+                    {t("toolLimitsCount", { count: activeToolCount })}
+                  </p>
+                </div>
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-text-subtle transition-transform",
+                    toolLimitsExpanded && "rotate-90"
+                  )}
+                />
+              </button>
+              {toolLimitsExpanded && (
+                <div className="border-t border-border/80 px-3 py-3">
+                  {allToolDailyLimits.length === 0 ? (
+                    <p className="text-[11px] text-text-subtle">{t("noToolLimits")}</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {allToolDailyLimits.map((tool) => (
+                        <ToolLimitRow
+                          key={tool.toolCode}
+                          label={toolLimitLabels[tool.toolCode] ?? tool.displayName}
+                          tool={tool}
+                          t={t}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <p className="text-xs text-text-subtle">{t("planUnavailable")}</p>
@@ -2506,20 +2582,29 @@ function LimitBar({
   label,
   pct,
   valueLabel,
-  unavailable = false
+  unavailable = false,
+  size = "sm"
 }: {
   label: string;
   pct: number | null;
   valueLabel?: string;
   unavailable?: boolean;
+  size?: "sm" | "lg";
 }) {
   return (
     <div>
-      <div className="flex justify-between text-[11px]">
-        <span className="text-text-muted">{label}</span>
+      <div className={cn("flex justify-between gap-3", size === "lg" ? "text-xs" : "text-[11px]")}>
+        <span className={cn(size === "lg" ? "font-medium text-text" : "text-text-muted")}>
+          {label}
+        </span>
         <span className="text-text-subtle">{valueLabel ?? (pct === null ? "—" : `${pct}%`)}</span>
       </div>
-      <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-raised/80">
+      <div
+        className={cn(
+          "mt-1 overflow-hidden rounded-full bg-surface-raised/80",
+          size === "lg" ? "h-2" : "h-1"
+        )}
+      >
         <div
           className={cn(
             "h-full rounded-full",
@@ -2529,5 +2614,76 @@ function LimitBar({
         />
       </div>
     </div>
+  );
+}
+
+function LimitMetricCard({
+  label,
+  value,
+  secondary
+}: {
+  label: string;
+  value: string;
+  secondary?: string | null;
+}) {
+  return (
+    <div className="rounded-xl border border-border/80 bg-surface/70 p-2.5">
+      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-text-subtle">
+        {label}
+      </p>
+      <p className="mt-1 text-xs font-semibold text-text">{value}</p>
+      {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
+    </div>
+  );
+}
+
+function ToolLimitRow({
+  label,
+  tool,
+  t
+}: {
+  label: string;
+  tool: ToolDailyLimitState;
+  t: ReturnType<typeof useTranslations<"settings">>;
+}) {
+  const valueLabel =
+    tool.active && tool.dailyCallLimit !== null
+      ? `${tool.dailyCallsUsed}/${tool.dailyCallLimit}`
+      : tool.active
+        ? t("toolStatusEnabled")
+        : t("toolStatusDisabled");
+  const hint = !tool.active
+    ? t("toolLimitDisabled")
+    : tool.dailyCallLimit === null
+      ? t("toolLimitUnlimited")
+      : t("toolLimitPerDay", { count: tool.dailyCallLimit });
+
+  return (
+    <li
+      className={cn(
+        "flex items-start gap-3 rounded-xl border border-border/70 px-3 py-2.5",
+        tool.active ? "bg-surface/70" : "bg-surface/30"
+      )}
+    >
+      <span
+        className={cn(
+          "mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+          !tool.active
+            ? "bg-text-subtle/50"
+            : tool.dailyCallLimit !== null && tool.dailyCallsUsed >= tool.dailyCallLimit
+              ? "bg-destructive"
+              : "bg-accent"
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <span className={cn("text-[11px]", tool.active ? "text-text" : "text-text-muted")}>
+            {label}
+          </span>
+          <span className="shrink-0 text-[11px] tabular-nums text-text-subtle">{valueLabel}</span>
+        </div>
+        <p className="mt-1 text-[10px] text-text-subtle">{hint}</p>
+      </div>
+    </li>
   );
 }

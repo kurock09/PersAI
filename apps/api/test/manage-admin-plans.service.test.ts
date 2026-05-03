@@ -61,6 +61,40 @@ async function run(): Promise<void> {
       commercialTag: "trial",
       notes: null
     },
+    presentation: {
+      showOnPricingPage: true,
+      displayOrder: 1,
+      highlighted: true,
+      title: {
+        ru: "Старт",
+        en: "Starter"
+      },
+      subtitle: {
+        ru: "Для начала",
+        en: "For getting started"
+      },
+      notes: {
+        ru: "Тихий note",
+        en: "Quiet note"
+      },
+      badge: {
+        ru: "Популярный",
+        en: "Popular"
+      },
+      ctaLabel: {
+        ru: "Выбрать",
+        en: "Choose"
+      },
+      price: {
+        amount: 0,
+        currency: "rub",
+        billingPeriod: "month"
+      },
+      highlightItems: {
+        ru: ["20 картинок в месяц", "2 навыка"],
+        en: ["20 images per month", "2 skills"]
+      }
+    },
     entitlements: {
       toolClasses: {
         costDrivingTools: false,
@@ -118,6 +152,12 @@ async function run(): Promise<void> {
   assert.equal(parsed.contextPolicy.preset, "balanced");
   assert.equal(parsed.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
   assert.equal(parsed.lifecyclePolicy.paidFallbackPlanCode, null);
+  assert.equal(parsed.presentation.showOnPricingPage, true);
+  assert.equal(parsed.presentation.displayOrder, 1);
+  assert.equal(parsed.presentation.price.amount, 0);
+  assert.equal(parsed.presentation.price.currency, "RUB");
+  assert.equal(parsed.presentation.price.billingPeriod, "month");
+  assert.deepEqual(parsed.presentation.highlightItems.ru, ["20 картинок в месяц", "2 навыка"]);
 
   const writeInput = (
     service as unknown as {
@@ -144,6 +184,41 @@ async function run(): Promise<void> {
     schema: "persai.planLifecyclePolicy.v1",
     trialFallbackPlanCode: "starter_fallback",
     paidFallbackPlanCode: null
+  });
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).presentation, {
+    schema: "persai.planPresentation.v1",
+    showOnPricingPage: true,
+    displayOrder: 1,
+    highlighted: true,
+    title: {
+      ru: "Старт",
+      en: "Starter"
+    },
+    subtitle: {
+      ru: "Для начала",
+      en: "For getting started"
+    },
+    notes: {
+      ru: "Тихий note",
+      en: "Quiet note"
+    },
+    badge: {
+      ru: "Популярный",
+      en: "Popular"
+    },
+    ctaLabel: {
+      ru: "Выбрать",
+      en: "Choose"
+    },
+    price: {
+      amount: 0,
+      currency: "RUB",
+      billingPeriod: "month"
+    },
+    highlightItems: {
+      ru: ["20 картинок в месяц", "2 навыка"],
+      en: ["20 images per month", "2 skills"]
+    }
   });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).quotaAccounting, {
     tokenBudgetLimit: 1000,
@@ -172,6 +247,14 @@ async function run(): Promise<void> {
         lifecyclePolicy: {
           trialFallbackPlanCode: string | null;
           paidFallbackPlanCode: string | null;
+        };
+        presentation: {
+          showOnPricingPage: boolean;
+          displayOrder: number;
+          highlighted: boolean;
+          title: { ru: string | null; en: string | null };
+          price: { amount: number | null; currency: string | null; billingPeriod: string | null };
+          highlightItems: { ru: string[]; en: string[] };
         };
         quotaLimits: {
           activeWebChatsLimit: number | null;
@@ -205,6 +288,14 @@ async function run(): Promise<void> {
   assert.equal(state.contextPolicy.preset, "balanced");
   assert.equal(state.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
   assert.equal(state.lifecyclePolicy.paidFallbackPlanCode, null);
+  assert.equal(state.presentation.showOnPricingPage, true);
+  assert.equal(state.presentation.displayOrder, 1);
+  assert.equal(state.presentation.highlighted, true);
+  assert.equal(state.presentation.title.ru, "Старт");
+  assert.equal(state.presentation.price.amount, 0);
+  assert.equal(state.presentation.price.currency, "RUB");
+  assert.equal(state.presentation.price.billingPeriod, "month");
+  assert.deepEqual(state.presentation.highlightItems.en, ["20 images per month", "2 skills"]);
   assert.equal(state.quotaLimits.activeWebChatsLimit, 12);
   assert.equal(state.quotaLimits.imageGenerateMonthlyUnitsLimit, 20);
   assert.equal(state.quotaLimits.imageEditMonthlyUnitsLimit, 10);
@@ -1214,6 +1305,113 @@ async function run(): Promise<void> {
   );
   assert.ok(webFetchState, "web_fetch activation is surfaced");
   assert.equal(webFetchState.perTurnCap, 7);
+
+  const publicPlansService = createService({
+    planCatalogRepository: {
+      listAll: async () =>
+        [
+          {
+            id: "public-2",
+            code: "pro",
+            displayName: "Pro",
+            description: "Pro plan",
+            status: "active",
+            billingProviderHints: {
+              presentation: {
+                showOnPricingPage: true,
+                displayOrder: 2,
+                highlighted: true,
+                title: { ru: "Про", en: "Pro" },
+                subtitle: { ru: "Для роста", en: "For growth" },
+                notes: { ru: null, en: null },
+                badge: { ru: "Популярный", en: "Popular" },
+                ctaLabel: { ru: "Выбрать", en: "Choose" },
+                price: { amount: 4900, currency: "RUB", billingPeriod: "month" },
+                highlightItems: { ru: ["30 картинок"], en: ["30 images"] }
+              },
+              quotaAccounting: {
+                imageGenerateMonthlyUnitsLimit: 30,
+                videoGenerateMonthlyUnitsLimit: 8
+              },
+              skillPolicy: {
+                maxEnabledSkills: 10
+              }
+            },
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+          },
+          {
+            id: "public-1",
+            code: "starter",
+            displayName: "Starter",
+            description: "Starter plan",
+            status: "active",
+            billingProviderHints: {
+              presentation: {
+                showOnPricingPage: true,
+                displayOrder: 1,
+                highlighted: false,
+                title: { ru: "Старт", en: "Starter" },
+                subtitle: { ru: null, en: null },
+                notes: { ru: null, en: null },
+                badge: { ru: null, en: null },
+                ctaLabel: { ru: null, en: null },
+                price: { amount: 0, currency: "RUB", billingPeriod: "month" },
+                highlightItems: { ru: [], en: [] }
+              }
+            },
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: true,
+            isTrialPlan: true,
+            trialDurationDays: 7,
+            createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+          },
+          {
+            id: "hidden",
+            code: "hidden",
+            displayName: "Hidden",
+            description: null,
+            status: "active",
+            billingProviderHints: {
+              presentation: {
+                showOnPricingPage: false,
+                displayOrder: 0,
+                highlighted: false,
+                title: { ru: null, en: null },
+                subtitle: { ru: null, en: null },
+                notes: { ru: null, en: null },
+                badge: { ru: null, en: null },
+                ctaLabel: { ru: null, en: null },
+                price: { amount: null, currency: null, billingPeriod: null },
+                highlightItems: { ru: [], en: [] }
+              }
+            },
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+          }
+        ] satisfies AssistantPlanCatalog[]
+    }
+  });
+  const publicPlans = await publicPlansService.listPublicPricingPlans();
+  assert.deepEqual(
+    publicPlans.map((plan) => plan.code),
+    ["starter", "pro"]
+  );
+  assert.equal(publicPlans[0]?.defaultOnRegistration, true);
+  assert.equal(publicPlans[1]?.presentation.price.amount, 4900);
+  assert.equal(publicPlans[1]?.skillPolicy.maxEnabledSkills, 10);
 }
 
 void run();

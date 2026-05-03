@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatInput } from "./chat-input";
 
@@ -224,6 +225,36 @@ describe("ChatInput", () => {
     fireEvent.click(screen.getByTitle("send"));
 
     expect(onSend).toHaveBeenCalledWith("hello from desktop touch", undefined, undefined);
+    expect(textarea).toHaveFocus();
+  });
+
+  it("keeps focus on the composer after send rerenders the desktop button into stop", async () => {
+    function Wrapper() {
+      const [isStreaming, setIsStreaming] = useState(false);
+      return (
+        <ChatInput
+          onSend={() => {
+            setIsStreaming(true);
+          }}
+          onTranscribeVoice={vi.fn(async () => "")}
+          onStop={vi.fn()}
+          isStreaming={isStreaming}
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText("placeholder");
+    fireEvent.change(textarea, {
+      target: { value: "hello after rerender" }
+    });
+    fireEvent.mouseDown(screen.getByTitle("send"));
+    fireEvent.click(screen.getByTitle("send"));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("stop")).toBeInTheDocument();
+    });
     expect(textarea).toHaveFocus();
   });
 

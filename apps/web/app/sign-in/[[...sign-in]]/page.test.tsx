@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import SignInPage from "./page";
@@ -58,7 +58,9 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/app/lib/clerk-navigation", () => ({
   getSafeRedirectPathFromSearch: () => "/app",
-  navigateAfterClerkAuth: vi.fn()
+  navigateAfterClerkAuth: vi.fn(),
+  withSafeRedirectParam: (path: string, search: string) =>
+    search.length > 0 ? `${path}${path.includes("?") ? "&" : "?"}${search}` : path
 }));
 
 vi.mock("@/app/app/_components/redirect-signed-in-to-app", () => ({
@@ -74,6 +76,10 @@ function renderWithIntl(ui: ReactNode) {
 }
 
 describe("SignInPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     routerState.searchParams = new URLSearchParams();
     clerkMocks.signInResource.status = "needs_identifier";
@@ -138,4 +144,15 @@ describe("SignInPage", () => {
       expect(clerkMocks.signInResource.finalize).toHaveBeenCalled();
     });
   }, 10_000);
+
+  it("preserves redirect_url when switching to sign-up", () => {
+    routerState.searchParams = new URLSearchParams("redirect_url=%2Fapp%2Fpricing");
+
+    renderWithIntl(<SignInPage />);
+
+    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+      "href",
+      "/sign-up?redirect_url=%2Fapp%2Fpricing"
+    );
+  });
 });

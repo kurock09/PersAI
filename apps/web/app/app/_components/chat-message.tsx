@@ -944,13 +944,13 @@ function AttachmentStrip({
 /**
  * ADR-076 Section M — delay before showing the off-bubble `sending` spinner.
  *
- * Fast sends (commit < 1 s) render no visual artifact at all; the optimistic
+ * Fast sends (commit < 250 ms) render no visual artifact at all; the optimistic
  * user bubble settles silently. Only when the request is still in flight
  * past this threshold does a small spinner fade in to the right of the
  * bubble. Lives locally inside `ChatMessageBubble` so neither `useChat` nor
  * the message status union needs to change.
  */
-const SENDING_INDICATOR_DELAY_MS = 1000;
+const SENDING_INDICATOR_DELAY_MS = 250;
 
 export const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
@@ -983,7 +983,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
     (message.attachments?.length ?? 0) > 0 &&
     isAttachmentsOnlyPlaceholderText(message.content);
 
-  // ADR-076 Section M — arm the 1 s delay only while the bubble is in
+  // ADR-076 Section M — arm the short delay only while the bubble is in
   // `sending`. Any status change (committed / send_failed) clears the timer
   // and removes the spinner immediately, so a fast-path commit produces no
   // visible artifact and a pre-1 s failure flows straight to the existing

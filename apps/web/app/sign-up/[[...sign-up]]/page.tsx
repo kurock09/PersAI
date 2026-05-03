@@ -2,10 +2,15 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useSignUp, useAuth } from "@clerk/nextjs";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/app/lib/utils";
-import { navigateAfterClerkAuth } from "@/app/lib/clerk-navigation";
+import {
+  getSafeRedirectPathFromSearch,
+  navigateAfterClerkAuth,
+  withSafeRedirectParam
+} from "@/app/lib/clerk-navigation";
 import { RedirectSignedInUserToApp } from "@/app/app/_components/redirect-signed-in-to-app";
 import { PasswordField } from "@/app/app/_components/password-field";
 
@@ -15,6 +20,7 @@ export default function SignUpPage() {
   const t = useTranslations("auth");
   const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
+  const searchParams = useSearchParams();
   const [stage, setStage] = useState<Stage>("form");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +28,9 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null);
 
   const isBusy = fetchStatus === "fetching";
+  const currentSearch = searchParams.toString();
+  const signInHref = withSafeRedirectParam("/sign-in", currentSearch);
+  const forgotPasswordHref = withSafeRedirectParam("/sign-in?mode=forgot-password", currentSearch);
 
   const handleSubmit = useCallback(async () => {
     if (!email.trim() || !password) return;
@@ -52,7 +61,8 @@ export default function SignUpPage() {
       if (signUp.status === "complete") {
         await signUp.finalize({
           navigate: async ({ decorateUrl }) => {
-            navigateAfterClerkAuth(decorateUrl("/app/setup"));
+            const target = getSafeRedirectPathFromSearch(window.location.search) ?? "/app/setup";
+            navigateAfterClerkAuth(decorateUrl(target));
           }
         });
       } else {
@@ -157,7 +167,7 @@ export default function SignUpPage() {
               </button>
 
               <a
-                href="/sign-in?mode=forgot-password"
+                href={forgotPasswordHref}
                 className="mt-3 inline-flex text-xs font-medium text-accent transition-colors hover:text-accent-hover"
               >
                 {t("forgotPasswordLink")}
@@ -234,7 +244,7 @@ export default function SignUpPage() {
         <p className="mt-6 text-xs text-text-subtle">
           {t("hasAccount")}{" "}
           <a
-            href="/sign-in"
+            href={signInHref}
             className="font-medium text-accent transition-colors hover:text-accent-hover"
           >
             {t("signInLink")}
@@ -251,7 +261,8 @@ function SignUpCompleteSplash() {
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      navigateAfterClerkAuth("/app/setup", "replace");
+      const target = getSafeRedirectPathFromSearch(window.location.search) ?? "/app/setup";
+      navigateAfterClerkAuth(target, "replace");
     }, 150);
     return () => window.clearTimeout(id);
   }, []);

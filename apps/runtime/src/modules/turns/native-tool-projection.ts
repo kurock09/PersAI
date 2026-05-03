@@ -352,7 +352,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "quota_status",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read live PersAI quota status for the current assistant."
+      "Read live PersAI quota status for the current assistant, including non-media daily tool counters and monthly media quotas."
     ),
     inputSchema: {
       type: "object",
@@ -361,7 +361,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         toolCode: {
           type: "string",
           description:
-            "Optional tool code to inspect one quota-governed tool. Leave unset to return all daily tool counters plus the current quota bucket snapshot."
+            "Optional tool code to inspect one quota-governed tool. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, and monthly media quota rows."
         }
       }
     }

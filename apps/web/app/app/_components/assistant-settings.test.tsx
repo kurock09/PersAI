@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import type { AssistantLifecycleState, AssistantMemoryRegistryItemState } from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
@@ -209,10 +209,14 @@ function workspace(overrides: Partial<WorkspaceMemoryItem>): WorkspaceMemoryItem
   } as WorkspaceMemoryItem;
 }
 
-function renderSettings(data: AppData = makeAppData(), section = "memory"): void {
+function renderSettings(
+  data: AppData = makeAppData(),
+  section = "memory",
+  extraProps: Partial<ComponentProps<typeof AssistantSettings>> = {}
+): void {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <AssistantSettings data={data} initialSection={section} />
+      <AssistantSettings data={data} initialSection={section} {...extraProps} />
     </NextIntlClientProvider>
   );
 }
@@ -739,7 +743,9 @@ describe("AssistantSettings Memory Center (ADR-074 M3.3)", () => {
 });
 
 describe("AssistantSettings limits", () => {
-  it("shows only capped limits and localizes tool names", () => {
+  it("prioritizes token budget, hides disabled monthly media, and keeps tool limits collapsed by default", () => {
+    const openPricingPage = vi.fn();
+
     renderSettings(
       makeAppData({
         plan: {
@@ -748,10 +754,14 @@ describe("AssistantSettings limits", () => {
             displayName: "Pro",
             status: "active",
             source: "plan",
-            subscriptionStatus: null,
-            trialEndsAt: null,
+            subscriptionStatus: "trialing",
+            trialEndsAt: "2026-05-12T00:00:00.000Z",
+            graceStartedAt: null,
+            graceEndsAt: null,
             currentPeriodEndsAt: null,
-            isTrialPlan: false
+            isTrialPlan: true,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null
           },
           entitlements: {
             channelsAndSurfaces: {
@@ -764,12 +774,32 @@ describe("AssistantSettings limits", () => {
           limits: {
             quotaBuckets: [
               {
+                bucketCode: "token_budget",
+                displayName: "Token budget",
+                unit: "tokens",
+                used: 2100,
+                limit: 10000,
+                percent: 21,
+                usageAvailable: true,
+                status: "ok"
+              },
+              {
+                bucketCode: "active_web_chats",
+                displayName: "Active chats",
+                unit: "count",
+                used: 2,
+                limit: 5,
+                percent: 40,
+                usageAvailable: true,
+                status: "ok"
+              },
+              {
                 bucketCode: "media_storage_bytes",
                 displayName: "Media storage",
                 unit: "bytes",
                 used: 1024,
-                limit: null,
-                percent: null,
+                limit: 4096,
+                percent: 25,
                 usageAvailable: true,
                 status: "ok"
               },
@@ -806,13 +836,13 @@ describe("AssistantSettings limits", () => {
                 {
                   toolCode: "image_edit",
                   displayName: "Image editing",
-                  usedUnits: 0,
+                  usedUnits: 1,
                   reservedUnits: 0,
-                  settledUnits: 0,
+                  settledUnits: 1,
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
-                  limitUnits: null,
-                  remainingUnits: null,
+                  limitUnits: 10,
+                  remainingUnits: 9,
                   usageAvailable: true,
                   status: "ok"
                 },
@@ -838,21 +868,48 @@ describe("AssistantSettings limits", () => {
                 dailyCallLimit: null,
                 dailyCallsUsed: 0,
                 active: true
+              },
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                active: true
+              },
+              {
+                toolCode: "image_edit",
+                displayName: "Image editing",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                active: false
               }
             ]
           },
           updatedAt: "2026-04-01T10:00:00.000Z"
         } as unknown as AppData["plan"]
       }),
-      "limits"
+      "limits",
+      { onOpenPricingPage: openPricingPage }
     );
 
+    expect(screen.getByText("Trial until May 12")).toBeInTheDocument();
+    expect(screen.getByText("Token budget")).toBeInTheDocument();
+    expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
+    expect(screen.getByText("Active chats")).toBeInTheDocument();
+    expect(screen.getByText("Media storage")).toBeInTheDocument();
     expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
-    expect(screen.queryByText("Media storage")).toBeNull();
     expect(screen.getByText("Image generations")).toBeInTheDocument();
     expect(screen.getByText("2/20")).toBeInTheDocument();
-    expect(screen.queryByText("Exec")).toBeNull();
-    expect(screen.queryByText("∞")).toBeNull();
+    expect(screen.queryByText("Image edits")).toBeNull();
+    expect(screen.queryByText("Code execution")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Change plan" }));
+    expect(openPricingPage).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Tool limits/i }));
+
+    expect(screen.getByText("Code execution")).toBeInTheDocument();
+    expect(screen.getByText("Image editing")).toBeInTheDocument();
+    expect(screen.getByText("Off")).toBeInTheDocument();
   });
 });
 

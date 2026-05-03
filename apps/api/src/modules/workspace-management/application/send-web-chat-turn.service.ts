@@ -393,9 +393,15 @@ export class SendWebChatTurnService {
         turnRouting: runtimeResponse.turnRouting
       });
       if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(skillRoutingContext)) {
+        const backgroundSkillRoutingContext =
+          this.autoSkillRoutingStateService.createBackgroundCheckContext(skillRoutingContext);
         this.autoSkillRoutingStateService.runBackgroundCheck({
           chatId: prepared.chat.id,
-          execute: () => this.sendNativeWebChatTurnService.checkSkillRouting(nativeTurnInput)
+          execute: () =>
+            this.sendNativeWebChatTurnService.checkSkillRouting({
+              ...nativeTurnInput,
+              skillRoutingContext: backgroundSkillRoutingContext
+            })
         });
       }
 

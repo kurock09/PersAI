@@ -6,6 +6,8 @@ import type {
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 
+const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+
 export type ReadInternalRuntimeQuotaStatusRequest = {
   assistantId: string;
   toolCode?: string;
@@ -63,6 +65,11 @@ export class ReadInternalRuntimeQuotaStatusService {
 
     const tools: ToolDailyQuotaStatusRow[] = [];
     for (const act of resolved.tools) {
+      if (MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(act.toolCode)) {
+        // ADR-082: media paid-usage truth is monthly and delivery-confirmed, so
+        // quota_status should expose those tools only via monthlyMediaQuotas.
+        continue;
+      }
       const dailyCallLimit = act.dailyCallLimit;
       const check =
         dailyCallLimit === null || dailyCallLimit <= 0
