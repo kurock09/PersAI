@@ -537,6 +537,17 @@ export function AssistantSettings({
     data.plan?.limits.monthlyMediaQuotas.tools.filter(
       (tool) => tool.limitUnits !== null && enabledToolCodes.has(tool.toolCode)
     ) ?? [];
+  const featuredMonthlyMediaQuotas = visibleMonthlyMediaQuotas
+    .filter(
+      (tool) =>
+        ["image_generate", "image_edit", "video_generate"].includes(tool.toolCode) &&
+        tool.limitUnits !== null &&
+        tool.limitUnits > 0
+    )
+    .sort((left, right) => {
+      const order = ["image_generate", "image_edit", "video_generate"];
+      return order.indexOf(left.toolCode) - order.indexOf(right.toolCode);
+    });
   const allToolDailyLimits =
     [...(data.plan?.limits.toolDailyLimits ?? [])].sort((left, right) => {
       if (left.active !== right.active) {
@@ -2414,20 +2425,22 @@ export function AssistantSettings({
                 </div>
               )}
 
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {compactQuotaBuckets.map((bucket) => (
-                  <LimitMetricCard
-                    key={bucket.bucketCode}
-                    label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
-                    value={formatQuotaBucketValue(bucket)}
-                    secondary={
-                      bucket.percent === null
-                        ? null
-                        : t("tokenPercentCompact", { pct: bucket.percent })
-                    }
-                  />
-                ))}
-              </div>
+              {featuredMonthlyMediaQuotas.length > 0 ? (
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {featuredMonthlyMediaQuotas.map((tool) => (
+                    <LimitMetricCard
+                      key={tool.toolCode}
+                      label={monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
+                      value={formatMonthlyMediaQuotaValue(tool)}
+                      secondary={
+                        toMonthlyMediaQuotaPercent(tool) === null
+                          ? null
+                          : t("tokenPercentCompact", { pct: toMonthlyMediaQuotaPercent(tool) ?? 0 })
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
             {visibleMonthlyMediaQuotas.length > 0 && (
               <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
@@ -2470,6 +2483,22 @@ export function AssistantSettings({
               </button>
               {toolLimitsExpanded && (
                 <div className="border-t border-border/80 px-3 py-3">
+                  {compactQuotaBuckets.length > 0 ? (
+                    <div className="mb-3 grid grid-cols-3 gap-2">
+                      {compactQuotaBuckets.map((bucket) => (
+                        <LimitMetricCard
+                          key={bucket.bucketCode}
+                          label={quotaBucketLabels[bucket.bucketCode] ?? bucket.displayName}
+                          value={formatQuotaBucketValue(bucket)}
+                          secondary={
+                            bucket.percent === null
+                              ? null
+                              : t("tokenPercentCompact", { pct: bucket.percent })
+                          }
+                        />
+                      ))}
+                    </div>
+                  ) : null}
                   {allToolDailyLimits.length === 0 ? (
                     <p className="text-[11px] text-text-subtle">{t("noToolLimits")}</p>
                   ) : (

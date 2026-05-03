@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-084 Slice 2 limits-plan media emphasis + pricing scroll polish) — billing cards are quieter and pricing scroll matches the app surface
+
+### What changed
+
+- Kept this session bounded to the active ADR-084 Slice 2 UI-polish tail: `apps/web` billing visibility only, specifically the `Assistant Settings -> Limits & Plan` arrangement and the public pricing-page scroll behavior. Checkout/provider work, lifecycle semantics, and plan data shape stayed out of scope.
+- `apps/web/app/app/_components/assistant-settings.tsx` now prioritizes the founder-requested media trio directly under the token bar: `Image generations`, `Image edits`, and `Video generations` render as compact summary cards only when the tool is enabled and the monthly limit is real/non-zero.
+- The old compact cards for `Active chats`, `Media storage`, and `Knowledge storage` were moved into the collapsed `Tool limits` accordion so the top billing block stays focused on the user-visible spend drivers instead of mixed quota categories.
+- `apps/web/app/_components/pricing-page-view.tsx` gained an optional contained-scroll mode, and the public `/pricing` route now uses it so the tariffs page scrolls inside the pricing surface instead of falling back to browser/page-level scroll chrome that looked different from chat.
+- Updated focused web tests to match the new duplicated media summary + detail layout and re-ran the required repo gates.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx app/_components/pricing-page-view.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- The new media summary cards intentionally duplicate the same monthly-media values that still appear in the detailed `Monthly media` bars below. That is by design for now because the top cards are a quick mobile summary, but if the founder wants even less repetition later, the next reduction target is the detailed block rather than the top summary.
+- `containedScroll` is only enabled on the public `/pricing` route. The in-app `/app/pricing` route keeps using the existing `AppShell` scroll container so it does not introduce nested scrolling inside the app surface.
+
+### Next recommended step
+
+Live-smoke `/pricing` and `/app/pricing` in desktop + Capacitor to confirm the scrollbar now feels identical enough to chat and that the reordered billing cards read cleanly on a narrow mobile viewport. If that passes, the next real ADR-084 step is Slice 3 checkout/payment flow.
+
+---
+
 ## 2026-05-04 (web chat send auth latency hardening) — ordinary chat sends no longer force a fresh Clerk token every message
 
 ### What changed
