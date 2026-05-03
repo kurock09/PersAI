@@ -155,7 +155,7 @@ async function run(): Promise<void> {
         reservedUnits: 1,
         settledUnits: 3,
         releasedUnits: 1,
-        reconciliationRequiredUnits: 0,
+        reconciliationRequiredUnits: 2,
         limitUnits: 12,
         lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
       };
@@ -560,6 +560,15 @@ async function run(): Promise<void> {
   assert.equal(
     monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.usedUnits,
     4
+  );
+  assert.equal(
+    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")
+      ?.reconciliationRequiredUnits,
+    2
+  );
+  assert.equal(
+    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.remainingUnits,
+    8
   );
   assert.equal(
     monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.limitUnits,

@@ -775,6 +775,28 @@ export interface RuntimeQuotaStatusBucket {
   status: "ok" | "limit_reached" | "usage_unavailable";
 }
 
+export interface RuntimeMonthlyMediaQuotaStatusToolRow {
+  toolCode: "image_generate" | "image_edit" | "video_generate";
+  displayName: string;
+  usedUnits: number;
+  reservedUnits: number;
+  settledUnits: number;
+  releasedUnits: number;
+  reconciliationRequiredUnits: number;
+  limitUnits: number | null;
+  remainingUnits: number | null;
+  usageAvailable: boolean;
+  status: "ok" | "limit_reached" | "usage_unavailable";
+}
+
+export interface RuntimeMonthlyMediaQuotaStatus {
+  planCode: string | null;
+  periodStartedAt: IsoTimestamp;
+  periodEndsAt: IsoTimestamp;
+  periodSource: "subscription_period" | "calendar_month_fallback";
+  tools: RuntimeMonthlyMediaQuotaStatusToolRow[];
+}
+
 export interface RuntimeQuotaStatusToolResult {
   toolCode: "quota_status";
   executionMode: "inline";
@@ -782,6 +804,7 @@ export interface RuntimeQuotaStatusToolResult {
   planCode: string | null;
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
+  monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
   action: "reported" | "skipped";
   reason: string | null;
   warning: string | null;

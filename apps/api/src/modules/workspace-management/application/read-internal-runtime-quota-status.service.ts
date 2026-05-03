@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type { AssistantQuotaBucketSnapshot } from "./track-workspace-quota-usage.service";
+import type {
+  AssistantMonthlyMediaQuotaSnapshot,
+  AssistantQuotaBucketSnapshot
+} from "./track-workspace-quota-usage.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 
@@ -45,6 +48,7 @@ export class ReadInternalRuntimeQuotaStatusService {
     planCode: string | null;
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
+    monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
   }> {
     const resolved = await this.resolveInternalRuntimeToolDailyPolicyService.execute(
       input.toolCode
@@ -88,12 +92,17 @@ export class ReadInternalRuntimeQuotaStatusService {
     const snapshot = await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(
       resolved.assistant
     );
+    const monthlyMediaQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+        resolved.assistant
+      );
 
     return {
       ok: true,
       planCode: resolved.planCode,
       tools,
-      buckets: snapshot.buckets
+      buckets: snapshot.buckets,
+      monthlyMediaQuotas
     };
   }
 }

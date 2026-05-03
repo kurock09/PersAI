@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (runtime quota-status media snapshot) — assistants see monthly media quota truth
+
+### What changed
+
+- Fixed the assistant-facing `quota_status` path after founder UI validation showed image quota was still answered as "no daily limit".
+- Extended the internal runtime quota status response and runtime contract with `monthlyMediaQuotas`, carrying ADR-082 monthly media period, used/reserved/settled/released/reconciliation counters, limits, remaining units, and status.
+- Runtime `quota_status` now forwards that monthly media snapshot to the model result payload. Legacy `tools[].dailyCallLimit/currentCount` remains for non-media daily tools only; media tools can still appear active there, but monthly quota truth is now available separately.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-tool-quota.controller.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Re-test in UI by asking the assistant "Какой лимит по картинкам"; it should answer from monthly media quota, not `dailyCallLimit: null`.
+
+---
+
+## 2026-05-03 (web media stop hardening) — explicit user Stop no longer leaves stuck thinking or avoidable inflight conflicts
+
+### What changed
+
+- Investigated assistant `2f8cf38e-a6d9-4609-b83a-2b748246fcec` web media generation stop/retry behavior.
+- Changed web `stop()` to wait briefly for `POST /assistant/chat/web/stop` before aborting the local SSE controller, reducing the race where the server still sees the long tool turn as in-flight and the next prompt gets a chat error.
+- Cleared live tool/thinking activity on interrupted/failed terminal paths so an explicitly stopped long tool turn does not leave the UI looking like it is still thinking.
+- Added API media settlement semantics for explicit user stop after runtime has already returned generated artifacts: those reserved units settle as user-caused cost. Server/runtime/delivery failures remain reconciliation/release paths and do not count as delivered success.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Run the full AGENTS verification gates before committing or pushing, then continue ADR-083 lifecycle foundations.
+
+---
+
 ## 2026-05-03 (ADR-082 production risk closure) — Credits are period-scoped and media reservations cannot orphan silently
 
 ### What changed

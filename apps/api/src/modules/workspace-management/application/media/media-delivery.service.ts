@@ -151,6 +151,48 @@ export class MediaDeliveryService {
     }
   }
 
+  async settleUserStoppedArtifacts(params: {
+    assistantId: string;
+    artifacts: MediaArtifact[];
+    reason: string;
+  }): Promise<void> {
+    if (params.artifacts.length === 0) {
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(params.assistantId);
+    if (assistant === null) {
+      this.logger.warn(
+        `Cannot settle user-stopped media reservations for missing assistant ${params.assistantId}.`
+      );
+      return;
+    }
+
+    const unitsByToolCode = new Map<WorkspaceMonthlyMediaQuotaToolCode, number>();
+    for (const artifact of params.artifacts) {
+      const toolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
+      if (toolCode === null) {
+        continue;
+      }
+      unitsByToolCode.set(toolCode, (unitsByToolCode.get(toolCode) ?? 0) + 1);
+    }
+
+    for (const [toolCode, units] of unitsByToolCode) {
+      try {
+        await this.trackWorkspaceQuotaUsageService.settleAssistantMonthlyMediaQuota({
+          assistant,
+          toolCode,
+          units
+        });
+      } catch (error) {
+        this.logger.warn(
+          `Failed to settle user-stopped monthly media quota for ${toolCode} (${params.reason}): ${String(
+            error
+          )}`
+        );
+      }
+    }
+  }
+
   private resolveMonthlyMediaQuotaToolCode(
     artifact: MediaArtifact
   ): WorkspaceMonthlyMediaQuotaToolCode | null {

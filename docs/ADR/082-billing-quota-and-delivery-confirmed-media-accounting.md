@@ -218,7 +218,7 @@ When a new billing period starts, period-scoped counters must reset by naturally
 
 ### Charge point
 
-Media monthly quota is charged only after successful user-visible delivery.
+Media monthly quota is charged only after successful user-visible delivery, except for explicit user Stop after generated artifacts already returned from runtime. In that explicit user-stop case, PersAI treats the generated artifacts as user-caused provider cost and settles the reserved units even if delivery was not committed.
 
 For web chat, successful delivery means:
 
@@ -252,15 +252,17 @@ PersAI may reserve media quota before starting a provider call to prevent obviou
 Reservation semantics:
 
 - reserve before provider execution when enforcing monthly media limits
-- settle the reservation only after delivery success
-- release or expire reservation on provider failure, timeout, runtime interruption, delivery failure, or client-aborted turns without committed delivery
+- settle the reservation after delivery success, or after explicit user Stop when generated artifacts already exist
+- release or expire reservation on provider failure, timeout, runtime interruption, delivery failure, passive disconnect, or client-aborted turns without generated artifacts
 - write reconciliation metadata when provider cost likely happened but user quota was released
 
 The implementation may choose a direct check-then-settle flow for the first slice if concurrency is controlled, but the target state should support reservations because media generation is expensive and long-running.
 
 ### No hidden charge on timeout
 
-Timeout, stream stall, client disconnect, provider error, failed artifact download, failed validation, failed chat attachment persistence, or failed channel adapter delivery must not consume final media quota.
+Timeout, stream stall, passive client disconnect, provider error, failed artifact download, failed validation, failed chat attachment persistence, or failed channel adapter delivery must not consume final media quota.
+
+Explicit user Stop is different from passive disconnect. If the user explicitly stops after the media provider work has produced artifacts, PersAI may settle the reserved media units because provider cost was user-caused. If no artifact exists yet, or the failure is server/provider/delivery-caused rather than explicit user stop, quota follows the no-delivery reconciliation/release rule.
 
 If the assistant text claimed that media was sent but delivery failed, the existing delivery-honesty correction remains required. Quota accounting must follow the same truth: no delivered artifact, no media quota charge.
 

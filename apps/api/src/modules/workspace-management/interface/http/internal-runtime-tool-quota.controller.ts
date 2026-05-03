@@ -95,6 +95,25 @@ export class InternalRuntimeToolQuotaController {
       usageAvailable: boolean;
       status: string;
     }>;
+    monthlyMediaQuotas: {
+      planCode: string | null;
+      periodStartedAt: string;
+      periodEndsAt: string;
+      periodSource: "subscription_period" | "calendar_month_fallback";
+      tools: Array<{
+        toolCode: string;
+        displayName: string;
+        usedUnits: number;
+        reservedUnits: number;
+        settledUnits: number;
+        releasedUnits: number;
+        reconciliationRequiredUnits: number;
+        limitUnits: number | null;
+        remainingUnits: number | null;
+        usageAvailable: boolean;
+        status: string;
+      }>;
+    };
   }> {
     this.assertAuthorized(req);
     const input = this.readInternalRuntimeQuotaStatusService.parseInput(body);

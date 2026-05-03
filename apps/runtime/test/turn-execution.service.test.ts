@@ -1236,7 +1236,8 @@ class FakePersaiInternalApiClientService {
         usageAvailable: true,
         status: "ok"
       }
-    ]
+    ],
+    monthlyMediaQuotas: null
   };
   quotaStatusError: Error | null = null;
 

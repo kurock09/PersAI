@@ -36,6 +36,7 @@ import { useStreamingThreadsRegistry } from "./streaming-threads";
 const SOFT_DETACH_RECONCILE_INTERVAL_MS = 2_000;
 const SOFT_DETACH_RECONCILE_MAX_ATTEMPTS = 60;
 const SOFT_DETACH_RECONCILE_LONG_INTERVAL_MS = 10_000;
+const HARD_STOP_SERVER_ACK_TIMEOUT_MS = 750;
 const ACTIVE_TURN_RESTORE_INTERVAL_MS = 1_000;
 const ACTIVE_TURN_RESTORE_MAX_ATTEMPTS = 30;
 const PENDING_RECONCILE_INTERVAL_MS = 1_000;
@@ -843,6 +844,9 @@ function clearStoredActiveTurnClientTurnId(targetThreadKey: string, clientTurnId
     /* non-critical */
   }
 }
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 export function useChat(threadKey: string): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -975,6 +979,19 @@ export function useChat(threadKey: string): UseChatReturn {
       }
     },
     []
+  );
+  const clearThreadLiveActivity = useCallback(
+    (targetThreadKey: string, assistantMessageIdToClear: string) => {
+      applyThreadLiveActivities(targetThreadKey, (prev) => {
+        if (!(assistantMessageIdToClear in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[assistantMessageIdToClear];
+        return next;
+      });
+    },
+    [applyThreadLiveActivities]
   );
   const setThreadChatId = useCallback((targetThreadKey: string, nextChatId: string) => {
     const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -1237,13 +1254,17 @@ export function useChat(threadKey: string): UseChatReturn {
         if (token === null || token === undefined) {
           return;
         }
-        await stopAssistantWebChatTurn(token, clientTurnId);
+        await Promise.race([
+          stopAssistantWebChatTurn(token, clientTurnId),
+          delay(HARD_STOP_SERVER_ACK_TIMEOUT_MS)
+        ]);
       } catch {
         /* Swallow; local abort below is the user-visible guarantee. */
+      } finally {
+        entry?.controller.abort();
+        abortControllersByThreadRef.current.delete(threadKey);
       }
     })();
-    entry?.controller.abort();
-    abortControllersByThreadRef.current.delete(threadKey);
   }, [threadKey, getToken]);
   const clearIssue = useCallback(() => setIssue(null), []);
   const reportIssue = useCallback((error: unknown) => {
@@ -2754,6 +2775,7 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onInterrupted: ({ transport }) => {
               flushBufferedAssistantState();
+              clearThreadLiveActivity(sendThreadKey, assistantMsgId);
               const interruptedAt = new Date().toISOString();
               const t = transport as {
                 assistantMessage?: { id?: string; content?: string };
@@ -2796,6 +2818,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               );
               if (newAssistantId) {
+                clearThreadLiveActivity(sendThreadKey, newAssistantId);
                 const interruptedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
                 if (interruptedSnapshot !== undefined) {
                   activeTurnSnapshotsRef.current.set(sendThreadKey, {
@@ -2807,6 +2830,7 @@ export function useChat(threadKey: string): UseChatReturn {
             },
             onFailed: (payload) => {
               flushBufferedAssistantState();
+              clearThreadLiveActivity(sendThreadKey, assistantMsgId);
               setIssue(toWebChatUxIssue(payload));
               const failedAt = new Date().toISOString();
               const t = payload.transport as {
@@ -2847,6 +2871,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 })
               );
               if (newAssistantId) {
+                clearThreadLiveActivity(sendThreadKey, newAssistantId);
                 const failedSnapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);
                 if (failedSnapshot !== undefined) {
                   activeTurnSnapshotsRef.current.set(sendThreadKey, {
@@ -2886,6 +2911,7 @@ export function useChat(threadKey: string): UseChatReturn {
             setIssue(toWebChatUxIssue(error));
           }
           const abortedAt = new Date().toISOString();
+          clearThreadLiveActivity(sendThreadKey, assistantMsgId);
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.map((m) =>
               m.id === assistantMsgId && m.status === "streaming"
@@ -2929,6 +2955,7 @@ export function useChat(threadKey: string): UseChatReturn {
       applyThreadLiveActivities,
       applyThreadMessages,
       cacheThreadHistorySnapshot,
+      clearThreadLiveActivity,
       clearSoftDetachReconcileTimer,
       markStreaming,
       refreshCompactionState,

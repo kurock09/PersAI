@@ -46,6 +46,7 @@ export class RuntimeQuotaStatusToolService {
           planCode: outcome.planCode,
           tools: outcome.tools,
           buckets: outcome.buckets,
+          monthlyMediaQuotas: outcome.monthlyMediaQuotas,
           action: "reported",
           reason: null,
           warning: null
@@ -95,6 +96,7 @@ export class RuntimeQuotaStatusToolService {
       planCode: null,
       tools: [],
       buckets: [],
+      monthlyMediaQuotas: null,
       action: "skipped",
       reason,
       warning

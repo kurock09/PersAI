@@ -679,6 +679,27 @@ async function run(): Promise<void> {
     { operation: "reconcile", toolCode: "image_edit" },
     { operation: "reconcile", toolCode: "image_generate" }
   ]);
+  await failedSettlementService.settleUserStoppedArtifacts({
+    assistantId: "assistant-1",
+    reason: "test_user_stop",
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/user-stopped.png",
+        type: "image",
+        sourceToolCode: "video_generate",
+        mimeType: "image/png",
+        filename: "user-stopped.png",
+        sizeBytes: 9
+      }
+    ]
+  });
+  assert.deepEqual(monthlyQuotaCalls, [
+    { operation: "settle", toolCode: "image_generate" },
+    { operation: "reconcile", toolCode: "image_edit" },
+    { operation: "reconcile", toolCode: "image_generate" },
+    { operation: "settle", toolCode: "video_generate" }
+  ]);
   globalThis.fetch = originalFetch;
 }
 

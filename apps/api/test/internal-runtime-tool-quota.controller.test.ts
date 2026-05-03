@@ -73,7 +73,28 @@ async function run(): Promise<void> {
               usageAvailable: true,
               status: "ok"
             }
-          ]
+          ],
+          monthlyMediaQuotas: {
+            planCode: "pro",
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "subscription_period",
+            tools: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                usedUnits: 3,
+                reservedUnits: 1,
+                settledUnits: 2,
+                releasedUnits: 0,
+                reconciliationRequiredUnits: 1,
+                limitUnits: 30,
+                remainingUnits: 27,
+                usageAvailable: true,
+                status: "ok"
+              }
+            ]
+          }
         };
       }
     } as never
@@ -97,6 +118,9 @@ async function run(): Promise<void> {
   assert.equal(check.tools[0]?.toolCode, "web_search");
   assert.equal(check.buckets[0]?.bucketCode, "token_budget");
   assert.equal(check.buckets.length, 1);
+  assert.equal(check.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
+  assert.equal(check.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
+  assert.equal(check.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
 
   const reserve = await successController.reserveMonthlyMediaQuota(
     { headers: { authorization: "Bearer gateway-token" } },
@@ -158,7 +182,19 @@ async function run(): Promise<void> {
         return body as { assistantId: string; toolCode?: string };
       },
       async execute() {
-        return { ok: true, planCode: null, tools: [], buckets: [] };
+        return {
+          ok: true,
+          planCode: null,
+          tools: [],
+          buckets: [],
+          monthlyMediaQuotas: {
+            planCode: null,
+            periodStartedAt: "2026-05-01T00:00:00.000Z",
+            periodEndsAt: "2026-06-01T00:00:00.000Z",
+            periodSource: "calendar_month_fallback",
+            tools: []
+          }
+        };
       }
     } as never
   );

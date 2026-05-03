@@ -742,12 +742,24 @@ describe("useChat", () => {
         _payload: unknown,
         handlers: {
           onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onTool?: (payload: {
+            phase: "start" | "end";
+            toolName: string;
+            toolCallId: string;
+            isError: boolean;
+          }) => void;
           onInterrupted?: (payload: { transport: unknown }) => void;
         }
       ) => {
         handlers.onStarted?.({
           chat: { id: "chat-1" },
           userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onTool?.({
+          phase: "start",
+          toolName: "image_generate",
+          toolCallId: "tool-1",
+          isError: false
         });
         handlers.onInterrupted?.({
           transport: {
@@ -773,6 +785,7 @@ describe("useChat", () => {
     expect(assistantEntries).toHaveLength(1);
     expect(assistantEntries[0]?.message.id).toBe("assistant-msg-interrupted-1");
     expect(assistantEntries[0]?.message.status).toBe("committed");
+    expect(result.current.entries.some((entry) => entry.kind === "activity")).toBe(false);
     expect(result.current.isStreaming).toBe(false);
   });
 
@@ -3259,9 +3272,18 @@ describe("useChat", () => {
      * navigation, network drop) must *not* fire the POST — that's how the
      * runtime ends up in soft-detach mode.
      */
-    it("stop() POSTs the in-flight clientTurnId before aborting the local controller", async () => {
+    it("stop() waits briefly for the hard-stop POST before aborting the local controller", async () => {
       let observedSignal: AbortSignal | undefined;
       let observedClientTurnId: string | undefined;
+      let resolveStopPost: (() => void) | undefined;
+      const stopPostStarted: Promise<void> = new Promise((resolve) => {
+        assistantApiMocks.stopAssistantWebChatTurn.mockImplementationOnce(async () => {
+          resolve();
+          await new Promise<void>((stopResolve) => {
+            resolveStopPost = stopResolve;
+          });
+        });
+      });
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
         async (
           _token: string,
@@ -3290,12 +3312,10 @@ describe("useChat", () => {
       });
       await waitFor(() => expect(observedClientTurnId).toBeDefined());
 
-      await act(async () => {
+      act(() => {
         result.current.stop();
-        if (sendPromise !== undefined) {
-          await sendPromise.catch(() => undefined);
-        }
       });
+      await stopPostStarted;
 
       // The hard-stop POST must fire with the same clientTurnId the
       // streaming endpoint received, so the API can route it through the
@@ -3307,8 +3327,15 @@ describe("useChat", () => {
         "token-1",
         observedClientTurnId
       );
-      // Local controller must still be aborted — this is what flips the
-      // user-facing UI state regardless of whether the POST succeeded.
+      expect(observedSignal?.aborted).toBe(false);
+
+      await act(async () => {
+        resolveStopPost?.();
+        if (sendPromise !== undefined) {
+          await sendPromise.catch(() => undefined);
+        }
+      });
+
       expect(observedSignal?.aborted).toBe(true);
     });
 
@@ -3342,10 +3369,10 @@ describe("useChat", () => {
     });
 
     it("stop() still aborts locally even if the hard-stop POST rejects", async () => {
-      // The POST is best-effort: a network failure here just means the
-      // runtime keeps generating server-side, which is no worse than the
-      // soft-detach path. The user-visible UI guarantee — composer
-      // unfreezes, isStreaming flips off — must hold regardless.
+      // The POST is best-effort after a short wait: a network failure here
+      // just means the runtime may keep generating server-side, which is no
+      // worse than the soft-detach path. The user-visible UI guarantee —
+      // composer unfreezes, isStreaming flips off — must hold regardless.
       assistantApiMocks.stopAssistantWebChatTurn.mockRejectedValueOnce(new Error("network down"));
 
       let observedSignal: AbortSignal | undefined;

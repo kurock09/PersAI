@@ -17,6 +17,7 @@ import type {
   RuntimeRetrievalPlan,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
+  RuntimeMonthlyMediaQuotaStatus,
   RuntimeQuotaStatusBucket,
   RuntimeQuotaStatusToolRow
 } from "@persai/runtime-contract";
@@ -69,6 +70,7 @@ export type InternalQuotaStatusOutcome = {
   planCode: string | null;
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
+  monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
 };
 
 export type InternalScheduledActionItem = {
@@ -589,18 +591,21 @@ export class PersaiInternalApiClientService {
       const payload = this.asObject(response.body);
       const tools = payload?.tools;
       const buckets = payload?.buckets;
+      const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
       if (
         payload?.ok === true &&
         (payload.planCode === null || typeof payload.planCode === "string") &&
         Array.isArray(tools) &&
         tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
         Array.isArray(buckets) &&
-        buckets.every((bucket) => this.isQuotaStatusBucket(bucket))
+        buckets.every((bucket) => this.isQuotaStatusBucket(bucket)) &&
+        (monthlyMediaQuotas === null || this.isMonthlyMediaQuotaStatus(monthlyMediaQuotas))
       ) {
         return {
           planCode: (payload.planCode as string | null) ?? null,
           tools: tools as RuntimeQuotaStatusToolRow[],
-          buckets: buckets as RuntimeQuotaStatusBucket[]
+          buckets: buckets as RuntimeQuotaStatusBucket[],
+          monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null
         };
       }
       throw new BadGatewayException(
@@ -1528,6 +1533,46 @@ export class PersaiInternalApiClientService {
       typeof row.usageAvailable === "boolean" &&
       (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
     );
+  }
+
+  private isMonthlyMediaQuotaStatus(value: unknown): value is RuntimeMonthlyMediaQuotaStatus {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.planCode === null || typeof row.planCode === "string") &&
+      typeof row.periodStartedAt === "string" &&
+      typeof row.periodEndsAt === "string" &&
+      (row.periodSource === "subscription_period" ||
+        row.periodSource === "calendar_month_fallback") &&
+      Array.isArray(row.tools) &&
+      row.tools.every((tool) => this.isMonthlyMediaQuotaStatusTool(tool))
+    );
+  }
+
+  private isMonthlyMediaQuotaStatusTool(
+    value: unknown
+  ): value is RuntimeMonthlyMediaQuotaStatus["tools"][number] {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.toolCode === "image_generate" ||
+        row.toolCode === "image_edit" ||
+        row.toolCode === "video_generate") &&
+      typeof row.displayName === "string" &&
+      this.isNonNegativeInteger(row.usedUnits) &&
+      this.isNonNegativeInteger(row.reservedUnits) &&
+      this.isNonNegativeInteger(row.settledUnits) &&
+      this.isNonNegativeInteger(row.releasedUnits) &&
+      this.isNonNegativeInteger(row.reconciliationRequiredUnits) &&
+      (row.limitUnits === null || this.isNonNegativeInteger(row.limitUnits)) &&
+      (row.remainingUnits === null || this.isNonNegativeInteger(row.remainingUnits)) &&
+      typeof row.usageAvailable === "boolean" &&
+      (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
+    );
+  }
+
+  private isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0;
   }
 
   private extractError(body: unknown): { code: string | null; message: string | null } {

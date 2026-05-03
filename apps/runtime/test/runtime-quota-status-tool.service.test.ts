@@ -213,7 +213,28 @@ class FakePersaiInternalApiClientService {
         usageAvailable: true,
         status: "ok"
       }
-    ]
+    ],
+    monthlyMediaQuotas: {
+      planCode: "paid",
+      periodStartedAt: "2026-05-01T00:00:00.000Z",
+      periodEndsAt: "2026-06-01T00:00:00.000Z",
+      periodSource: "subscription_period",
+      tools: [
+        {
+          toolCode: "image_generate",
+          displayName: "Image generation",
+          usedUnits: 3,
+          reservedUnits: 1,
+          settledUnits: 2,
+          releasedUnits: 0,
+          reconciliationRequiredUnits: 1,
+          limitUnits: 30,
+          remainingUnits: 27,
+          usageAvailable: true,
+          status: "ok"
+        }
+      ]
+    }
   };
   error: Error | null = null;
 
@@ -257,6 +278,9 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
+  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.toolCode, "image_generate");
+  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.usedUnits, 3);
+  assert.equal(success.payload.monthlyMediaQuotas?.tools[0]?.limitUnits, 30);
   assert.deepEqual(internalApi.readCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "web_search"
@@ -295,5 +319,6 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(failed.payload.reason, "quota_status_failed");
   assert.equal(failed.payload.warning, "internal quota error");
   assert.deepEqual(failed.payload.buckets, []);
+  assert.equal(failed.payload.monthlyMediaQuotas, null);
   assert.equal(failed.isError, true);
 }

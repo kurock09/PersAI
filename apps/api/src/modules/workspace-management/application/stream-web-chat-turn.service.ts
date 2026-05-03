@@ -440,7 +440,7 @@ export class StreamWebChatTurnService {
           outputPreview: accumulated
         });
         if (collectedMedia.length > 0) {
-          await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
+          await this.mediaDeliveryService.settleUserStoppedArtifacts({
             assistantId: prepared.assistantId,
             artifacts: collectedMedia,
             reason: "web_stream_client_aborted_before_delivery"
