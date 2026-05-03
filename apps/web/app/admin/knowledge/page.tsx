@@ -158,6 +158,14 @@ type ProductTextEntryDraft = {
   lifecycleStatus: "draft" | "active" | "stale" | "archived";
 };
 
+export const KNOWLEDGE_LOCALE_OPTIONS = [
+  { value: "", label: "Any locale" },
+  { value: "en", label: "English (en)" },
+  { value: "en-US", label: "English US (en-US)" },
+  { value: "ru", label: "Russian (ru)" },
+  { value: "ru-RU", label: "Russian RU (ru-RU)" }
+] as const;
+
 const EMPTY_TEXT_ENTRY_DRAFT: ProductTextEntryDraft = {
   id: null,
   title: "",
@@ -856,14 +864,19 @@ export default function AdminKnowledgePage() {
               </label>
               <label className="block space-y-1">
                 <span className="text-[11px] font-medium text-text-muted">Locale</span>
-                <input
+                <select
                   value={textEntryDraft.locale}
                   onChange={(event) =>
                     setTextEntryDraft((prev) => ({ ...prev, locale: event.target.value }))
                   }
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text outline-none focus:border-border-strong"
-                  placeholder="en or ru"
-                />
+                >
+                  {KNOWLEDGE_LOCALE_OPTIONS.map((option) => (
+                    <option key={option.value || "any"} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label className="block space-y-1 md:col-span-2">
                 <span className="text-[11px] font-medium text-text-muted">Tags</span>

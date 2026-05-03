@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type {
   AdminSkillState,
+  SkillAuthoringDraftKnowledgeCardProposal,
   SkillDocumentState,
   SkillKnowledgeCardState
 } from "@/app/app/assistant-api-client";
 import {
   draftToSkillPayload,
+  filterUnsavedProposedKnowledgeCards,
+  KNOWLEDGE_LOCALE_OPTIONS,
   knowledgeCardDraftToPayload,
   knowledgeCardToDraft,
   skillToDraft,
@@ -95,6 +98,16 @@ function createSkill(): AdminSkillState {
 }
 
 describe("admin skills page helpers", () => {
+  it("uses a fixed locale option list for Skill knowledge cards", () => {
+    expect(KNOWLEDGE_LOCALE_OPTIONS.map((option) => option.value)).toEqual([
+      "",
+      "en",
+      "en-US",
+      "ru",
+      "ru-RU"
+    ]);
+  });
+
   it("round-trips a persisted Skill into an upsert payload", () => {
     const draft = skillToDraft(createSkill());
     expect(draft.nameEn).toBe("Accountant");
@@ -195,5 +208,29 @@ describe("admin skills page helpers", () => {
         createKnowledgeCard("stale", "stale")
       ])
     ).toEqual({ total: 3, active: 1, draft: 1, stale: 1 });
+  });
+
+  it("keeps only unsaved assistant-proposed knowledge cards", () => {
+    const existing = createKnowledgeCard("existing", "draft");
+    const duplicateProposal: SkillAuthoringDraftKnowledgeCardProposal = {
+      title: existing.title,
+      body: existing.body,
+      locale: existing.locale,
+      tags: existing.tags,
+      lifecycleStatus: "draft",
+      provenanceKind: "assistant_generated"
+    };
+    const newProposal: SkillAuthoringDraftKnowledgeCardProposal = {
+      title: "Weekly plan draft",
+      body: "Use this draft for weekly meal planning after confirming goals and constraints.",
+      locale: "en",
+      tags: ["planning"],
+      lifecycleStatus: "draft",
+      provenanceKind: "assistant_generated"
+    };
+
+    expect(
+      filterUnsavedProposedKnowledgeCards([duplicateProposal, newProposal, newProposal], [existing])
+    ).toEqual([newProposal]);
   });
 });

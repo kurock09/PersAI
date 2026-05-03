@@ -78,6 +78,14 @@ type SkillKnowledgeCardDraft = {
   provenanceKind: "manual" | "assistant_generated";
 };
 
+export const KNOWLEDGE_LOCALE_OPTIONS = [
+  { value: "", label: "Any locale" },
+  { value: "en", label: "English (en)" },
+  { value: "en-US", label: "English US (en-US)" },
+  { value: "ru", label: "Russian (ru)" },
+  { value: "ru-RU", label: "Russian RU (ru-RU)" }
+] as const;
+
 const SKILL_GROUP_OPTIONS = [
   { value: "work", label: "Работа" },
   { value: "engineering", label: "Профессии / Engineering" },
@@ -298,6 +306,43 @@ function proposedKnowledgeCardToDraft(
   };
 }
 
+function normalizeKnowledgeCardIdentity(input: {
+  title: string;
+  body: string;
+  locale: string | null;
+}): string {
+  return JSON.stringify({
+    title: input.title.trim().toLowerCase(),
+    body: input.body.trim().toLowerCase(),
+    locale: input.locale?.trim().toLowerCase() || null
+  });
+}
+
+export function filterUnsavedProposedKnowledgeCards(
+  proposedCards: SkillAuthoringDraftKnowledgeCardProposal[],
+  existingCards: SkillKnowledgeCardState[]
+): SkillAuthoringDraftKnowledgeCardProposal[] {
+  const seen = new Set(
+    existingCards.map((card) =>
+      normalizeKnowledgeCardIdentity({
+        title: card.title,
+        body: card.body,
+        locale: card.locale
+      })
+    )
+  );
+  const unsaved: SkillAuthoringDraftKnowledgeCardProposal[] = [];
+  for (const card of proposedCards) {
+    const key = normalizeKnowledgeCardIdentity(card);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unsaved.push(card);
+  }
+  return unsaved;
+}
+
 export function knowledgeCardToDraft(
   card: SkillKnowledgeCardState | null
 ): SkillKnowledgeCardDraft {
@@ -474,6 +519,16 @@ export default function AdminSkillsPage() {
     () => summarizeKnowledgeCards(selectedSkill?.knowledgeCards ?? []),
     [selectedSkill]
   );
+  const unsavedProposedKnowledgeCards = useMemo(
+    () =>
+      authoringProposal === null
+        ? []
+        : filterUnsavedProposedKnowledgeCards(
+            authoringProposal.knowledgeCards,
+            selectedSkill?.knowledgeCards ?? []
+          ),
+    [authoringProposal, selectedSkill]
+  );
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -540,14 +595,43 @@ export default function AdminSkillsPage() {
         draft.id === null
           ? await createAdminSkill(token, payload)
           : await updateAdminSkill(token, draft.id, payload);
-      setFeedback(draft.id === null ? "Skill created." : "Skill saved.");
+      let savedProposedCards = 0;
+      let lastSavedCardId: string | null = null;
+      if (authoringProposal !== null) {
+        const unsavedCards = filterUnsavedProposedKnowledgeCards(
+          authoringProposal.knowledgeCards,
+          saved.knowledgeCards
+        );
+        for (const card of unsavedCards) {
+          const draftCard = proposedKnowledgeCardToDraft(card);
+          const result = await createAdminSkillKnowledgeCard(
+            token,
+            saved.id,
+            knowledgeCardDraftToPayload(draftCard)
+          );
+          savedProposedCards += 1;
+          lastSavedCardId = result.card.id;
+        }
+      }
+      setFeedback(
+        savedProposedCards > 0
+          ? `${draft.id === null ? "Skill created" : "Skill saved"} and ${savedProposedCards} proposed draft card(s) saved.`
+          : draft.id === null
+            ? "Skill created."
+            : "Skill saved."
+      );
       await load();
       setSelectedSkillId(saved.id);
+      if (lastSavedCardId !== null) {
+        setSelectedKnowledgeCardId(lastSavedCardId);
+        setAuthoringProposal(null);
+        setKnowledgeCardDraft(knowledgeCardToDraft(null));
+      }
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Save failed.");
     }
     setSaving(false);
-  }, [draft, getToken, load]);
+  }, [authoringProposal, draft, getToken, load]);
 
   const handleGenerateAuthoringDraft = useCallback(async () => {
     if (selectedSkill === null) return;
@@ -689,6 +773,45 @@ export default function AdminSkillsPage() {
     }
     setSavingKnowledgeCard(false);
   }, [getToken, knowledgeCardDraft, load, selectedSkill]);
+
+  const handleSaveProposedKnowledgeCards = useCallback(async () => {
+    if (selectedSkill === null || authoringProposal === null) return;
+    const token = await getToken();
+    if (!token) return;
+    const unsavedCards = filterUnsavedProposedKnowledgeCards(
+      authoringProposal.knowledgeCards,
+      selectedSkill.knowledgeCards
+    );
+    if (unsavedCards.length === 0) {
+      setFeedback("No new proposed cards to save.");
+      setAuthoringProposal(null);
+      return;
+    }
+    setSavingKnowledgeCard(true);
+    setFeedback(null);
+    try {
+      let lastSavedCardId: string | null = null;
+      for (const card of unsavedCards) {
+        const draftCard = proposedKnowledgeCardToDraft(card);
+        const result = await createAdminSkillKnowledgeCard(
+          token,
+          selectedSkill.id,
+          knowledgeCardDraftToPayload(draftCard)
+        );
+        lastSavedCardId = result.card.id;
+      }
+      setFeedback(`${unsavedCards.length} proposed draft card(s) saved.`);
+      await load();
+      setAuthoringProposal(null);
+      if (lastSavedCardId !== null) {
+        setSelectedKnowledgeCardId(lastSavedCardId);
+      }
+      setKnowledgeCardDraft(knowledgeCardToDraft(null));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Proposed card save failed.");
+    }
+    setSavingKnowledgeCard(false);
+  }, [authoringProposal, getToken, load, selectedSkill]);
 
   const handleArchiveKnowledgeCard = useCallback(
     async (cardId: string) => {
@@ -896,8 +1019,8 @@ export default function AdminSkillsPage() {
                 <div>
                   <h3 className="text-xs font-semibold text-text">Собрать с помощью агента</h3>
                   <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-text-muted">
-                    Fills only the editable draft fields and proposes draft cards. Nothing is saved,
-                    activated, or indexed until an admin presses Save.
+                    Fills editable draft fields and proposes draft cards. Proposed cards are saved
+                    as draft Knowledge only when an admin presses Save.
                   </p>
                 </div>
                 <button
@@ -1105,12 +1228,32 @@ export default function AdminSkillsPage() {
                   <div>
                     <h3 className="text-xs font-semibold text-text">Assistant-proposed cards</h3>
                     <p className="text-[11px] text-text-muted">
-                      Draft proposals only. Pick one to load into the editor, then save manually.
+                      Draft proposals only. Save all as draft Knowledge, or pick one to edit before
+                      saving.
                     </p>
                   </div>
-                  <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-text-muted">
-                    {authoringProposal.providerKey}:{authoringProposal.modelKey}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-background px-2 py-0.5 text-[10px] text-text-muted">
+                      {authoringProposal.providerKey}:{authoringProposal.modelKey}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={
+                        selectedSkill === null ||
+                        savingKnowledgeCard ||
+                        unsavedProposedKnowledgeCards.length === 0
+                      }
+                      onClick={() => void handleSaveProposedKnowledgeCards()}
+                      className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      {savingKnowledgeCard ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Save all proposed
+                    </button>
+                  </div>
                 </div>
                 <div className="mt-3 grid gap-2 md:grid-cols-2">
                   {authoringProposal.knowledgeCards.map((card, index) => (
@@ -1302,7 +1445,7 @@ export default function AdminSkillsPage() {
                       </select>
                     </Field>
                     <Field label="Locale">
-                      <input
+                      <select
                         value={knowledgeCardDraft.locale}
                         onChange={(event) =>
                           setKnowledgeCardDraft((prev) => ({
@@ -1311,8 +1454,13 @@ export default function AdminSkillsPage() {
                           }))
                         }
                         className={FIELD_CLASS}
-                        placeholder="en or ru"
-                      />
+                      >
+                        {KNOWLEDGE_LOCALE_OPTIONS.map((option) => (
+                          <option key={option.value || "any"} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </Field>
                     <Field label="Tags">
                       <input

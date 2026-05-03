@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-080 admin locale dropdowns) — Skill/Product KB locale fields use fixed selects (`apps/web`; focused checks green)
+
+### What changed
+
+- Replaced the free-text `locale` input in Admin Skills Skill Knowledge cards with a dropdown list.
+- Replaced the free-text `locale` input in Admin Knowledge Product KB text entries with the same dropdown list.
+- The available values are `Any locale`, `en`, `en-US`, `ru`, and `ru-RU`; `Any locale` remains stored as `null`.
+- Added focused helper coverage for both admin pages to keep the option list explicit.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/skills/page.test.tsx app/admin/knowledge/page.test.tsx`
+- `ReadLints` on changed web/admin files
+
+### Next recommended step
+
+Deploy and smoke `/admin/skills` plus `/admin/knowledge`: creating/editing a Skill Knowledge card or Product KB text entry should show a locale dropdown and save the selected locale.
+
+---
+
+## 2026-05-03 (ADR-080 assistant-proposed Skill cards save fix) — admin `Save` persists all proposed cards as drafts (`apps/web`; focused checks green)
+
+### What changed
+
+- Investigated the live Admin Skills authoring complaint where generated card proposals were visible but not saved by the main Skill `Save`, and the card editor `Save` persisted only the one proposal loaded into the editor.
+- Confirmed API logs did not show backend errors for card creation; the issue was UI flow: generated cards were only local proposals unless individually loaded into the editor.
+- Main Skill `Save` now also persists all new assistant-proposed cards as draft Skill Knowledge cards.
+- Added an explicit `Save all proposed` action in the proposed-card panel for saving proposals without changing Skill fields.
+- Added client-side dedupe so repeated saves do not create duplicates for already saved proposal content.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/skills/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web run lint`
+- `corepack pnpm run format:check`
+- `ReadLints` on changed web files
+
+### Next recommended step
+
+Deploy and retry `Собрать с помощью агента`: after proposals appear, pressing the main `Save` should persist every proposed card as a draft under Skill Knowledge cards.
+
+---
+
 ## 2026-05-03 (ADR-079 Skill routing live fix) — short Skill-domain turns use admin Skill metadata before `simple_turn` (`apps/runtime`; focused check green)
 
 ### What changed

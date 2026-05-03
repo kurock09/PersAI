@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   flattenAvailableTextModelOptions,
+  KNOWLEDGE_LOCALE_OPTIONS,
   productTextEntryDraftToPayload,
   productTextEntryToDraft,
   summarizeProductTextEntries,
@@ -8,6 +9,16 @@ import {
 } from "./page";
 
 describe("admin knowledge page helpers", () => {
+  it("uses a fixed locale option list for Product KB text entries", () => {
+    expect(KNOWLEDGE_LOCALE_OPTIONS.map((option) => option.value)).toEqual([
+      "",
+      "en",
+      "en-US",
+      "ru",
+      "ru-RU"
+    ]);
+  });
+
   it("flattens available text models from runtime settings", () => {
     expect(
       flattenAvailableTextModelOptions({
