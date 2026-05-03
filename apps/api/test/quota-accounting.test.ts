@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
+import type { ResolvePlatformRuntimeProviderSettingsService } from "../src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
-import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
+import type {
+  FindMonthlyMediaQuotaCounterInput,
+  FindTokenBudgetPeriodCounterInput,
+  MonthlyMediaQuotaMutationInput,
+  WorkspaceQuotaAccountingRepository
+} from "../src/modules/workspace-management/domain/workspace-quota-accounting.repository";
 import type { WorkspaceToolDailyUsageRepository } from "../src/modules/workspace-management/domain/workspace-tool-daily-usage.repository";
 
 type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId">;
@@ -11,6 +17,12 @@ type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
 type QuotaRepoStub = Pick<
   WorkspaceQuotaAccountingRepository,
   | "findByWorkspaceId"
+  | "findTokenBudgetPeriodCounter"
+  | "findMonthlyMediaQuotaCounter"
+  | "reserveMonthlyMediaQuota"
+  | "settleMonthlyMediaQuota"
+  | "releaseMonthlyMediaQuota"
+  | "markMonthlyMediaQuotaReconciliationRequired"
   | "applyTokenBudgetUsage"
   | "applyKnowledgeStorageUsage"
   | "releaseKnowledgeStorageUsage"
@@ -21,6 +33,10 @@ type ToolDailyUsageRepoStub = Pick<
   "incrementAndGet" | "getUsageForDate" | "consumeWithinLimit"
 >;
 type SubscriptionResolverStub = Pick<ResolveEffectiveSubscriptionStateService, "execute">;
+type RuntimeProviderSettingsResolverStub = Pick<
+  ResolvePlatformRuntimeProviderSettingsService,
+  "execute"
+>;
 
 async function run(): Promise<void> {
   process.env.APP_ENV = "local";
@@ -34,7 +50,13 @@ async function run(): Promise<void> {
   process.env.QUOTA_KNOWLEDGE_STORAGE_BYTES_DEFAULT = "104857600";
   process.env.WEB_ACTIVE_CHATS_CAP = "20";
 
-  const tokenCalls: Array<{ delta: bigint; source: string }> = [];
+  const tokenCalls: Array<{
+    delta: bigint;
+    source: string;
+    metadata: Record<string, unknown> | null;
+    periodStartedAt: Date;
+    periodEndsAt: Date;
+  }> = [];
   const refreshCalls: Array<{ currentActiveWebChats: number; source: string }> = [];
   const knowledgeApplyCalls: Array<{
     delta: bigint;
@@ -43,6 +65,10 @@ async function run(): Promise<void> {
     limit: bigint | null;
   }> = [];
   const knowledgeReleaseCalls: Array<{ delta: bigint; source: string }> = [];
+  const monthlyMediaCalls: Array<{
+    operation: "reserve" | "settle" | "release" | "reconcile";
+    input: MonthlyMediaQuotaMutationInput;
+  }> = [];
 
   const governanceRepo: GovernanceRepoStub = {
     async findByAssistantId() {
@@ -76,6 +102,9 @@ async function run(): Promise<void> {
           quotaAccounting: {
             tokenBudgetLimit: 120000,
             costOrTokenDrivingToolClassUnitsLimit: 600,
+            imageGenerateMonthlyUnitsLimit: 12,
+            imageEditMonthlyUnitsLimit: 6,
+            videoGenerateMonthlyUnitsLimit: 2,
             knowledgeStorageBytesLimit: 32
           }
         },
@@ -114,14 +143,117 @@ async function run(): Promise<void> {
         updatedAt: new Date()
       };
     },
+    async findMonthlyMediaQuotaCounter(input: FindMonthlyMediaQuotaCounterInput) {
+      if (input.toolCode !== "image_generate") {
+        return null;
+      }
+      return {
+        workspaceId: input.workspaceId,
+        toolCode: input.toolCode,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        reservedUnits: 1,
+        settledUnits: 3,
+        releasedUnits: 1,
+        reconciliationRequiredUnits: 0,
+        limitUnits: 12,
+        lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+      };
+    },
+    async reserveMonthlyMediaQuota(input) {
+      monthlyMediaCalls.push({ operation: "reserve", input });
+      return {
+        allowed: input.units <= 2,
+        currentUsedUnits: 4 + input.units,
+        limitUnits: input.limitUnits,
+        counter: {
+          workspaceId: input.workspaceId,
+          toolCode: input.toolCode,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt,
+          reservedUnits: input.units,
+          settledUnits: 3,
+          releasedUnits: 1,
+          reconciliationRequiredUnits: 0,
+          limitUnits: input.limitUnits,
+          lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+        }
+      };
+    },
+    async settleMonthlyMediaQuota(input) {
+      monthlyMediaCalls.push({ operation: "settle", input });
+      return {
+        workspaceId: input.workspaceId,
+        toolCode: input.toolCode,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        reservedUnits: 0,
+        settledUnits: input.units,
+        releasedUnits: 0,
+        reconciliationRequiredUnits: 0,
+        limitUnits: input.limitUnits,
+        lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+      };
+    },
+    async releaseMonthlyMediaQuota(input) {
+      monthlyMediaCalls.push({ operation: "release", input });
+      return {
+        workspaceId: input.workspaceId,
+        toolCode: input.toolCode,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        reservedUnits: 0,
+        settledUnits: 0,
+        releasedUnits: input.units,
+        reconciliationRequiredUnits: 0,
+        limitUnits: input.limitUnits,
+        lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+      };
+    },
+    async markMonthlyMediaQuotaReconciliationRequired(input) {
+      monthlyMediaCalls.push({ operation: "reconcile", input });
+      return {
+        workspaceId: input.workspaceId,
+        toolCode: input.toolCode,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        reservedUnits: 0,
+        settledUnits: 0,
+        releasedUnits: 0,
+        reconciliationRequiredUnits: input.units,
+        limitUnits: input.limitUnits,
+        lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+      };
+    },
+    async findTokenBudgetPeriodCounter(input: FindTokenBudgetPeriodCounterInput) {
+      return {
+        workspaceId: input.workspaceId,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        usedCredits: BigInt(17),
+        limitCredits: BigInt(120000),
+        lastComputedAt: new Date("2026-05-03T00:00:00.000Z")
+      };
+    },
     async applyTokenBudgetUsage(input) {
       tokenCalls.push({
         delta: input.delta,
-        source: input.source
+        source: input.source,
+        metadata: input.metadata,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt
       });
       return {
         appliedDelta: input.delta,
         capped: false,
+        counter: {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt,
+          usedCredits: BigInt(17) + input.delta,
+          limitCredits: input.limits.tokenBudgetLimit,
+          lastComputedAt: new Date()
+        },
         state: {
           id: "state-1",
           workspaceId: input.workspaceId,
@@ -228,6 +360,7 @@ async function run(): Promise<void> {
         status: "unconfigured",
         planCode: "starter_trial",
         trialEndsAt: null,
+        currentPeriodStartedAt: null,
         currentPeriodEndsAt: null,
         cancelAtPeriodEnd: false
       };
@@ -248,13 +381,59 @@ async function run(): Promise<void> {
       };
     }
   };
+  const runtimeProviderSettingsResolver: RuntimeProviderSettingsResolverStub = {
+    async execute() {
+      return {
+        schema: "persai.runtimeProviderProfile.v1",
+        mode: "admin_managed",
+        derivedFrom: {
+          policyEnvelopeSchema: "persai.runtimeProviderProfile.v1",
+          secretRefsSchema: "persai.runtimeProviderCredentialRefs.v1"
+        },
+        allowedProviders: ["openai", "anthropic"],
+        availableModelsByProvider: {
+          openai: ["gpt-5-mini"],
+          anthropic: []
+        },
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-5-mini",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 0.25,
+                outputTokenWeight: 4,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          },
+          anthropic: { models: [] }
+        },
+        primary: {
+          provider: "openai",
+          model: "gpt-5-mini",
+          credentialRef: {
+            refKey: "env:openai:OPENAI_API_KEY",
+            secretRef: { source: "env", provider: "openai", id: "OPENAI_API_KEY" },
+            updatedAt: null
+          }
+        },
+        fallback: null,
+        notes: []
+      };
+    }
+  };
 
   const service = new TrackWorkspaceQuotaUsageService(
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
     quotaRepo as WorkspaceQuotaAccountingRepository,
     toolDailyUsageRepo as WorkspaceToolDailyUsageRepository,
-    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService,
+    runtimeProviderSettingsResolver as ResolvePlatformRuntimeProviderSettingsService
   );
 
   const assistant = {
@@ -280,6 +459,24 @@ async function run(): Promise<void> {
     assistant,
     userContent: "hello world",
     assistantContent: "response from assistant",
+    usageAccounting: {
+      inputTokens: 100,
+      cachedInputTokens: 40,
+      outputTokens: 25,
+      totalTokens: 125,
+      entries: [
+        {
+          stepType: "main_turn",
+          modelRole: "normal_reply",
+          providerKey: "openai",
+          modelKey: "gpt-5-mini",
+          inputTokens: 100,
+          cachedInputTokens: 40,
+          outputTokens: 25,
+          totalTokens: 125
+        }
+      ]
+    },
     source: "web_chat_turn_sync"
   });
 
@@ -306,9 +503,32 @@ async function run(): Promise<void> {
     toolCode: "web_search",
     dailyCallLimit: 3
   });
+  const monthlyMediaQuota = await service.resolveAssistantMonthlyMediaQuotaSnapshot(assistant);
+  const reservedMonthlyMediaQuota = await service.reserveAssistantMonthlyMediaQuota({
+    assistant,
+    toolCode: "image_generate",
+    units: 2
+  });
+  await service.settleAssistantMonthlyMediaQuota({
+    assistant,
+    toolCode: "image_generate",
+    units: 1
+  });
+  await service.releaseAssistantMonthlyMediaQuota({
+    assistant,
+    toolCode: "image_edit",
+    units: 1
+  });
+  await service.markAssistantMonthlyMediaQuotaReconciliationRequired({
+    assistant,
+    toolCode: "video_generate",
+    units: 1
+  });
 
   assert.equal(tokenCalls.length, 1);
-  assert.ok((tokenCalls[0]?.delta ?? BigInt(0)) > BigInt(0));
+  assert.equal(tokenCalls[0]?.delta, BigInt(170));
+  assert.equal(tokenCalls[0]?.metadata?.accounting, "runtime_usage_accounting_weighted_v1");
+  assert.equal(tokenCalls[0]?.metadata?.cachedInputTokens, 40);
   assert.equal(refreshCalls.length, 1);
   assert.equal(refreshCalls[0]?.currentActiveWebChats, 7);
   assert.deepEqual(knowledgeQuota, {
@@ -336,6 +556,61 @@ async function run(): Promise<void> {
     currentCount: 3,
     limit: 3
   });
+  assert.equal(monthlyMediaQuota.periodSource, "calendar_month_fallback");
+  assert.equal(
+    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.usedUnits,
+    4
+  );
+  assert.equal(
+    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.limitUnits,
+    12
+  );
+  assert.equal(
+    monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_edit")?.limitUnits,
+    6
+  );
+  assert.deepEqual(reservedMonthlyMediaQuota, {
+    allowed: true,
+    currentUsedUnits: 6,
+    limitUnits: 12,
+    periodStartedAt: monthlyMediaQuota.periodStartedAt,
+    periodEndsAt: monthlyMediaQuota.periodEndsAt,
+    periodSource: "calendar_month_fallback"
+  });
+  assert.deepEqual(
+    monthlyMediaCalls.map((call) => ({
+      operation: call.operation,
+      toolCode: call.input.toolCode,
+      units: call.input.units,
+      limitUnits: call.input.limitUnits
+    })),
+    [
+      {
+        operation: "reserve",
+        toolCode: "image_generate",
+        units: 2,
+        limitUnits: 12
+      },
+      {
+        operation: "settle",
+        toolCode: "image_generate",
+        units: 1,
+        limitUnits: 12
+      },
+      {
+        operation: "release",
+        toolCode: "image_edit",
+        units: 1,
+        limitUnits: 6
+      },
+      {
+        operation: "reconcile",
+        toolCode: "video_generate",
+        units: 1,
+        limitUnits: 2
+      }
+    ]
+  );
 }
 
 void run();

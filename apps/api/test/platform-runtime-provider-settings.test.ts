@@ -23,14 +23,82 @@ async function run(): Promise<void> {
     },
     availableModelCatalogByProvider: {
       openai: {
-        chat: ["gpt‑5.4", "gpt‑5.4-mini"],
-        image: ["gpt-image-1", "gpt-image-1.5"],
-        video: ["sora-2", "sora-2-pro"]
+        models: [
+          {
+            model: "gpt‑5.4",
+            capabilities: ["chat"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 0.25,
+            outputTokenWeight: 4,
+            displayLabel: "GPT 5.4",
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "gpt‑5.4-mini",
+            capabilities: ["chat"],
+            inputTokenWeight: 0.5,
+            cachedInputTokenWeight: 0.1,
+            outputTokenWeight: 2,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "gpt-image-1",
+            capabilities: ["image"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "gpt-image-1.5",
+            capabilities: ["image"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "sora-2",
+            capabilities: ["video"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "sora-2-pro",
+            capabilities: ["video"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }
+        ]
       },
       anthropic: {
-        chat: ["claude-sonnet-4-5"],
-        image: [],
-        video: []
+        models: [
+          {
+            model: "claude-sonnet-4-5",
+            capabilities: ["chat"],
+            inputTokenWeight: 1.25,
+            cachedInputTokenWeight: 0.2,
+            outputTokenWeight: 5,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }
+        ]
       }
     },
     routingFastModelKey: "gpt‑5.4-mini",
@@ -63,12 +131,50 @@ async function run(): Promise<void> {
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
-  assert.deepEqual(parsed.availableModelCatalogByProvider.openai.image, [
-    "gpt-image-1",
-    "gpt-image-1.5"
-  ]);
-  assert.deepEqual(parsed.availableModelCatalogByProvider.openai.video, ["sora-2", "sora-2-pro"]);
+  assert.deepEqual(
+    parsed.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("image"))
+      .map((profile) => profile.model),
+    ["gpt-image-1", "gpt-image-1.5"]
+  );
+  assert.deepEqual(
+    parsed.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("video"))
+      .map((profile) => profile.model),
+    ["sora-2", "sora-2-pro"]
+  );
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.inputTokenWeight, 1);
+  assert.equal(
+    parsed.availableModelCatalogByProvider.openai.models[0]?.cachedInputTokenWeight,
+    0.25
+  );
+  assert.equal(parsed.availableModelCatalogByProvider.openai.models[0]?.outputTokenWeight, 4);
   assert.equal(parsed.providerKeys.openai, "sk-openai-new");
+
+  assert.throws(
+    () =>
+      parseUpdatePlatformRuntimeProviderSettingsInput({
+        ...parsed,
+        availableModelCatalogByProvider: {
+          openai: {
+            models: [
+              {
+                model: "gpt-5.4",
+                capabilities: ["chat"],
+                inputTokenWeight: -1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          },
+          anthropic: { models: [] }
+        }
+      }),
+    /inputTokenWeight must be between 0/
+  );
 
   assert.throws(
     () =>
@@ -116,14 +222,62 @@ async function run(): Promise<void> {
       },
       availableModelCatalogByProvider: {
         openai: {
-          chat: ["gpt‑5.4", "gpt‑5.4-mini"],
-          image: ["gpt-image-1.5"],
-          video: ["sora-2-pro"]
+          models: [
+            {
+              model: "gpt‑5.4",
+              capabilities: ["chat"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 0.25,
+              outputTokenWeight: 4,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "gpt‑5.4-mini",
+              capabilities: ["chat"],
+              inputTokenWeight: 0.5,
+              cachedInputTokenWeight: 0.1,
+              outputTokenWeight: 2,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "gpt-image-1.5",
+              capabilities: ["image"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "sora-2-pro",
+              capabilities: ["video"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            }
+          ]
         },
         anthropic: {
-          chat: ["claude-sonnet-4-5"],
-          image: [],
-          video: []
+          models: [
+            {
+              model: "claude-sonnet-4-5",
+              capabilities: ["chat"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            }
+          ]
         }
       }
     },
@@ -136,8 +290,18 @@ async function run(): Promise<void> {
   assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
-  assert.deepEqual(settings.availableModelCatalogByProvider.openai.image, ["gpt-image-1.5"]);
-  assert.deepEqual(settings.availableModelCatalogByProvider.openai.video, ["sora-2-pro"]);
+  assert.deepEqual(
+    settings.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("image"))
+      .map((profile) => profile.model),
+    ["gpt-image-1.5"]
+  );
+  assert.deepEqual(
+    settings.availableModelCatalogByProvider.openai.models
+      .filter((profile) => profile.capabilities.includes("video"))
+      .map((profile) => profile.model),
+    ["sora-2-pro"]
+  );
 
   const profile = buildPlatformRuntimeProviderProfileState(settings);
   assert.equal(profile.mode, "admin_managed");
@@ -145,7 +309,12 @@ async function run(): Promise<void> {
     openai: ["gpt-5.4", "gpt-5.4-mini"],
     anthropic: ["claude-sonnet-4-5"]
   });
-  assert.deepEqual(profile.availableModelCatalogByProvider.openai.image, ["gpt-image-1.5"]);
+  assert.deepEqual(
+    profile.availableModelCatalogByProvider.openai.models
+      .filter((modelProfile) => modelProfile.capabilities.includes("image"))
+      .map((modelProfile) => modelProfile.model),
+    ["gpt-image-1.5"]
+  );
   assert.equal(profile.primary.provider, "openai");
   assert.equal(profile.primary.credentialRef.secretRef.source, "persai");
   assert.equal(profile.primary.credentialRef.secretRef.provider, "persai-runtime");

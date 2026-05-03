@@ -9,6 +9,14 @@ export interface AdminPlanQuotaLimits {
   /** @nullable */
   tokenBudgetLimit?: number | null;
   /** @nullable */
+  activeWebChatsLimit?: number | null;
+  /** @nullable */
+  imageGenerateMonthlyUnitsLimit?: number | null;
+  /** @nullable */
+  imageEditMonthlyUnitsLimit?: number | null;
+  /** @nullable */
+  videoGenerateMonthlyUnitsLimit?: number | null;
+  /** @nullable */
   mediaStorageBytesLimit?: number | null;
   /** @nullable */
   knowledgeStorageBytesLimit?: number | null;

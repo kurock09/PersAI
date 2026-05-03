@@ -193,12 +193,20 @@ export class EnforceAssistantCapabilityAndQuotaService {
       plan?.entitlementModel?.limitsPermissions,
       "token_budget_limit"
     );
+    const activeWebChatsLimitFromHints = asInteger(quotaHints?.activeWebChatsLimit);
+    const activeWebChatsLimitFromEntitlements = readLimitFromEntitlementLimits(
+      plan?.entitlementModel?.limitsPermissions,
+      "active_web_chats_limit"
+    );
 
     return {
       tokenBudgetLimit: BigInt(
         tokenLimitFromHints ?? tokenLimitFromEntitlements ?? config.QUOTA_TOKEN_BUDGET_DEFAULT
       ),
-      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
+      activeWebChatsLimit:
+        activeWebChatsLimitFromHints ??
+        activeWebChatsLimitFromEntitlements ??
+        config.WEB_ACTIVE_CHATS_CAP
     };
   }
 }

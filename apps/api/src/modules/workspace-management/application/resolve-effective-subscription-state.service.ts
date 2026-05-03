@@ -55,6 +55,7 @@ export class ResolveEffectiveSubscriptionStateService {
         status: workspaceSubscription.status,
         planCode: workspaceSubscription.planCode,
         trialEndsAt: workspaceSubscription.trialEndsAt?.toISOString() ?? null,
+        currentPeriodStartedAt: workspaceSubscription.currentPeriodStartedAt?.toISOString() ?? null,
         currentPeriodEndsAt: workspaceSubscription.currentPeriodEndsAt?.toISOString() ?? null,
         cancelAtPeriodEnd: workspaceSubscription.cancelAtPeriodEnd
       };

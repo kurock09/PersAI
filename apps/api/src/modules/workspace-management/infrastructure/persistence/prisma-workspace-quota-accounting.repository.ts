@@ -14,9 +14,16 @@ import type {
   ReleaseMediaStorageUsageResult,
   ApplyTokenBudgetUsageInput,
   ApplyTokenBudgetUsageResult,
+  FindMonthlyMediaQuotaCounterInput,
+  FindTokenBudgetPeriodCounterInput,
+  MonthlyMediaQuotaMutationInput,
   RefreshActiveWebChatsQuotaInput,
+  ReserveMonthlyMediaQuotaResult,
   IncrementWorkspaceQuotaUsageInput,
-  WorkspaceQuotaAccountingRepository
+  WorkspaceQuotaAccountingRepository,
+  WorkspaceMonthlyMediaQuotaCounter,
+  WorkspaceTokenBudgetPeriodCounter,
+  WorkspaceMonthlyMediaQuotaToolCode
 } from "../../domain/workspace-quota-accounting.repository";
 import type { WorkspaceQuotaAccountingState } from "../../domain/workspace-quota-accounting.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -30,6 +37,234 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
       where: { workspaceId }
     });
     return state ? this.mapToDomain(state) : null;
+  }
+
+  async findTokenBudgetPeriodCounter(
+    input: FindTokenBudgetPeriodCounterInput
+  ): Promise<WorkspaceTokenBudgetPeriodCounter | null> {
+    const counter = await this.prisma.workspaceTokenBudgetPeriodCounter.findUnique({
+      where: {
+        workspaceId_periodStartedAt_periodEndsAt: {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt
+        }
+      }
+    });
+    return counter ? this.mapTokenBudgetPeriodCounter(counter) : null;
+  }
+
+  async findMonthlyMediaQuotaCounter(
+    input: FindMonthlyMediaQuotaCounterInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter | null> {
+    const counter = await this.prisma.workspaceMediaMonthlyQuotaCounter.findUnique({
+      where: {
+        workspaceId_toolCode_periodStartedAt_periodEndsAt: {
+          workspaceId: input.workspaceId,
+          toolCode: input.toolCode,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt
+        }
+      }
+    });
+    if (counter === null) {
+      return null;
+    }
+    return this.mapMonthlyMediaQuotaCounter(counter);
+  }
+
+  async reserveMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<ReserveMonthlyMediaQuotaResult> {
+    return this.withSerializableRetry("reserve monthly media quota", async () =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const counter = await this.upsertMonthlyMediaQuotaCounter(tx, input);
+          const currentUsedUnits = counter.reservedUnits + counter.settledUnits;
+          const allowed =
+            input.limitUnits === null || currentUsedUnits + input.units <= input.limitUnits;
+          if (!allowed) {
+            return {
+              allowed: false,
+              currentUsedUnits,
+              limitUnits: input.limitUnits,
+              counter: this.mapMonthlyMediaQuotaCounter(counter)
+            };
+          }
+
+          const updated = await tx.workspaceMediaMonthlyQuotaCounter.update({
+            where: { id: counter.id },
+            data: {
+              reservedUnits: { increment: input.units },
+              limitUnits: input.limitUnits,
+              lastComputedAt: new Date()
+            }
+          });
+
+          return {
+            allowed: true,
+            currentUsedUnits: currentUsedUnits + input.units,
+            limitUnits: input.limitUnits,
+            counter: this.mapMonthlyMediaQuotaCounter(updated)
+          };
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
+    );
+  }
+
+  async settleMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+    return this.mutateMonthlyMediaQuota(input, (units) => ({
+      reservedUnits: { decrement: units },
+      settledUnits: { increment: units }
+    }));
+  }
+
+  async releaseMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+    return this.mutateMonthlyMediaQuota(input, (units) => ({
+      reservedUnits: { decrement: units },
+      releasedUnits: { increment: units }
+    }));
+  }
+
+  async markMonthlyMediaQuotaReconciliationRequired(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+    return this.mutateMonthlyMediaQuota(input, (units) => ({
+      reservedUnits: { decrement: units },
+      reconciliationRequiredUnits: { increment: units }
+    }));
+  }
+
+  private async mutateMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput,
+    dataForUnits: (units: number) => Prisma.WorkspaceMediaMonthlyQuotaCounterUpdateInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter> {
+    return this.withSerializableRetry("mutate monthly media quota", async () =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const counter = await this.upsertMonthlyMediaQuotaCounter(tx, input);
+          const units = Math.min(input.units, counter.reservedUnits);
+          if (units <= 0) {
+            return this.mapMonthlyMediaQuotaCounter(counter);
+          }
+          const updated = await tx.workspaceMediaMonthlyQuotaCounter.update({
+            where: { id: counter.id },
+            data: {
+              ...dataForUnits(units),
+              limitUnits: input.limitUnits,
+              lastComputedAt: new Date()
+            }
+          });
+          return this.mapMonthlyMediaQuotaCounter(updated);
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      )
+    );
+  }
+
+  private async upsertMonthlyMediaQuotaCounter(
+    tx: Prisma.TransactionClient,
+    input: MonthlyMediaQuotaMutationInput
+  ) {
+    return tx.workspaceMediaMonthlyQuotaCounter.upsert({
+      where: {
+        workspaceId_toolCode_periodStartedAt_periodEndsAt: {
+          workspaceId: input.workspaceId,
+          toolCode: input.toolCode,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt
+        }
+      },
+      update: {
+        limitUnits: input.limitUnits,
+        lastComputedAt: new Date()
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        toolCode: input.toolCode,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        limitUnits: input.limitUnits,
+        lastComputedAt: new Date()
+      }
+    });
+  }
+
+  private mapMonthlyMediaQuotaCounter(counter: {
+    workspaceId: string;
+    toolCode: string;
+    periodStartedAt: Date;
+    periodEndsAt: Date;
+    reservedUnits: number;
+    settledUnits: number;
+    releasedUnits: number;
+    reconciliationRequiredUnits: number;
+    limitUnits: number | null;
+    lastComputedAt: Date;
+  }): WorkspaceMonthlyMediaQuotaCounter {
+    return {
+      workspaceId: counter.workspaceId,
+      toolCode: this.toMonthlyMediaQuotaToolCode(counter.toolCode),
+      periodStartedAt: counter.periodStartedAt,
+      periodEndsAt: counter.periodEndsAt,
+      reservedUnits: counter.reservedUnits,
+      settledUnits: counter.settledUnits,
+      releasedUnits: counter.releasedUnits,
+      reconciliationRequiredUnits: counter.reconciliationRequiredUnits,
+      limitUnits: counter.limitUnits,
+      lastComputedAt: counter.lastComputedAt
+    };
+  }
+
+  private mapTokenBudgetPeriodCounter(counter: {
+    workspaceId: string;
+    periodStartedAt: Date;
+    periodEndsAt: Date;
+    usedCredits: bigint;
+    limitCredits: bigint | null;
+    lastComputedAt: Date;
+  }): WorkspaceTokenBudgetPeriodCounter {
+    return {
+      workspaceId: counter.workspaceId,
+      periodStartedAt: counter.periodStartedAt,
+      periodEndsAt: counter.periodEndsAt,
+      usedCredits: counter.usedCredits,
+      limitCredits: counter.limitCredits,
+      lastComputedAt: counter.lastComputedAt
+    };
+  }
+
+  private async withSerializableRetry<T>(label: string, execute: () => Promise<T>): Promise<T> {
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await execute();
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error(`Failed to ${label} after serialization retries.`);
+  }
+
+  private toMonthlyMediaQuotaToolCode(toolCode: string): WorkspaceMonthlyMediaQuotaToolCode {
+    if (
+      toolCode === "image_generate" ||
+      toolCode === "image_edit" ||
+      toolCode === "video_generate"
+    ) {
+      return toolCode;
+    }
+    throw new Error(`Unexpected monthly media quota tool code "${toolCode}".`);
   }
 
   async incrementUsage(
@@ -251,11 +486,17 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
     tx: Prisma.TransactionClient,
     input: ApplyTokenBudgetUsageInput
   ): Promise<ApplyTokenBudgetUsageResult> {
-    const existing = await tx.workspaceQuotaAccountingState.findUnique({
-      where: { workspaceId: input.workspaceId }
+    const existingCounter = await tx.workspaceTokenBudgetPeriodCounter.findUnique({
+      where: {
+        workspaceId_periodStartedAt_periodEndsAt: {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt
+        }
+      }
     });
 
-    const used = existing?.tokenBudgetUsed ?? BigInt(0);
+    const used = existingCounter?.usedCredits ?? BigInt(0);
     const limit = input.limits.tokenBudgetLimit;
     const remaining = limit === null ? null : limit - used;
     const normalizedRemaining =
@@ -267,23 +508,43 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
           ? input.delta
           : normalizedRemaining;
 
-    const nextState = existing
-      ? await tx.workspaceQuotaAccountingState.update({
-          where: { workspaceId: input.workspaceId },
-          data: {
-            tokenBudgetUsed: { increment: appliedDelta },
-            ...this.toLimitUpdateInput(input.limits),
-            lastComputedAt: new Date()
-          }
-        })
-      : await tx.workspaceQuotaAccountingState.create({
-          data: {
-            workspaceId: input.workspaceId,
-            ...this.toLimitCreateInput(input.limits),
-            ...this.toUsageCreateInput("token_budget", appliedDelta),
-            lastComputedAt: new Date()
-          }
-        });
+    const nextCounter = await tx.workspaceTokenBudgetPeriodCounter.upsert({
+      where: {
+        workspaceId_periodStartedAt_periodEndsAt: {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt
+        }
+      },
+      update: {
+        usedCredits: { increment: appliedDelta },
+        limitCredits: input.limits.tokenBudgetLimit,
+        lastComputedAt: new Date()
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        periodStartedAt: input.periodStartedAt,
+        periodEndsAt: input.periodEndsAt,
+        usedCredits: appliedDelta,
+        limitCredits: input.limits.tokenBudgetLimit,
+        lastComputedAt: new Date()
+      }
+    });
+
+    const nextState = await tx.workspaceQuotaAccountingState.upsert({
+      where: { workspaceId: input.workspaceId },
+      update: {
+        tokenBudgetUsed: nextCounter.usedCredits,
+        ...this.toLimitUpdateInput(input.limits),
+        lastComputedAt: new Date()
+      },
+      create: {
+        workspaceId: input.workspaceId,
+        ...this.toLimitCreateInput(input.limits),
+        ...this.toUsageCreateInput("token_budget", nextCounter.usedCredits),
+        lastComputedAt: new Date()
+      }
+    });
 
     await tx.workspaceQuotaUsageEvent.create({
       data: {
@@ -293,13 +554,18 @@ export class PrismaWorkspaceQuotaAccountingRepository implements WorkspaceQuotaA
         dimension: "token_budget",
         delta: appliedDelta,
         source: input.source,
-        metadata: input.metadata ? (input.metadata as Prisma.InputJsonValue) : Prisma.DbNull,
+        metadata: {
+          ...(input.metadata ?? {}),
+          periodStartedAt: input.periodStartedAt.toISOString(),
+          periodEndsAt: input.periodEndsAt.toISOString()
+        } as Prisma.InputJsonValue,
         limitValue: this.resolveLimitValueForDimension("token_budget", input.limits)
       }
     });
 
     return {
       state: this.mapToDomain(nextState),
+      counter: this.mapTokenBudgetPeriodCounter(nextCounter),
       appliedDelta,
       capped: appliedDelta < input.delta
     };

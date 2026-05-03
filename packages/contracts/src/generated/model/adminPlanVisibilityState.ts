@@ -7,12 +7,14 @@
 import type { AdminPlanVisibilityPlanState } from "./adminPlanVisibilityPlanState";
 import type { AdminPlanVisibilityUsagePressure } from "./adminPlanVisibilityUsagePressure";
 import type { QuotaVisibilityBucketState } from "./quotaVisibilityBucketState";
+import type { MonthlyMediaQuotaSnapshot } from "./monthlyMediaQuotaSnapshot";
 import type { AdminPlanVisibilityStateEffectiveEntitlements } from "./adminPlanVisibilityStateEffectiveEntitlements";
 
 export interface AdminPlanVisibilityState {
   planState: AdminPlanVisibilityPlanState;
   usagePressure: AdminPlanVisibilityUsagePressure;
   quotaBuckets: QuotaVisibilityBucketState[];
+  monthlyMediaQuotas: MonthlyMediaQuotaSnapshot;
   /** @nullable */
   effectiveEntitlements: AdminPlanVisibilityStateEffectiveEntitlements;
   updatedAt: string;

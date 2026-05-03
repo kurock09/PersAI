@@ -20,6 +20,7 @@ import {
   type SkillAuthoringDraftRequest
 } from "./skill-authoring-draft.types";
 import type { PlatformRuntimeProviderSettingsState } from "./platform-runtime-provider-settings";
+import { getRuntimeProviderCatalogModelsByCapability } from "./runtime-provider-profile";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const AUTHORING_TIMEOUT_MS = 60_000;
@@ -176,14 +177,20 @@ export class GenerateSkillAuthoringDraftService {
     const primaryProvider = settings.primary?.provider ?? null;
     if (
       primaryProvider !== null &&
-      (settings.availableModelCatalogByProvider[primaryProvider].chat.includes(modelKey) ||
+      (getRuntimeProviderCatalogModelsByCapability(
+        settings.availableModelCatalogByProvider[primaryProvider],
+        "chat"
+      ).includes(modelKey) ||
         settings.availableModelsByProvider[primaryProvider].includes(modelKey))
     ) {
       return primaryProvider;
     }
     for (const provider of ["openai", "anthropic"] as const) {
       if (
-        settings.availableModelCatalogByProvider[provider].chat.includes(modelKey) ||
+        getRuntimeProviderCatalogModelsByCapability(
+          settings.availableModelCatalogByProvider[provider],
+          "chat"
+        ).includes(modelKey) ||
         settings.availableModelsByProvider[provider].includes(modelKey)
       ) {
         return provider;

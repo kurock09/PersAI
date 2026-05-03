@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
+import type { RuntimeUsageAccounting, RuntimeUsageAccountingEntry } from "@persai/runtime-contract";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
 import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
@@ -18,20 +19,53 @@ import {
   WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY,
   type ApplyTokenBudgetUsageResult,
   type WorkspaceQuotaAccountingRepository,
-  type WorkspaceQuotaLimitsInput
+  type WorkspaceQuotaLimitsInput,
+  type WorkspaceMonthlyMediaQuotaToolCode
 } from "../domain/workspace-quota-accounting.repository";
 import {
   WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY,
   type WorkspaceToolDailyUsageRepository
 } from "../domain/workspace-tool-daily-usage.repository";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
+import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import {
+  DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+  findRuntimeProviderCatalogProfile,
+  type ManagedRuntimeProvider,
+  type RuntimeProviderModelProfile
+} from "./runtime-provider-profile";
 
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
+  activeWebChatsLimit: number | null;
+  imageGenerateMonthlyUnitsLimit: number | null;
+  imageEditMonthlyUnitsLimit: number | null;
+  videoGenerateMonthlyUnitsLimit: number | null;
   mediaStorageBytesLimit: bigint | null;
   knowledgeStorageBytesLimit: bigint | null;
   workspaceStorageBytesLimit: bigint | null;
+};
+
+type TokenBudgetUsageCalculation = {
+  delta: bigint;
+  metadata: Record<string, unknown>;
+};
+
+type RuntimeUsageEntryAccountingMetadata = {
+  stepType: string;
+  modelRole: string | null;
+  providerKey: string | null;
+  modelKey: string | null;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  billableInputTokens: number;
+  inputTokenWeight: number;
+  cachedInputTokenWeight: number;
+  outputTokenWeight: number;
+  weightedCredits: number;
+  profileMatched: boolean;
 };
 
 export type AssistantQuotaBucketCode =
@@ -58,6 +92,37 @@ export type AssistantQuotaBucketSnapshot = {
 export type AssistantQuotaSnapshot = {
   planCode: string | null;
   buckets: AssistantQuotaBucketSnapshot[];
+};
+
+export type AssistantMonthlyMediaQuotaToolSnapshot = {
+  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  displayName: string;
+  usedUnits: number;
+  reservedUnits: number;
+  settledUnits: number;
+  releasedUnits: number;
+  reconciliationRequiredUnits: number;
+  limitUnits: number | null;
+  remainingUnits: number | null;
+  usageAvailable: boolean;
+  status: "ok" | "limit_reached" | "usage_unavailable";
+};
+
+export type AssistantMonthlyMediaQuotaSnapshot = {
+  planCode: string | null;
+  periodStartedAt: string;
+  periodEndsAt: string;
+  periodSource: "subscription_period" | "calendar_month_fallback";
+  tools: AssistantMonthlyMediaQuotaToolSnapshot[];
+};
+
+export type ReserveAssistantMonthlyMediaQuotaResult = {
+  allowed: boolean;
+  currentUsedUnits: number;
+  limitUnits: number | null;
+  periodStartedAt: string;
+  periodEndsAt: string;
+  periodSource: AssistantMonthlyMediaQuotaSnapshot["periodSource"];
 };
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -151,6 +216,22 @@ function parsePlanQuotaHints(
       "cost_or_token_driving_tool_class_units_limit"
     );
 
+  const activeWebChatsLimit =
+    asPositiveInteger(quotaHints?.activeWebChatsLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "active_web_chats_limit");
+
+  const imageGenerateMonthlyUnitsLimit =
+    asPositiveInteger(quotaHints?.imageGenerateMonthlyUnitsLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "image_generate_monthly_units_limit");
+
+  const imageEditMonthlyUnitsLimit =
+    asPositiveInteger(quotaHints?.imageEditMonthlyUnitsLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "image_edit_monthly_units_limit");
+
+  const videoGenerateMonthlyUnitsLimit =
+    asPositiveInteger(quotaHints?.videoGenerateMonthlyUnitsLimit) ??
+    readQuotaHintFromLimitsPermissions(limitsPermissions, "video_generate_monthly_units_limit");
+
   const mediaStorageLimit =
     asPositiveInteger(quotaHints?.mediaStorageBytesLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "media_storage_bytes_limit");
@@ -166,6 +247,10 @@ function parsePlanQuotaHints(
   return {
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
     costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
+    activeWebChatsLimit,
+    imageGenerateMonthlyUnitsLimit,
+    imageEditMonthlyUnitsLimit,
+    videoGenerateMonthlyUnitsLimit,
     mediaStorageBytesLimit: mediaStorageLimit === null ? null : BigInt(mediaStorageLimit),
     knowledgeStorageBytesLimit:
       knowledgeStorageLimit === null ? null : BigInt(knowledgeStorageLimit),
@@ -182,6 +267,68 @@ function estimateTokens(message: string): number {
   return Math.max(1, Math.ceil(trimmedLength / 4));
 }
 
+function asNonNegativeInteger(value: number | null | undefined): number {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : 0;
+}
+
+function normalizeManagedProvider(value: string | null): ManagedRuntimeProvider | null {
+  return value === "openai" || value === "anthropic" ? value : null;
+}
+
+function defaultTokenWeights(): Pick<
+  RuntimeProviderModelProfile,
+  "inputTokenWeight" | "cachedInputTokenWeight" | "outputTokenWeight"
+> {
+  return {
+    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT
+  };
+}
+
+function startOfUtcMonth(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1, 0, 0, 0, 0));
+}
+
+function startOfNextUtcMonth(value: Date): Date {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+}
+
+function parseIsoDate(value: string | null | undefined): Date | null {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+const MONTHLY_MEDIA_QUOTA_TOOLS: Array<{
+  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  displayName: string;
+  limitKey: keyof Pick<
+    PlanQuotaHints,
+    | "imageGenerateMonthlyUnitsLimit"
+    | "imageEditMonthlyUnitsLimit"
+    | "videoGenerateMonthlyUnitsLimit"
+  >;
+}> = [
+  {
+    toolCode: "image_generate",
+    displayName: "Image generation",
+    limitKey: "imageGenerateMonthlyUnitsLimit"
+  },
+  {
+    toolCode: "image_edit",
+    displayName: "Image editing",
+    limitKey: "imageEditMonthlyUnitsLimit"
+  },
+  {
+    toolCode: "video_generate",
+    displayName: "Video generation",
+    limitKey: "videoGenerateMonthlyUnitsLimit"
+  }
+];
+
 @Injectable()
 export class TrackWorkspaceQuotaUsageService {
   constructor(
@@ -193,15 +340,18 @@ export class TrackWorkspaceQuotaUsageService {
     private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     @Inject(WORKSPACE_TOOL_DAILY_USAGE_REPOSITORY)
     private readonly toolDailyUsageRepository: WorkspaceToolDailyUsageRepository,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
+    private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService
   ) {}
 
   private static readonly TOKEN_USAGE_ESTIMATOR = "chars_div_4_ceil_v1";
+  private static readonly RUNTIME_USAGE_ACCOUNTING = "runtime_usage_accounting_weighted_v1";
 
   async recordInboundTurnUsage(params: {
     assistant: Assistant;
     userContent: string;
     assistantContent: string;
+    usageAccounting?: RuntimeUsageAccounting;
     source:
       | "web_chat_turn_sync"
       | "web_chat_turn_stream_completed"
@@ -210,24 +360,31 @@ export class TrackWorkspaceQuotaUsageService {
       | "reminder_callback_delivery";
   }): Promise<void> {
     const governance = await this.resolveGovernance(params.assistant.id);
-    const limits = await this.resolveLimits(params.assistant, governance);
+    const quotaContext = await this.resolveQuotaContext(params.assistant, governance);
+    const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
+    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const tokenUsage = await this.resolveTokenBudgetUsage({
+      userContent: params.userContent,
+      assistantContent: params.assistantContent,
+      ...(params.usageAccounting === undefined ? {} : { usageAccounting: params.usageAccounting })
+    });
 
-    const tokenDelta = BigInt(
-      estimateTokens(params.userContent) + estimateTokens(params.assistantContent)
-    );
-    if (tokenDelta > BigInt(0)) {
+    if (tokenUsage.delta > BigInt(0)) {
       const applied = await this.workspaceQuotaAccountingRepository.applyTokenBudgetUsage({
         workspaceId: params.assistant.workspaceId,
         assistantId: params.assistant.id,
         userId: params.assistant.userId,
-        delta: tokenDelta,
+        periodStartedAt: period.periodStartedAt,
+        periodEndsAt: period.periodEndsAt,
+        delta: tokenUsage.delta,
         source: params.source,
         metadata: {
-          estimator: TrackWorkspaceQuotaUsageService.TOKEN_USAGE_ESTIMATOR
+          ...tokenUsage.metadata,
+          periodSource: period.periodSource
         },
         limits
       });
-      this.logTokenBudgetCapIfNeeded(params.assistant.id, params.source, tokenDelta, applied);
+      this.logTokenBudgetCapIfNeeded(params.assistant.id, params.source, tokenUsage.delta, applied);
     }
   }
 
@@ -235,12 +392,118 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant;
     userContent: string;
     assistantContent: string;
+    usageAccounting?: RuntimeUsageAccounting;
     source:
       | "web_chat_turn_sync"
       | "web_chat_turn_stream_completed"
       | "web_chat_turn_stream_partial";
   }): Promise<void> {
     await this.recordInboundTurnUsage(params);
+  }
+
+  private async resolveTokenBudgetUsage(params: {
+    userContent: string;
+    assistantContent: string;
+    usageAccounting?: RuntimeUsageAccounting;
+  }): Promise<TokenBudgetUsageCalculation> {
+    if (params.usageAccounting?.entries && params.usageAccounting.entries.length > 0) {
+      return this.resolveWeightedRuntimeTokenUsage(params.usageAccounting);
+    }
+
+    const estimatedTokens =
+      estimateTokens(params.userContent) + estimateTokens(params.assistantContent);
+    return {
+      delta: BigInt(estimatedTokens),
+      metadata: {
+        estimator: TrackWorkspaceQuotaUsageService.TOKEN_USAGE_ESTIMATOR,
+        accounting: "estimator_fallback"
+      }
+    };
+  }
+
+  private async resolveWeightedRuntimeTokenUsage(
+    usageAccounting: RuntimeUsageAccounting
+  ): Promise<TokenBudgetUsageCalculation> {
+    const runtimeProviderSettings =
+      await this.resolvePlatformRuntimeProviderSettingsService.execute();
+    const entryMetadata: RuntimeUsageEntryAccountingMetadata[] = [];
+    let weightedCredits = 0;
+    let inputTokens = 0;
+    let cachedInputTokens = 0;
+    let outputTokens = 0;
+    let unmatchedProfileCount = 0;
+
+    for (const entry of usageAccounting.entries) {
+      const accounted = this.resolveWeightedRuntimeUsageEntry(entry, runtimeProviderSettings);
+      weightedCredits += accounted.weightedCredits;
+      inputTokens += accounted.inputTokens;
+      cachedInputTokens += accounted.cachedInputTokens;
+      outputTokens += accounted.outputTokens;
+      if (!accounted.profileMatched) {
+        unmatchedProfileCount += 1;
+      }
+      entryMetadata.push(accounted);
+    }
+
+    return {
+      delta: BigInt(Math.ceil(weightedCredits)),
+      metadata: {
+        accounting: TrackWorkspaceQuotaUsageService.RUNTIME_USAGE_ACCOUNTING,
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        weightedCredits,
+        roundedCredits: Math.ceil(weightedCredits),
+        entryCount: usageAccounting.entries.length,
+        unmatchedProfileCount,
+        entries: entryMetadata
+      }
+    };
+  }
+
+  private resolveWeightedRuntimeUsageEntry(
+    entry: RuntimeUsageAccountingEntry,
+    runtimeProviderSettings: Awaited<
+      ReturnType<ResolvePlatformRuntimeProviderSettingsService["execute"]>
+    >
+  ): RuntimeUsageEntryAccountingMetadata {
+    const inputTokens = asNonNegativeInteger(entry.inputTokens);
+    const cachedInputTokens = Math.min(asNonNegativeInteger(entry.cachedInputTokens), inputTokens);
+    const outputTokens = asNonNegativeInteger(entry.outputTokens);
+    const billableInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+    const provider = normalizeManagedProvider(entry.providerKey);
+    const modelKey =
+      typeof entry.modelKey === "string" && entry.modelKey.trim().length > 0
+        ? entry.modelKey.trim()
+        : null;
+    const profile =
+      provider === null || modelKey === null
+        ? null
+        : findRuntimeProviderCatalogProfile(
+            runtimeProviderSettings.availableModelCatalogByProvider[provider],
+            modelKey
+          );
+    const weights = profile ?? defaultTokenWeights();
+    const weightedCredits =
+      billableInputTokens * weights.inputTokenWeight +
+      cachedInputTokens * weights.cachedInputTokenWeight +
+      outputTokens * weights.outputTokenWeight;
+
+    return {
+      stepType: entry.stepType,
+      modelRole: entry.modelRole,
+      providerKey: entry.providerKey,
+      modelKey: entry.modelKey,
+      inputTokens,
+      cachedInputTokens,
+      outputTokens,
+      billableInputTokens,
+      inputTokenWeight: weights.inputTokenWeight,
+      cachedInputTokenWeight: weights.cachedInputTokenWeight,
+      outputTokenWeight: weights.outputTokenWeight,
+      weightedCredits,
+      profileMatched: profile !== null
+    };
   }
 
   async refreshActiveWebChatsUsage(params: {
@@ -640,6 +903,14 @@ export class TrackWorkspaceQuotaUsageService {
       assistant.workspaceId
     );
     const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
+    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const tokenCounter = await this.workspaceQuotaAccountingRepository.findTokenBudgetPeriodCounter(
+      {
+        workspaceId: assistant.workspaceId,
+        periodStartedAt: period.periodStartedAt,
+        periodEndsAt: period.periodEndsAt
+      }
+    );
 
     return {
       planCode: quotaContext.effectiveSubscription.planCode,
@@ -648,7 +919,7 @@ export class TrackWorkspaceQuotaUsageService {
           bucketCode: "token_budget",
           displayName: "Token budget",
           unit: "tokens",
-          used: bigintToNumber(quotaState?.tokenBudgetUsed ?? BigInt(0)),
+          used: bigintToNumber(tokenCounter?.usedCredits ?? BigInt(0)),
           limit: bigintToNumber(limits.tokenBudgetLimit),
           usageAvailable: true
         }),
@@ -680,6 +951,149 @@ export class TrackWorkspaceQuotaUsageService {
     };
   }
 
+  async resolveAssistantMonthlyMediaQuotaSnapshot(
+    assistant: Assistant
+  ): Promise<AssistantMonthlyMediaQuotaSnapshot> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const quotaContext = await this.resolveQuotaContext(assistant, governance);
+    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const tools: AssistantMonthlyMediaQuotaToolSnapshot[] = [];
+
+    for (const tool of MONTHLY_MEDIA_QUOTA_TOOLS) {
+      const limitUnits = quotaContext.planQuotaHints[tool.limitKey];
+      const counter = await this.workspaceQuotaAccountingRepository.findMonthlyMediaQuotaCounter({
+        workspaceId: assistant.workspaceId,
+        toolCode: tool.toolCode,
+        periodStartedAt: period.periodStartedAt,
+        periodEndsAt: period.periodEndsAt
+      });
+      const reservedUnits = counter?.reservedUnits ?? 0;
+      const settledUnits = counter?.settledUnits ?? 0;
+      const releasedUnits = counter?.releasedUnits ?? 0;
+      const reconciliationRequiredUnits = counter?.reconciliationRequiredUnits ?? 0;
+      const usedUnits = Math.max(0, settledUnits + reservedUnits);
+      const remainingUnits = limitUnits === null ? null : Math.max(0, limitUnits - usedUnits);
+      const limitReached = limitUnits !== null && limitUnits > 0 && usedUnits >= limitUnits;
+      tools.push({
+        toolCode: tool.toolCode,
+        displayName: tool.displayName,
+        usedUnits,
+        reservedUnits,
+        settledUnits,
+        releasedUnits,
+        reconciliationRequiredUnits,
+        limitUnits,
+        remainingUnits,
+        usageAvailable: true,
+        status: limitReached ? "limit_reached" : "ok"
+      });
+    }
+
+    return {
+      planCode: quotaContext.effectiveSubscription.planCode,
+      periodStartedAt: period.periodStartedAt.toISOString(),
+      periodEndsAt: period.periodEndsAt.toISOString(),
+      periodSource: period.periodSource,
+      tools
+    };
+  }
+
+  async reserveAssistantMonthlyMediaQuota(params: {
+    assistant: Assistant;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    units: number;
+  }): Promise<ReserveAssistantMonthlyMediaQuotaResult> {
+    if (params.units <= 0) {
+      throw new Error("Monthly media quota reservation units must be positive.");
+    }
+    const context = await this.resolveMonthlyMediaQuotaAccountingContext(
+      params.assistant,
+      params.toolCode
+    );
+    const result = await this.workspaceQuotaAccountingRepository.reserveMonthlyMediaQuota({
+      workspaceId: params.assistant.workspaceId,
+      toolCode: params.toolCode,
+      periodStartedAt: context.period.periodStartedAt,
+      periodEndsAt: context.period.periodEndsAt,
+      units: params.units,
+      limitUnits: context.limitUnits
+    });
+    return {
+      allowed: result.allowed,
+      currentUsedUnits: result.currentUsedUnits,
+      limitUnits: result.limitUnits,
+      periodStartedAt: context.period.periodStartedAt.toISOString(),
+      periodEndsAt: context.period.periodEndsAt.toISOString(),
+      periodSource: context.period.periodSource
+    };
+  }
+
+  async settleAssistantMonthlyMediaQuota(params: {
+    assistant: Assistant;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    units: number;
+  }): Promise<void> {
+    if (params.units <= 0) {
+      return;
+    }
+    const context = await this.resolveMonthlyMediaQuotaAccountingContext(
+      params.assistant,
+      params.toolCode
+    );
+    await this.workspaceQuotaAccountingRepository.settleMonthlyMediaQuota({
+      workspaceId: params.assistant.workspaceId,
+      toolCode: params.toolCode,
+      periodStartedAt: context.period.periodStartedAt,
+      periodEndsAt: context.period.periodEndsAt,
+      units: params.units,
+      limitUnits: context.limitUnits
+    });
+  }
+
+  async releaseAssistantMonthlyMediaQuota(params: {
+    assistant: Assistant;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    units: number;
+  }): Promise<void> {
+    if (params.units <= 0) {
+      return;
+    }
+    const context = await this.resolveMonthlyMediaQuotaAccountingContext(
+      params.assistant,
+      params.toolCode
+    );
+    await this.workspaceQuotaAccountingRepository.releaseMonthlyMediaQuota({
+      workspaceId: params.assistant.workspaceId,
+      toolCode: params.toolCode,
+      periodStartedAt: context.period.periodStartedAt,
+      periodEndsAt: context.period.periodEndsAt,
+      units: params.units,
+      limitUnits: context.limitUnits
+    });
+  }
+
+  async markAssistantMonthlyMediaQuotaReconciliationRequired(params: {
+    assistant: Assistant;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+    units: number;
+  }): Promise<void> {
+    if (params.units <= 0) {
+      return;
+    }
+    const context = await this.resolveMonthlyMediaQuotaAccountingContext(
+      params.assistant,
+      params.toolCode
+    );
+    await this.workspaceQuotaAccountingRepository.markMonthlyMediaQuotaReconciliationRequired({
+      workspaceId: params.assistant.workspaceId,
+      toolCode: params.toolCode,
+      periodStartedAt: context.period.periodStartedAt,
+      periodEndsAt: context.period.periodEndsAt,
+      units: params.units,
+      limitUnits: context.limitUnits
+    });
+  }
+
   async resolveWorkspaceStorageLimit(assistant: Assistant): Promise<{ limitBytes: bigint | null }> {
     const governance = await this.resolveGovernance(assistant.id);
     const { config, planQuotaHints } = await this.resolveQuotaContext(assistant, governance);
@@ -687,6 +1101,60 @@ export class TrackWorkspaceQuotaUsageService {
       planQuotaHints.workspaceStorageBytesLimit ??
       BigInt(config.QUOTA_WORKSPACE_STORAGE_BYTES_DEFAULT);
     return { limitBytes };
+  }
+
+  async resolveActiveWebChatsLimit(assistant: Assistant): Promise<number> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const limits = await this.resolveLimits(assistant, governance);
+    return limits.activeWebChatsLimit ?? loadApiConfig(process.env).WEB_ACTIVE_CHATS_CAP;
+  }
+
+  private async resolveMonthlyMediaQuotaAccountingContext(
+    assistant: Assistant,
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode
+  ): Promise<{
+    period: ReturnType<TrackWorkspaceQuotaUsageService["resolveRecurringQuotaPeriod"]>;
+    limitUnits: number | null;
+  }> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const quotaContext = await this.resolveQuotaContext(assistant, governance);
+    const tool = MONTHLY_MEDIA_QUOTA_TOOLS.find((entry) => entry.toolCode === toolCode);
+    if (tool === undefined) {
+      throw new Error(`Unsupported monthly media quota tool code "${toolCode}".`);
+    }
+    return {
+      period: this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription),
+      limitUnits: quotaContext.planQuotaHints[tool.limitKey]
+    };
+  }
+
+  private resolveRecurringQuotaPeriod(
+    effectiveSubscription: Awaited<ReturnType<ResolveEffectiveSubscriptionStateService["execute"]>>
+  ): {
+    periodStartedAt: Date;
+    periodEndsAt: Date;
+    periodSource: AssistantMonthlyMediaQuotaSnapshot["periodSource"];
+  } {
+    const periodStartedAt = parseIsoDate(effectiveSubscription.currentPeriodStartedAt);
+    const periodEndsAt = parseIsoDate(effectiveSubscription.currentPeriodEndsAt);
+    if (
+      periodStartedAt !== null &&
+      periodEndsAt !== null &&
+      periodEndsAt.getTime() > periodStartedAt.getTime()
+    ) {
+      return {
+        periodStartedAt,
+        periodEndsAt,
+        periodSource: "subscription_period"
+      };
+    }
+
+    const now = new Date();
+    return {
+      periodStartedAt: startOfUtcMonth(now),
+      periodEndsAt: startOfNextUtcMonth(now),
+      periodSource: "calendar_month_fallback"
+    };
   }
 
   private async resolveLimits(
@@ -782,7 +1250,7 @@ export class TrackWorkspaceQuotaUsageService {
       costOrTokenDrivingToolClassUnitsLimit:
         planQuotaHints.costOrTokenDrivingToolClassUnitsLimit ??
         config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
-      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP,
+      activeWebChatsLimit: planQuotaHints.activeWebChatsLimit ?? config.WEB_ACTIVE_CHATS_CAP,
       mediaStorageBytesLimit:
         planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT),
       knowledgeStorageBytesLimit:

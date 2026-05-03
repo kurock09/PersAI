@@ -289,11 +289,10 @@ export class RuntimeImageEditToolService {
     }
 
     try {
-      // ADR-074 L1.1 — always count for observability.
-      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
         assistantId: params.bundle.metadata.assistantId,
         toolCode: IMAGE_EDIT_TOOL_CODE,
-        dailyCallLimit: policy.dailyCallLimit
+        units: 1
       });
       if (!quotaOutcome.allowed) {
         return {
@@ -359,6 +358,9 @@ export class RuntimeImageEditToolService {
         )
       );
       if (artifacts.length === 0) {
+        await this.releaseMonthlyMediaQuotaReservationBestEffort({
+          assistantId: params.bundle.metadata.assistantId
+        });
         return {
           payload: {
             toolCode: "image_edit",
@@ -415,6 +417,9 @@ export class RuntimeImageEditToolService {
         isError: false
       };
     } catch (error) {
+      await this.releaseMonthlyMediaQuotaReservationBestEffort({
+        assistantId: params.bundle.metadata.assistantId
+      });
       this.logger.warn(
         `[image-edit] failed requestId=${params.requestId} sourceIndex=${String(
           selection.sourceImageIndex
@@ -760,12 +765,31 @@ export class RuntimeImageEditToolService {
       fileRef: runtimeFileRef.fileRef,
       file: runtimeFileRef,
       kind: "image",
+      sourceToolCode: IMAGE_EDIT_TOOL_CODE,
       objectKey: stored.objectKey,
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
       voiceNote: false
     };
+  }
+
+  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
+    assistantId: string;
+  }): Promise<void> {
+    try {
+      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
+        assistantId: input.assistantId,
+        toolCode: IMAGE_EDIT_TOOL_CODE,
+        units: 1
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[image-edit] failed to release monthly media quota reservation: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private resolveAllowedWorkerToolPolicy(

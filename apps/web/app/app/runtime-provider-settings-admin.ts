@@ -1,7 +1,8 @@
 import type {
   AdminRuntimeProviderSettingsRequest,
   AdminRuntimeProviderSettingsState,
-  ManagedRuntimeProvider
+  ManagedRuntimeProvider,
+  RuntimeProviderModelProfileState
 } from "@persai/contracts";
 
 export const MANAGED_RUNTIME_PROVIDERS: ManagedRuntimeProvider[] = ["openai", "anthropic"];
@@ -12,14 +13,7 @@ type RuntimeProviderSelectionDraft = {
 };
 
 type RuntimeProviderProviderKeyDraft = Record<ManagedRuntimeProvider, string>;
-type RuntimeProviderAvailableModelsTextDraft = Record<
-  ManagedRuntimeProvider,
-  {
-    chat: string;
-    image: string;
-    video: string;
-  }
->;
+type RuntimeProviderModelProfilesTextDraft = Record<ManagedRuntimeProvider, string>;
 type RuntimeProviderProviderKeyState = NonNullable<
   AdminRuntimeProviderSettingsState["providerKeys"]
 >;
@@ -29,7 +23,7 @@ export type RuntimeProviderSettingsAdminDraft = {
   primary: RuntimeProviderSelectionDraft;
   fallbackEnabled: boolean;
   fallback: RuntimeProviderSelectionDraft;
-  availableModelsTextByProvider: RuntimeProviderAvailableModelsTextDraft;
+  modelProfilesTextByProvider: RuntimeProviderModelProfilesTextDraft;
   providerKeys: RuntimeProviderProviderKeyDraft;
 };
 
@@ -66,9 +60,9 @@ export function createDefaultRuntimeProviderSettingsAdminDraft(): RuntimeProvide
       provider: "anthropic",
       model: ""
     },
-    availableModelsTextByProvider: {
-      openai: { chat: "", image: "", video: "" },
-      anthropic: { chat: "", image: "", video: "" }
+    modelProfilesTextByProvider: {
+      openai: "",
+      anthropic: ""
     },
     providerKeys: {
       openai: "",
@@ -81,19 +75,85 @@ function asNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-function toMultilineValue(values: string[]): string {
-  return values.join("\n");
-}
-
-function parseModelCatalogText(value: string): string[] {
+function parseCapabilityText(value: string): RuntimeProviderModelProfileState["capabilities"] {
   const deduped = new Set<string>();
-  for (const line of value.split(/\r?\n/)) {
-    const model = line.trim();
-    if (model.length > 0) {
-      deduped.add(model);
+  for (const entry of value.split(/[,+]/)) {
+    const capability = entry.trim();
+    if (capability === "chat" || capability === "image" || capability === "video") {
+      deduped.add(capability);
     }
   }
-  return Array.from(deduped);
+  return Array.from(deduped) as RuntimeProviderModelProfileState["capabilities"];
+}
+
+export function formatRuntimeProviderModelProfilesText(
+  profiles: RuntimeProviderModelProfileState[]
+): string {
+  return profiles
+    .map((profile) =>
+      [
+        profile.model,
+        profile.capabilities.join(","),
+        String(profile.inputTokenWeight),
+        String(profile.cachedInputTokenWeight),
+        String(profile.outputTokenWeight),
+        profile.displayLabel ?? ""
+      ].join(" | ")
+    )
+    .join("\n");
+}
+
+export function parseRuntimeProviderModelProfilesText(
+  value: string
+): RuntimeProviderModelProfileState[] {
+  const profiles: RuntimeProviderModelProfileState[] = [];
+  const seen = new Set<string>();
+  for (const [index, line] of value.split(/\r?\n/).entries()) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    const [modelRaw, capabilitiesRaw, inputRaw, cachedRaw, outputRaw, labelRaw = ""] = trimmed
+      .split("|")
+      .map((entry) => entry.trim());
+    if (!modelRaw) {
+      throw new Error(`Model profile line ${String(index + 1)} is missing a model id.`);
+    }
+    if (seen.has(modelRaw)) {
+      throw new Error(`Model profile line ${String(index + 1)} duplicates "${modelRaw}".`);
+    }
+    const capabilities = parseCapabilityText(capabilitiesRaw ?? "");
+    if (capabilities.length === 0) {
+      throw new Error(`Model profile line ${String(index + 1)} must include a capability.`);
+    }
+    const inputTokenWeight = Number(inputRaw);
+    const cachedInputTokenWeight = Number(cachedRaw);
+    const outputTokenWeight = Number(outputRaw);
+    if (
+      !Number.isFinite(inputTokenWeight) ||
+      inputTokenWeight < 0 ||
+      !Number.isFinite(cachedInputTokenWeight) ||
+      cachedInputTokenWeight < 0 ||
+      !Number.isFinite(outputTokenWeight) ||
+      outputTokenWeight < 0
+    ) {
+      throw new Error(
+        `Model profile line ${String(index + 1)} must include non-negative input, cached input, and output weights.`
+      );
+    }
+    seen.add(modelRaw);
+    profiles.push({
+      model: modelRaw,
+      capabilities,
+      inputTokenWeight,
+      cachedInputTokenWeight,
+      outputTokenWeight,
+      displayLabel: labelRaw.length > 0 ? labelRaw : null,
+      notes: null,
+      providerPriceMetadata: null
+    });
+  }
+  return profiles;
 }
 
 function providerLabel(provider: ManagedRuntimeProvider): string {
@@ -103,12 +163,11 @@ function providerLabel(provider: ManagedRuntimeProvider): string {
 function hasListedModel(params: {
   provider: ManagedRuntimeProvider;
   model: string;
-  availableModelsByProvider: RuntimeProviderAvailableModelsTextDraft;
+  modelProfilesTextByProvider: RuntimeProviderModelProfilesTextDraft;
 }): boolean {
-  const listedModels = parseModelCatalogText(
-    params.availableModelsByProvider[params.provider].chat
-  );
-  return listedModels.includes(params.model.trim());
+  return parseRuntimeProviderModelProfilesText(params.modelProfilesTextByProvider[params.provider])
+    .filter((profile) => profile.capabilities.includes("chat"))
+    .some((profile) => profile.model === params.model.trim());
 }
 
 export function resolveRuntimeProviderSettingsAdminFormState(
@@ -133,17 +192,13 @@ export function resolveRuntimeProviderSettingsAdminFormState(
     provider: settings.fallback?.provider ?? draft.fallback.provider,
     model: settings.fallback?.model ?? draft.fallback.model
   };
-  draft.availableModelsTextByProvider = {
-    openai: {
-      chat: toMultilineValue(settings.availableModelCatalogByProvider.openai.chat),
-      image: toMultilineValue(settings.availableModelCatalogByProvider.openai.image),
-      video: toMultilineValue(settings.availableModelCatalogByProvider.openai.video)
-    },
-    anthropic: {
-      chat: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.chat),
-      image: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.image),
-      video: toMultilineValue(settings.availableModelCatalogByProvider.anthropic.video)
-    }
+  draft.modelProfilesTextByProvider = {
+    openai: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.openai.models
+    ),
+    anthropic: formatRuntimeProviderModelProfilesText(
+      settings.availableModelCatalogByProvider.anthropic.models
+    )
   };
 
   return {
@@ -164,7 +219,7 @@ export function validateRuntimeProviderSettingsAdminDraft(
     !hasListedModel({
       provider: draft.primary.provider,
       model: draft.primary.model,
-      availableModelsByProvider: draft.availableModelsTextByProvider
+      modelProfilesTextByProvider: draft.modelProfilesTextByProvider
     })
   ) {
     return `Primary model must be listed under ${providerLabel(draft.primary.provider)} available models.`;
@@ -177,7 +232,7 @@ export function validateRuntimeProviderSettingsAdminDraft(
     !hasListedModel({
       provider: draft.fallback.provider,
       model: draft.fallback.model,
-      availableModelsByProvider: draft.availableModelsTextByProvider
+      modelProfilesTextByProvider: draft.modelProfilesTextByProvider
     })
   ) {
     return `Fallback model must be listed under ${providerLabel(draft.fallback.provider)} available models.`;
@@ -205,20 +260,26 @@ export function buildRuntimeProviderSettingsRequest(params: {
       }
     : null;
 
+  const openaiProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.openai
+  );
+  const anthropicProfiles = parseRuntimeProviderModelProfilesText(
+    params.draft.modelProfilesTextByProvider.anthropic
+  );
   const availableModelsByProvider = {
-    openai: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.chat),
-    anthropic: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.chat)
+    openai: openaiProfiles
+      .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model),
+    anthropic: anthropicProfiles
+      .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model)
   };
   const availableModelCatalogByProvider = {
     openai: {
-      chat: availableModelsByProvider.openai,
-      image: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.image),
-      video: parseModelCatalogText(params.draft.availableModelsTextByProvider.openai.video)
+      models: openaiProfiles
     },
     anthropic: {
-      chat: availableModelsByProvider.anthropic,
-      image: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.image),
-      video: parseModelCatalogText(params.draft.availableModelsTextByProvider.anthropic.video)
+      models: anthropicProfiles
     }
   };
 

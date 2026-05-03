@@ -169,6 +169,8 @@ import { PersaiBackgroundTaskSchedulerService } from "./application/persai-backg
 import { PersaiIdleReengagementSchedulerService } from "./application/persai-idle-reengagement-scheduler.service";
 import { HandleInternalTelegramTurnService } from "./application/handle-internal-telegram-turn.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consume-internal-runtime-tool-daily-limit.service";
+import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
+import { ReserveInternalRuntimeMonthlyMediaQuotaService } from "./application/reserve-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
 import { ResolveAssistantRuntimeTierService } from "./application/resolve-assistant-runtime-tier.service";
@@ -352,6 +354,8 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     HandleInternalTelegramTurnService,
     ResolveInternalRuntimeToolDailyPolicyService,
     ConsumeInternalRuntimeToolDailyLimitService,
+    MutateInternalRuntimeMonthlyMediaQuotaService,
+    ReserveInternalRuntimeMonthlyMediaQuotaService,
     ReadInternalRuntimeQuotaStatusService,
     ResolveAssistantInboundRuntimeContextService,
     ResolveAssistantRuntimeTierService,

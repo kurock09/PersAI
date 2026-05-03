@@ -1,5 +1,286 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-082 production risk closure) — Credits are period-scoped and media reservations cannot orphan silently
+
+### What changed
+
+- Added `workspace_token_budget_period_counters` and the Prisma/domain/repository wiring so Credits/token budget usage is keyed by the effective billing period from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt`, with UTC calendar-month fallback for local/manual states.
+- Changed token quota recording and plan visibility to use the current period counter; `WorkspaceQuotaAccountingState.tokenBudgetUsed` remains only a current-period compatibility snapshot.
+- Added `MediaDeliveryService.markUndeliveredArtifactsReconciliationRequired()` and wired sync web, stream web, and Telegram delivery paths so generated media returned by runtime is marked reconciliation-required if delivery is not reached or completed.
+- Read ADR-083 and ADR-084 before implementation; this keeps ADR-082 quota snapshots aligned with the next lifecycle/provider transition order.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-quota-accounting.repository.test.ts`
+
+### Next recommended step
+
+Run the full AGENTS verification gates, then continue ADR-083 subscription lifecycle foundations before ADR-084 payment success activates paid product state.
+
+---
+
+## 2026-05-03 (ADR-083/084 billing transition invariants) — lifecycle remains the single source of paid truth
+
+### What changed
+
+- Added cross-ADR transition invariants to ADR-083 so payment, lifecycle, quota, materialization, UI/runtime visibility, and notifications follow one ordered chain.
+- Added the same provider-readiness order to ADR-084, explicitly preventing payment intent, provider status, effective resolver output, quota snapshot, or materialized runtime config from becoming competing subscription truths.
+- Captured the refund/chargeback quota edge: fallback/free access applies immediately, already consumed paid-period Credits/media are not silently rolled back in this ADR, and Ops should retain audit/risk context for future finance/support policy.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Continue the founder-selected billing lifecycle/provider work. ADR-083 lifecycle foundations should land before ADR-084 payment success can safely activate real paid product state.
+
+---
+
+## 2026-05-03 (ADR-082 Slice 6 product cleanup) — daily media quota copy removed from active UI
+
+### What changed
+
+- Completed ADR-082 Slice 6 cleanup after delivery-confirmed settlement.
+- Removed media tools from daily tool-limit visibility so user/admin plan surfaces no longer present `image_generate`, `image_edit`, or `video_generate` as daily paid quota.
+- Updated Assistant Settings to show monthly media allowances with delivery-confirmed settlement copy.
+- Updated Admin Plans so media rows no longer expose editable daily caps; media paid usage is explained through monthly delivery-confirmed quota fields, while per-turn media caps remain safety controls.
+- Added monthly-media quota UX error copy for web and messenger surfaces.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/render-assistant-inbound-surface-message.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/app/_components/assistant-settings.test.tsx app/app/assistant-api-client.test.ts`
+
+### Next recommended step
+
+ADR-082 is completed through Slice 6. Continue with the founder-selected billing lifecycle/provider work, likely ADR-083 subscription lifecycle or ADR-084 billing provider readiness, after the full CI-like gates pass.
+
+---
+
+## 2026-05-03 (ADR-082 Slice 5 delivery-confirmed media settlement) — media quota charges only after delivery
+
+### What changed
+
+- Replaced media generation/editing runtime daily pre-consumption for `image_generate`, `image_edit`, and `video_generate` with monthly media quota reservation before provider execution.
+- Added API monthly media quota mutation paths for reserve, release, reconciliation-required, and delivery-side settlement against `workspace_media_monthly_quota_counters`.
+- Tagged runtime media artifacts with `sourceToolCode` so API delivery can settle the correct monthly media quota bucket.
+- Updated `MediaDeliveryService` so successful persisted/channel-delivered media settles monthly quota, while provider-output/no-delivery failures move reserved units to reconciliation-required instead of charging settled user quota.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+
+### Next recommended step
+
+Continue ADR-082 Slice 6: product cleanup and launch hardening. Remove any remaining product/model-visible daily-media quota language, keep daily counters as safety/rate-limit controls only, and verify admin/user visibility explains monthly delivery-confirmed media accounting cleanly.
+
+---
+
+## 2026-05-03 (ADR-084 billing provider readiness) — pricing, checkout, provider port, and payment tools accepted (`docs`; ADR-only)
+
+### What changed
+
+- Added `docs/ADR/084-billing-provider-readiness-pricing-checkout-and-payment-tools.md` as the target-state decision for the layer between PersAI subscription lifecycle and a concrete billing provider.
+- Captured founder decisions: one universal pricing page for guests/logged-in users; pricing cards generated from selected `Admin > Plans`; first production payment methods are bank card and SBP QR; guests who register after viewing a tariff enter normal product/trial and buy intentionally later; successful payment returns to chat with an activation banner; failed payment is explained calmly by the assistant with retry.
+- Defined billing boundaries: checkout starts with a PersAI payment intent; provider webhooks update PersAI lifecycle state; `Admin > Ops > Plan Control` remains tester/admin override and never creates billing truth; admin may manually mark payment/activate paid access with explicit audit/source.
+- Defined plan-change timing: upgrades activate immediately with materialization, downgrades/cancellations apply at current period end, refund/chargeback applies immediate fallback/free.
+- Added production implementation slices for pricing cards, payment intent/provider port, checkout return flow, webhook lifecycle integration, immediate activation/materialization, manual admin payment, assistant billing tool, and concrete provider adapter.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Continue the already active ADR-082 Slice 5 unless priority changes. ADR-084 implementation should start only after quota and subscription lifecycle foundations are ready enough for real payment success to activate safe product state.
+
+---
+
+## 2026-05-03 (ADR-082 Slice 4 monthly media quota model) — plans now own subscription-period media allowances
+
+### What changed
+
+- Added plan-owned monthly media quota fields for `image_generate`, `image_edit`, and `video_generate` units, persisted through `billingProviderHints.quotaAccounting` and exposed in the Admin Plans API contract/UI.
+- Added `workspace_media_monthly_quota_counters` as the subscription-period media counter table with reserved, settled, released, and reconciliation-required unit columns.
+- Added API quota snapshot support for monthly media allowance visibility, resolving the period from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` with a deliberate UTC calendar-month fallback for local/manual states.
+- Kept delivery-confirmed reservation/settlement out of this slice; existing media tool execution cleanup moves to Slice 5 and must use the new monthly counters.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api run test:quota-accounting`
+- `corepack pnpm --filter @persai/web run test -- app/admin/plans/page.test.tsx`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Continue ADR-082 Slice 5: wire delivery-confirmed monthly media reservation/settlement for `image_generate`, `image_edit`, and `video_generate`. Stop daily pre-call quota from being user-visible billing truth for those tools, but do not start payment-provider integration.
+
+---
+
+## 2026-05-03 (ADR-082 Slice 3 weighted token accounting) — completed native turns now charge weighted provider/runtime Credits
+
+### What changed
+
+- Propagated runtime `usageAccounting` through native sync web, streaming web, and Telegram completed-turn facades into quota recording.
+- Replaced estimator-first token quota recording with weighted Credits from all `usageAccounting.entries`, resolving provider/model weights from Admin Runtime model profiles.
+- Applied cached-input token weight separately from ordinary input tokens using `max(inputTokens - cachedInputTokens, 0)`, rounded weighted Credits up to the integer quota counter, and kept `chars_div_4_ceil_v1` only as explicitly marked estimator fallback when runtime usage is missing.
+- Updated ADR/API/data-model docs so Slice 3 is completed and Slice 4 monthly media quota model is the next active ADR-082 item.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api run test:quota-accounting`
+
+### Next recommended step
+
+Continue ADR-082 Slice 4: add subscription-period monthly media quota model for `image_generate`, `image_edit`, and `video_generate`. Do not start delivery-confirmed settlement until the monthly schema/counter truth exists.
+
+---
+
+## 2026-05-03 (ADR-083 subscription lifecycle and billing ops) — production trial/paid/grace/fallback policy accepted (`docs`; ADR-only)
+
+### What changed
+
+- Added `docs/ADR/083-subscription-lifecycle-trial-fallback-and-billing-ops.md` as the production target-state decision for registration, trial, paid renewal, failed renewal grace, fallback plans, lifecycle notifications, and Admin Ops subscription support.
+- Captured founder decisions: trial fallback plan is admin-selected in the trial plan card; grace duration is global; paid access/limits remain active during grace; notification intervals are admin-configurable; email is required; assistant push/Telegram is optional and LLM-written only with strict required-facts guardrails.
+- Defined Ops Cockpit direction: stretch the page/admin layout, keep the top User Directory table compact (`Email`, `Plan`, `Status`, `Next billing/trial end`, short usage risk, actions), and put full subscription/quota/support truth in the selected user/workspace detail area.
+- Added production implementation slices covering plan lifecycle policy fields, subscription state machine, billing-period quota reset foundation, lifecycle notifications/outbox, Ops Cockpit billing support UX, and billing provider integration readiness.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Continue the already active ADR-082 implementation order unless the founder explicitly switches priority. If switching to ADR-083, start with Slice 2: plan lifecycle policy fields, so trial plans can require and persist an admin-selected fallback plan.
+
+---
+
+## 2026-05-03 (ADR-082 Slice 2 provider/model token profiles) — Admin Runtime owns typed quota-weighted model catalog
+
+### What changed
+
+- Extended `Admin > Runtime` provider settings from capability-only model id lists to provider-owned `models[]` profile rows with `capabilities`, `inputTokenWeight`, `cachedInputTokenWeight`, `outputTokenWeight`, optional display label/notes, and optional provider price metadata.
+- Kept `availableModelsByProvider` as the legacy chat-model alias while normalizing older persisted `chat` / `image` / `video` catalog JSON into neutral default-weight profiles.
+- Updated API contract generation, API validation, runtime-provider profile materialization, plan media model validation, admin Knowledge model option flattening, and Admin Plans media model option flattening to use profile capabilities.
+- Updated `Admin > Runtime` to edit one provider profile line per model and show token-weight previews for the selected primary/fallback/router models.
+- Added a Prisma migration/default update so new platform runtime-provider settings rows default to the `models[]` catalog shape.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/admin/knowledge/page.test.tsx`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Continue ADR-082 Slice 3: replace estimator-first token quota usage with weighted provider/runtime `usageAccounting.entries`, using the Admin Runtime model profiles as quota-weight truth. Do not start monthly media quota schema/settlement until Slice 3 is complete.
+
+---
+
+## 2026-05-03 (ADR-082 billing-period reset truth) — paid quotas share one subscription period boundary (`docs`; ADR-only)
+
+### What changed
+
+- Clarified ADR-082 so the subscription billing period is the shared reset boundary for all paid recurring quota, not only media generation/editing.
+- Explicitly tied Credits/token budget, monthly media units, future paid quotas, renewal/reset visibility, and future billing-provider notification/reminder automation to `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt`.
+- Kept daily counters scoped only to true day-based safety/rate-limit controls, not paid plan quota reset truth.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Open a new session with the prompt embedded in ADR-082 and implement Slice 2: provider/model token profiles in `Admin > Runtime`.
+
+---
+
+## 2026-05-03 (ADR-082 continuation handoff) — billing readiness ADR now carries slice status and next-session prompt (`docs`; ADR-only)
+
+### What changed
+
+- Updated `docs/ADR/082-billing-quota-and-delivery-confirmed-media-accounting.md` so a new session can continue without reconstructing the plan from chat history.
+- Added explicit implementation status: Slice 1 completed, per-plan active chat cap prerequisite completed, and Slice 2 provider/model token profiles is the next active item.
+- Replaced the fine-grained rollout text with six coarse reviewable slices, each with status, purpose, affected areas, and completion criteria.
+- Added execution rules and a copy-ready prompt for starting the next session on Slice 2.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Open a new session with the prompt embedded in ADR-082 and implement Slice 2: provider/model token profiles in `Admin > Runtime`.
+
+---
+
+## 2026-05-03 (Admin Plans active chat cap) — per-plan web chat count limit is editable again (`apps/api`, `apps/web`, `packages/contracts`; full gates green)
+
+### What changed
+
+- Restored `activeWebChatsLimit` to the admin plan `quotaLimits` contract and `Admin > Plans` editor/read-only plan summary.
+- Persisted the field through `billingProviderHints.quotaAccounting.activeWebChatsLimit`, with the existing `WEB_ACTIVE_CHATS_CAP` remaining the fallback when a plan leaves the field blank.
+- Updated quota snapshots and inbound enforcement to read the active chat cap from the effective plan, including the web chat reserve path and web media staging path that can create a chat before a turn is sent.
+- Regenerated the contracts client after the OpenAPI schema change.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Next recommended step
+
+Return to ADR-082 Slice 2: extend `Admin > Runtime` provider model catalog from plain model-id lists to typed model profiles with input/cached-input/output token weights.
+
+---
+
+## 2026-05-03 (ADR-082 billing quota accounting) — token quota becomes provider-weighted and media quota is delivery-confirmed (`docs`; ADR-only)
+
+### What changed
+
+- Audited the current billing/quota implementation against the Billing Readiness Audit canvas and current code.
+- Confirmed token budget is still recorded through `chars_div_4_ceil_v1` text estimation even though runtime/provider `usageAccounting` entries exist.
+- Confirmed `image_generate`, `image_edit`, and `video_generate` currently call `consumeToolDailyLimit` before provider execution, so quota can be consumed even when provider/runtime/API delivery later fails.
+- Confirmed `MediaDeliveryService` is the API boundary that knows which runtime artifacts became user-visible chat attachments, while final delivery honesty already distinguishes attempted vs delivered artifacts in response text.
+- Added `docs/ADR/082-billing-quota-and-delivery-confirmed-media-accounting.md` as the accepted target-state decision: provider/model token weights live in `Admin > Runtime`; all model usage entries in a turn count toward one user-facing `Credits` budget; media generation/editing moves to plan-owned monthly per-tool limits; media quota settles only after successful user-visible delivery; provider-cost/no-delivery outcomes become admin reconciliation events instead of user quota charges.
+
+### Verification
+
+- Documentation-only change; no code tests were run.
+
+### Next recommended step
+
+Implement ADR-082 Slice 2 first: extend `Admin > Runtime` provider model catalog from plain model-id lists to typed model profiles with input/cached-input/output token weights, then wire API validation/contracts before changing quota accounting.
+
+---
+
 ## 2026-05-03 (Delivered image markdown fallback fix) — delivered image cards no longer keep broken inline markdown (`apps/api`; focused check green)
 
 ### What changed

@@ -1253,6 +1253,31 @@ class FakePersaiInternalApiClientService {
     return this.consumeOutcome;
   }
 
+  async reserveMonthlyMediaQuota(input: {
+    assistantId: string;
+    toolCode: "image_generate" | "image_edit" | "video_generate";
+    units: number;
+  }) {
+    this.consumeCalls.push({
+      assistantId: input.assistantId,
+      toolCode: input.toolCode,
+      dailyCallLimit: null,
+      units: input.units
+    });
+    return {
+      allowed: true,
+      currentUsedUnits: input.units,
+      limitUnits: 10,
+      periodStartedAt: "2026-05-01T00:00:00.000Z",
+      periodEndsAt: "2026-06-01T00:00:00.000Z",
+      periodSource: "subscription_period" as const
+    };
+  }
+
+  async releaseMonthlyMediaQuota() {
+    return undefined;
+  }
+
   async readQuotaStatus(input: Record<string, unknown>) {
     this.quotaStatusCalls.push(input);
     if (this.quotaStatusError !== null) {
@@ -5196,9 +5221,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "image_generate",
-    dailyCallLimit: 3,
-    // ADR-074 L1.1: image_generate now sends `units = count` so the
-    // daily counter advances per produced artifact, not per call.
+    dailyCallLimit: null,
+    // ADR-082: media tools reserve monthly media units before provider work.
     units: 1
   });
   assert.equal(mediaObjectStorage.saveCalls.length > 0, true);
@@ -5372,7 +5396,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "video_generate",
-    dailyCallLimit: 2
+    dailyCallLimit: null,
+    units: 1
   });
   assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "video/mp4");
   const videoGenerateToolHistory = JSON.parse(
@@ -5527,7 +5552,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
     assistantId: "assistant-1",
     toolCode: "image_edit",
-    dailyCallLimit: 2
+    dailyCallLimit: null,
+    units: 1
   });
   const imageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"

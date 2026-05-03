@@ -1,4 +1,7 @@
-import type { AssistantQuotaBucketSnapshot } from "./track-workspace-quota-usage.service";
+import type {
+  AssistantMonthlyMediaQuotaSnapshot,
+  AssistantQuotaBucketSnapshot
+} from "./track-workspace-quota-usage.service";
 
 export type QuotaVisibilityBucketState = AssistantQuotaBucketSnapshot;
 
@@ -36,6 +39,7 @@ export type UserPlanVisibilityState = {
   };
   limits: {
     quotaBuckets: QuotaVisibilityBucketState[];
+    monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
     toolDailyLimits: Array<{
       toolCode: string;
       displayName: string;
@@ -65,6 +69,7 @@ export type AdminPlanVisibilityState = {
     pressureLevel: "low" | "elevated" | "high";
   };
   quotaBuckets: QuotaVisibilityBucketState[];
+  monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
   effectiveEntitlements: {
     toolClasses: {
       costDrivingAllowed: boolean;

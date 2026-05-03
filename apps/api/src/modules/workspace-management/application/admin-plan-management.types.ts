@@ -97,6 +97,10 @@ export type AdminPlanInput = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
+    activeWebChatsLimit: number | null;
+    imageGenerateMonthlyUnitsLimit: number | null;
+    imageEditMonthlyUnitsLimit: number | null;
+    videoGenerateMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
@@ -147,6 +151,10 @@ export type AdminPlanState = {
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: {
     tokenBudgetLimit: number | null;
+    activeWebChatsLimit: number | null;
+    imageGenerateMonthlyUnitsLimit: number | null;
+    imageEditMonthlyUnitsLimit: number | null;
+    videoGenerateMonthlyUnitsLimit: number | null;
     mediaStorageBytesLimit: number | null;
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;

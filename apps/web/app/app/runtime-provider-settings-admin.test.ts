@@ -32,14 +32,62 @@ describe("runtime-provider-settings-admin", () => {
       },
       availableModelCatalogByProvider: {
         openai: {
-          chat: ["gpt-5.4", "gpt-4.1"],
-          image: ["gpt-image-1.5"],
-          video: ["sora-2"]
+          models: [
+            {
+              model: "gpt-5.4",
+              capabilities: ["chat"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 0.25,
+              outputTokenWeight: 4,
+              displayLabel: "GPT 5.4",
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "gpt-4.1",
+              capabilities: ["chat"],
+              inputTokenWeight: 0.5,
+              cachedInputTokenWeight: 0.1,
+              outputTokenWeight: 2,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "gpt-image-1.5",
+              capabilities: ["image"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            },
+            {
+              model: "sora-2",
+              capabilities: ["video"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            }
+          ]
         },
         anthropic: {
-          chat: ["claude-sonnet-4-5"],
-          image: [],
-          video: []
+          models: [
+            {
+              model: "claude-sonnet-4-5",
+              capabilities: ["chat"],
+              inputTokenWeight: 1,
+              cachedInputTokenWeight: 1,
+              outputTokenWeight: 1,
+              displayLabel: null,
+              notes: null,
+              providerPriceMetadata: null
+            }
+          ]
         }
       },
       providerKeys: {
@@ -63,8 +111,12 @@ describe("runtime-provider-settings-admin", () => {
       model: "gpt-5.4"
     });
     expect(state.draft.fallbackEnabled).toBe(true);
-    expect(state.draft.availableModelsTextByProvider.openai.chat).toBe("gpt-5.4\ngpt-4.1");
-    expect(state.draft.availableModelsTextByProvider.openai.image).toBe("gpt-image-1.5");
+    expect(state.draft.modelProfilesTextByProvider.openai).toContain(
+      "gpt-5.4 | chat | 1 | 0.25 | 4 | GPT 5.4"
+    );
+    expect(state.draft.modelProfilesTextByProvider.openai).toContain(
+      "gpt-image-1.5 | image | 1 | 1 | 1 |"
+    );
     expect(state.providerKeyState.openai.lastFour).toBe("1234");
     expect(state.draft.providerKeys.openai).toBe("");
   });
@@ -81,17 +133,13 @@ describe("runtime-provider-settings-admin", () => {
           provider: "anthropic",
           model: "claude-sonnet-4-5"
         },
-        availableModelsTextByProvider: {
-          openai: {
-            chat: "gpt-4.1\ngpt-5.4",
-            image: "gpt-image-1.5",
-            video: "sora-2"
-          },
-          anthropic: {
-            chat: "claude-sonnet-4-5",
-            image: "",
-            video: ""
-          }
+        modelProfilesTextByProvider: {
+          openai:
+            "gpt-4.1 | chat | 0.5 | 0.1 | 2\n" +
+            "gpt-5.4 | chat | 1 | 0.25 | 4\n" +
+            "gpt-image-1.5 | image | 1 | 1 | 1\n" +
+            "sora-2 | video | 1 | 1 | 1",
+          anthropic: "claude-sonnet-4-5 | chat | 1 | 1 | 1"
         },
         providerKeys: {
           openai: "",
@@ -122,8 +170,17 @@ describe("runtime-provider-settings-admin", () => {
     });
     expect(request.availableModelsByProvider.openai).toEqual(["gpt-4.1", "gpt-5.4"]);
     expect(request.availableModelsByProvider.anthropic).toEqual(["claude-sonnet-4-5"]);
-    expect(request.availableModelCatalogByProvider.openai.image).toEqual(["gpt-image-1.5"]);
-    expect(request.availableModelCatalogByProvider.openai.video).toEqual(["sora-2"]);
+    expect(
+      request.availableModelCatalogByProvider.openai.models
+        .filter((profile) => profile.capabilities.includes("image"))
+        .map((profile) => profile.model)
+    ).toEqual(["gpt-image-1.5"]);
+    expect(
+      request.availableModelCatalogByProvider.openai.models
+        .filter((profile) => profile.capabilities.includes("video"))
+        .map((profile) => profile.model)
+    ).toEqual(["sora-2"]);
+    expect(request.availableModelCatalogByProvider.openai.models[1]?.outputTokenWeight).toBe(4);
     expect(request.providerKeys).toEqual({
       anthropic: "sk-ant-new"
     });
@@ -141,9 +198,9 @@ describe("runtime-provider-settings-admin", () => {
           provider: "anthropic",
           model: ""
         },
-        availableModelsTextByProvider: {
-          openai: { chat: "gpt-4.1", image: "", video: "" },
-          anthropic: { chat: "", image: "", video: "" }
+        modelProfilesTextByProvider: {
+          openai: "gpt-4.1 | chat | 1 | 1 | 1",
+          anthropic: ""
         },
         providerKeys: {
           openai: "",
@@ -166,9 +223,9 @@ describe("runtime-provider-settings-admin", () => {
             provider: "anthropic",
             model: ""
           },
-          availableModelsTextByProvider: {
-            openai: { chat: "gpt-5.4", image: "", video: "" },
-            anthropic: { chat: "", image: "", video: "" }
+          modelProfilesTextByProvider: {
+            openai: "gpt-5.4 | chat | 1 | 1 | 1",
+            anthropic: ""
           },
           providerKeys: {
             openai: "",
@@ -203,9 +260,9 @@ describe("runtime-provider-settings-admin", () => {
           provider: "anthropic",
           model: ""
         },
-        availableModelsTextByProvider: {
-          openai: { chat: "", image: "", video: "" },
-          anthropic: { chat: "", image: "", video: "" }
+        modelProfilesTextByProvider: {
+          openai: "",
+          anthropic: ""
         },
         providerKeys: {
           openai: "",

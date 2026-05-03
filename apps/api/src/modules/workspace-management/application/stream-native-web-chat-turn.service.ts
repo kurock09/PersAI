@@ -328,6 +328,9 @@ export class StreamNativeWebChatTurnService {
             yield {
               type: "done",
               respondedAt: event.result.respondedAt,
+              ...(event.result.usageAccounting === undefined
+                ? {}
+                : { usageAccounting: event.result.usageAccounting }),
               ...(event.result.turnRouting === undefined
                 ? {}
                 : { turnRouting: event.result.turnRouting }),

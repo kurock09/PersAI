@@ -599,6 +599,7 @@ export class TelegramChannelAdapterService {
       });
     }
 
+    let mediaDeliveryCompleted = false;
     try {
       if (turnResult.media.length > 0 && turnResult.deduplicated !== true) {
         await this.mediaDeliveryService.deliver({
@@ -616,6 +617,7 @@ export class TelegramChannelAdapterService {
             }
           }
         });
+        mediaDeliveryCompleted = true;
       }
 
       await this.telegramBotClientService.sendAssistantTurnReply({
@@ -635,6 +637,17 @@ export class TelegramChannelAdapterService {
       });
     } catch (error) {
       chatActionState.current?.stop();
+      if (
+        turnResult.media.length > 0 &&
+        turnResult.deduplicated !== true &&
+        !mediaDeliveryCompleted
+      ) {
+        await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
+          assistantId: config.assistantId,
+          artifacts: turnResult.media,
+          reason: "telegram_delivery_not_completed"
+        });
+      }
       if (await this.handleUnauthorizedTelegramError(config.assistantId, error)) {
         return { statusCode: 200, body: { ok: false, error: "invalid_bot_token" } };
       }

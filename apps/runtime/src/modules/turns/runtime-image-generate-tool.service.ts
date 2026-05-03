@@ -175,18 +175,9 @@ export class RuntimeImageGenerateToolService {
     }
 
     try {
-      // ADR-074 L1.1 — always call the consumer endpoint, even when the
-      // plan has no daily cap, so observability counts every billed
-      // image. `units = request.count` so a single
-      // `image_generate({ count: 4 })` advances the daily counter by 4
-      // (matching the four artifacts OpenAI bills us for), instead of
-      // by 1. The API rejects the *whole* batch if the requested count
-      // would push the counter past a configured cap; we surface that
-      // as a regular tool_quota_rejected outcome.
-      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
         assistantId: params.bundle.metadata.assistantId,
         toolCode: IMAGE_GENERATE_TOOL_CODE,
-        dailyCallLimit: policy.dailyCallLimit,
         units: request.count
       });
       if (!quotaOutcome.allowed) {
@@ -243,6 +234,10 @@ export class RuntimeImageGenerateToolService {
         )
       );
       if (artifacts.length === 0) {
+        await this.releaseMonthlyMediaQuotaReservationBestEffort({
+          assistantId: params.bundle.metadata.assistantId,
+          units: request.count
+        });
         return {
           payload: {
             toolCode: "image_generate",
@@ -262,6 +257,13 @@ export class RuntimeImageGenerateToolService {
           artifacts: [],
           isError: true
         };
+      }
+      const undeliverableUnits = Math.max(0, request.count - artifacts.length);
+      if (undeliverableUnits > 0) {
+        await this.releaseMonthlyMediaQuotaReservationBestEffort({
+          assistantId: params.bundle.metadata.assistantId,
+          units: undeliverableUnits
+        });
       }
 
       const revisedPrompt =
@@ -290,6 +292,10 @@ export class RuntimeImageGenerateToolService {
         isError: false
       };
     } catch (error) {
+      await this.releaseMonthlyMediaQuotaReservationBestEffort({
+        assistantId: params.bundle.metadata.assistantId,
+        units: request.count
+      });
       return {
         payload: {
           toolCode: "image_generate",
@@ -440,12 +446,32 @@ export class RuntimeImageGenerateToolService {
       fileRef: runtimeFileRef.fileRef,
       file: runtimeFileRef,
       kind: "image",
+      sourceToolCode: IMAGE_GENERATE_TOOL_CODE,
       objectKey: stored.objectKey,
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
       voiceNote: false
     };
+  }
+
+  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
+    assistantId: string;
+    units: number;
+  }): Promise<void> {
+    try {
+      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
+        assistantId: input.assistantId,
+        toolCode: IMAGE_GENERATE_TOOL_CODE,
+        units: input.units
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[image-generate] failed to release monthly media quota reservation: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private resolveAllowedWorkerToolPolicy(

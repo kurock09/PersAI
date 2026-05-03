@@ -454,6 +454,8 @@ model Workspace {
   subscription                      WorkspaceSubscription?
   quotaAccountingState              WorkspaceQuotaAccountingState?
   quotaUsageEvents                  WorkspaceQuotaUsageEvent[]
+  tokenBudgetPeriodCounters         WorkspaceTokenBudgetPeriodCounter[]
+  mediaMonthlyQuotaCounters         WorkspaceMediaMonthlyQuotaCounter[]
   assistantAuditEvents              AssistantAuditEvent[]
   adminRoles                        AppUserAdminRole[]
   adminNotificationChannels         WorkspaceAdminNotificationChannel[]
@@ -745,7 +747,7 @@ model PlatformRuntimeProviderSettings {
   routingFastModelKey             String?                         @map("routing_fast_model_key") @db.VarChar(256)
   routerPolicy                    Json                            @default("{}") @map("router_policy") @db.JsonB
   availableModelsByProvider       Json                            @map("available_models_by_provider") @db.JsonB
-  availableModelCatalogByProvider Json                            @default("{\"openai\":{\"chat\":[],\"image\":[],\"video\":[]},\"anthropic\":{\"chat\":[],\"image\":[],\"video\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
+  availableModelCatalogByProvider Json                            @default("{\"openai\":{\"models\":[]},\"anthropic\":{\"models\":[]}}") @map("available_model_catalog_by_provider") @db.JsonB
   documentProcessingPolicy        Json                            @default("{}") @map("document_processing_policy") @db.JsonB
   adminKnowledgeRetrievalPolicy   Json                            @default("{}") @map("admin_knowledge_retrieval_policy") @db.JsonB
   updatedByUserId                 String?                         @map("updated_by_user_id") @db.Uuid
@@ -1036,6 +1038,45 @@ model WorkspaceToolUsageDailyCounter {
   @@unique([workspaceId, toolCode, date])
   @@index([workspaceId, date])
   @@map("workspace_tool_usage_daily_counters")
+}
+
+model WorkspaceTokenBudgetPeriodCounter {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId     String    @map("workspace_id") @db.Uuid
+  periodStartedAt DateTime  @map("period_started_at") @db.Timestamptz(6)
+  periodEndsAt    DateTime  @map("period_ends_at") @db.Timestamptz(6)
+  usedCredits     BigInt    @default(0) @map("used_credits")
+  limitCredits    BigInt?   @map("limit_credits")
+  lastComputedAt  DateTime  @default(now()) @map("last_computed_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, periodStartedAt, periodEndsAt])
+  @@index([workspaceId, periodEndsAt])
+  @@map("workspace_token_budget_period_counters")
+}
+
+model WorkspaceMediaMonthlyQuotaCounter {
+  id                          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                 String    @map("workspace_id") @db.Uuid
+  toolCode                    String    @map("tool_code") @db.VarChar(64)
+  periodStartedAt             DateTime  @map("period_started_at") @db.Timestamptz(6)
+  periodEndsAt                DateTime  @map("period_ends_at") @db.Timestamptz(6)
+  reservedUnits               Int       @default(0) @map("reserved_units")
+  settledUnits                Int       @default(0) @map("settled_units")
+  releasedUnits               Int       @default(0) @map("released_units")
+  reconciliationRequiredUnits Int       @default(0) @map("reconciliation_required_units")
+  limitUnits                  Int?      @map("limit_units")
+  lastComputedAt              DateTime  @default(now()) @map("last_computed_at") @db.Timestamptz(6)
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace                   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([workspaceId, toolCode, periodStartedAt, periodEndsAt])
+  @@index([workspaceId, periodStartedAt, periodEndsAt])
+  @@index([workspaceId, toolCode, periodEndsAt])
+  @@map("workspace_media_monthly_quota_counters")
 }
 
 model AssistantMaterializedSpec {

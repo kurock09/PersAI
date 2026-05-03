@@ -270,6 +270,60 @@ async function run(): Promise<void> {
           ]
         };
       },
+      async resolveAssistantMonthlyMediaQuotaSnapshot(assistant: {
+        id: string;
+        workspaceId: string;
+      }) {
+        assert.equal(assistant.id, "assistant-1");
+        assert.equal(assistant.workspaceId, "ws-1");
+        return {
+          planCode: "pro",
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period",
+          tools: [
+            {
+              toolCode: "image_generate",
+              displayName: "Image generation",
+              usedUnits: 2,
+              reservedUnits: 0,
+              settledUnits: 2,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: 20,
+              remainingUnits: 18,
+              usageAvailable: true,
+              status: "ok"
+            },
+            {
+              toolCode: "image_edit",
+              displayName: "Image editing",
+              usedUnits: 0,
+              reservedUnits: 0,
+              settledUnits: 0,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: null,
+              remainingUnits: null,
+              usageAvailable: true,
+              status: "ok"
+            },
+            {
+              toolCode: "video_generate",
+              displayName: "Video generation",
+              usedUnits: 0,
+              reservedUnits: 0,
+              settledUnits: 0,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: null,
+              remainingUnits: null,
+              usageAvailable: true,
+              status: "ok"
+            }
+          ]
+        };
+      },
       async checkToolDailyLimit(params: {
         workspaceId: string;
         toolCode: string;
@@ -308,6 +362,7 @@ async function run(): Promise<void> {
     status: "ok"
   });
   assert.equal(visibility.limits.toolDailyLimits.length, 1);
+  assert.equal(visibility.limits.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
     toolCode: "memory_search",
     displayName: "Memory Search",

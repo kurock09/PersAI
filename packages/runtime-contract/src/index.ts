@@ -93,6 +93,7 @@ export interface RuntimeOutputArtifact {
   fileRef: string;
   file: RuntimeFileRef;
   kind: PersaiRuntimeAttachmentKind;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
   objectKey: string;
   mimeType: string;
   filename: string | null;

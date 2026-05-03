@@ -17,6 +17,33 @@ corepack pnpm --filter @persai/web run typecheck
 
 Add focused tests for touched code paths when the change affects behavior.
 
+## ADR-082 billing quota readiness focused checks
+
+When a change touches Admin Runtime provider/model profiles, weighted token accounting, ADR-082 monthly media quota model code, or delivery-confirmed media settlement, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api run test:quota-accounting
+corepack pnpm --filter @persai/api exec tsx test/media-delivery.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/runtime-provider-settings-admin.test.ts app/admin/knowledge/page.test.tsx app/admin/plans/page.test.tsx
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Admin Runtime provider/model profiles, not plan rows, own `inputTokenWeight`, `cachedInputTokenWeight`, and `outputTokenWeight`.
+2. Older capability-list catalog JSON must normalize into typed model profiles without breaking existing settings.
+3. API validation must reject invalid/negative weights before persistence.
+4. Plan media model validation and admin model selectors must derive options from profile capabilities.
+5. Weighted token accounting slices must use provider/runtime `usageAccounting.entries` first and mark estimator fallback explicitly.
+6. Monthly media settlement must reserve before expensive media provider work, settle only after delivery succeeds, and release or mark reconciliation-required when provider/output work does not become user-visible delivery.
+7. `image_generate`, `image_edit`, and `video_generate` must not use day-keyed tool counters as paid media quota truth.
+
 For production slices that touch API contracts, runtime behavior, or shared control-plane seams, also run:
 
 ```bash

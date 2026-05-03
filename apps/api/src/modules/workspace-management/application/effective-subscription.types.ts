@@ -14,6 +14,7 @@ export type EffectiveSubscriptionState = {
   status: EffectiveSubscriptionStatus;
   planCode: string | null;
   trialEndsAt: string | null;
+  currentPeriodStartedAt?: string | null;
   currentPeriodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
 };

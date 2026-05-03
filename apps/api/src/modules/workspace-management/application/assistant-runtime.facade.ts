@@ -2,7 +2,8 @@ import type { RuntimeTier } from "./runtime-assignment";
 import type {
   RuntimeOutputArtifact,
   RuntimeTurnAutoCompactionState,
-  RuntimeTurnToolInvocation
+  RuntimeTurnToolInvocation,
+  RuntimeUsageAccounting
 } from "@persai/runtime-contract";
 
 export type AssistantRuntimeErrorCode =
@@ -67,6 +68,7 @@ export interface RuntimeUrlMediaArtifact {
   source: "runtime_url";
   url: string;
   type: RuntimeMediaArtifactType;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
   audioAsVoice?: boolean;
   caption?: string;
 }
@@ -76,6 +78,7 @@ export interface PersaiObjectStorageRuntimeMediaArtifact {
   fileRef?: string | null;
   objectKey: string;
   type: RuntimeMediaArtifactType;
+  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | null;
   mimeType: string;
   filename: string | null;
   sizeBytes: number | null;
@@ -115,6 +118,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   assistantMessage: string;
   respondedAt: string;
   media: RuntimeMediaArtifact[];
+  usageAccounting?: RuntimeUsageAccounting;
   toolInvocations?: RuntimeTurnToolInvocation[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   autoCompaction?: RuntimeTurnAutoCompactionState;
@@ -147,6 +151,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   delta?: string;
   accumulated?: string;
   respondedAt?: string;
+  usageAccounting?: RuntimeUsageAccounting;
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   code?: string;
   message?: string;
@@ -219,6 +224,9 @@ export function runtimeOutputArtifactsToMediaArtifacts(
       objectKey: artifact.objectKey,
       fileRef: artifact.fileRef,
       type,
+      ...(artifact.sourceToolCode === undefined || artifact.sourceToolCode === null
+        ? {}
+        : { sourceToolCode: artifact.sourceToolCode }),
       mimeType: artifact.mimeType,
       filename: artifact.filename,
       sizeBytes: artifact.sizeBytes,

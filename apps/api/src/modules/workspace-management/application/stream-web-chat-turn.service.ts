@@ -271,8 +271,10 @@ export class StreamWebChatTurnService {
   ): Promise<StreamWebChatTurnOutcome> {
     let accumulated = "";
     let respondedAt: string | null = null;
+    let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
+    let mediaDeliveryCompleted = false;
     const trace =
       prepared.traceHandle ??
       this.overviewLatencyTraceService.start({
@@ -360,6 +362,7 @@ export class StreamWebChatTurnService {
 
         accumulated = result.accumulated;
         respondedAt = result.respondedAt;
+        usageAccounting = result.usageAccounting;
         turnRouting = result.turnRouting;
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
@@ -436,6 +439,13 @@ export class StreamWebChatTurnService {
           status: "interrupted",
           outputPreview: accumulated
         });
+        if (collectedMedia.length > 0) {
+          await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
+            assistantId: prepared.assistantId,
+            artifacts: collectedMedia,
+            reason: "web_stream_client_aborted_before_delivery"
+          });
+        }
         const interrupted = await this.persistInterruptedOutcome(
           prepared,
           accumulated,
@@ -516,6 +526,7 @@ export class StreamWebChatTurnService {
         messageId: assistantMessage.id,
         workspaceId: prepared.workspaceId
       });
+      mediaDeliveryCompleted = true;
       const attachmentStates = delivered.attachments;
       trace.stage("media_delivered");
       const finalAssistantContent = await this.persistFinalAssistantContentIfNeeded({
@@ -548,6 +559,7 @@ export class StreamWebChatTurnService {
         assistant: prepared.assistant,
         userContent: baseMessage,
         assistantContent: finalAssistantContent,
+        ...(usageAccounting === undefined ? {} : { usageAccounting }),
         source: "web_chat_turn_stream_completed"
       });
       trace.stage("quota_recorded");
@@ -660,6 +672,13 @@ export class StreamWebChatTurnService {
         );
       }
       const normalized = toAssistantInboundFailurePayload(error);
+      if (collectedMedia.length > 0 && !mediaDeliveryCompleted) {
+        await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
+          assistantId: prepared.assistantId,
+          artifacts: collectedMedia,
+          reason: "web_stream_delivery_not_completed"
+        });
+      }
       const interruptedOutcome = await this.persistInterruptedOutcome(
         prepared,
         accumulated,
@@ -808,6 +827,7 @@ export class StreamWebChatTurnService {
     status: "completed" | "client-aborted" | "stalled";
     accumulated: string;
     respondedAt: string | null;
+    usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
@@ -816,6 +836,7 @@ export class StreamWebChatTurnService {
   }> {
     let accumulated = input.attempt === 1 ? input.accumulatedSoFar : "";
     let respondedAt: string | null = null;
+    let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
@@ -857,6 +878,7 @@ export class StreamWebChatTurnService {
             status: "client-aborted",
             accumulated,
             respondedAt,
+            usageAccounting,
             turnRouting,
             collectedMedia,
             primaryFirstDeltaMs,
@@ -961,6 +983,7 @@ export class StreamWebChatTurnService {
         if (chunk.type === "done" && typeof chunk.respondedAt === "string") {
           watchdog.recordActivity();
           respondedAt = chunk.respondedAt;
+          usageAccounting = chunk.usageAccounting;
           turnRouting = chunk.turnRouting ?? null;
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
@@ -984,6 +1007,7 @@ export class StreamWebChatTurnService {
           status: "stalled",
           accumulated,
           respondedAt,
+          usageAccounting,
           turnRouting,
           collectedMedia,
           primaryFirstDeltaMs,
@@ -1001,6 +1025,7 @@ export class StreamWebChatTurnService {
         status: "client-aborted",
         accumulated,
         respondedAt,
+        usageAccounting,
         turnRouting,
         collectedMedia,
         primaryFirstDeltaMs,
@@ -1016,6 +1041,7 @@ export class StreamWebChatTurnService {
         status: "completed",
         accumulated,
         respondedAt,
+        usageAccounting,
         turnRouting,
         collectedMedia,
         primaryFirstDeltaMs,
@@ -1028,6 +1054,7 @@ export class StreamWebChatTurnService {
       status: "completed",
       accumulated,
       respondedAt,
+      usageAccounting,
       turnRouting,
       collectedMedia,
       primaryFirstDeltaMs,

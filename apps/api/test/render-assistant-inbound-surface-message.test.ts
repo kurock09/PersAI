@@ -15,6 +15,11 @@ async function run(): Promise<void> {
   );
 
   assert.equal(
+    service.renderError("telegram", "monthly_media_quota_exceeded", "fallback").text,
+    "Monthly media quota has been exhausted. Wait for the next billing cycle or upgrade the plan."
+  );
+
+  assert.equal(
     service.renderError("reminder_callback", "runtime_unreachable", "fallback").text,
     "Reminder delivery is temporarily unavailable."
   );

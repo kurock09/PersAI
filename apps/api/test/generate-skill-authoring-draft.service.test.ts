@@ -107,8 +107,21 @@ async function run(): Promise<void> {
           },
           availableModelsByProvider: { openai: ["gpt-5.1"], anthropic: [] },
           availableModelCatalogByProvider: {
-            openai: { chat: ["gpt-5.1"], image: [], video: [] },
-            anthropic: { chat: [], image: [], video: [] }
+            openai: {
+              models: [
+                {
+                  model: "gpt-5.1",
+                  capabilities: ["chat"],
+                  inputTokenWeight: 1,
+                  cachedInputTokenWeight: 1,
+                  outputTokenWeight: 1,
+                  displayLabel: null,
+                  notes: null,
+                  providerPriceMetadata: null
+                }
+              ]
+            },
+            anthropic: { models: [] }
           },
           providerKeys: {
             openai: { configured: true, lastFour: "1234", updatedAt: null },

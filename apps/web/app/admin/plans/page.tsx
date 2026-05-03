@@ -70,6 +70,10 @@ export type PlanDraft = {
   channelWhatsapp: boolean;
   channelMax: boolean;
   tokenBudgetLimit: string;
+  activeWebChatsLimit: string;
+  imageGenerateMonthlyUnitsLimit: string;
+  imageEditMonthlyUnitsLimit: string;
+  videoGenerateMonthlyUnitsLimit: string;
   mediaStorageMb: string;
   knowledgeStorageMb: string;
   workspaceStorageMb: string;
@@ -139,6 +143,10 @@ export type PlanDraft = {
 
 type NumericDraftField =
   | "tokenBudgetLimit"
+  | "activeWebChatsLimit"
+  | "imageGenerateMonthlyUnitsLimit"
+  | "imageEditMonthlyUnitsLimit"
+  | "videoGenerateMonthlyUnitsLimit"
   | "mediaStorageMb"
   | "knowledgeStorageMb"
   | "workspaceStorageMb"
@@ -223,6 +231,8 @@ const TOOL_PER_TURN_CAP_DEFAULT: Readonly<Record<string, number>> = {
   memory_write: 10
 };
 
+const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+
 /**
  * One-sentence operator-facing description shown under each tool card title.
  * Plain English, no ADR references. Kept short so cards stay compact.
@@ -246,7 +256,7 @@ const TOOL_CARD_DESCRIPTION: Readonly<Record<string, string>> = {
 /** Short tooltips for the per-tool fields. Plain English, no ADR refs. */
 const TOOL_FIELD_HELP = {
   dailyCap:
-    "Maximum calls per workspace per day. Blank = unlimited (calls are still counted, never refused). A positive number rejects further calls once reached.",
+    "Safety cap for day-scoped tools. Blank = unlimited daily calls (still counted for observability). Media generation/editing uses monthly delivery-confirmed quotas below.",
   perTurnCap:
     "Maximum calls inside a single assistant turn. Blank = inherit the runtime default for this tool.",
   videoModel: "Provider model used for video generation. Affects cost and quality."
@@ -382,6 +392,25 @@ function parseStrictIntegerDraft(
 
 const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
+  { field: "activeWebChatsLimit", label: "Active web chats", min: 1, allowBlank: true },
+  {
+    field: "imageGenerateMonthlyUnitsLimit",
+    label: "Monthly image generations",
+    min: 1,
+    allowBlank: true
+  },
+  {
+    field: "imageEditMonthlyUnitsLimit",
+    label: "Monthly image edits",
+    min: 1,
+    allowBlank: true
+  },
+  {
+    field: "videoGenerateMonthlyUnitsLimit",
+    label: "Monthly video generations",
+    min: 1,
+    allowBlank: true
+  },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
   { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
   { field: "maxEnabledSkills", label: "Max enabled Skills", min: 0, allowBlank: true },
@@ -522,6 +551,10 @@ function emptyDraft(): PlanDraft {
     channelWhatsapp: false,
     channelMax: false,
     tokenBudgetLimit: "",
+    activeWebChatsLimit: "",
+    imageGenerateMonthlyUnitsLimit: "",
+    imageEditMonthlyUnitsLimit: "",
+    videoGenerateMonthlyUnitsLimit: "",
     mediaStorageMb: "",
     knowledgeStorageMb: "",
     workspaceStorageMb: "",
@@ -595,6 +628,12 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     channelWhatsapp: plan.entitlements.channelsAndSurfaces.whatsapp,
     channelMax: plan.entitlements.channelsAndSurfaces.max,
     tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
+    activeWebChatsLimit: plan.quotaLimits?.activeWebChatsLimit?.toString() ?? "",
+    imageGenerateMonthlyUnitsLimit:
+      plan.quotaLimits?.imageGenerateMonthlyUnitsLimit?.toString() ?? "",
+    imageEditMonthlyUnitsLimit: plan.quotaLimits?.imageEditMonthlyUnitsLimit?.toString() ?? "",
+    videoGenerateMonthlyUnitsLimit:
+      plan.quotaLimits?.videoGenerateMonthlyUnitsLimit?.toString() ?? "",
     mediaStorageMb:
       plan.quotaLimits?.mediaStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.mediaStorageBytesLimit / 1048576))
@@ -694,6 +733,32 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     min: 1,
     allowBlank: true
   });
+  const activeWebChatsLimit = parseStrictIntegerDraft(draft.activeWebChatsLimit, {
+    label: "Active web chats",
+    min: 1,
+    allowBlank: true
+  });
+  const imageGenerateMonthlyUnitsLimit = parseStrictIntegerDraft(
+    draft.imageGenerateMonthlyUnitsLimit,
+    {
+      label: "Monthly image generations",
+      min: 1,
+      allowBlank: true
+    }
+  );
+  const imageEditMonthlyUnitsLimit = parseStrictIntegerDraft(draft.imageEditMonthlyUnitsLimit, {
+    label: "Monthly image edits",
+    min: 1,
+    allowBlank: true
+  });
+  const videoGenerateMonthlyUnitsLimit = parseStrictIntegerDraft(
+    draft.videoGenerateMonthlyUnitsLimit,
+    {
+      label: "Monthly video generations",
+      min: 1,
+      allowBlank: true
+    }
+  );
   const mediaStorageMb = parseStrictIntegerDraft(draft.mediaStorageMb, {
     label: "Media upload budget (MB)",
     min: 1,
@@ -749,6 +814,10 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     },
     quotaLimits: {
       tokenBudgetLimit,
+      activeWebChatsLimit,
+      imageGenerateMonthlyUnitsLimit,
+      imageEditMonthlyUnitsLimit,
+      videoGenerateMonthlyUnitsLimit,
       mediaStorageBytesLimit: mediaStorageMb === null ? null : mediaStorageMb * 1048576,
       knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
       workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
@@ -937,7 +1006,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     toolActivations: draft.toolActivations.map((ta) => ({
       toolCode: ta.toolCode,
       active: ta.active,
-      dailyCallLimit: ta.dailyCallLimit,
+      dailyCallLimit: MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? null : ta.dailyCallLimit,
       perTurnCap: ta.perTurnCap
     })),
     toolBudgets: {
@@ -1191,7 +1260,7 @@ function ToolActivationsInline({ activations }: { activations: AdminPlanToolActi
           <span className={ta.active ? "text-emerald-400" : "text-text-muted line-through"}>
             {ta.displayName}
           </span>
-          {ta.dailyCallLimit !== null && (
+          {ta.dailyCallLimit !== null && !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) && (
             <span className="ml-0.5 text-text-subtle">({ta.dailyCallLimit}/d)</span>
           )}
         </span>
@@ -1397,16 +1466,23 @@ export function ToolActivationsEdit({
                     </FieldRow>
                   </>
                 ) : null}
-                <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
-                  <input
-                    type="number"
-                    min={0}
-                    value={ta.dailyCallLimit ?? ""}
-                    onChange={(e) => setLimit(idx, e.target.value)}
-                    placeholder="unlimited"
-                    className={numericInputClasses}
-                  />
-                </FieldRow>
+                {MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
+                  <p className="rounded border border-border/70 bg-bg/60 px-2 py-1 text-[10px] text-text-subtle">
+                    Paid media usage is governed by the monthly delivery-confirmed quotas in Plan
+                    limits. The per-turn cap here remains a safety control.
+                  </p>
+                ) : (
+                  <FieldRow label="Daily cap" tip={TOOL_FIELD_HELP.dailyCap}>
+                    <input
+                      type="number"
+                      min={0}
+                      value={ta.dailyCallLimit ?? ""}
+                      onChange={(e) => setLimit(idx, e.target.value)}
+                      placeholder="unlimited"
+                      className={numericInputClasses}
+                    />
+                  </FieldRow>
+                )}
                 <FieldRow label="Per-turn cap" tip={TOOL_FIELD_HELP.perTurnCap}>
                   <input
                     type="number"
@@ -1485,7 +1561,9 @@ function ToolActivationReadOnlyGroup({
                 <span className="ml-1 text-text-subtle">
                   ({getPolicyClassLabel(ta.policyClass)})
                 </span>
-                {showLimits && ta.dailyCallLimit !== null ? (
+                {showLimits &&
+                ta.dailyCallLimit !== null &&
+                !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(ta.toolCode) ? (
                   <span className="ml-0.5 text-text-subtle">({ta.dailyCallLimit}/d)</span>
                 ) : null}
               </span>
@@ -1793,6 +1871,82 @@ function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.tokenBudgetLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Maximum active web chat threads allowed for this plan. Blank = platform default.">
+                    Active web chats
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.activeWebChatsLimit}
+                    onChange={(e) => onPatch({ activeWebChatsLimit: e.target.value })}
+                    placeholder="default"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.activeWebChatsLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.activeWebChatsLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Monthly image generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
+                    Monthly image generations
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.imageGenerateMonthlyUnitsLimit}
+                    onChange={(e) => onPatch({ imageGenerateMonthlyUnitsLimit: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.imageGenerateMonthlyUnitsLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.imageGenerateMonthlyUnitsLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Monthly image edit units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
+                    Monthly image edits
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.imageEditMonthlyUnitsLimit}
+                    onChange={(e) => onPatch({ imageEditMonthlyUnitsLimit: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.imageEditMonthlyUnitsLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.imageEditMonthlyUnitsLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Monthly video generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
+                    Monthly video generations
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.videoGenerateMonthlyUnitsLimit}
+                    onChange={(e) => onPatch({ videoGenerateMonthlyUnitsLimit: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.videoGenerateMonthlyUnitsLimit
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.videoGenerateMonthlyUnitsLimit} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="User upload budget — max MB users can upload through chat (images, voice, docs). Tracked by PersAI API.">
                     Media upload budget (MB)
@@ -2420,7 +2574,8 @@ function PlanForm({
         <HelpText className="mt-2">
           Only plan-managed tools are editable here. Platform-managed and internal tools stay
           read-only in summaries. Leave `Daily cap` blank for unlimited daily calls (still counted
-          for observability) and leave `Per-turn cap` blank to inherit the runtime default.
+          for observability). Media generation/editing uses the monthly delivery-confirmed quotas in
+          Plan limits; leave `Per-turn cap` blank to inherit the runtime default.
         </HelpText>
       </Sec>
 
@@ -2609,6 +2764,7 @@ function PlanCardReadOnly({
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
+                  <div>Active web chats: {plan.quotaLimits?.activeWebChatsLimit ?? "default"}</div>
                   <div>
                     Media upload budget:{" "}
                     {plan.quotaLimits?.mediaStorageBytesLimit != null
@@ -2785,14 +2941,21 @@ export default function AdminPlansPage() {
         for (const [provider, catalog] of Object.entries(
           runtimeData.availableModelCatalogByProvider as unknown as Record<
             string,
-            { image: string[]; video: string[] }
+            {
+              models: Array<{
+                model: string;
+                capabilities: string[];
+              }>;
+            }
           >
         )) {
-          for (const model of catalog.image ?? []) {
-            imageKeys.push({ provider, model });
-          }
-          for (const model of catalog.video ?? []) {
-            videoKeys.push({ provider, model });
+          for (const profile of catalog.models ?? []) {
+            if (profile.capabilities.includes("image")) {
+              imageKeys.push({ provider, model: profile.model });
+            }
+            if (profile.capabilities.includes("video")) {
+              videoKeys.push({ provider, model: profile.model });
+            }
           }
         }
         setAvailableImageModelKeys(imageKeys);

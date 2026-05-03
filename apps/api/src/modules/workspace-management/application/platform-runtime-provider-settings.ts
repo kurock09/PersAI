@@ -1,9 +1,13 @@
 import {
   RUNTIME_PROVIDER_CREDENTIAL_REFS_SCHEMA,
+  DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+  RUNTIME_PROVIDER_MODEL_CAPABILITIES,
   RUNTIME_PROVIDER_PROFILE_SCHEMA,
   type ManagedRuntimeProvider,
   type RuntimeProviderAvailableModelsByProvider,
+  type RuntimeProviderModelCapability,
   type RuntimeProviderModelCatalogByProvider,
+  type RuntimeProviderModelProfile,
   type RuntimeProviderCredentialRefState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
@@ -24,6 +28,9 @@ const MAX_MODELS_PER_PROVIDER = 64;
 const MAX_PROVIDER_KEY_LENGTH = 512;
 const MAX_ROUTER_OVERRIDE_ITEMS = 32;
 const MAX_ROUTER_OVERRIDE_ENTRY_LENGTH = 128;
+const MAX_MODEL_DISPLAY_LABEL_LENGTH = 128;
+const MAX_MODEL_NOTES_LENGTH = 512;
+const MAX_TOKEN_WEIGHT = 1_000_000;
 
 export type PlatformRuntimeProviderSelection = {
   provider: ManagedRuntimeProvider;
@@ -133,8 +140,8 @@ export function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailable
 
 export function createEmptyAvailableModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
   return {
-    openai: { chat: [], image: [], video: [] },
-    anthropic: { chat: [], image: [], video: [] }
+    openai: { models: [] },
+    anthropic: { models: [] }
   };
 }
 
@@ -222,13 +229,6 @@ export function normalizeAvailableModelsByProvider(
   };
 }
 
-function normalizeCapabilityCatalog(value: unknown, fallback: string[], path: string): string[] {
-  if (value === undefined || value === null) {
-    return fallback;
-  }
-  return normalizeAvailableModelList(value, path);
-}
-
 export function normalizeAvailableModelCatalogByProvider(
   value: unknown,
   chatFallback: RuntimeProviderAvailableModelsByProvider,
@@ -237,8 +237,8 @@ export function normalizeAvailableModelCatalogByProvider(
   const row = asObject(value);
   if (row === null) {
     return {
-      openai: { chat: chatFallback.openai, image: [], video: [] },
-      anthropic: { chat: chatFallback.anthropic, image: [], video: [] }
+      openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
+      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) }
     };
   }
   const normalizeProviderCatalog = (
@@ -246,22 +246,201 @@ export function normalizeAvailableModelCatalogByProvider(
   ): RuntimeProviderModelCatalogByProvider[ManagedRuntimeProvider] => {
     const providerRow = asObject(row[provider]);
     if (providerRow === null) {
-      return { chat: chatFallback[provider], image: [], video: [] };
+      return {
+        models: createDefaultModelProfiles(chatFallback[provider], ["chat"])
+      };
+    }
+    if (Array.isArray(providerRow.models)) {
+      const profiles = normalizeModelProfiles(providerRow.models, `${path}.${provider}.models`);
+      if (!profiles.some((profile) => profile.capabilities.includes("chat"))) {
+        profiles.push(...createDefaultModelProfiles(chatFallback[provider], ["chat"]));
+      }
+      return { models: profiles };
     }
     return {
-      chat: normalizeCapabilityCatalog(
-        providerRow.chat,
+      models: normalizeLegacyCapabilityCatalog(
+        providerRow,
         chatFallback[provider],
-        `${path}.${provider}.chat`
-      ),
-      image: normalizeCapabilityCatalog(providerRow.image, [], `${path}.${provider}.image`),
-      video: normalizeCapabilityCatalog(providerRow.video, [], `${path}.${provider}.video`)
+        `${path}.${provider}`
+      )
     };
   };
   return {
     openai: normalizeProviderCatalog("openai"),
     anthropic: normalizeProviderCatalog("anthropic")
   };
+}
+
+function deriveAvailableModelsFromProfileCatalog(
+  catalog: RuntimeProviderModelCatalogByProvider
+): RuntimeProviderAvailableModelsByProvider {
+  return {
+    openai: catalog.openai.models
+      .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model),
+    anthropic: catalog.anthropic.models
+      .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model)
+  };
+}
+
+function isCapability(value: unknown): value is RuntimeProviderModelCapability {
+  return RUNTIME_PROVIDER_MODEL_CAPABILITIES.includes(value as RuntimeProviderModelCapability);
+}
+
+function normalizeCapabilityList(value: unknown, path: string): RuntimeProviderModelCapability[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array of model capabilities.`);
+  }
+  const deduped = new Set<RuntimeProviderModelCapability>();
+  for (const [index, entry] of value.entries()) {
+    if (!isCapability(entry)) {
+      throw new Error(`${path}[${String(index)}] must be one of: chat, image, video.`);
+    }
+    deduped.add(entry);
+  }
+  if (deduped.size === 0) {
+    throw new Error(`${path} must include at least one capability.`);
+  }
+  return Array.from(deduped);
+}
+
+function normalizeTokenWeight(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${path} must be a finite number.`);
+  }
+  if (value < 0 || value > MAX_TOKEN_WEIGHT) {
+    throw new Error(`${path} must be between 0 and ${String(MAX_TOKEN_WEIGHT)}.`);
+  }
+  return value;
+}
+
+function normalizeOptionalBoundedString(
+  value: unknown,
+  path: string,
+  maxLength: number
+): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const normalized = asNonEmptyString(value);
+  if (normalized === null) {
+    return null;
+  }
+  if (normalized.length > maxLength) {
+    throw new Error(`${path} must be at most ${String(maxLength)} characters.`);
+  }
+  if (containsControlCharacters(normalized)) {
+    throw new Error(`${path} contains invalid control characters.`);
+  }
+  return normalized;
+}
+
+function normalizeProviderPriceMetadata(
+  value: unknown,
+  path: string
+): Record<string, unknown> | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const row = asObject(value);
+  if (row === null) {
+    throw new Error(`${path} must be an object when provided.`);
+  }
+  return row;
+}
+
+function normalizeModelProfiles(value: unknown[], path: string): RuntimeProviderModelProfile[] {
+  const result: RuntimeProviderModelProfile[] = [];
+  const seen = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    const row = asObject(entry);
+    const entryPath = `${path}[${String(index)}]`;
+    if (row === null) {
+      throw new Error(`${entryPath} must be an object.`);
+    }
+    const model = normalizeModel(row.model ?? row.modelKey, `${entryPath}.model`);
+    if (seen.has(model)) {
+      throw new Error(`${entryPath}.model duplicates an earlier model profile.`);
+    }
+    seen.add(model);
+    result.push({
+      model,
+      capabilities: normalizeCapabilityList(row.capabilities, `${entryPath}.capabilities`),
+      inputTokenWeight: normalizeTokenWeight(row.inputTokenWeight, `${entryPath}.inputTokenWeight`),
+      cachedInputTokenWeight: normalizeTokenWeight(
+        row.cachedInputTokenWeight,
+        `${entryPath}.cachedInputTokenWeight`
+      ),
+      outputTokenWeight: normalizeTokenWeight(
+        row.outputTokenWeight,
+        `${entryPath}.outputTokenWeight`
+      ),
+      displayLabel: normalizeOptionalBoundedString(
+        row.displayLabel,
+        `${entryPath}.displayLabel`,
+        MAX_MODEL_DISPLAY_LABEL_LENGTH
+      ),
+      notes: normalizeOptionalBoundedString(
+        row.notes,
+        `${entryPath}.notes`,
+        MAX_MODEL_NOTES_LENGTH
+      ),
+      providerPriceMetadata: normalizeProviderPriceMetadata(
+        row.providerPriceMetadata,
+        `${entryPath}.providerPriceMetadata`
+      )
+    });
+    if (result.length > MAX_MODELS_PER_PROVIDER) {
+      throw new Error(`${path} must contain at most ${String(MAX_MODELS_PER_PROVIDER)} models.`);
+    }
+  }
+  return result;
+}
+
+function createDefaultModelProfiles(
+  models: string[],
+  capabilities: RuntimeProviderModelCapability[]
+): RuntimeProviderModelProfile[] {
+  return models.map((model) => ({
+    model,
+    capabilities,
+    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    displayLabel: null,
+    notes: null,
+    providerPriceMetadata: null
+  }));
+}
+
+function normalizeLegacyCapabilityCatalog(
+  providerRow: Record<string, unknown>,
+  chatFallback: string[],
+  path: string
+): RuntimeProviderModelProfile[] {
+  const byModel = new Map<string, Set<RuntimeProviderModelCapability>>();
+  const append = (models: string[], capability: RuntimeProviderModelCapability) => {
+    for (const model of models) {
+      const capabilities = byModel.get(model) ?? new Set<RuntimeProviderModelCapability>();
+      capabilities.add(capability);
+      byModel.set(model, capabilities);
+    }
+  };
+  const chat = normalizeAvailableModelList(providerRow.chat ?? chatFallback, `${path}.chat`);
+  append(chat.length > 0 ? chat : chatFallback, "chat");
+  append(normalizeAvailableModelList(providerRow.image ?? [], `${path}.image`), "image");
+  append(normalizeAvailableModelList(providerRow.video ?? [], `${path}.video`), "video");
+  return Array.from(byModel.entries()).map(([model, capabilities]) => ({
+    model,
+    capabilities: Array.from(capabilities),
+    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    displayLabel: null,
+    notes: null,
+    providerPriceMetadata: null
+  }));
 }
 
 function assertSelectionInCatalog(params: {
@@ -440,12 +619,13 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     fallbackRaw === undefined || fallbackRaw === null
       ? null
       : normalizeSelection(fallbackRaw, "fallback");
-  const availableModelsByProvider = normalizeAvailableModelsByProvider(
-    row.availableModelsByProvider
-  );
+  const availableModelsFallback = normalizeAvailableModelsByProvider(row.availableModelsByProvider);
   const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
     row.availableModelCatalogByProvider,
-    availableModelsByProvider
+    availableModelsFallback
+  );
+  const availableModelsByProvider = deriveAvailableModelsFromProfileCatalog(
+    availableModelCatalogByProvider
   );
   assertSelectionInCatalog({
     selection: primary,
@@ -529,12 +709,15 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
           model: normalizeModelKey(params.settings.fallbackModel)
         }
       : null;
-  const availableModelsByProvider = normalizeAvailableModelsByProvider(
+  const availableModelsFallback = normalizeAvailableModelsByProvider(
     params.settings.availableModelsByProvider
   );
   const availableModelCatalogByProvider = normalizeAvailableModelCatalogByProvider(
     params.settings.availableModelCatalogByProvider,
-    availableModelsByProvider
+    availableModelsFallback
+  );
+  const availableModelsByProvider = deriveAvailableModelsFromProfileCatalog(
+    availableModelCatalogByProvider
   );
   const routingFastModelKey = normalizeOptionalModel(
     params.settings.routingFastModelKey,

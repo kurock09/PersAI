@@ -27,8 +27,34 @@ describe("admin knowledge page helpers", () => {
           anthropic: ["claude-4.6-sonnet-medium-thinking"]
         },
         availableModelCatalogByProvider: {
-          openai: { chat: ["ignored-chat"], image: [], video: [] },
-          anthropic: { chat: ["ignored-chat"], image: [], video: [] }
+          openai: {
+            models: [
+              {
+                model: "ignored-chat",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          },
+          anthropic: {
+            models: [
+              {
+                model: "ignored-chat",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          }
         }
       })
     ).toEqual([
@@ -46,8 +72,54 @@ describe("admin knowledge page helpers", () => {
           anthropic: []
         },
         availableModelCatalogByProvider: {
-          openai: { chat: ["gpt-5.4-mini"], image: ["gpt-image-2"], video: ["sora-2"] },
-          anthropic: { chat: ["claude-4.6-sonnet-medium-thinking"], image: [], video: [] }
+          openai: {
+            models: [
+              {
+                model: "gpt-5.4-mini",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              },
+              {
+                model: "gpt-image-2",
+                capabilities: ["image"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              },
+              {
+                model: "sora-2",
+                capabilities: ["video"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          },
+          anthropic: {
+            models: [
+              {
+                model: "claude-4.6-sonnet-medium-thinking",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          }
         }
       })
     ).toEqual([

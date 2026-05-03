@@ -267,6 +267,9 @@ export class HandleInternalTelegramTurnService {
         assistant: resolved.assistant,
         userContent: enrichedMessage,
         assistantContent: assistantMessage,
+        ...(runtimeResponse.usageAccounting === undefined
+          ? {}
+          : { usageAccounting: runtimeResponse.usageAccounting }),
         source: "telegram_turn_sync"
       });
       trace.stage("quota_recorded");

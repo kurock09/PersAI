@@ -26,6 +26,8 @@ function indexQuotaBuckets(
   >;
 }
 
+const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
+
 @Injectable()
 export class ResolvePlanVisibilityService {
   constructor(
@@ -68,6 +70,10 @@ export class ResolvePlanVisibilityService {
     });
     const quotaSnapshot =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
+    const monthlyMediaQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+        assistant
+      );
     return {
       effectivePlan: {
         code: plan?.code ?? subscription.planCode,
@@ -89,6 +95,7 @@ export class ResolvePlanVisibilityService {
       },
       limits: {
         quotaBuckets: quotaSnapshot.buckets,
+        monthlyMediaQuotas,
         toolDailyLimits: await this.resolveToolDailyLimitsWithUsage(
           assistant.workspaceId,
           plan?.toolActivations ?? []
@@ -133,6 +140,10 @@ export class ResolvePlanVisibilityService {
     });
     const quotaSnapshot =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(assistant);
+    const monthlyMediaQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+        assistant
+      );
     const bucketsByCode = indexQuotaBuckets(quotaSnapshot.buckets);
     const tokenPercent = bucketsByCode.token_budget?.percent ?? 0;
     const chatsPercent = bucketsByCode.active_web_chats?.percent ?? 0;
@@ -160,6 +171,7 @@ export class ResolvePlanVisibilityService {
         pressureLevel
       },
       quotaBuckets: quotaSnapshot.buckets,
+      monthlyMediaQuotas,
       effectiveEntitlements: {
         toolClasses: {
           costDrivingAllowed: effectiveCapabilities.toolClasses.costDriving.allowed,
@@ -195,7 +207,10 @@ export class ResolvePlanVisibilityService {
     }>
   > {
     const active = toolActivations.filter(
-      (t) => t.policyClass === "plan_managed" && t.activationStatus === "active"
+      (t) =>
+        t.policyClass === "plan_managed" &&
+        t.activationStatus === "active" &&
+        !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(t.toolCode)
     );
     return Promise.all(
       active.map(async (tool) => {

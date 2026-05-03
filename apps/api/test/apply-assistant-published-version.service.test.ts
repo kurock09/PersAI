@@ -65,8 +65,34 @@ const materializedSpec: AssistantMaterializedSpec = {
             anthropic: ["claude-sonnet-4-5"]
           },
           availableModelCatalogByProvider: {
-            openai: { chat: ["gpt-5.4"], image: [], video: [] },
-            anthropic: { chat: ["claude-sonnet-4-5"], image: [], video: [] }
+            openai: {
+              models: [
+                {
+                  model: "gpt-5.4",
+                  capabilities: ["chat"],
+                  inputTokenWeight: 1,
+                  cachedInputTokenWeight: 1,
+                  outputTokenWeight: 1,
+                  displayLabel: null,
+                  notes: null,
+                  providerPriceMetadata: null
+                }
+              ]
+            },
+            anthropic: {
+              models: [
+                {
+                  model: "claude-sonnet-4-5",
+                  capabilities: ["chat"],
+                  inputTokenWeight: 1,
+                  cachedInputTokenWeight: 1,
+                  outputTokenWeight: 1,
+                  displayLabel: null,
+                  notes: null,
+                  providerPriceMetadata: null
+                }
+              ]
+            }
           }
         },
         runtimeAssignment: {

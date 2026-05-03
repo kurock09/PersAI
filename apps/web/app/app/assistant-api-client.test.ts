@@ -198,8 +198,41 @@ describe("admin rollout client", () => {
           anthropic: []
         },
         availableModelCatalogByProvider: {
-          openai: { chat: ["gpt-5.4"], image: ["gpt-image-1.5"], video: ["sora-2"] },
-          anthropic: { chat: [], image: [], video: [] }
+          openai: {
+            models: [
+              {
+                model: "gpt-5.4",
+                capabilities: ["chat"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              },
+              {
+                model: "gpt-image-1.5",
+                capabilities: ["image"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              },
+              {
+                model: "sora-2",
+                capabilities: ["video"],
+                inputTokenWeight: 1,
+                cachedInputTokenWeight: 1,
+                outputTokenWeight: 1,
+                displayLabel: null,
+                notes: null,
+                providerPriceMetadata: null
+              }
+            ]
+          },
+          anthropic: { models: [] }
         },
         providerKeys: {
           openai: "sk-openai-new"
@@ -937,6 +970,20 @@ describe("toWebChatUxIssue", () => {
       message: "No speech was detected in your recording.",
       guidance:
         "Check that the correct microphone is selected in your browser settings and that it is not muted."
+    });
+  });
+
+  it("maps monthly media quota errors to billing-period guidance", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "monthly_media_quota_exceeded",
+        message: "Monthly media quota reached."
+      })
+    ).toEqual({
+      classId: "quota_limit_reached",
+      message: "Monthly media quota has been exhausted.",
+      guidance:
+        "Wait for the next billing cycle, upgrade the plan, or use a request that does not need media generation."
     });
   });
 });

@@ -248,13 +248,10 @@ export class RuntimeVideoGenerateToolService {
     }
 
     try {
-      // ADR-074 L1.1 — always count for observability (video generation
-      // is the most expensive tool we ship; the founder dashboard must
-      // see every render attempt regardless of plan cap).
-      const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      const quotaOutcome = await this.persaiInternalApiClientService.reserveMonthlyMediaQuota({
         assistantId: params.bundle.metadata.assistantId,
         toolCode: VIDEO_GENERATE_TOOL_CODE,
-        dailyCallLimit: policy.dailyCallLimit
+        units: 1
       });
       if (!quotaOutcome.allowed) {
         return {
@@ -333,6 +330,9 @@ export class RuntimeVideoGenerateToolService {
         isError: false
       };
     } catch (error) {
+      await this.releaseMonthlyMediaQuotaReservationBestEffort({
+        assistantId: params.bundle.metadata.assistantId
+      });
       this.logger.warn(
         `[video-generate] failed requestId=${params.requestId} referenceIndex=${
           selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)
@@ -617,12 +617,31 @@ export class RuntimeVideoGenerateToolService {
       fileRef: runtimeFileRef.fileRef,
       file: runtimeFileRef,
       kind: "video",
+      sourceToolCode: VIDEO_GENERATE_TOOL_CODE,
       objectKey: stored.objectKey,
       mimeType: stored.mimeType,
       filename,
       sizeBytes: stored.sizeBytes,
       voiceNote: false
     };
+  }
+
+  private async releaseMonthlyMediaQuotaReservationBestEffort(input: {
+    assistantId: string;
+  }): Promise<void> {
+    try {
+      await this.persaiInternalApiClientService.releaseMonthlyMediaQuota({
+        assistantId: input.assistantId,
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        units: 1
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[video-generate] failed to release monthly media quota reservation: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   private resolveWorkerTimeoutMs(bundle: AssistantRuntimeBundle): number {

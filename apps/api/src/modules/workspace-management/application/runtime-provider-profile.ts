@@ -24,7 +24,25 @@ export type RuntimeProviderProfileSelection = {
 
 export type RuntimeProviderAvailableModelsByProvider = Record<ManagedRuntimeProvider, string[]>;
 export type RuntimeProviderModelCapability = "chat" | "image" | "video";
-export type RuntimeProviderModelCatalog = Record<RuntimeProviderModelCapability, string[]>;
+export const RUNTIME_PROVIDER_MODEL_CAPABILITIES: RuntimeProviderModelCapability[] = [
+  "chat",
+  "image",
+  "video"
+];
+export const DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT = 1;
+export type RuntimeProviderModelProfile = {
+  model: string;
+  capabilities: RuntimeProviderModelCapability[];
+  inputTokenWeight: number;
+  cachedInputTokenWeight: number;
+  outputTokenWeight: number;
+  displayLabel: string | null;
+  notes: string | null;
+  providerPriceMetadata: Record<string, unknown> | null;
+};
+export type RuntimeProviderModelCatalog = {
+  models: RuntimeProviderModelProfile[];
+};
 export type RuntimeProviderModelCatalogByProvider = Record<
   ManagedRuntimeProvider,
   RuntimeProviderModelCatalog
@@ -152,9 +170,38 @@ function createEmptyAvailableModelsByProvider(): RuntimeProviderAvailableModelsB
 
 function createEmptyModelCatalogByProvider(): RuntimeProviderModelCatalogByProvider {
   return {
-    openai: { chat: [], image: [], video: [] },
-    anthropic: { chat: [], image: [], video: [] }
+    openai: { models: [] },
+    anthropic: { models: [] }
   };
+}
+
+function isRuntimeProviderModelCapability(value: unknown): value is RuntimeProviderModelCapability {
+  return value === "chat" || value === "image" || value === "video";
+}
+
+function normalizeCapabilityList(value: unknown): RuntimeProviderModelCapability[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const deduped = new Set<RuntimeProviderModelCapability>();
+  for (const entry of value) {
+    if (isRuntimeProviderModelCapability(entry)) {
+      deduped.add(entry);
+    }
+  }
+  return Array.from(deduped);
+}
+
+function normalizeTokenWeight(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT;
+  }
+  return value;
+}
+
+function nullableTrimmedString(value: unknown): string | null {
+  const normalized = asNonEmptyString(value);
+  return normalized === null ? null : normalized;
 }
 
 function parseAvailableModelsByProvider(value: unknown): RuntimeProviderAvailableModelsByProvider {
@@ -210,26 +257,128 @@ function parseModelCatalogByProvider(
   const row = asObject(value);
   if (row === null) {
     return {
-      openai: { ...result.openai, chat: chatFallback.openai },
-      anthropic: { ...result.anthropic, chat: chatFallback.anthropic }
+      openai: { models: createDefaultModelProfiles(chatFallback.openai, ["chat"]) },
+      anthropic: { models: createDefaultModelProfiles(chatFallback.anthropic, ["chat"]) }
     };
   }
   for (const provider of ALLOWED_RUNTIME_PROVIDERS) {
     const providerRow = asObject(row[provider]);
     if (providerRow === null) {
-      result[provider].chat = chatFallback[provider];
+      result[provider].models = createDefaultModelProfiles(chatFallback[provider], ["chat"]);
       continue;
     }
-    result[provider] = {
-      chat: normalizeCatalogList(providerRow.chat),
-      image: normalizeCatalogList(providerRow.image),
-      video: normalizeCatalogList(providerRow.video)
-    };
-    if (result[provider].chat.length === 0) {
-      result[provider].chat = chatFallback[provider];
+    if (Array.isArray(providerRow.models)) {
+      result[provider] = {
+        models: parseRuntimeProviderModelProfiles(providerRow.models)
+      };
+    } else {
+      result[provider] = {
+        models: parseLegacyCapabilityCatalog(providerRow, chatFallback[provider])
+      };
+    }
+    if (!result[provider].models.some((profile) => profile.capabilities.includes("chat"))) {
+      result[provider].models.push(...createDefaultModelProfiles(chatFallback[provider], ["chat"]));
     }
   }
   return result;
+}
+
+function createDefaultModelProfiles(
+  models: string[],
+  capabilities: RuntimeProviderModelCapability[]
+): RuntimeProviderModelProfile[] {
+  return normalizeCatalogList(models).map((model) => ({
+    model,
+    capabilities,
+    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    displayLabel: null,
+    notes: null,
+    providerPriceMetadata: null
+  }));
+}
+
+function parseRuntimeProviderModelProfiles(value: unknown[]): RuntimeProviderModelProfile[] {
+  const result: RuntimeProviderModelProfile[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const row = asObject(entry);
+    if (row === null) {
+      continue;
+    }
+    const model = toNormalizedNonEmptyModelKey(row.model ?? row.modelKey);
+    if (model === null || model.length > MAX_MODEL_LENGTH || containsControlCharacters(model)) {
+      continue;
+    }
+    if (seen.has(model)) {
+      continue;
+    }
+    const capabilities = normalizeCapabilityList(row.capabilities);
+    if (capabilities.length === 0) {
+      continue;
+    }
+    seen.add(model);
+    result.push({
+      model,
+      capabilities,
+      inputTokenWeight: normalizeTokenWeight(row.inputTokenWeight),
+      cachedInputTokenWeight: normalizeTokenWeight(row.cachedInputTokenWeight),
+      outputTokenWeight: normalizeTokenWeight(row.outputTokenWeight),
+      displayLabel: nullableTrimmedString(row.displayLabel),
+      notes: nullableTrimmedString(row.notes),
+      providerPriceMetadata: asObject(row.providerPriceMetadata)
+    });
+  }
+  return result;
+}
+
+function parseLegacyCapabilityCatalog(
+  providerRow: Record<string, unknown>,
+  chatFallback: string[]
+): RuntimeProviderModelProfile[] {
+  const byModel = new Map<string, Set<RuntimeProviderModelCapability>>();
+  const append = (models: string[], capability: RuntimeProviderModelCapability) => {
+    for (const model of models) {
+      const capabilities = byModel.get(model) ?? new Set<RuntimeProviderModelCapability>();
+      capabilities.add(capability);
+      byModel.set(model, capabilities);
+    }
+  };
+  append(
+    normalizeCatalogList(providerRow.chat).length > 0
+      ? normalizeCatalogList(providerRow.chat)
+      : chatFallback,
+    "chat"
+  );
+  append(normalizeCatalogList(providerRow.image), "image");
+  append(normalizeCatalogList(providerRow.video), "video");
+  return Array.from(byModel.entries()).map(([model, capabilities]) => ({
+    model,
+    capabilities: Array.from(capabilities),
+    inputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    cachedInputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    outputTokenWeight: DEFAULT_RUNTIME_PROVIDER_MODEL_TOKEN_WEIGHT,
+    displayLabel: null,
+    notes: null,
+    providerPriceMetadata: null
+  }));
+}
+
+export function getRuntimeProviderCatalogModelsByCapability(
+  catalog: RuntimeProviderModelCatalog,
+  capability: RuntimeProviderModelCapability
+): string[] {
+  return catalog.models
+    .filter((profile) => profile.capabilities.includes(capability))
+    .map((profile) => profile.model);
+}
+
+export function findRuntimeProviderCatalogProfile(
+  catalog: RuntimeProviderModelCatalog,
+  model: string
+): RuntimeProviderModelProfile | null {
+  return catalog.models.find((profile) => profile.model === model) ?? null;
 }
 
 function normalizeRefKey(value: unknown, fallback: RuntimeCredentialSecretRef): string {

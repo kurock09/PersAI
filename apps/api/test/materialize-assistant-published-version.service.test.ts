@@ -16,14 +16,52 @@ async function run(): Promise<void> {
     },
     availableModelCatalogByProvider: {
       openai: {
-        chat: ["gpt-5.4"],
-        image: ["gpt-image-1.5"],
-        video: ["sora-2-pro"]
+        models: [
+          {
+            model: "gpt-5.4",
+            capabilities: ["chat"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "gpt-image-1.5",
+            capabilities: ["image"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          },
+          {
+            model: "sora-2-pro",
+            capabilities: ["video"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }
+        ]
       },
       anthropic: {
-        chat: ["claude-sonnet-4-5"],
-        image: [],
-        video: []
+        models: [
+          {
+            model: "claude-sonnet-4-5",
+            capabilities: ["chat"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }
+        ]
       }
     },
     primary: {
@@ -73,8 +111,8 @@ async function run(): Promise<void> {
           anthropic: []
         },
         availableModelCatalogByProvider: {
-          openai: { chat: [], image: [], video: [] },
-          anthropic: { chat: [], image: [], video: [] }
+          openai: { models: [] },
+          anthropic: { models: [] }
         },
         primary: null,
         fallback: null,

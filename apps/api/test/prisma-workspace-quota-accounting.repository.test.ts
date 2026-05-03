@@ -31,6 +31,15 @@ type EventWrite = {
   limitValue?: bigint | null;
 };
 
+type MockTokenBudgetPeriodCounter = {
+  workspaceId: string;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+  usedCredits: bigint;
+  limitCredits: bigint | null;
+  lastComputedAt: Date;
+};
+
 function buildState(overrides: Partial<MockState> = {}): MockState {
   return {
     id: "state-1",
@@ -55,8 +64,11 @@ function buildState(overrides: Partial<MockState> = {}): MockState {
 function applyUpdate(state: MockState, data: Record<string, unknown>): MockState {
   const nextState = { ...state };
   if ("tokenBudgetUsed" in data) {
-    const tokenBudgetUsed = data.tokenBudgetUsed as { increment: bigint };
-    nextState.tokenBudgetUsed += tokenBudgetUsed.increment;
+    const tokenBudgetUsed = data.tokenBudgetUsed as bigint | { increment: bigint };
+    nextState.tokenBudgetUsed =
+      typeof tokenBudgetUsed === "bigint"
+        ? tokenBudgetUsed
+        : nextState.tokenBudgetUsed + tokenBudgetUsed.increment;
   }
   if ("mediaStorageBytesUsed" in data) {
     const mediaStorageBytesUsed = data.mediaStorageBytesUsed as
@@ -89,6 +101,7 @@ function createRetryingRepository(initialState: MockState): {
   eventWrites: EventWrite[];
 } {
   let state = initialState;
+  let tokenCounter: MockTokenBudgetPeriodCounter | null = null;
   let transactionCalls = 0;
   const eventWrites: EventWrite[] = [];
 
@@ -97,8 +110,26 @@ function createRetryingRepository(initialState: MockState): {
       callback: (tx: {
         workspaceQuotaAccountingState: {
           findUnique: () => Promise<MockState>;
+          upsert: (args: {
+            update: Record<string, unknown>;
+            create: Record<string, unknown>;
+          }) => Promise<MockState>;
           update: (args: { data: Record<string, unknown> }) => Promise<MockState>;
           create: () => Promise<never>;
+        };
+        workspaceTokenBudgetPeriodCounter: {
+          findUnique: () => Promise<MockTokenBudgetPeriodCounter | null>;
+          upsert: (args: {
+            update: Record<string, unknown>;
+            create: {
+              workspaceId: string;
+              periodStartedAt: Date;
+              periodEndsAt: Date;
+              usedCredits: bigint;
+              limitCredits: bigint | null;
+              lastComputedAt: Date;
+            };
+          }) => Promise<MockTokenBudgetPeriodCounter>;
         };
         workspaceQuotaUsageEvent: {
           create: (args: {
@@ -118,12 +149,44 @@ function createRetryingRepository(initialState: MockState): {
       return callback({
         workspaceQuotaAccountingState: {
           findUnique: async () => state,
+          upsert: async ({ update, create }) => {
+            if (state) {
+              state = applyUpdate(state, update);
+            } else {
+              state = buildState(create as Partial<MockState>);
+            }
+            return state;
+          },
           update: async ({ data }: { data: Record<string, unknown> }) => {
             state = applyUpdate(state, data);
             return state;
           },
           create: async () => {
             throw new Error("create should not be called when state already exists");
+          }
+        },
+        workspaceTokenBudgetPeriodCounter: {
+          findUnique: async () => tokenCounter,
+          upsert: async ({ update, create }) => {
+            if (tokenCounter === null) {
+              tokenCounter = {
+                workspaceId: create.workspaceId,
+                periodStartedAt: create.periodStartedAt,
+                periodEndsAt: create.periodEndsAt,
+                usedCredits: create.usedCredits,
+                limitCredits: create.limitCredits,
+                lastComputedAt: create.lastComputedAt
+              };
+              return tokenCounter;
+            }
+            const usedCreditsUpdate = update.usedCredits as { increment: bigint } | undefined;
+            tokenCounter = {
+              ...tokenCounter,
+              usedCredits: tokenCounter.usedCredits + (usedCreditsUpdate?.increment ?? BigInt(0)),
+              limitCredits: update.limitCredits as bigint | null,
+              lastComputedAt: update.lastComputedAt as Date
+            };
+            return tokenCounter;
           }
         },
         workspaceQuotaUsageEvent: {
@@ -166,6 +229,8 @@ async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
     workspaceId: "ws-1",
     assistantId: "assistant-1",
     userId: "user-1",
+    periodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+    periodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
     delta: BigInt(12),
     source: "web_chat_turn_sync",
     metadata: { estimator: "chars_div_4_ceil_v1" },
@@ -173,12 +238,13 @@ async function runRetriesSerializableTokenBudgetCap(): Promise<void> {
   });
 
   assert.equal(getTransactionCalls(), 2);
-  assert.equal(result.appliedDelta, BigInt(5));
-  assert.equal(result.capped, true);
-  assert.equal(result.state.tokenBudgetUsed, BigInt(100));
+  assert.equal(result.appliedDelta, BigInt(12));
+  assert.equal(result.capped, false);
+  assert.equal(result.state.tokenBudgetUsed, BigInt(12));
+  assert.equal(result.counter.usedCredits, BigInt(12));
   assert.equal(eventWrites.length, 1);
   assert.equal(eventWrites[0]?.dimension, "token_budget");
-  assert.equal(eventWrites[0]?.delta, BigInt(5));
+  assert.equal(eventWrites[0]?.delta, BigInt(12));
   assert.equal(eventWrites[0]?.source, "web_chat_turn_sync");
   assert.equal(eventWrites[0]?.workspaceId, "ws-1");
 }

@@ -7077,16 +7077,100 @@ components:
             - ok
             - limit_reached
             - usage_unavailable
+    MonthlyMediaQuotaToolState:
+      type: object
+      required:
+        - toolCode
+        - displayName
+        - usedUnits
+        - reservedUnits
+        - settledUnits
+        - releasedUnits
+        - reconciliationRequiredUnits
+        - limitUnits
+        - remainingUnits
+        - usageAvailable
+        - status
+      properties:
+        toolCode:
+          type: string
+          enum:
+            - image_generate
+            - image_edit
+            - video_generate
+        displayName:
+          type: string
+        usedUnits:
+          type: integer
+          minimum: 0
+        reservedUnits:
+          type: integer
+          minimum: 0
+        settledUnits:
+          type: integer
+          minimum: 0
+        releasedUnits:
+          type: integer
+          minimum: 0
+        reconciliationRequiredUnits:
+          type: integer
+          minimum: 0
+        limitUnits:
+          type: integer
+          minimum: 0
+          nullable: true
+        remainingUnits:
+          type: integer
+          minimum: 0
+          nullable: true
+        usageAvailable:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - ok
+            - limit_reached
+            - usage_unavailable
+    MonthlyMediaQuotaSnapshot:
+      type: object
+      required:
+        - planCode
+        - periodStartedAt
+        - periodEndsAt
+        - periodSource
+        - tools
+      properties:
+        planCode:
+          type: string
+          nullable: true
+        periodStartedAt:
+          type: string
+          format: date-time
+        periodEndsAt:
+          type: string
+          format: date-time
+        periodSource:
+          type: string
+          enum:
+            - subscription_period
+            - calendar_month_fallback
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/MonthlyMediaQuotaToolState"
     UserPlanVisibilityLimits:
       type: object
       required:
         - quotaBuckets
+        - monthlyMediaQuotas
         - toolDailyLimits
       properties:
         quotaBuckets:
           type: array
           items:
             $ref: "#/components/schemas/QuotaVisibilityBucketState"
+        monthlyMediaQuotas:
+          $ref: "#/components/schemas/MonthlyMediaQuotaSnapshot"
         toolDailyLimits:
           type: array
           items:
@@ -7253,6 +7337,7 @@ components:
         - planState
         - usagePressure
         - quotaBuckets
+        - monthlyMediaQuotas
         - effectiveEntitlements
         - updatedAt
       properties:
@@ -7264,6 +7349,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/QuotaVisibilityBucketState"
+        monthlyMediaQuotas:
+          $ref: "#/components/schemas/MonthlyMediaQuotaSnapshot"
         effectiveEntitlements:
           allOf:
             - $ref: "#/components/schemas/AdminPlanVisibilityEffectiveEntitlements"
@@ -8130,6 +8217,18 @@ components:
       type: object
       properties:
         tokenBudgetLimit:
+          type: integer
+          nullable: true
+        activeWebChatsLimit:
+          type: integer
+          nullable: true
+        imageGenerateMonthlyUnitsLimit:
+          type: integer
+          nullable: true
+        imageEditMonthlyUnitsLimit:
+          type: integer
+          nullable: true
+        videoGenerateMonthlyUnitsLimit:
           type: integer
           nullable: true
         mediaStorageBytesLimit:
@@ -9389,25 +9488,60 @@ components:
           type: array
           items:
             type: string
-    RuntimeProviderModelCatalogState:
-      type: object
-      required:
+    RuntimeProviderModelCapability:
+      type: string
+      enum:
         - chat
         - image
         - video
+    RuntimeProviderModelProfileState:
+      type: object
+      required:
+        - model
+        - capabilities
+        - inputTokenWeight
+        - cachedInputTokenWeight
+        - outputTokenWeight
+        - displayLabel
+        - notes
+        - providerPriceMetadata
       properties:
-        chat:
+        model:
+          type: string
+        capabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/RuntimeProviderModelCapability"
+        inputTokenWeight:
+          type: number
+          minimum: 0
+        cachedInputTokenWeight:
+          type: number
+          minimum: 0
+        outputTokenWeight:
+          type: number
+          minimum: 0
+        displayLabel:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        providerPriceMetadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+    RuntimeProviderModelCatalogState:
+      type: object
+      required:
+        - models
+      properties:
+        models:
           type: array
           items:
-            type: string
-        image:
-          type: array
-          items:
-            type: string
-        video:
-          type: array
-          items:
-            type: string
+            $ref: "#/components/schemas/RuntimeProviderModelProfileState"
     RuntimeProviderModelCatalogByProviderState:
       type: object
       required:

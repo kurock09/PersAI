@@ -86,6 +86,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
       async refreshActiveWebChatsUsage() {
         return;
       }
@@ -181,7 +184,11 @@ async function run(): Promise<void> {
             return;
           }
         } as never,
-        {} as never,
+        {
+          async resolveActiveWebChatsLimit() {
+            return 20;
+          }
+        } as never,
         {} as never,
         {
           async resolveByUserId() {

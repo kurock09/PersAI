@@ -21,7 +21,7 @@ PersAI is the source of truth for:
 - assistant background task state through `assistant_background_tasks` and per-run history through `assistant_background_task_runs`
 - plan-owned retrieval policy and admin-managed knowledge governance
 - durable retrieval observability rollups/events
-- governance, quota, audit, and admin state
+- governance, quota, audit, and admin state, including subscription-period media quota counters
 - integration state such as Telegram binding/config
 
 ## Runtime-plane ownership
@@ -130,11 +130,15 @@ Materialization prefers the live `persona_archetypes` row when it exists, and on
 Current active runtime-provider settings persistence includes:
 
 - `platform_runtime_provider_settings.available_models_by_provider` as the legacy chat-model alias used by existing text-routing/provider warmup paths.
-- `platform_runtime_provider_settings.available_model_catalog_by_provider` as the capability-aware provider catalog. Each provider owns `chat`, `image`, and `video` model key lists.
+- `platform_runtime_provider_settings.available_model_catalog_by_provider` as the typed provider/model catalog. Each provider owns `models[]` profile rows with model key, capabilities (`chat`, `image`, `video`), token quota weights (`inputTokenWeight`, `cachedInputTokenWeight`, `outputTokenWeight`), and optional admin reference metadata. Older capability-list JSON is normalized into neutral default-weight profiles when read.
 - `platform_runtime_provider_settings.document_processing_policy` as the admin-owned ADR-079 Document Processing policy for default provider, high-quality fallback provider, local fallback, automatic fallback, and extraction-quality threshold.
-- admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, and `videoGenerateFallbackModelKey`.
+- admin plan `billing_provider_hints` as the persisted plan-level selection store for `primaryModelKey`, `imageGenerateModelKey`, `imageGenerateFallbackModelKey`, `imageEditModelKey`, `imageEditFallbackModelKey`, `videoGenerateModelKey`, `videoGenerateFallbackModelKey`, and plan-owned quota limits such as weighted Credits, storage, active web chats, and monthly media generation/editing unit allowances.
+
+ADR-082 Slice 4 adds `workspace_media_monthly_quota_counters` as the period-scoped truth for media generation/editing allowances. Rows are keyed by workspace, tool code (`image_generate`, `image_edit`, `video_generate`), and period start/end; counters separately track reserved, settled, released, and reconciliation-required units. Slice 5 uses those columns as the delivery-confirmed settlement lifecycle: reservations happen before provider work, successful delivery moves reserved units into settled units, provider/no-delivery outcomes are released or marked reconciliation-required, and only reserved plus settled units count as active user quota usage. Periods resolve from `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` with an explicit UTC calendar-month fallback for local/manual states. `WorkspaceToolUsageDailyCounter` remains day-scoped safety/rate-limit state and is not the paid monthly media quota model.
 
 Materialization validates plan-selected image/video model keys against the capability-aware catalog and writes the resolved primary/fallback keys into each runtime bundle tool credential ref. Runtime tool execution treats that credential chain as request-time truth for `image_generate`, `image_edit`, and `video_generate`, so feature-specific requests can switch to a compatible fallback model or soft-skip before calling the provider.
+
+ADR-082 Slice 3 makes these provider/model profiles the active token quota-weight truth for completed native turns. `WorkspaceQuotaUsageEvent.dimension=token_budget` records one weighted Credits delta per completed turn where runtime `usageAccounting.entries` are available, with metadata carrying raw input/cached-input/output token totals, applied weights, rounded Credits, and whether any entry fell back to neutral default weights. Plans continue to own token budget limits; provider/model weights remain global Admin Runtime policy.
 
 ## Secret ownership
 

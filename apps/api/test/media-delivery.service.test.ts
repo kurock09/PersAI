@@ -38,6 +38,17 @@ const fakeAssistantFileRegistry = {
   }
 };
 
+const noopAssistantRepository = {
+  async findById() {
+    return null;
+  }
+};
+
+const noopQuotaUsageService = {
+  async settleAssistantMonthlyMediaQuota() {},
+  async markAssistantMonthlyMediaQuotaReconciliationRequired() {}
+};
+
 async function run(): Promise<void> {
   const originalFetch = globalThis.fetch;
   let uploadCalls = 0;
@@ -51,6 +62,7 @@ async function run(): Promise<void> {
         return createAttachment({});
       }
     } as never,
+    noopAssistantRepository as never,
     [],
     {
       buildChatMessageObjectKey() {
@@ -67,6 +79,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
     blockedMetrics
   );
 
@@ -121,6 +134,7 @@ async function run(): Promise<void> {
         });
       }
     } as never,
+    noopAssistantRepository as never,
     [],
     {
       buildChatMessageObjectKey() {
@@ -137,6 +151,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
     safeMetrics
   );
 
@@ -194,6 +209,7 @@ async function run(): Promise<void> {
         });
       }
     } as never,
+    noopAssistantRepository as never,
     [],
     {
       buildChatMessageObjectKey() {
@@ -220,6 +236,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
     nativeMetrics
   );
 
@@ -263,6 +280,7 @@ async function run(): Promise<void> {
         });
       }
     } as never,
+    noopAssistantRepository as never,
     [],
     {
       buildChatMessageObjectKey() {
@@ -292,6 +310,7 @@ async function run(): Promise<void> {
         existingFileLinks.push(input);
       }
     } as never,
+    noopQuotaUsageService as never,
     new PlatformHttpMetricsService()
   );
 
@@ -341,6 +360,7 @@ async function run(): Promise<void> {
         });
       }
     } as never,
+    noopAssistantRepository as never,
     [],
     {
       buildChatMessageObjectKey() {
@@ -369,6 +389,7 @@ async function run(): Promise<void> {
       }
     } as never,
     fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
     new PlatformHttpMetricsService()
   );
 
@@ -417,6 +438,7 @@ async function run(): Promise<void> {
         });
       }
     } as never,
+    noopAssistantRepository as never,
     [
       {
         channel: "telegram",
@@ -452,6 +474,7 @@ async function run(): Promise<void> {
       async deleteObject() {}
     } as never,
     fakeAssistantFileRegistry as never,
+    noopQuotaUsageService as never,
     new PlatformHttpMetricsService()
   );
 
@@ -489,6 +512,173 @@ async function run(): Promise<void> {
     }
   });
   assert.equal(adapterCaption, "Runtime caption");
+
+  const monthlyQuotaCalls: Array<{ operation: "settle" | "reconcile"; toolCode: string }> = [];
+  const settlementAwareAssistantRepository = {
+    async findById() {
+      return {
+        id: "assistant-1",
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        draftDisplayName: null,
+        draftInstructions: null,
+        draftUpdatedAt: null,
+        applyStatus: "succeeded",
+        applyTargetVersionId: null,
+        applyAppliedVersionId: null,
+        applyRequestedAt: null,
+        applyStartedAt: null,
+        applyFinishedAt: null,
+        applyErrorCode: null,
+        applyErrorMessage: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    }
+  };
+  const settlementAwareQuotaUsageService = {
+    async settleAssistantMonthlyMediaQuota(input: { toolCode: string }) {
+      monthlyQuotaCalls.push({ operation: "settle", toolCode: input.toolCode });
+    },
+    async markAssistantMonthlyMediaQuotaReconciliationRequired(input: { toolCode: string }) {
+      monthlyQuotaCalls.push({ operation: "reconcile", toolCode: input.toolCode });
+    }
+  };
+  const settlementAwareObjectStorage = {
+    buildChatMessageObjectKey() {
+      return "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/settled.png";
+    },
+    async downloadObject() {
+      return {
+        buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
+        contentType: "image/png"
+      };
+    },
+    async saveObject(input: { mimeType: string; buffer: Buffer }) {
+      return {
+        objectKey: "assistant-media/assistants/assistant-1/chats/chat-1/messages/msg-1/settled.png",
+        sizeBytes: input.buffer.length,
+        mimeType: input.mimeType
+      };
+    },
+    async deleteObject() {}
+  };
+  const settlementAwareAttachmentRepository = {
+    async create(input: {
+      storagePath: string;
+      originalFilename: string | null;
+      mimeType: string;
+      sizeBytes: bigint;
+    }) {
+      return createAttachment({
+        storagePath: input.storagePath,
+        originalFilename: input.originalFilename,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes
+      });
+    }
+  };
+  const deliveredSettlementService = new MediaDeliveryService(
+    settlementAwareAttachmentRepository as never,
+    settlementAwareAssistantRepository as never,
+    [],
+    settlementAwareObjectStorage as never,
+    fakeAssistantFileRegistry as never,
+    settlementAwareQuotaUsageService as never,
+    new PlatformHttpMetricsService()
+  );
+  await deliveredSettlementService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/settled.png",
+        type: "image",
+        sourceToolCode: "image_generate",
+        mimeType: "image/png",
+        filename: "settled.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "web",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1"
+  });
+  const failedSettlementService = new MediaDeliveryService(
+    settlementAwareAttachmentRepository as never,
+    settlementAwareAssistantRepository as never,
+    [
+      {
+        channel: "telegram",
+        async sendImage() {
+          throw new Error("telegram unavailable");
+        },
+        async sendVoice() {},
+        async sendAudio() {},
+        async sendDocument() {},
+        async sendVideo() {}
+      }
+    ],
+    settlementAwareObjectStorage as never,
+    fakeAssistantFileRegistry as never,
+    settlementAwareQuotaUsageService as never,
+    new PlatformHttpMetricsService()
+  );
+  await failedSettlementService.deliver({
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/reconcile.png",
+        type: "image",
+        sourceToolCode: "image_edit",
+        mimeType: "image/png",
+        filename: "reconcile.png",
+        sizeBytes: 9
+      }
+    ],
+    channel: "telegram",
+    assistantId: "assistant-1",
+    chatId: "chat-1",
+    messageId: "msg-1",
+    workspaceId: "workspace-1",
+    channelTarget: {
+      channel: "telegram",
+      chatId: "tg-chat-1"
+    }
+  });
+  assert.deepEqual(monthlyQuotaCalls, [
+    { operation: "settle", toolCode: "image_generate" },
+    { operation: "reconcile", toolCode: "image_edit" }
+  ]);
+  await failedSettlementService.markUndeliveredArtifactsReconciliationRequired({
+    assistantId: "assistant-1",
+    reason: "test_delivery_not_called",
+    artifacts: [
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/not-delivered.png",
+        type: "image",
+        sourceToolCode: "image_generate",
+        mimeType: "image/png",
+        filename: "not-delivered.png",
+        sizeBytes: 9
+      },
+      {
+        source: "persai_object_storage",
+        objectKey: "assistant-media/runtime-output/ignored.png",
+        type: "image",
+        mimeType: "image/png",
+        filename: "ignored.png",
+        sizeBytes: 9
+      }
+    ]
+  });
+  assert.deepEqual(monthlyQuotaCalls, [
+    { operation: "settle", toolCode: "image_generate" },
+    { operation: "reconcile", toolCode: "image_edit" },
+    { operation: "reconcile", toolCode: "image_generate" }
+  ]);
   globalThis.fetch = originalFetch;
 }
 

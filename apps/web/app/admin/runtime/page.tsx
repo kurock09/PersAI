@@ -8,28 +8,18 @@ import type {
   AdminRuntimeProviderSettingsState,
   ManagedRuntimeProvider,
   RuntimeProviderAvailableModelsByProviderState,
-  RuntimeProviderModelCatalogByProviderState
+  RuntimeProviderModelCatalogByProviderState,
+  RuntimeProviderModelProfileState
 } from "@persai/contracts";
 import {
   getAdminRuntimeProviderSettings,
   putAdminRuntimeProviderSettings
 } from "@/app/app/assistant-api-client";
+import {
+  formatRuntimeProviderModelProfilesText,
+  parseRuntimeProviderModelProfilesText
+} from "@/app/app/runtime-provider-settings-admin";
 import { cn } from "@/app/lib/utils";
-
-function parseModelCatalogInput(value: string): string[] {
-  return Array.from(
-    new Set(
-      value
-        .split(/[\r\n,]+/)
-        .map((entry) => entry.trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function formatModelCatalogInput(value: string[] | undefined): string {
-  return (value ?? []).join("\n");
-}
 
 export function parseRouterTriggerTerms(value: string): string[] {
   return Array.from(
@@ -71,6 +61,40 @@ function providerLabel(provider: ManagedRuntimeProvider): string {
   return provider === "openai" ? "OpenAI" : "Anthropic";
 }
 
+function findModelProfileFromText(
+  text: string,
+  model: string
+): RuntimeProviderModelProfileState | null {
+  if (model.trim().length === 0) {
+    return null;
+  }
+  try {
+    return (
+      parseRuntimeProviderModelProfilesText(text).find((profile) => profile.model === model) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function modelProfileCostLabel(profile: RuntimeProviderModelProfileState | null): string {
+  if (profile === null) {
+    return "No token profile selected.";
+  }
+  return `input ${profile.inputTokenWeight} / cached ${profile.cachedInputTokenWeight} / output ${profile.outputTokenWeight}`;
+}
+
+function deriveChatModelOptionsFromText(text: string, fallback: string[]): string[] {
+  try {
+    const models = parseRuntimeProviderModelProfilesText(text)
+      .filter((profile) => profile.capabilities.includes("chat"))
+      .map((profile) => profile.model);
+    return models.length > 0 ? models : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function AdminRuntimePage() {
   const { getToken } = useAuth();
   const [settings, setSettings] = useState<AdminRuntimeProviderSettingsState | null>(null);
@@ -104,12 +128,8 @@ export default function AdminRuntimePage() {
       openai: [],
       anthropic: []
     });
-  const [openaiChatModelsText, setOpenaiChatModelsText] = useState("");
-  const [openaiImageModelsText, setOpenaiImageModelsText] = useState("");
-  const [openaiVideoModelsText, setOpenaiVideoModelsText] = useState("");
-  const [anthropicChatModelsText, setAnthropicChatModelsText] = useState("");
-  const [anthropicImageModelsText, setAnthropicImageModelsText] = useState("");
-  const [anthropicVideoModelsText, setAnthropicVideoModelsText] = useState("");
+  const [openaiModelProfilesText, setOpenaiModelProfilesText] = useState("");
+  const [anthropicModelProfilesText, setAnthropicModelProfilesText] = useState("");
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -155,22 +175,34 @@ export default function AdminRuntimePage() {
       setAvailableModels(res.availableModelsByProvider);
       const catalog = res.availableModelCatalogByProvider ?? {
         openai: {
-          chat: res.availableModelsByProvider.openai,
-          image: [],
-          video: []
+          models: res.availableModelsByProvider.openai.map((model) => ({
+            model,
+            capabilities: ["chat"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }))
         },
         anthropic: {
-          chat: res.availableModelsByProvider.anthropic,
-          image: [],
-          video: []
+          models: res.availableModelsByProvider.anthropic.map((model) => ({
+            model,
+            capabilities: ["chat"],
+            inputTokenWeight: 1,
+            cachedInputTokenWeight: 1,
+            outputTokenWeight: 1,
+            displayLabel: null,
+            notes: null,
+            providerPriceMetadata: null
+          }))
         }
       };
-      setOpenaiChatModelsText(formatModelCatalogInput(catalog.openai.chat));
-      setOpenaiImageModelsText(formatModelCatalogInput(catalog.openai.image));
-      setOpenaiVideoModelsText(formatModelCatalogInput(catalog.openai.video));
-      setAnthropicChatModelsText(formatModelCatalogInput(catalog.anthropic.chat));
-      setAnthropicImageModelsText(formatModelCatalogInput(catalog.anthropic.image));
-      setAnthropicVideoModelsText(formatModelCatalogInput(catalog.anthropic.video));
+      setOpenaiModelProfilesText(formatRuntimeProviderModelProfilesText(catalog.openai.models));
+      setAnthropicModelProfilesText(
+        formatRuntimeProviderModelProfilesText(catalog.anthropic.models)
+      );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to load runtime settings.");
     }
@@ -181,6 +213,26 @@ export default function AdminRuntimePage() {
     void load();
   }, [load]);
 
+  const profileTextByProvider = {
+    openai: openaiModelProfilesText,
+    anthropic: anthropicModelProfilesText
+  } satisfies Record<ManagedRuntimeProvider, string>;
+  const availableModelsForSelect = {
+    openai: deriveChatModelOptionsFromText(openaiModelProfilesText, availableModels.openai),
+    anthropic: deriveChatModelOptionsFromText(anthropicModelProfilesText, availableModels.anthropic)
+  } satisfies RuntimeProviderAvailableModelsByProviderState;
+  const primaryModelProfile = findModelProfileFromText(
+    profileTextByProvider[primaryProvider],
+    primaryModel
+  );
+  const fallbackModelProfile = fallbackEnabled
+    ? findModelProfileFromText(profileTextByProvider[fallbackProvider], fallbackModel)
+    : null;
+  const routingFastModelProfile = findModelProfileFromText(
+    profileTextByProvider[primaryProvider],
+    routingFastModelKey
+  );
+
   const handleSave = useCallback(async () => {
     const token = await getToken();
     if (!token || !settings) {
@@ -189,21 +241,25 @@ export default function AdminRuntimePage() {
     setSaving(true);
     setFeedback(null);
     try {
+      const parsedOpenaiProfiles = parseRuntimeProviderModelProfilesText(openaiModelProfilesText);
+      const parsedAnthropicProfiles = parseRuntimeProviderModelProfilesText(
+        anthropicModelProfilesText
+      );
       const parsedModelCatalog = {
         openai: {
-          chat: parseModelCatalogInput(openaiChatModelsText),
-          image: parseModelCatalogInput(openaiImageModelsText),
-          video: parseModelCatalogInput(openaiVideoModelsText)
+          models: parsedOpenaiProfiles
         },
         anthropic: {
-          chat: parseModelCatalogInput(anthropicChatModelsText),
-          image: parseModelCatalogInput(anthropicImageModelsText),
-          video: parseModelCatalogInput(anthropicVideoModelsText)
+          models: parsedAnthropicProfiles
         }
       } satisfies RuntimeProviderModelCatalogByProviderState;
       const parsedCatalog = {
-        openai: parsedModelCatalog.openai.chat,
-        anthropic: parsedModelCatalog.anthropic.chat
+        openai: parsedModelCatalog.openai.models
+          .filter((profile) => profile.capabilities.includes("chat"))
+          .map((profile) => profile.model),
+        anthropic: parsedModelCatalog.anthropic.models
+          .filter((profile) => profile.capabilities.includes("chat"))
+          .map((profile) => profile.model)
       } satisfies RuntimeProviderAvailableModelsByProviderState;
 
       if (!parsedCatalog[primaryProvider].includes(primaryModel.trim())) {
@@ -268,9 +324,7 @@ export default function AdminRuntimePage() {
     setSaving(false);
   }, [
     anthropicKey,
-    anthropicChatModelsText,
-    anthropicImageModelsText,
-    anthropicVideoModelsText,
+    anthropicModelProfilesText,
     fallbackEnabled,
     fallbackModel,
     fallbackProvider,
@@ -287,9 +341,7 @@ export default function AdminRuntimePage() {
     routerToolTermsText,
     routingFastModelKey,
     openaiKey,
-    openaiChatModelsText,
-    openaiImageModelsText,
-    openaiVideoModelsText,
+    openaiModelProfilesText,
     primaryModel,
     primaryProvider,
     settings
@@ -336,9 +388,12 @@ export default function AdminRuntimePage() {
               label="Model"
               value={primaryModel}
               onChange={setPrimaryModel}
-              options={availableModels[primaryProvider]}
+              options={availableModelsForSelect[primaryProvider]}
               emptyLabel="Select from available models"
             />
+            <p className="text-[10px] text-text-subtle">
+              Token weights: {modelProfileCostLabel(primaryModelProfile)}
+            </p>
           </Card>
           <Card
             title="Graceful Fallback"
@@ -361,9 +416,12 @@ export default function AdminRuntimePage() {
                   label="Model"
                   value={fallbackModel}
                   onChange={setFallbackModel}
-                  options={availableModels[fallbackProvider]}
+                  options={availableModelsForSelect[fallbackProvider]}
                   emptyLabel="Select from available models"
                 />
+                <p className="text-[10px] text-text-subtle">
+                  Token weights: {modelProfileCostLabel(fallbackModelProfile)}
+                </p>
               </>
             ) : (
               <p className="text-[10px] text-text-muted">
@@ -374,47 +432,35 @@ export default function AdminRuntimePage() {
         </div>
       </Fold>
 
-      <Fold t="Available Models">
+      <Fold t="Provider Model Profiles">
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           <Card title="OpenAI">
             <TextareaField
-              label="CHAT models"
-              value={openaiChatModelsText}
-              onChange={setOpenaiChatModelsText}
-              placeholder={"gpt-5.4\ngpt-4.1"}
+              label="Model profiles"
+              value={openaiModelProfilesText}
+              onChange={setOpenaiModelProfilesText}
+              placeholder={
+                "gpt-5.4 | chat | 1 | 1 | 1 | GPT 5.4\n" +
+                "gpt-image-1 | image | 1 | 1 | 1 | GPT Image\n" +
+                "sora-2 | video | 1 | 1 | 1 | Sora"
+              }
             />
-            <TextareaField
-              label="IMAGE models"
-              value={openaiImageModelsText}
-              onChange={setOpenaiImageModelsText}
-              placeholder={"gpt-image-1\ngpt-image-1.5\ngpt-image-2"}
-            />
-            <TextareaField
-              label="VIDEO models"
-              value={openaiVideoModelsText}
-              onChange={setOpenaiVideoModelsText}
-              placeholder={"sora-2\nsora-2-pro"}
-            />
+            <p className="text-[10px] text-text-subtle">
+              One profile per line: model | capabilities | input weight | cached input weight |
+              output weight | optional label.
+            </p>
           </Card>
           <Card title="Anthropic">
             <TextareaField
-              label="CHAT models"
-              value={anthropicChatModelsText}
-              onChange={setAnthropicChatModelsText}
-              placeholder="claude-sonnet-4-5"
+              label="Model profiles"
+              value={anthropicModelProfilesText}
+              onChange={setAnthropicModelProfilesText}
+              placeholder="claude-sonnet-4-5 | chat | 1 | 1 | 1 | Claude Sonnet"
             />
-            <TextareaField
-              label="IMAGE models"
-              value={anthropicImageModelsText}
-              onChange={setAnthropicImageModelsText}
-              placeholder="Leave blank until provider supports image generation"
-            />
-            <TextareaField
-              label="VIDEO models"
-              value={anthropicVideoModelsText}
-              onChange={setAnthropicVideoModelsText}
-              placeholder="Leave blank until provider supports video generation"
-            />
+            <p className="text-[10px] text-text-subtle">
+              Capabilities can be comma-separated, for example chat,image. Weights are quota units
+              per provider-reported token class.
+            </p>
           </Card>
         </div>
       </Fold>
@@ -439,9 +485,23 @@ export default function AdminRuntimePage() {
               label="Fast routing model"
               value={routingFastModelKey}
               onChange={setRoutingFastModelKey}
-              options={availableModels[primaryProvider]}
+              options={availableModelsForSelect[primaryProvider]}
               emptyLabel="Select from primary-provider catalog"
             />
+            <div className="rounded border border-border/40 bg-background px-2 py-1 text-[10px] text-text-subtle">
+              <div>
+                Normal reply: {primaryModel || "Select primary model"} -{" "}
+                {modelProfileCostLabel(primaryModelProfile)}
+              </div>
+              <div>
+                Premium reply: {primaryModel || "Select primary model"} -{" "}
+                {modelProfileCostLabel(primaryModelProfile)}
+              </div>
+              <div>
+                Reasoning: {routingFastModelKey || "Select fast routing model"} -{" "}
+                {modelProfileCostLabel(routingFastModelProfile)}
+              </div>
+            </div>
             <SelectField
               label="Mode"
               value={routerMode}

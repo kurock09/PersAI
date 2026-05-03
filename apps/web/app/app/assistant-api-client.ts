@@ -538,6 +538,15 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (code === "monthly_media_quota_exceeded" || code === "monthly_media_quota_rejected") {
+    return {
+      classId: "quota_limit_reached",
+      message: "Monthly media quota has been exhausted.",
+      guidance:
+        "Wait for the next billing cycle, upgrade the plan, or use a request that does not need media generation."
+    };
+  }
+
   if (code === "tool_daily_limit_reached") {
     return {
       classId: "quota_limit_reached",

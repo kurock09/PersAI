@@ -24,7 +24,7 @@ import {
   toAssistantInboundHttpException
 } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
-import { toRuntimeAttachmentRef } from "./media/media.types";
+import { toRuntimeAttachmentRef, type MediaArtifact } from "./media/media.types";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
@@ -210,6 +210,8 @@ export class SendWebChatTurnService {
       return replayTransport;
     }
     let preparedAssistantId: string | null = null;
+    let pendingMediaForReconciliation: MediaArtifact[] = [];
+    let mediaDeliveryCompleted = false;
     const trace = this.overviewLatencyTraceService.start({
       traceId: randomUUID(),
       surface: "web_chat_sync",
@@ -297,6 +299,7 @@ export class SendWebChatTurnService {
         trace.attachExternalTrace(runtimeResponse.runtimeTrace);
       }
       trace.stage("runtime_done");
+      pendingMediaForReconciliation = runtimeResponse.media;
 
       const assistantMessage = await this.assistantChatRepository.createMessage({
         chatId: prepared.chat.id,
@@ -314,6 +317,7 @@ export class SendWebChatTurnService {
         messageId: assistantMessage.id,
         workspaceId: prepared.assistant.workspaceId
       });
+      mediaDeliveryCompleted = true;
       trace.stage("media_delivered");
       const finalAssistantContent = await this.persistFinalAssistantContentIfNeeded({
         assistantMessage,
@@ -343,6 +347,9 @@ export class SendWebChatTurnService {
         assistant: prepared.assistant,
         userContent: baseMessage,
         assistantContent: finalAssistantContent,
+        ...(runtimeResponse.usageAccounting === undefined
+          ? {}
+          : { usageAccounting: runtimeResponse.usageAccounting }),
         source: "web_chat_turn_sync"
       });
       trace.stage("quota_recorded");
@@ -419,6 +426,17 @@ export class SendWebChatTurnService {
         }
       };
     } catch (error) {
+      if (
+        preparedAssistantId !== null &&
+        pendingMediaForReconciliation.length > 0 &&
+        !mediaDeliveryCompleted
+      ) {
+        await this.mediaDeliveryService.markUndeliveredArtifactsReconciliationRequired({
+          assistantId: preparedAssistantId,
+          artifacts: pendingMediaForReconciliation,
+          reason: "web_sync_delivery_not_completed"
+        });
+      }
       if (request.clientTurnId !== undefined && preparedAssistantId !== null) {
         if (this.webChatTurnAttemptService !== undefined) {
           await this.webChatTurnAttemptService.markFailed({

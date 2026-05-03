@@ -45,6 +45,7 @@ import {
   toPlanToolBudgetsDocument
 } from "./tool-budgets-policy";
 import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platform-runtime-provider-settings.service";
+import { getRuntimeProviderCatalogModelsByCapability } from "./runtime-provider-profile";
 import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
@@ -590,6 +591,16 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
+        activeWebChatsLimit: toNullablePositiveInt(quotaLimitsRaw.activeWebChatsLimit),
+        imageGenerateMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaLimitsRaw.imageGenerateMonthlyUnitsLimit
+        ),
+        imageEditMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaLimitsRaw.imageEditMonthlyUnitsLimit
+        ),
+        videoGenerateMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaLimitsRaw.videoGenerateMonthlyUnitsLimit
+        ),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.mediaStorageBytesLimit),
         knowledgeStorageBytesLimit: toNullablePositiveInt(
           quotaLimitsRaw.knowledgeStorageBytesLimit
@@ -700,6 +711,20 @@ export class ManageAdminPlansService {
     const quotaAccounting: Record<string, unknown> = {};
     if (input.quotaLimits.tokenBudgetLimit !== null) {
       quotaAccounting.tokenBudgetLimit = input.quotaLimits.tokenBudgetLimit;
+    }
+    if (input.quotaLimits.activeWebChatsLimit !== null) {
+      quotaAccounting.activeWebChatsLimit = input.quotaLimits.activeWebChatsLimit;
+    }
+    if (input.quotaLimits.imageGenerateMonthlyUnitsLimit !== null) {
+      quotaAccounting.imageGenerateMonthlyUnitsLimit =
+        input.quotaLimits.imageGenerateMonthlyUnitsLimit;
+    }
+    if (input.quotaLimits.imageEditMonthlyUnitsLimit !== null) {
+      quotaAccounting.imageEditMonthlyUnitsLimit = input.quotaLimits.imageEditMonthlyUnitsLimit;
+    }
+    if (input.quotaLimits.videoGenerateMonthlyUnitsLimit !== null) {
+      quotaAccounting.videoGenerateMonthlyUnitsLimit =
+        input.quotaLimits.videoGenerateMonthlyUnitsLimit;
     }
     if (input.quotaLimits.mediaStorageBytesLimit !== null) {
       quotaAccounting.mediaStorageBytesLimit = input.quotaLimits.mediaStorageBytesLimit;
@@ -852,8 +877,8 @@ export class ManageAdminPlansService {
         continue;
       }
       const catalog = [
-        ...catalogs.openai[entry.capability],
-        ...catalogs.anthropic[entry.capability]
+        ...getRuntimeProviderCatalogModelsByCapability(catalogs.openai, entry.capability),
+        ...getRuntimeProviderCatalogModelsByCapability(catalogs.anthropic, entry.capability)
       ];
       if (!catalog.includes(entry.modelKey)) {
         throw new BadRequestException(
@@ -925,6 +950,16 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
+        activeWebChatsLimit: toNullablePositiveInt(quotaAccountingRaw.activeWebChatsLimit),
+        imageGenerateMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaAccountingRaw.imageGenerateMonthlyUnitsLimit
+        ),
+        imageEditMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaAccountingRaw.imageEditMonthlyUnitsLimit
+        ),
+        videoGenerateMonthlyUnitsLimit: toNullablePositiveInt(
+          quotaAccountingRaw.videoGenerateMonthlyUnitsLimit
+        ),
         mediaStorageBytesLimit: toNullablePositiveInt(quotaAccountingRaw.mediaStorageBytesLimit),
         knowledgeStorageBytesLimit: toNullablePositiveInt(
           quotaAccountingRaw.knowledgeStorageBytesLimit

@@ -15,6 +15,59 @@ export type WorkspaceQuotaLimitsInput = {
   knowledgeStorageBytesLimit: bigint | null;
 };
 
+export type WorkspaceMonthlyMediaQuotaToolCode = "image_generate" | "image_edit" | "video_generate";
+
+export type WorkspaceMonthlyMediaQuotaCounter = {
+  workspaceId: string;
+  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+  reservedUnits: number;
+  settledUnits: number;
+  releasedUnits: number;
+  reconciliationRequiredUnits: number;
+  limitUnits: number | null;
+  lastComputedAt: Date;
+};
+
+export type WorkspaceTokenBudgetPeriodCounter = {
+  workspaceId: string;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+  usedCredits: bigint;
+  limitCredits: bigint | null;
+  lastComputedAt: Date;
+};
+
+export type FindTokenBudgetPeriodCounterInput = {
+  workspaceId: string;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+};
+
+export type FindMonthlyMediaQuotaCounterInput = {
+  workspaceId: string;
+  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+};
+
+export type MonthlyMediaQuotaMutationInput = {
+  workspaceId: string;
+  toolCode: WorkspaceMonthlyMediaQuotaToolCode;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
+  units: number;
+  limitUnits: number | null;
+};
+
+export type ReserveMonthlyMediaQuotaResult = {
+  allowed: boolean;
+  currentUsedUnits: number;
+  limitUnits: number | null;
+  counter: WorkspaceMonthlyMediaQuotaCounter;
+};
+
 export type IncrementWorkspaceQuotaUsageInput = {
   workspaceId: string;
   assistantId: string | null;
@@ -30,6 +83,8 @@ export type ApplyTokenBudgetUsageInput = {
   workspaceId: string;
   assistantId: string | null;
   userId: string | null;
+  periodStartedAt: Date;
+  periodEndsAt: Date;
   delta: bigint;
   source: string;
   metadata: Record<string, unknown> | null;
@@ -38,6 +93,7 @@ export type ApplyTokenBudgetUsageInput = {
 
 export type ApplyTokenBudgetUsageResult = {
   state: WorkspaceQuotaAccountingState;
+  counter: WorkspaceTokenBudgetPeriodCounter;
   appliedDelta: bigint;
   capped: boolean;
 };
@@ -115,6 +171,24 @@ export type RefreshActiveWebChatsQuotaInput = {
 
 export interface WorkspaceQuotaAccountingRepository {
   findByWorkspaceId(workspaceId: string): Promise<WorkspaceQuotaAccountingState | null>;
+  findTokenBudgetPeriodCounter(
+    input: FindTokenBudgetPeriodCounterInput
+  ): Promise<WorkspaceTokenBudgetPeriodCounter | null>;
+  findMonthlyMediaQuotaCounter(
+    input: FindMonthlyMediaQuotaCounterInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter | null>;
+  reserveMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<ReserveMonthlyMediaQuotaResult>;
+  settleMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
+  releaseMonthlyMediaQuota(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
+  markMonthlyMediaQuotaReconciliationRequired(
+    input: MonthlyMediaQuotaMutationInput
+  ): Promise<WorkspaceMonthlyMediaQuotaCounter>;
   incrementUsage(input: IncrementWorkspaceQuotaUsageInput): Promise<WorkspaceQuotaAccountingState>;
   applyTokenBudgetUsage(input: ApplyTokenBudgetUsageInput): Promise<ApplyTokenBudgetUsageResult>;
   applyMediaStorageUsage(input: ApplyMediaStorageUsageInput): Promise<ApplyMediaStorageUsageResult>;

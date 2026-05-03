@@ -28,6 +28,7 @@ import { ResolvePlatformRuntimeProviderSettingsService } from "./resolve-platfor
 import { ResolveRuntimeProviderRoutingService } from "./resolve-runtime-provider-routing.service";
 import { buildPlatformRuntimeProviderProfileState } from "./platform-runtime-provider-settings";
 import {
+  getRuntimeProviderCatalogModelsByCapability,
   resolveRuntimeProviderProfileState,
   type RuntimeProviderProfileState
 } from "./runtime-provider-profile";
@@ -170,7 +171,10 @@ function resolveAllowedPlanCapabilityModelKey(params: {
     return normalized;
   }
   const catalog = params.runtimeProviderProfile.availableModelCatalogByProvider;
-  const models = [...catalog.openai[params.capability], ...catalog.anthropic[params.capability]];
+  const models = [
+    ...getRuntimeProviderCatalogModelsByCapability(catalog.openai, params.capability),
+    ...getRuntimeProviderCatalogModelsByCapability(catalog.anthropic, params.capability)
+  ];
   return models.includes(normalized) ? normalized : null;
 }
 

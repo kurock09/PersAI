@@ -784,19 +784,59 @@ describe("AssistantSettings limits", () => {
                 status: "ok"
               }
             ],
+            monthlyMediaQuotas: {
+              planCode: "starter_trial",
+              periodStartedAt: "2026-04-01T00:00:00.000Z",
+              periodEndsAt: "2026-05-01T00:00:00.000Z",
+              periodSource: "subscription_period",
+              tools: [
+                {
+                  toolCode: "image_generate",
+                  displayName: "Image generation",
+                  usedUnits: 2,
+                  reservedUnits: 0,
+                  settledUnits: 2,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 20,
+                  remainingUnits: 18,
+                  usageAvailable: true,
+                  status: "ok"
+                },
+                {
+                  toolCode: "image_edit",
+                  displayName: "Image editing",
+                  usedUnits: 0,
+                  reservedUnits: 0,
+                  settledUnits: 0,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: null,
+                  remainingUnits: null,
+                  usageAvailable: true,
+                  status: "ok"
+                },
+                {
+                  toolCode: "video_generate",
+                  displayName: "Video generation",
+                  usedUnits: 0,
+                  reservedUnits: 0,
+                  settledUnits: 0,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: null,
+                  remainingUnits: null,
+                  usageAvailable: true,
+                  status: "ok"
+                }
+              ]
+            },
             toolDailyLimits: [
               {
                 toolCode: "exec",
                 displayName: "Exec",
                 dailyCallLimit: null,
                 dailyCallsUsed: 0,
-                active: true
-              },
-              {
-                toolCode: "image_generate",
-                displayName: "Image Generate",
-                dailyCallLimit: 20,
-                dailyCallsUsed: 2,
                 active: true
               }
             ]
@@ -809,7 +849,7 @@ describe("AssistantSettings limits", () => {
 
     expect(screen.getByText("Knowledge storage")).toBeInTheDocument();
     expect(screen.queryByText("Media storage")).toBeNull();
-    expect(screen.getByText("Image generation")).toBeInTheDocument();
+    expect(screen.getByText("Image generations")).toBeInTheDocument();
     expect(screen.getByText("2/20")).toBeInTheDocument();
     expect(screen.queryByText("Exec")).toBeNull();
     expect(screen.queryByText("∞")).toBeNull();

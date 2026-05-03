@@ -1,5 +1,4 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import { PlatformHttpMetricsService } from "../../platform-core/application/platform-http-metrics.service";
 import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
 import {
@@ -178,7 +177,8 @@ export class ManageChatMediaService {
         throw new NotFoundException("Assistant does not exist for this user.");
       }
 
-      const config = loadApiConfig(process.env);
+      const activeWebChatsLimit =
+        await this.trackWorkspaceQuotaUsageService.resolveActiveWebChatsLimit(assistant);
       const chatResult = await this.chatRepository.getOrCreateWebChatBySurfaceThreadUnderCap({
         assistantId: assistant.id,
         userId: assistant.userId,
@@ -186,7 +186,7 @@ export class ManageChatMediaService {
         surface: "web",
         surfaceThreadKey: params.surfaceThreadKey,
         title: null,
-        activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
+        activeWebChatsLimit
       });
       if (chatResult.outcome === "cap_reached") {
         throw createAssistantInboundConflict(

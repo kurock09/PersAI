@@ -266,9 +266,34 @@ class FakePersaiInternalApiClientService {
   quotaCalls: Array<{
     assistantId: string;
     toolCode: string;
+    units: number;
+  }> = [];
+  dailyQuotaCalls: Array<{
+    assistantId: string;
+    toolCode: string;
     dailyCallLimit: number | null;
     units?: number;
   }> = [];
+
+  async reserveMonthlyMediaQuota(input: {
+    assistantId: string;
+    toolCode: "image_generate" | "image_edit" | "video_generate";
+    units: number;
+  }) {
+    this.quotaCalls.push(input);
+    return {
+      allowed: true,
+      currentUsedUnits: this.quotaCalls.length,
+      limitUnits: 10,
+      periodStartedAt: "2026-05-01T00:00:00.000Z",
+      periodEndsAt: "2026-06-01T00:00:00.000Z",
+      periodSource: "subscription_period" as const
+    };
+  }
+
+  async releaseMonthlyMediaQuota() {
+    return undefined;
+  }
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -276,7 +301,7 @@ class FakePersaiInternalApiClientService {
     dailyCallLimit: number | null;
     units?: number;
   }): Promise<ConsumeToolDailyLimitOutcome> {
-    this.quotaCalls.push(input);
+    this.dailyQuotaCalls.push(input);
     return {
       allowed: true,
       currentCount: 1,
@@ -470,17 +495,17 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     {
       assistantId: "assistant-1",
       toolCode: "video_generate",
-      dailyCallLimit: 5
+      units: 1
     },
     {
       assistantId: "assistant-1",
       toolCode: "video_generate",
-      dailyCallLimit: 5
+      units: 1
     },
     {
       assistantId: "assistant-1",
       toolCode: "video_generate",
-      dailyCallLimit: 5
+      units: 1
     }
   ]);
 

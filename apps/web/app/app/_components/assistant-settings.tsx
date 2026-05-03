@@ -93,6 +93,8 @@ interface AssistantSettingsProps {
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
 
 type QuotaBucketState = UserPlanVisibilityState["limits"]["quotaBuckets"][number];
+type MonthlyMediaQuotaToolState =
+  UserPlanVisibilityState["limits"]["monthlyMediaQuotas"]["tools"][number];
 type SettingsSectionId =
   | "character"
   | "quickActions"
@@ -494,8 +496,21 @@ export function AssistantSettings({
   };
   const limitedQuotaBuckets =
     data.plan?.limits.quotaBuckets.filter((bucket) => bucket.limit !== null) ?? [];
+  const limitedMonthlyMediaQuotas =
+    data.plan?.limits.monthlyMediaQuotas.tools.filter((tool) => tool.limitUnits !== null) ?? [];
   const limitedToolDailyLimits =
-    data.plan?.limits.toolDailyLimits.filter((tool) => tool.dailyCallLimit !== null) ?? [];
+    data.plan?.limits.toolDailyLimits.filter(
+      (tool) =>
+        tool.dailyCallLimit !== null &&
+        tool.toolCode !== "image_generate" &&
+        tool.toolCode !== "image_edit" &&
+        tool.toolCode !== "video_generate"
+    ) ?? [];
+  const monthlyMediaQuotaLabels: Record<MonthlyMediaQuotaToolState["toolCode"], string> = {
+    image_generate: t("monthlyMediaImageGenerate"),
+    image_edit: t("monthlyMediaImageEdit"),
+    video_generate: t("monthlyMediaVideoGenerate")
+  };
   const toolLimitLabels: Record<string, string> = {
     browser: t("toolLimitBrowser"),
     exec: t("toolLimitExec"),
@@ -521,6 +536,17 @@ export function AssistantSettings({
     }
     const usedLabel = formatQuotaBucketScalar(bucket, Math.max(0, bucket.used));
     return bucket.limit === null ? usedLabel : `${usedLabel}/${limitLabel}`;
+  };
+  const formatMonthlyMediaQuotaValue = (tool: MonthlyMediaQuotaToolState): string => {
+    return tool.limitUnits === null
+      ? String(tool.usedUnits)
+      : `${tool.usedUnits}/${tool.limitUnits}`;
+  };
+  const toMonthlyMediaQuotaPercent = (tool: MonthlyMediaQuotaToolState): number | null => {
+    if (tool.limitUnits === null || tool.limitUnits <= 0) {
+      return null;
+    }
+    return Math.max(0, Math.min(100, Math.round((tool.usedUnits / tool.limitUnits) * 100)));
   };
 
   const version = assistant?.latestPublishedVersion ?? null;
@@ -2337,6 +2363,25 @@ export function AssistantSettings({
                 unavailable={!bucket.usageAvailable}
               />
             ))}
+            {limitedMonthlyMediaQuotas.length > 0 && (
+              <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
+                <p className="mb-2 text-xs font-medium text-text">{t("monthlyMediaQuotas")}</p>
+                <div className="space-y-2">
+                  {limitedMonthlyMediaQuotas.map((tool) => (
+                    <LimitBar
+                      key={tool.toolCode}
+                      label={monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
+                      pct={toMonthlyMediaQuotaPercent(tool)}
+                      valueLabel={formatMonthlyMediaQuotaValue(tool)}
+                      unavailable={!tool.usageAvailable}
+                    />
+                  ))}
+                </div>
+                <p className="mt-2 text-[10px] text-text-subtle">
+                  {t("monthlyMediaQuotaSettlementHint")}
+                </p>
+              </div>
+            )}
             {limitedToolDailyLimits.length > 0 && (
               <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
                 <p className="mb-2 text-xs font-medium text-text">{t("toolLimits")}</p>

@@ -1,5 +1,4 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -215,7 +214,8 @@ export class PrepareAssistantInboundTurnService {
     title: string | null;
     deepModeEnabled: boolean;
   }) {
-    const config = loadApiConfig(process.env);
+    const activeWebChatsLimit =
+      await this.trackWorkspaceQuotaUsageService.resolveActiveWebChatsLimit(params.assistant);
     const result = await this.assistantChatRepository.getOrCreateWebChatBySurfaceThreadUnderCap({
       assistantId: params.assistant.id,
       userId: params.assistant.userId,
@@ -224,7 +224,7 @@ export class PrepareAssistantInboundTurnService {
       surfaceThreadKey: params.surfaceThreadKey,
       title: params.title,
       deepModeEnabled: params.deepModeEnabled,
-      activeWebChatsLimit: config.WEB_ACTIVE_CHATS_CAP
+      activeWebChatsLimit
     });
 
     if (result.outcome === "cap_reached") {

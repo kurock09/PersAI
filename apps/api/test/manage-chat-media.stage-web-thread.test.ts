@@ -131,6 +131,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
       async checkMediaStorageQuota() {
         return { allowed: true };
       },
@@ -284,6 +287,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
       async checkMediaStorageQuota() {
         return { allowed: true };
       },
@@ -441,6 +447,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
       async checkMediaStorageQuota() {
         return { allowed: true };
       },
@@ -598,6 +607,9 @@ async function run(): Promise<void> {
       }
     } as never,
     {
+      async resolveActiveWebChatsLimit() {
+        return 20;
+      },
       async checkMediaStorageQuota() {
         return { allowed: true };
       },
@@ -677,7 +689,11 @@ async function run(): Promise<void> {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
+        {
+          async resolveActiveWebChatsLimit() {
+            return 20;
+          }
+        } as never,
         fakeAssistantFileRegistry as never,
         new PlatformHttpMetricsService()
       ).stageForWebThread({

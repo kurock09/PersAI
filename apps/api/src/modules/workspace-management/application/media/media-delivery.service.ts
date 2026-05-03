@@ -8,6 +8,9 @@ import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../../domain/assistant-chat-message-attachment.repository";
+import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../../domain/assistant.repository";
+import type { Assistant } from "../../domain/assistant.entity";
+import type { WorkspaceMonthlyMediaQuotaToolCode } from "../../domain/workspace-quota-accounting.repository";
 import type { AssistantWebChatMessageAttachmentState } from "../web-chat.types";
 import {
   CHANNEL_MEDIA_ADAPTERS,
@@ -24,6 +27,7 @@ import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { downloadRuntimeMediaUrl } from "./runtime-media-download";
 import { AssistantFileRegistryService } from "../assistant-file-registry.service";
+import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -33,10 +37,13 @@ export class MediaDeliveryService {
   constructor(
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    @Inject(ASSISTANT_REPOSITORY)
+    private readonly assistantRepository: AssistantRepository,
     @Inject(CHANNEL_MEDIA_ADAPTERS)
     adapters: ChannelMediaAdapter[],
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly assistantFileRegistryService: AssistantFileRegistryService,
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
@@ -53,10 +60,12 @@ export class MediaDeliveryService {
     }
 
     const results: AssistantWebChatMessageAttachmentState[] = [];
+    const assistant = await this.assistantRepository.findById(params.assistantId);
 
     for (const artifact of params.artifacts) {
       const startedAt = process.hrtime.bigint();
       let outcome: "success" | "failure" = "failure";
+      const monthlyQuotaToolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
       try {
         const persisted = await this.persistArtifact(artifact, params);
 
@@ -71,8 +80,16 @@ export class MediaDeliveryService {
         }
 
         results.push(persisted.state);
+        await this.settleMonthlyMediaQuotaBestEffort({
+          assistant,
+          toolCode: monthlyQuotaToolCode
+        });
         outcome = "success";
       } catch (err) {
+        await this.markMonthlyMediaQuotaReconciliationBestEffort({
+          assistant,
+          toolCode: monthlyQuotaToolCode
+        });
         this.logger.warn(
           `Failed to deliver media artifact "${describeRuntimeMediaArtifact(artifact)}": ${String(err)}`
         );
@@ -88,6 +105,105 @@ export class MediaDeliveryService {
     }
 
     return { attachments: results };
+  }
+
+  async markUndeliveredArtifactsReconciliationRequired(params: {
+    assistantId: string;
+    artifacts: MediaArtifact[];
+    reason: string;
+  }): Promise<void> {
+    if (params.artifacts.length === 0) {
+      return;
+    }
+    const assistant = await this.assistantRepository.findById(params.assistantId);
+    if (assistant === null) {
+      this.logger.warn(
+        `Cannot reconcile undelivered media reservations for missing assistant ${params.assistantId}.`
+      );
+      return;
+    }
+
+    const unitsByToolCode = new Map<WorkspaceMonthlyMediaQuotaToolCode, number>();
+    for (const artifact of params.artifacts) {
+      const toolCode = this.resolveMonthlyMediaQuotaToolCode(artifact);
+      if (toolCode === null) {
+        continue;
+      }
+      unitsByToolCode.set(toolCode, (unitsByToolCode.get(toolCode) ?? 0) + 1);
+    }
+
+    for (const [toolCode, units] of unitsByToolCode) {
+      try {
+        await this.trackWorkspaceQuotaUsageService.markAssistantMonthlyMediaQuotaReconciliationRequired(
+          {
+            assistant,
+            toolCode,
+            units
+          }
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to reconcile undelivered monthly media quota for ${toolCode} (${params.reason}): ${String(
+            error
+          )}`
+        );
+      }
+    }
+  }
+
+  private resolveMonthlyMediaQuotaToolCode(
+    artifact: MediaArtifact
+  ): WorkspaceMonthlyMediaQuotaToolCode | null {
+    if (
+      artifact.sourceToolCode === "image_generate" ||
+      artifact.sourceToolCode === "image_edit" ||
+      artifact.sourceToolCode === "video_generate"
+    ) {
+      return artifact.sourceToolCode;
+    }
+    return null;
+  }
+
+  private async settleMonthlyMediaQuotaBestEffort(params: {
+    assistant: Assistant | null;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode | null;
+  }): Promise<void> {
+    if (params.assistant === null || params.toolCode === null) {
+      return;
+    }
+    try {
+      await this.trackWorkspaceQuotaUsageService.settleAssistantMonthlyMediaQuota({
+        assistant: params.assistant,
+        toolCode: params.toolCode,
+        units: 1
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to settle monthly media quota for ${params.toolCode}: ${String(error)}`
+      );
+    }
+  }
+
+  private async markMonthlyMediaQuotaReconciliationBestEffort(params: {
+    assistant: Assistant | null;
+    toolCode: WorkspaceMonthlyMediaQuotaToolCode | null;
+  }): Promise<void> {
+    if (params.assistant === null || params.toolCode === null) {
+      return;
+    }
+    try {
+      await this.trackWorkspaceQuotaUsageService.markAssistantMonthlyMediaQuotaReconciliationRequired(
+        {
+          assistant: params.assistant,
+          toolCode: params.toolCode,
+          units: 1
+        }
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Failed to mark monthly media quota reconciliation for ${params.toolCode}: ${String(error)}`
+      );
+    }
   }
 
   private async persistArtifact(
