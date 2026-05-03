@@ -2210,6 +2210,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  const previousRuntimeProviderRouting =
+    bundleRegistry.entry?.parsedBundle.runtime.runtimeProviderRouting;
   if (bundleRegistry.entry !== null) {
     const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
       .runtimeProviderRouting as Record<string, unknown>;
@@ -2816,6 +2818,20 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       knowledgeHydrationBudget: 2400
     };
   }
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
+    items: [
+      {
+        label: "user_document" as const,
+        referenceId: "memory:memory-1",
+        title: "Memory write: preference",
+        locator: null,
+        content: "User prefers concise answers.",
+        score: 10,
+        metadata: { source: "memory" }
+      }
+    ],
+    renderedBlock: "# Retrieved Knowledge Context\n\n- User prefers concise answers."
+  };
 
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
@@ -2938,6 +2954,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       delete bundleRegistry.entry.parsedBundle.skills;
     } else {
       bundleRegistry.entry.parsedBundle.skills = previousBundleSkills;
+    }
+    if (previousRuntimeProviderRouting === undefined) {
+      delete bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting;
+    } else {
+      bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting =
+        previousRuntimeProviderRouting;
     }
   }
 

@@ -24,6 +24,15 @@ function normalizeFilename(value: string): string {
   }
 }
 
+function normalizeFilenameStem(value: string): string | null {
+  const normalized = normalizeFilename(value);
+  const lastDot = normalized.lastIndexOf(".");
+  if (lastDot <= 0) {
+    return null;
+  }
+  return normalized.slice(0, lastDot);
+}
+
 function isDeliveredFileLink(
   linkText: string,
   href: string,
@@ -94,7 +103,11 @@ function stripDeliveredAttachmentMarkdownLinks(input: {
 }): string {
   const deliveredFilenames = new Set(
     input.deliveredAttachmentFilenames
-      .map((filename) => normalizeFilename(filename))
+      .flatMap((filename) => {
+        const normalized = normalizeFilename(filename);
+        const stem = normalizeFilenameStem(filename);
+        return stem === null ? [normalized] : [normalized, stem];
+      })
       .filter((filename) => filename.length > 0)
   );
   if (deliveredFilenames.size === 0) {

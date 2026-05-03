@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (Delivered image markdown fallback fix) — delivered image cards no longer keep broken inline markdown (`apps/api`; focused check green)
+
+### What changed
+
+- Investigated live web chat logs for assistant `275e2382-cb4e-41d8-98da-fe04d4569f55` before the latest runtime routing deploy reached GKE.
+- Confirmed current GKE pods were still on image tag `883e0e8a46d926fa59974c62cfcec6c789222c11`, so the newer `aef6b4bf` routing/context guard was not live yet.
+- Confirmed the image turns themselves completed: `image_generate` returned artifacts, persisted `AssistantFile` rows, and delivered image chat attachments.
+- Root cause for the visible fallback/broken inline image: the model wrote markdown such as `![board_concept_diagram](attachment://91f42692-f101-498a-b7f1-d9d37869c581)`, while the real delivered filename was `board_concept_diagram.png`. Final delivery honesty only matched full filenames/URLs, so it did not strip the model-written image markdown line before the attachment card appeared.
+- Fixed the sanitizer to also recognize delivered filename stems, so delivered image markdown with an extensionless alt text is removed and the attachment card remains the single visible image surface.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `ReadLints` on `apps/api/src/modules/workspace-management/application/final-delivery-honesty.ts` and `apps/api/test/final-delivery-honesty.test.ts`
+
+### Next recommended step
+
+Run the normal AGENTS gate if this fix is committed with other pending work, then deploy API and re-smoke the same assistant image prompt. Expected result: no broken `attachment://...` inline image markdown; the generated image appears as the delivered attachment card only.
+
+---
+
 ## 2026-05-03 (ADR-079 grounded Skill/user-KB routing guard) — heavy grounded turns avoid mini-model context overflow (`apps/runtime`, `apps/api`, `apps/provider-gateway`; focused checks green)
 
 ### What changed

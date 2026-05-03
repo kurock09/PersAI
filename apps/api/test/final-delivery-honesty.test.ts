@@ -27,6 +27,18 @@ async function run(): Promise<void> {
 
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        "Вот.\n\n![board_concept_diagram](attachment://91f42692-f101-498a-b7f1-d9d37869c581)\n\n### Дальше\n- Сделать вторую версию",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["board_concept_diagram.png"],
+      locale: "ru"
+    }),
+    "Вот.\n\n### Дальше\n- Сделать вторую версию"
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
       assistantText: "Готово: [report.md](sandbox:/tmp/report.md)",
       attemptedArtifactCount: 0,
       deliveredAttachmentCount: 0,
