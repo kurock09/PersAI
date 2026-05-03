@@ -2,11 +2,12 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; implementation completed through Slice 7.
 
 Current continuation state:
 
-- **Next active item after the current ADR-082 implementation slice:** implement subscription lifecycle foundations before public paid rollout.
+- **Completed through:** Slice 7 — billing provider integration readiness.
+- **Next active item:** ADR-084 Slice 3 — payment intent and provider port.
 - **Production posture:** no transitional or legacy billing lifecycle mode. Every workspace must always resolve to one clear effective state and plan.
 - **Primary admin surface:** `Admin > Ops Cockpit` for user/workspace subscription inspection and support actions; `Admin > Plans` for plan-level trial/fallback policy; a future admin billing/settings surface may own global lifecycle settings.
 
@@ -425,12 +426,12 @@ Implement in production-grade slices.
 | Slice                                         | Status    | Purpose                                                                                               | Main affected areas                                                                        | Completion criteria                                                                                                                                 |
 | --------------------------------------------- | --------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. ADR and lifecycle policy                   | Completed | Lock target-state lifecycle decisions before code.                                                    | `docs/ADR/083-*`, handoff, changelog                                                       | ADR accepted with trial fallback, global grace, notification, and Ops Cockpit decisions.                                                            |
-| 2. Plan lifecycle policy fields               | Pending   | Make trial fallback and plan lifecycle policy editable and persisted.                                 | `Admin > Plans`, plan contracts, API plan management, plan visibility                      | Trial plans require a fallback plan; plan reads/writes preserve fallback policy; invalid fallback references are rejected.                          |
-| 3. Subscription lifecycle state machine       | Pending   | Ensure every workspace resolves to a clear lifecycle outcome.                                         | `WorkspaceSubscription`, effective subscription resolution, lifecycle services, tests      | Registration/trial/paid/grace/fallback/recovery states resolve deterministically; no workspace remains unconfigured.                                |
-| 4. Billing-period quota reset foundation      | Pending   | Tie paid recurring quota snapshots to subscription period truth.                                      | quota accounting, subscription period handling, user/admin visibility                      | Credits and future paid quotas use the effective billing period boundary rather than all-time counters or daily counters.                           |
-| 5. Notification settings and lifecycle outbox | Pending   | Schedule email and optional assistant push around trial/renewal/grace events.                         | notification policy, email adapter boundary, assistant notification outbox, admin settings | Admin-configured schedules create durable notification work; email is required; assistant push uses required-facts guardrails with static fallback. |
-| 6. Ops Cockpit billing support UX             | Pending   | Make Ops Cockpit useful for real subscription support.                                                | `Admin > Ops Cockpit`, admin APIs/contracts, lifecycle events, quota detail views          | Top table is compact and full-width; selected detail shows plan/lifecycle/quota/notification truth; support actions write audit events.             |
-| 7. Billing provider integration readiness     | Pending   | Prepare clean integration points for provider checkout/webhooks without changing lifecycle semantics. | billing provider port/adapter, sync services, webhook handlers when introduced             | Provider events update PersAI lifecycle state; recovery/failure/grace/fallback paths reuse the same state machine.                                  |
+| 2. Plan lifecycle policy fields               | Completed | Make trial fallback and plan lifecycle policy editable and persisted.                                 | `Admin > Plans`, plan contracts, API plan management, plan visibility                      | Trial plans require a fallback plan; plan reads/writes preserve fallback policy; invalid fallback references are rejected.                          |
+| 3. Subscription lifecycle state machine       | Completed | Ensure every workspace resolves to a clear lifecycle outcome.                                         | `WorkspaceSubscription`, effective subscription resolution, lifecycle services, tests      | Registration/trial/paid/grace/fallback/recovery states resolve deterministically; no workspace remains unconfigured.                                |
+| 4. Billing-period quota reset foundation      | Completed | Tie paid recurring quota snapshots to subscription period truth.                                      | quota accounting, subscription period handling, user/admin visibility                      | Credits and future paid quotas use the effective billing period boundary rather than all-time counters or daily counters.                           |
+| 5. Notification settings and lifecycle outbox | Completed | Schedule email and optional assistant push around trial/renewal/grace events.                         | notification policy, email adapter boundary, assistant notification outbox, admin settings | Admin-configured schedules create durable notification work; email is required; assistant push uses required-facts guardrails with static fallback. |
+| 6. Ops Cockpit billing support UX             | Completed | Make Ops Cockpit useful for real subscription support.                                                | `Admin > Ops Cockpit`, admin APIs/contracts, lifecycle events, quota detail views          | Top table is compact and full-width; selected detail shows plan/lifecycle/quota/notification truth; support actions write audit events.             |
+| 7. Billing provider integration readiness     | Completed | Prepare clean integration points for provider checkout/webhooks without changing lifecycle semantics. | billing provider port/adapter, sync services, webhook handlers when introduced             | Trusted provider/admin payment inputs are snapshotted first, then applied through the lifecycle state machine so effective plan, quota, materialization, and notifications keep one PersAI-owned truth chain. |
 
 ### Execution rules
 
@@ -442,10 +443,102 @@ Implement in production-grade slices.
 - Do not use daily counters for paid renewal/reset semantics.
 - Keep ordinary user copy calm and simple; keep admin detail complete.
 
+### Slice 3 implementation note
+
+Slice 3 now owns a production subscription lifecycle state machine foundation. Effective
+subscription resolution materializes a `WorkspaceSubscription` from the active default registration
+plan when no workspace subscription exists. If the default plan is a trial, the resolver writes real
+trial/current-period start and end timestamps from the plan-owned trial duration, appends
+`trial_started`, and stores the plan-owned fallback truth.
+
+Expired trial subscriptions resolve through the trial plan's
+`lifecyclePolicy.trialFallbackPlanCode`: the resolver validates that fallback plan is active,
+updates the workspace subscription to `expired_fallback`, appends `trial_expired` and
+`fallback_applied`, and marks workspace assistants dirty so materialization/runtime-sensitive paths
+see current subscription truth.
+
+Paid renewal failure, grace expiry, and payment recovery now run through a dedicated lifecycle
+service. Grace duration and the global fallback plan are persisted in admin-owned billing lifecycle
+settings. Paid plans may also define `lifecyclePolicy.paidFallbackPlanCode`; grace expiry uses that
+plan-level fallback first and falls back to the persisted global fallback. Lifecycle transitions
+append durable subscription lifecycle events and never hard-code Free, grace duration, or plan
+codes.
+
+### Slice 4 implementation note
+
+Slice 4 now makes the billing period the foundation for paid recurring quota snapshots and
+enforcement. Credits/token budget and monthly media quota paths share one recurring period resolver:
+`WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` wins when present and valid,
+including payment-recovery periods created by Slice 3; UTC calendar-month fallback is used only when
+subscription period truth is absent.
+
+Current-period Credits reads now use `workspace_token_budget_period_counters` for user visibility,
+inbound token-budget enforcement, abuse quota-pressure decisions, Ops Cockpit quota detail, and
+Business Cockpit quota-pressure distribution. `WorkspaceQuotaAccountingState.tokenBudgetUsed` remains
+a compatibility/current-period mirror updated by token writes, but paid-sensitive reads no longer use
+it as independent reset truth.
+
+### Slice 5 implementation note
+
+Slice 5 now persists admin-owned lifecycle notification policy in Billing Settings. Email is required
+policy truth, assistant push is optional, and rule enablement/offsets are stored with the settings row
+rather than treated as code-only product constants.
+
+Lifecycle transitions now derive durable notification work from append-only
+`workspace_subscription_lifecycle_events`. `billing_lifecycle_notification_jobs` stores required email
+jobs and optional assistant-notification jobs with dedupe keys, schedule times, static required-facts
+copy, and enqueue/delivery status. Assistant push uses the existing `assistant_notification_outbox`
+with source `billing_lifecycle`; email jobs remain pending until a real email adapter is introduced,
+so the system does not pretend provider delivery happened before ADR-084/provider work exists.
+
+### Slice 6 implementation note
+
+Slice 6 makes `Admin > Ops Cockpit` a billing support surface instead of only an assistant/runtime
+operator panel. The top user directory now shows compact support columns: email, effective plan,
+billing status, next relevant trial/grace/current-period date, usage risk, and actions.
+
+The selected detail now reads PersAI-owned support truth from `workspace_subscriptions`,
+`workspace_subscription_lifecycle_events`, `billing_lifecycle_notification_jobs`, and current quota
+period snapshots. It exposes subscription windows, provider support refs, latest lifecycle events, and
+latest notification jobs without consulting billing-provider state directly at request time.
+
+Post-slice live-test hardening closed the admin access and UI safety gaps found before handoff:
+Billing Settings is explicitly registered with Clerk bearer middleware, the Ops user directory and
+per-user reapply path enforce admin authorization, per-user reapply failures are surfaced in the UI,
+and workspace subscription assignment no longer forces `status=active` so trial plans can apply the
+service-owned trial defaults and fallback validation.
+
+Slice 6 is now fully action-capable for real support work. `Admin > Ops` exposes dedicated admin
+actions for extend trial, grant grace, extend grace, send billing reminder, apply fallback now, and
+restore paid manually when the existing lifecycle history can safely supply the prior paid plan and
+period shape. These actions write through the PersAI lifecycle/subscription services, append
+`source=admin` lifecycle history, refresh the selected support detail immediately, and do not create
+an admin-only second source of billing truth. Manual reminder work is created from lifecycle history
+into the existing durable notification job pipeline instead of bypassing it with UI-local behavior.
+
+### Slice 7 implementation note
+
+Slice 7 adds an internal billing-event readiness layer ahead of concrete provider webhooks or checkout.
+Trusted provider/admin/manual payment inputs are now recorded in
+`workspace_subscription_billing_events` with apply status before they mutate
+`workspace_subscriptions`.
+
+Provider sync no longer deletes local subscription truth when the provider returns no snapshot. Instead,
+provider/admin paid-state changes are normalized into PersAI lifecycle transitions:
+
+- paid activation and renewal success update the workspace through the same active-paid lifecycle path
+- renewal failure reuses `renewal_failed` -> `grace_started`
+- payment recovery reuses `payment_recovered`
+- refund/chargeback-style reversal reuses immediate fallback plus `fallback_applied`
+
+This keeps the ADR-083 transition order intact: trusted payment/provider/admin event -> PersAI billing
+event snapshot -> `WorkspaceSubscription` -> effective plan -> ADR-082 quota period -> materialization
+/ visibility -> lifecycle-derived notifications.
+
 ### Prompt for a future implementation session
 
 ```text
-Continue PersAI billing readiness from ADR-083.
+Continue PersAI billing readiness from ADR-084.
 
 Read before coding:
 1. AGENTS.md
@@ -458,7 +551,7 @@ Read before coding:
 8. docs/DATA-MODEL.md
 9. docs/TEST-PLAN.md
 
-Current active ADR-083 slice should be chosen from the Implementation plan and status table.
+ADR-083 is completed through Slice 7. Continue with the next pending ADR-084 slice instead of reopening ADR-083 unless verification fails or code/docs disagree.
 
 Production rules:
 - no transitional or legacy billing lifecycle mode
@@ -474,7 +567,7 @@ Before ending:
 - run focused checks for changed code
 - run AGENTS verification gates when code/contracts changed
 - update docs/SESSION-HANDOFF.md and docs/CHANGELOG.md
-- state the next recommended ADR-083 slice
+- state the next recommended ADR-084 slice
 ```
 
 ## Verification requirements

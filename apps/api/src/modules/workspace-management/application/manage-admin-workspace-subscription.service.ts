@@ -15,6 +15,8 @@ import type {
   WorkspaceSubscription,
   WorkspaceSubscriptionStatus
 } from "../domain/workspace-subscription.entity";
+import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
+import { ApplyWorkspaceSubscriptionBillingEventService } from "./apply-workspace-subscription-billing-event.service";
 
 const WORKSPACE_SUBSCRIPTION_STATUSES: readonly WorkspaceSubscriptionStatus[] = [
   "trialing",
@@ -23,7 +25,8 @@ const WORKSPACE_SUBSCRIPTION_STATUSES: readonly WorkspaceSubscriptionStatus[] = 
   "past_due",
   "paused",
   "canceled",
-  "expired"
+  "expired",
+  "expired_fallback"
 ] as const;
 
 export type AdminWorkspaceSubscriptionInput = {
@@ -31,9 +34,12 @@ export type AdminWorkspaceSubscriptionInput = {
   status?: WorkspaceSubscriptionStatus;
   trialStartedAt?: string | null;
   trialEndsAt?: string | null;
+  graceStartedAt?: string | null;
+  graceEndsAt?: string | null;
   currentPeriodStartedAt?: string | null;
   currentPeriodEndsAt?: string | null;
   cancelAtPeriodEnd?: boolean;
+  billingProvider?: string | null;
   providerCustomerRef?: string | null;
   providerSubscriptionRef?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -49,7 +55,8 @@ export class ManageAdminWorkspaceSubscriptionService {
     private readonly workspaceSubscriptionRepository: WorkspaceSubscriptionRepository,
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly applyWorkspaceSubscriptionBillingEventService: ApplyWorkspaceSubscriptionBillingEventService
   ) {}
 
   parseApplyInput(body: unknown): AdminWorkspaceSubscriptionInput {
@@ -64,6 +71,8 @@ export class ManageAdminWorkspaceSubscriptionService {
       record.currentPeriodStartedAt,
       "currentPeriodStartedAt"
     );
+    const graceStartedAt = this.parseOptionalIsoDate(record.graceStartedAt, "graceStartedAt");
+    const graceEndsAt = this.parseOptionalIsoDate(record.graceEndsAt, "graceEndsAt");
     const currentPeriodEndsAt = this.parseOptionalIsoDate(
       record.currentPeriodEndsAt,
       "currentPeriodEndsAt"
@@ -71,6 +80,10 @@ export class ManageAdminWorkspaceSubscriptionService {
     const cancelAtPeriodEnd = this.parseOptionalBoolean(
       record.cancelAtPeriodEnd,
       "cancelAtPeriodEnd"
+    );
+    const billingProvider = this.parseOptionalNullableString(
+      record.billingProvider,
+      "billingProvider"
     );
     const providerCustomerRef = this.parseOptionalNullableString(
       record.providerCustomerRef,
@@ -87,9 +100,12 @@ export class ManageAdminWorkspaceSubscriptionService {
       ...(status !== undefined ? { status } : {}),
       ...(trialStartedAt !== undefined ? { trialStartedAt } : {}),
       ...(trialEndsAt !== undefined ? { trialEndsAt } : {}),
+      ...(graceStartedAt !== undefined ? { graceStartedAt } : {}),
+      ...(graceEndsAt !== undefined ? { graceEndsAt } : {}),
       ...(currentPeriodStartedAt !== undefined ? { currentPeriodStartedAt } : {}),
       ...(currentPeriodEndsAt !== undefined ? { currentPeriodEndsAt } : {}),
       ...(cancelAtPeriodEnd !== undefined ? { cancelAtPeriodEnd } : {}),
+      ...(billingProvider !== undefined ? { billingProvider } : {}),
       ...(providerCustomerRef !== undefined ? { providerCustomerRef } : {}),
       ...(providerSubscriptionRef !== undefined ? { providerSubscriptionRef } : {}),
       ...(metadata !== undefined ? { metadata } : {})
@@ -115,6 +131,33 @@ export class ManageAdminWorkspaceSubscriptionService {
 
     if (current !== null && this.isSameSubscription(current, snapshot)) {
       return { ok: true, changed: false, workspaceId: assistant.workspaceId };
+    }
+
+    const adminBillingEventCode = this.resolveAdminBillingEventCode(current, snapshot);
+    if (adminBillingEventCode !== null) {
+      const result = await this.applyWorkspaceSubscriptionBillingEventService.apply({
+        workspaceId: assistant.workspaceId,
+        userId: targetUserId,
+        source: "manual",
+        eventCode: adminBillingEventCode,
+        eventRef: null,
+        paymentIntentRef: null,
+        billingProvider: snapshot.billingProvider,
+        providerCustomerRef: snapshot.providerCustomerRef,
+        providerSubscriptionRef: snapshot.providerSubscriptionRef,
+        paidPlanCode: snapshot.planCode,
+        currentPeriodStartedAt: snapshot.currentPeriodStartedAt,
+        currentPeriodEndsAt: snapshot.currentPeriodEndsAt,
+        metadata: {
+          adminAction: "set_workspace_subscription",
+          ...(input.metadata ?? {})
+        }
+      });
+      return {
+        ok: true,
+        changed: result.status === "applied",
+        workspaceId: assistant.workspaceId
+      };
     }
 
     await this.workspaceSubscriptionRepository.upsertFromBillingSnapshot(snapshot);
@@ -173,31 +216,42 @@ export class ManageAdminWorkspaceSubscriptionService {
     // status="active" and null trial windows on a plan marked isTrialPlan=true, so the user
     // technically moved to the new plan but was never actually in a trial window.
     const plan = await this.planCatalogRepository.findByCode(planCode);
-    const trialDefaults = this.resolveTrialDefaultsForPlan(plan, input);
+    const trialDefaults = await this.resolveTrialDefaultsForPlan(plan, input);
 
     return {
       workspaceId,
       planCode,
       status: input.status ?? trialDefaults.status,
+      billingProvider: input.billingProvider ?? null,
       trialStartedAt: input.trialStartedAt ?? trialDefaults.trialStartedAt,
       trialEndsAt: input.trialEndsAt ?? trialDefaults.trialEndsAt,
-      currentPeriodStartedAt: input.currentPeriodStartedAt ?? null,
-      currentPeriodEndsAt: input.currentPeriodEndsAt ?? null,
+      graceStartedAt: input.graceStartedAt ?? null,
+      graceEndsAt: input.graceEndsAt ?? null,
+      currentPeriodStartedAt: input.currentPeriodStartedAt ?? trialDefaults.currentPeriodStartedAt,
+      currentPeriodEndsAt: input.currentPeriodEndsAt ?? trialDefaults.currentPeriodEndsAt,
       cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
       providerCustomerRef: input.providerCustomerRef ?? null,
       providerSubscriptionRef: input.providerSubscriptionRef ?? null,
-      metadata: input.metadata ?? null
+      metadata: input.metadata ?? trialDefaults.metadata
     };
   }
 
-  private resolveTrialDefaultsForPlan(
-    plan: { isTrialPlan: boolean; trialDurationDays: number | null } | null,
+  private async resolveTrialDefaultsForPlan(
+    plan: {
+      code: string;
+      isTrialPlan: boolean;
+      trialDurationDays: number | null;
+      billingProviderHints: unknown | null;
+    } | null,
     input: AdminWorkspaceSubscriptionInput
-  ): {
+  ): Promise<{
     status: WorkspaceSubscriptionStatus;
     trialStartedAt: string | null;
     trialEndsAt: string | null;
-  } {
+    currentPeriodStartedAt: string | null;
+    currentPeriodEndsAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }> {
     const adminPassedAnyTrialField =
       input.status !== undefined ||
       input.trialStartedAt !== undefined ||
@@ -209,15 +263,40 @@ export class ManageAdminWorkspaceSubscriptionService {
       typeof plan.trialDurationDays === "number" &&
       plan.trialDurationDays > 0
     ) {
+      const fallbackPlanCode = resolveStoredPlanLifecyclePolicy(
+        plan.billingProviderHints
+      ).trialFallbackPlanCode;
+      if (fallbackPlanCode === null) {
+        throw new BadRequestException("Trial plan must have a fallback plan before assignment.");
+      }
+      const fallbackPlan = await this.planCatalogRepository.findByCode(fallbackPlanCode);
+      if (fallbackPlan === null || fallbackPlan.status !== "active") {
+        throw new BadRequestException("Trial fallback plan must reference an active plan.");
+      }
       const now = new Date();
       const endsAt = new Date(now.getTime() + plan.trialDurationDays * 86400_000);
       return {
         status: "trialing",
         trialStartedAt: now.toISOString(),
-        trialEndsAt: endsAt.toISOString()
+        trialEndsAt: endsAt.toISOString(),
+        currentPeriodStartedAt: now.toISOString(),
+        currentPeriodEndsAt: endsAt.toISOString(),
+        metadata: {
+          schema: "persai.subscriptionLifecycle.v1",
+          lifecycleState: "trialing",
+          lifecycleReason: "admin_trial_assignment",
+          trialFallbackPlanCode: fallbackPlanCode
+        }
       };
     }
-    return { status: "active", trialStartedAt: null, trialEndsAt: null };
+    return {
+      status: "active",
+      trialStartedAt: null,
+      trialEndsAt: null,
+      currentPeriodStartedAt: null,
+      currentPeriodEndsAt: null,
+      metadata: null
+    };
   }
 
   private async markWorkspaceAssistantsConfigDirty(workspaceId: string): Promise<void> {
@@ -235,8 +314,11 @@ export class ManageAdminWorkspaceSubscriptionService {
       current.workspaceId === next.workspaceId &&
       current.planCode === next.planCode &&
       current.status === next.status &&
+      current.billingProvider === next.billingProvider &&
       this.sameDate(current.trialStartedAt, next.trialStartedAt) &&
       this.sameDate(current.trialEndsAt, next.trialEndsAt) &&
+      this.sameDate(current.graceStartedAt, next.graceStartedAt ?? null) &&
+      this.sameDate(current.graceEndsAt, next.graceEndsAt ?? null) &&
       this.sameDate(current.currentPeriodStartedAt, next.currentPeriodStartedAt) &&
       this.sameDate(current.currentPeriodEndsAt, next.currentPeriodEndsAt) &&
       current.cancelAtPeriodEnd === next.cancelAtPeriodEnd &&
@@ -244,6 +326,34 @@ export class ManageAdminWorkspaceSubscriptionService {
       current.providerSubscriptionRef === next.providerSubscriptionRef &&
       JSON.stringify(current.metadata ?? null) === JSON.stringify(next.metadata ?? null)
     );
+  }
+
+  private resolveAdminBillingEventCode(
+    current: WorkspaceSubscription | null,
+    next: BillingProviderSubscriptionSnapshot
+  ): "payment_activated" | "renewal_succeeded" | "payment_recovered" | null {
+    if (
+      next.status !== "active" ||
+      next.currentPeriodStartedAt === null ||
+      next.currentPeriodEndsAt === null
+    ) {
+      return null;
+    }
+
+    if (current?.status === "grace_period" || current?.status === "past_due") {
+      return "payment_recovered";
+    }
+
+    if (
+      current?.status === "active" &&
+      current.planCode === next.planCode &&
+      current.currentPeriodEndsAt !== null &&
+      current.currentPeriodEndsAt.toISOString() !== next.currentPeriodEndsAt
+    ) {
+      return "renewal_succeeded";
+    }
+
+    return "payment_activated";
   }
 
   private sameDate(current: Date | null, next: string | null): boolean {

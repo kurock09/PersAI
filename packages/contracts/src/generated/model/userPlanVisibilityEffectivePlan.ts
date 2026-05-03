@@ -20,6 +20,14 @@ export interface UserPlanVisibilityEffectivePlan {
   /** @nullable */
   trialEndsAt: string | null;
   /** @nullable */
+  graceStartedAt: string | null;
+  /** @nullable */
+  graceEndsAt: string | null;
+  /** @nullable */
   currentPeriodEndsAt: string | null;
   isTrialPlan: boolean;
+  /** @nullable */
+  trialFallbackPlanCode: string | null;
+  /** @nullable */
+  paidFallbackPlanCode: string | null;
 }

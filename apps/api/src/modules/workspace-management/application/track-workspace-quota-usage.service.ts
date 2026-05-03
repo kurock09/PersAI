@@ -34,6 +34,7 @@ import {
   type ManagedRuntimeProvider,
   type RuntimeProviderModelProfile
 } from "./runtime-provider-profile";
+import { resolveRecurringQuotaPeriod, type RecurringQuotaPeriod } from "./recurring-quota-period";
 
 type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
@@ -92,6 +93,14 @@ export type AssistantQuotaBucketSnapshot = {
 export type AssistantQuotaSnapshot = {
   planCode: string | null;
   buckets: AssistantQuotaBucketSnapshot[];
+};
+
+export type AssistantTokenBudgetQuotaSnapshot = {
+  usedCredits: bigint;
+  limitCredits: bigint | null;
+  periodStartedAt: string;
+  periodEndsAt: string;
+  periodSource: RecurringQuotaPeriod["periodSource"];
 };
 
 export type AssistantMonthlyMediaQuotaToolSnapshot = {
@@ -286,22 +295,6 @@ function defaultTokenWeights(): Pick<
   };
 }
 
-function startOfUtcMonth(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), 1, 0, 0, 0, 0));
-}
-
-function startOfNextUtcMonth(value: Date): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + 1, 1, 0, 0, 0, 0));
-}
-
-function parseIsoDate(value: string | null | undefined): Date | null {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return null;
-  }
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 const MONTHLY_MEDIA_QUOTA_TOOLS: Array<{
   toolCode: WorkspaceMonthlyMediaQuotaToolCode;
   displayName: string;
@@ -362,7 +355,7 @@ export class TrackWorkspaceQuotaUsageService {
     const governance = await this.resolveGovernance(params.assistant.id);
     const quotaContext = await this.resolveQuotaContext(params.assistant, governance);
     const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
-    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
     const tokenUsage = await this.resolveTokenBudgetUsage({
       userContent: params.userContent,
       assistantContent: params.assistantContent,
@@ -903,13 +896,9 @@ export class TrackWorkspaceQuotaUsageService {
       assistant.workspaceId
     );
     const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
-    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
-    const tokenCounter = await this.workspaceQuotaAccountingRepository.findTokenBudgetPeriodCounter(
-      {
-        workspaceId: assistant.workspaceId,
-        periodStartedAt: period.periodStartedAt,
-        periodEndsAt: period.periodEndsAt
-      }
+    const tokenBudgetSnapshot = await this.resolveTokenBudgetQuotaSnapshotForContext(
+      assistant.workspaceId,
+      quotaContext
     );
 
     return {
@@ -919,8 +908,8 @@ export class TrackWorkspaceQuotaUsageService {
           bucketCode: "token_budget",
           displayName: "Token budget",
           unit: "tokens",
-          used: bigintToNumber(tokenCounter?.usedCredits ?? BigInt(0)),
-          limit: bigintToNumber(limits.tokenBudgetLimit),
+          used: bigintToNumber(tokenBudgetSnapshot.usedCredits),
+          limit: bigintToNumber(tokenBudgetSnapshot.limitCredits),
           usageAvailable: true
         }),
         buildQuotaBucketSnapshot({
@@ -951,12 +940,49 @@ export class TrackWorkspaceQuotaUsageService {
     };
   }
 
+  async resolveAssistantTokenBudgetQuotaSnapshot(
+    assistant: Assistant
+  ): Promise<AssistantTokenBudgetQuotaSnapshot> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const quotaContext = await this.resolveQuotaContext(assistant, governance);
+    return this.resolveTokenBudgetQuotaSnapshotForContext(assistant.workspaceId, quotaContext);
+  }
+
+  private async resolveTokenBudgetQuotaSnapshotForContext(
+    workspaceId: string,
+    quotaContext: {
+      config: ReturnType<typeof loadApiConfig>;
+      effectiveSubscription: Awaited<
+        ReturnType<ResolveEffectiveSubscriptionStateService["execute"]>
+      >;
+      planQuotaHints: PlanQuotaHints;
+    }
+  ): Promise<AssistantTokenBudgetQuotaSnapshot> {
+    const limits = this.buildWorkspaceQuotaLimits(quotaContext.config, quotaContext.planQuotaHints);
+    const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const tokenCounter = await this.workspaceQuotaAccountingRepository.findTokenBudgetPeriodCounter(
+      {
+        workspaceId,
+        periodStartedAt: period.periodStartedAt,
+        periodEndsAt: period.periodEndsAt
+      }
+    );
+
+    return {
+      usedCredits: tokenCounter?.usedCredits ?? BigInt(0),
+      limitCredits: limits.tokenBudgetLimit,
+      periodStartedAt: period.periodStartedAt.toISOString(),
+      periodEndsAt: period.periodEndsAt.toISOString(),
+      periodSource: period.periodSource
+    };
+  }
+
   async resolveAssistantMonthlyMediaQuotaSnapshot(
     assistant: Assistant
   ): Promise<AssistantMonthlyMediaQuotaSnapshot> {
     const governance = await this.resolveGovernance(assistant.id);
     const quotaContext = await this.resolveQuotaContext(assistant, governance);
-    const period = this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
+    const period = resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription);
     const tools: AssistantMonthlyMediaQuotaToolSnapshot[] = [];
 
     for (const tool of MONTHLY_MEDIA_QUOTA_TOOLS) {
@@ -1113,7 +1139,7 @@ export class TrackWorkspaceQuotaUsageService {
     assistant: Assistant,
     toolCode: WorkspaceMonthlyMediaQuotaToolCode
   ): Promise<{
-    period: ReturnType<TrackWorkspaceQuotaUsageService["resolveRecurringQuotaPeriod"]>;
+    period: RecurringQuotaPeriod;
     limitUnits: number | null;
   }> {
     const governance = await this.resolveGovernance(assistant.id);
@@ -1123,37 +1149,8 @@ export class TrackWorkspaceQuotaUsageService {
       throw new Error(`Unsupported monthly media quota tool code "${toolCode}".`);
     }
     return {
-      period: this.resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription),
+      period: resolveRecurringQuotaPeriod(quotaContext.effectiveSubscription),
       limitUnits: quotaContext.planQuotaHints[tool.limitKey]
-    };
-  }
-
-  private resolveRecurringQuotaPeriod(
-    effectiveSubscription: Awaited<ReturnType<ResolveEffectiveSubscriptionStateService["execute"]>>
-  ): {
-    periodStartedAt: Date;
-    periodEndsAt: Date;
-    periodSource: AssistantMonthlyMediaQuotaSnapshot["periodSource"];
-  } {
-    const periodStartedAt = parseIsoDate(effectiveSubscription.currentPeriodStartedAt);
-    const periodEndsAt = parseIsoDate(effectiveSubscription.currentPeriodEndsAt);
-    if (
-      periodStartedAt !== null &&
-      periodEndsAt !== null &&
-      periodEndsAt.getTime() > periodStartedAt.getTime()
-    ) {
-      return {
-        periodStartedAt,
-        periodEndsAt,
-        periodSource: "subscription_period"
-      };
-    }
-
-    const now = new Date();
-    return {
-      periodStartedAt: startOfUtcMonth(now),
-      periodEndsAt: startOfNextUtcMonth(now),
-      periodSource: "calendar_month_fallback"
     };
   }
 

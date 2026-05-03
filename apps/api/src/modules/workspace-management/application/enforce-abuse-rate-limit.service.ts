@@ -37,7 +37,7 @@ export class EnforceAbuseRateLimitService {
     @Inject(ASSISTANT_ABUSE_GUARD_REPOSITORY)
     private readonly assistantAbuseGuardRepository: AssistantAbuseGuardRepository,
     @Inject(WORKSPACE_QUOTA_ACCOUNTING_REPOSITORY)
-    private readonly workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
+    _workspaceQuotaAccountingRepository: WorkspaceQuotaAccountingRepository,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
@@ -146,24 +146,15 @@ export class EnforceAbuseRateLimitService {
     now: Date
   ): Promise<AbuseDecision> {
     const config = loadApiConfig(process.env);
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
-      assistant.workspaceId
-    );
-    if (quotaState === null) {
-      return {
-        blockedUntil: null,
-        slowedUntil: null,
-        reason: null
-      };
-    }
-
-    const limits =
-      await this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant(assistant);
-    const tokenLimit = limits.tokenBudgetLimit;
+    const tokenBudget =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
+        assistant
+      );
+    const tokenLimit = tokenBudget.limitCredits;
     const tokenPercent =
       tokenLimit === null || tokenLimit <= BigInt(0)
         ? 0
-        : Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit);
+        : Number((tokenBudget.usedCredits * BigInt(100)) / tokenLimit);
     const maxPercent = tokenPercent;
 
     if (maxPercent >= config.ABUSE_QUOTA_BLOCK_PERCENT) {

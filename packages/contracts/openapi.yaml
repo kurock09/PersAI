@@ -1949,6 +1949,74 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/billing/lifecycle-settings:
+    get:
+      operationId: getAdminBillingLifecycleSettings
+      summary: Read global billing lifecycle settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Billing lifecycle settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminBillingLifecycleSettingsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminBillingLifecycleSettings
+      summary: Update global billing lifecycle settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.billing_lifecycle_settings.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminBillingLifecycleSettingsRequest"
+      responses:
+        "200":
+          description: Updated billing lifecycle settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminBillingLifecycleSettingsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/knowledge-sources:
     get:
       operationId: getAdminKnowledgeSources
@@ -3325,6 +3393,56 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ops/users:
+    get:
+      operationId: getAdminOpsUsers
+      summary: List compact ops user directory rows
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: q
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: offset
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Ops user directory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminOpsUsersResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/ops/users/{userId}/plan-override:
     post:
       operationId: postAdminOpsUserPlanOverride
@@ -3417,6 +3535,61 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/ops/users/{userId}/billing-support-action:
+    post:
+      operationId: postAdminOpsUserBillingSupportAction
+      summary: Run a lifecycle-native billing support action for a target user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAdminOpsUserBillingSupportActionRequest"
+      responses:
+        "200":
+          description: Billing support action applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminOpsUserBillingSupportActionResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden (ops/business/security/super-admin role required)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or workspace subscription not found
           content:
             application/json:
               schema:
@@ -6991,8 +7164,12 @@ components:
         - source
         - subscriptionStatus
         - trialEndsAt
+        - graceStartedAt
+        - graceEndsAt
         - currentPeriodEndsAt
         - isTrialPlan
+        - trialFallbackPlanCode
+        - paidFallbackPlanCode
       properties:
         code:
           type: string
@@ -7010,6 +7187,9 @@ components:
           type: string
           enum:
             - workspace_subscription
+            - subscription_trial_fallback
+            - subscription_paid_fallback
+            - assistant_plan_override
             - assistant_plan_fallback
             - catalog_default_fallback
             - none
@@ -7023,8 +7203,17 @@ components:
             - paused
             - canceled
             - expired
+            - expired_fallback
             - unconfigured
         trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        graceStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        graceEndsAt:
           type: string
           format: date-time
           nullable: true
@@ -7034,6 +7223,12 @@ components:
           nullable: true
         isTrialPlan:
           type: boolean
+        trialFallbackPlanCode:
+          type: string
+          nullable: true
+        paidFallbackPlanCode:
+          type: string
+          nullable: true
     QuotaVisibilityBucketState:
       type: object
       required:
@@ -8475,6 +8670,7 @@ components:
         - defaultOnRegistration
         - trialEnabled
         - trialDurationDays
+        - lifecyclePolicy
         - metadata
         - entitlements
         - contextPolicy
@@ -8502,6 +8698,8 @@ components:
         trialDurationDays:
           type: integer
           nullable: true
+        lifecyclePolicy:
+          $ref: "#/components/schemas/AdminPlanLifecyclePolicy"
         metadata:
           $ref: "#/components/schemas/AdminPlanMetadata"
         entitlements:
@@ -8626,6 +8824,25 @@ components:
           nullable: true
           description: >-
             ADR-074 Slice L1 — see AdminPlanToolActivation.perTurnCap.
+    AdminPlanLifecyclePolicy:
+      type: object
+      required:
+        - trialFallbackPlanCode
+        - paidFallbackPlanCode
+      properties:
+        trialFallbackPlanCode:
+          type: string
+          nullable: true
+          description: >-
+            Admin-selected active plan code applied when this trial plan expires
+            without payment. Required for trial plans.
+        paidFallbackPlanCode:
+          type: string
+          nullable: true
+          description: >-
+            Optional plan-level active fallback plan code applied after paid
+            grace expires. Global billing lifecycle fallback is used when this
+            field is null.
     AdminPlanToolBudgets:
       type: object
       required:
@@ -8660,6 +8877,7 @@ components:
         - defaultOnRegistration
         - trialEnabled
         - trialDurationDays
+        - lifecyclePolicy
         - metadata
         - entitlements
         - contextPolicy
@@ -8683,6 +8901,8 @@ components:
         trialDurationDays:
           type: integer
           nullable: true
+        lifecyclePolicy:
+          $ref: "#/components/schemas/AdminPlanLifecyclePolicy"
         metadata:
           $ref: "#/components/schemas/AdminPlanMetadata"
         entitlements:
@@ -8752,6 +8972,102 @@ components:
     AdminPlanUpdateRequest:
       allOf:
         - $ref: "#/components/schemas/AdminPlanInputBase"
+    AdminBillingLifecycleNotificationCode:
+      type: string
+      enum:
+        - trial_ending
+        - trial_expired
+        - renewal_failed
+        - grace_ending
+        - grace_expired
+        - payment_recovered
+    AdminBillingLifecycleNotificationRule:
+      type: object
+      required:
+        - notificationCode
+        - enabled
+        - offsetDays
+      properties:
+        notificationCode:
+          $ref: "#/components/schemas/AdminBillingLifecycleNotificationCode"
+        enabled:
+          type: boolean
+        offsetDays:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 30
+    AdminBillingLifecycleNotificationPolicy:
+      type: object
+      required:
+        - emailEnabled
+        - assistantPushEnabled
+        - rules
+      properties:
+        emailEnabled:
+          type: boolean
+          description: Email is required for billing lifecycle notifications and must be true.
+        assistantPushEnabled:
+          type: boolean
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminBillingLifecycleNotificationRule"
+    AdminBillingLifecycleSettingsState:
+      type: object
+      required:
+        - schema
+        - gracePeriodDays
+        - globalFallbackPlanCode
+        - notificationPolicy
+        - updatedAt
+      properties:
+        schema:
+          type: string
+        gracePeriodDays:
+          type: integer
+        globalFallbackPlanCode:
+          type: string
+          nullable: true
+        notificationPolicy:
+          $ref: "#/components/schemas/AdminBillingLifecycleNotificationPolicy"
+        updatedAt:
+          type: string
+          format: date-time
+    AdminBillingLifecycleSettingsRequest:
+      type: object
+      required:
+        - gracePeriodDays
+        - globalFallbackPlanCode
+        - notificationPolicy
+      properties:
+        gracePeriodDays:
+          type: integer
+        globalFallbackPlanCode:
+          type: string
+          nullable: true
+        notificationPolicy:
+          $ref: "#/components/schemas/AdminBillingLifecycleNotificationPolicy"
+    GetAdminBillingLifecycleSettingsResponse:
+      type: object
+      required:
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminBillingLifecycleSettingsState"
+    PutAdminBillingLifecycleSettingsResponse:
+      type: object
+      required:
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminBillingLifecycleSettingsState"
     GetAdminPlansResponse:
       type: object
       required:
@@ -8795,6 +9111,7 @@ components:
       type: object
       required:
         - quotaUsage
+        - billingSupport
         - chatStats
         - channels
         - sandbox
@@ -8808,6 +9125,10 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/AdminOpsCockpitQuotaUsage"
+        billingSupport:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/AdminOpsCockpitBillingSupport"
         chatStats:
           nullable: true
           allOf:
@@ -8853,6 +9174,8 @@ components:
                   type: string
                   enum:
                     - workspace_subscription
+                    - subscription_trial_fallback
+                    - subscription_paid_fallback
                     - assistant_plan_override
                     - assistant_plan_fallback
                     - catalog_default_fallback
@@ -8930,6 +9253,9 @@ components:
       required:
         - tokenBudgetUsed
         - tokenBudgetLimit
+        - tokenBudgetPeriodStartedAt
+        - tokenBudgetPeriodEndsAt
+        - tokenBudgetPeriodSource
         - mediaStorageBytesUsed
         - mediaStorageBytesLimit
         - activeWebChats
@@ -8940,6 +9266,20 @@ components:
         tokenBudgetLimit:
           type: integer
           nullable: true
+        tokenBudgetPeriodStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        tokenBudgetPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        tokenBudgetPeriodSource:
+          type: string
+          nullable: true
+          enum:
+            - subscription_period
+            - calendar_month_fallback
         mediaStorageBytesUsed:
           type: integer
         mediaStorageBytesLimit:
@@ -8950,6 +9290,184 @@ components:
         activeWebChatsLimit:
           type: integer
           nullable: true
+    AdminOpsCockpitBillingSupport:
+      type: object
+      required:
+        - subscription
+        - quotaPeriod
+        - latestLifecycleEvents
+        - latestNotificationJobs
+      properties:
+        subscription:
+          type: object
+          required:
+            - id
+            - planCode
+            - status
+            - trialStartedAt
+            - trialEndsAt
+            - graceStartedAt
+            - graceEndsAt
+            - currentPeriodStartedAt
+            - currentPeriodEndsAt
+            - cancelAtPeriodEnd
+            - providerCustomerRef
+            - providerSubscriptionRef
+          properties:
+            id:
+              type: string
+              nullable: true
+            planCode:
+              type: string
+              nullable: true
+            status:
+              type: string
+              nullable: true
+            trialStartedAt:
+              type: string
+              format: date-time
+              nullable: true
+            trialEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            graceStartedAt:
+              type: string
+              format: date-time
+              nullable: true
+            graceEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            currentPeriodStartedAt:
+              type: string
+              format: date-time
+              nullable: true
+            currentPeriodEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            cancelAtPeriodEnd:
+              type: boolean
+              nullable: true
+            providerCustomerRef:
+              type: string
+              nullable: true
+            providerSubscriptionRef:
+              type: string
+              nullable: true
+        quotaPeriod:
+          type: object
+          required:
+            - startedAt
+            - endsAt
+            - source
+          properties:
+            startedAt:
+              type: string
+              format: date-time
+              nullable: true
+            endsAt:
+              type: string
+              format: date-time
+              nullable: true
+            source:
+              type: string
+              nullable: true
+              enum:
+                - subscription_period
+                - calendar_month_fallback
+        latestLifecycleEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminOpsCockpitBillingLifecycleEvent"
+        latestNotificationJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminOpsCockpitBillingNotificationJob"
+    AdminOpsCockpitBillingLifecycleEvent:
+      type: object
+      required:
+        - id
+        - eventCode
+        - source
+        - previousStatus
+        - nextStatus
+        - previousPlanCode
+        - nextPlanCode
+        - nextPeriodStartedAt
+        - nextPeriodEndsAt
+        - createdAt
+      properties:
+        id:
+          type: string
+        eventCode:
+          type: string
+        source:
+          type: string
+        previousStatus:
+          type: string
+          nullable: true
+        nextStatus:
+          type: string
+          nullable: true
+        previousPlanCode:
+          type: string
+          nullable: true
+        nextPlanCode:
+          type: string
+          nullable: true
+        nextPeriodStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    AdminOpsCockpitBillingNotificationJob:
+      type: object
+      required:
+        - id
+        - notificationCode
+        - channel
+        - status
+        - scheduledFor
+        - recipientEmail
+        - lastErrorCode
+        - createdAt
+      properties:
+        id:
+          type: string
+        notificationCode:
+          type: string
+        channel:
+          type: string
+          enum:
+            - email
+            - assistant_notification
+        status:
+          type: string
+          enum:
+            - pending
+            - enqueued
+            - skipped
+            - failed
+        scheduledFor:
+          type: string
+          format: date-time
+        recipientEmail:
+          type: string
+          nullable: true
+        lastErrorCode:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
     AdminOpsCockpitChatStats:
       type: object
       required:
@@ -9130,6 +9648,109 @@ components:
           nullable: true
         cockpit:
           $ref: "#/components/schemas/AdminOpsCockpitState"
+    AdminOpsUserRow:
+      type: object
+      required:
+        - userId
+        - email
+        - displayName
+        - createdAt
+        - assistant
+        - billing
+      properties:
+        userId:
+          type: string
+        email:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        assistant:
+          nullable: true
+          allOf:
+            - type: object
+              required:
+                - id
+                - draftDisplayName
+                - draftAssistantGender
+                - applyStatus
+                - latestPublishedVersion
+                - lastPublishedAt
+              properties:
+                id:
+                  type: string
+                draftDisplayName:
+                  type: string
+                  nullable: true
+                draftAssistantGender:
+                  type: string
+                  nullable: true
+                applyStatus:
+                  type: string
+                latestPublishedVersion:
+                  type: integer
+                  nullable: true
+                lastPublishedAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+        billing:
+          type: object
+          required:
+            - workspaceId
+            - planCode
+            - status
+            - trialEndsAt
+            - graceEndsAt
+            - currentPeriodEndsAt
+            - usageRisk
+          properties:
+            workspaceId:
+              type: string
+              nullable: true
+            planCode:
+              type: string
+              nullable: true
+            status:
+              type: string
+              nullable: true
+            trialEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            graceEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            currentPeriodEndsAt:
+              type: string
+              format: date-time
+              nullable: true
+            usageRisk:
+              type: string
+              enum:
+                - unknown
+                - ok
+                - elevated
+                - high
+    GetAdminOpsUsersResponse:
+      type: object
+      required:
+        - users
+        - total
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminOpsUserRow"
+        total:
+          type: integer
     SuccessResponse:
       type: object
       required:
@@ -9140,6 +9761,44 @@ components:
           nullable: true
         ok:
           type: boolean
+    AdminOpsBillingSupportAction:
+      type: string
+      enum:
+        - extend_trial
+        - grant_grace
+        - extend_grace
+        - send_billing_reminder
+        - apply_fallback_now
+        - restore_paid_manually
+    PostAdminOpsUserBillingSupportActionRequest:
+      type: object
+      required:
+        - action
+      properties:
+        action:
+          $ref: "#/components/schemas/AdminOpsBillingSupportAction"
+    PostAdminOpsUserBillingSupportActionResponse:
+      type: object
+      required:
+        - ok
+        - changed
+        - workspaceId
+        - action
+        - summary
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        ok:
+          type: boolean
+        changed:
+          type: boolean
+        workspaceId:
+          type: string
+        action:
+          $ref: "#/components/schemas/AdminOpsBillingSupportAction"
+        summary:
+          type: string
     BusinessCockpitChannel:
       type: string
       enum:
@@ -10266,6 +10925,7 @@ components:
         - admin.plan.create
         - admin.plan.update
         - admin.plan.delete
+        - admin.billing_lifecycle_settings.update
         - admin.runtime_provider_settings.update
         - admin.rollout.apply
         - admin.rollout.rollback

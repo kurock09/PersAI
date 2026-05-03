@@ -10,6 +10,7 @@ import { AssistantRuntimePreflightService } from "./assistant-runtime-preflight.
 import type {
   AdminOpsCockpitState,
   AdminOpsCockpitQuotaUsage,
+  AdminOpsCockpitBillingSupport,
   AdminOpsCockpitChannelBinding,
   AdminOpsCockpitChatStats,
   AdminOpsCockpitSandbox,
@@ -102,6 +103,7 @@ export class ResolveAdminOpsCockpitService {
       }
       return {
         quotaUsage: null,
+        billingSupport: null,
         chatStats: null,
         channels: [],
         sandbox: null,
@@ -180,6 +182,7 @@ export class ResolveAdminOpsCockpitService {
     }
 
     const quotaUsage = await this.resolveQuotaUsage(assistant.workspaceId, assistant);
+    const billingSupport = await this.resolveBillingSupport(assistant.workspaceId, quotaUsage);
     const chatStats = await this.resolveChatStats(assistant.workspaceId, assistant.id);
     const channels = await this.resolveChannelBindings(assistant.id);
     const sandbox = await this.resolveSandboxState(
@@ -190,6 +193,7 @@ export class ResolveAdminOpsCockpitService {
 
     return {
       quotaUsage,
+      billingSupport,
       chatStats,
       channels,
       sandbox,
@@ -252,14 +256,21 @@ export class ResolveAdminOpsCockpitService {
 
     const limits =
       await this.trackWorkspaceQuotaUsageService.resolveEffectiveLimitsForAssistant(assistant);
+    const tokenBudget =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
+        assistant
+      );
 
     const activeWebChats = await this.prisma.assistantChat.count({
       where: { workspaceId, surface: "web", archivedAt: null }
     });
 
     return {
-      tokenBudgetUsed: Number(quotaState.tokenBudgetUsed),
-      tokenBudgetLimit: limits.tokenBudgetLimit !== null ? Number(limits.tokenBudgetLimit) : null,
+      tokenBudgetUsed: Number(tokenBudget.usedCredits),
+      tokenBudgetLimit: tokenBudget.limitCredits !== null ? Number(tokenBudget.limitCredits) : null,
+      tokenBudgetPeriodStartedAt: tokenBudget.periodStartedAt,
+      tokenBudgetPeriodEndsAt: tokenBudget.periodEndsAt,
+      tokenBudgetPeriodSource: tokenBudget.periodSource,
       mediaStorageBytesUsed: Number(quotaState.mediaStorageBytesUsed),
       mediaStorageBytesLimit:
         quotaState.mediaStorageBytesLimit !== null
@@ -270,6 +281,107 @@ export class ResolveAdminOpsCockpitService {
         limits.activeWebChatsLimit !== null && limits.activeWebChatsLimit !== undefined
           ? limits.activeWebChatsLimit
           : null
+    };
+  }
+
+  private async resolveBillingSupport(
+    workspaceId: string,
+    quotaUsage: AdminOpsCockpitQuotaUsage | null
+  ): Promise<AdminOpsCockpitBillingSupport> {
+    const [subscription, latestLifecycleEvents, latestNotificationJobs] = await Promise.all([
+      this.prisma.workspaceSubscription.findUnique({
+        where: { workspaceId },
+        select: {
+          id: true,
+          planCode: true,
+          status: true,
+          trialStartedAt: true,
+          trialEndsAt: true,
+          graceStartedAt: true,
+          graceEndsAt: true,
+          currentPeriodStartedAt: true,
+          currentPeriodEndsAt: true,
+          cancelAtPeriodEnd: true,
+          providerCustomerRef: true,
+          providerSubscriptionRef: true
+        }
+      }),
+      this.prisma.workspaceSubscriptionLifecycleEvent.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          eventCode: true,
+          source: true,
+          previousStatus: true,
+          nextStatus: true,
+          previousPlanCode: true,
+          nextPlanCode: true,
+          nextPeriodStartedAt: true,
+          nextPeriodEndsAt: true,
+          createdAt: true
+        }
+      }),
+      this.prisma.billingLifecycleNotificationJob.findMany({
+        where: { workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        select: {
+          id: true,
+          notificationCode: true,
+          channel: true,
+          status: true,
+          scheduledFor: true,
+          recipientEmail: true,
+          lastErrorCode: true,
+          createdAt: true
+        }
+      })
+    ]);
+
+    return {
+      subscription: {
+        id: subscription?.id ?? null,
+        planCode: subscription?.planCode ?? null,
+        status: subscription?.status ?? null,
+        trialStartedAt: asIso(subscription?.trialStartedAt ?? null),
+        trialEndsAt: asIso(subscription?.trialEndsAt ?? null),
+        graceStartedAt: asIso(subscription?.graceStartedAt ?? null),
+        graceEndsAt: asIso(subscription?.graceEndsAt ?? null),
+        currentPeriodStartedAt: asIso(subscription?.currentPeriodStartedAt ?? null),
+        currentPeriodEndsAt: asIso(subscription?.currentPeriodEndsAt ?? null),
+        cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? null,
+        providerCustomerRef: subscription?.providerCustomerRef ?? null,
+        providerSubscriptionRef: subscription?.providerSubscriptionRef ?? null
+      },
+      quotaPeriod: {
+        startedAt: quotaUsage?.tokenBudgetPeriodStartedAt ?? null,
+        endsAt: quotaUsage?.tokenBudgetPeriodEndsAt ?? null,
+        source: quotaUsage?.tokenBudgetPeriodSource ?? null
+      },
+      latestLifecycleEvents: latestLifecycleEvents.map((event) => ({
+        id: event.id,
+        eventCode: event.eventCode,
+        source: event.source,
+        previousStatus: event.previousStatus,
+        nextStatus: event.nextStatus,
+        previousPlanCode: event.previousPlanCode,
+        nextPlanCode: event.nextPlanCode,
+        nextPeriodStartedAt: asIso(event.nextPeriodStartedAt),
+        nextPeriodEndsAt: asIso(event.nextPeriodEndsAt),
+        createdAt: event.createdAt.toISOString()
+      })),
+      latestNotificationJobs: latestNotificationJobs.map((job) => ({
+        id: job.id,
+        notificationCode: job.notificationCode,
+        channel: job.channel,
+        status: job.status,
+        scheduledFor: job.scheduledFor.toISOString(),
+        recipientEmail: job.recipientEmail,
+        lastErrorCode: job.lastErrorCode,
+        createdAt: job.createdAt.toISOString()
+      }))
     };
   }
 

@@ -56,6 +56,7 @@ async function run(): Promise<void> {
     workspaceId: "ws-1",
     planCode: "pro",
     status: "active",
+    billingProvider: "stripe",
     trialStartedAt: null,
     trialEndsAt: null,
     currentPeriodStartedAt: "2026-04-21T00:00:00.000Z",
@@ -67,6 +68,7 @@ async function run(): Promise<void> {
   });
   assert.equal(upserted.planCode, "pro");
   assert.equal(upserted.status, "active");
+  assert.equal(upserted.billingProvider, "stripe");
   assert.equal(upserted.currentPeriodStartedAt?.toISOString(), "2026-04-21T00:00:00.000Z");
   assert.equal(upserted.currentPeriodEndsAt?.toISOString(), "2026-05-21T00:00:00.000Z");
 

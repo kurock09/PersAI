@@ -9,7 +9,10 @@ import type { WorkspaceQuotaAccountingRepository } from "../src/modules/workspac
 
 type GovernanceRepoStub = Pick<AssistantGovernanceRepository, "findByAssistantId">;
 type PlanRepoStub = Pick<AssistantPlanCatalogRepository, "findByCode">;
-type QuotaRepoStub = Pick<WorkspaceQuotaAccountingRepository, "findByWorkspaceId">;
+type QuotaRepoStub = Pick<
+  WorkspaceQuotaAccountingRepository,
+  "findByWorkspaceId" | "findTokenBudgetPeriodCounter"
+>;
 type CapabilityResolverStub = Pick<ResolveEffectiveCapabilityStateService, "execute">;
 type SubscriptionResolverStub = Pick<ResolveEffectiveSubscriptionStateService, "execute">;
 
@@ -127,26 +130,44 @@ async function run(): Promise<void> {
     updatedAt: new Date()
   } as const;
 
-  const serviceWithQuotaReached = new EnforceAssistantCapabilityAndQuotaService(
-    governanceRepo as AssistantGovernanceRepository,
-    planRepo as AssistantPlanCatalogRepository,
-    {
+  function buildQuotaRepo(currentPeriodUsed: bigint): QuotaRepoStub {
+    return {
       async findByWorkspaceId() {
         return {
           id: "state-1",
           workspaceId: "workspace-1",
-          tokenBudgetUsed: BigInt(120),
+          tokenBudgetUsed: BigInt(999),
           tokenBudgetLimit: BigInt(100),
           costOrTokenDrivingToolClassUnitsUsed: 3,
           costOrTokenDrivingToolClassUnitsLimit: 3,
           activeWebChatsCurrent: 20,
           activeWebChatsLimit: 20,
+          mediaStorageBytesUsed: BigInt(0),
+          mediaStorageBytesLimit: null,
+          knowledgeStorageBytesUsed: BigInt(0),
+          knowledgeStorageBytesLimit: null,
           lastComputedAt: new Date(),
           createdAt: new Date(),
           updatedAt: new Date()
         };
+      },
+      async findTokenBudgetPeriodCounter(input) {
+        return {
+          workspaceId: input.workspaceId,
+          periodStartedAt: input.periodStartedAt,
+          periodEndsAt: input.periodEndsAt,
+          usedCredits: currentPeriodUsed,
+          limitCredits: BigInt(100),
+          lastComputedAt: new Date()
+        };
       }
-    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    };
+  }
+
+  const serviceWithQuotaReached = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    planRepo as AssistantPlanCatalogRepository,
+    buildQuotaRepo(BigInt(120)) as WorkspaceQuotaAccountingRepository,
     capabilityResolver as ResolveEffectiveCapabilityStateService,
     subscriptionResolver as ResolveEffectiveSubscriptionStateService
   );
@@ -167,11 +188,7 @@ async function run(): Promise<void> {
   const serviceWithDisabledWebChat = new EnforceAssistantCapabilityAndQuotaService(
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
-    {
-      async findByWorkspaceId() {
-        return null;
-      }
-    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    buildQuotaRepo(BigInt(0)) as WorkspaceQuotaAccountingRepository,
     {
       async execute() {
         return {
@@ -199,11 +216,7 @@ async function run(): Promise<void> {
   const serviceWithTelegram = new EnforceAssistantCapabilityAndQuotaService(
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
-    {
-      async findByWorkspaceId() {
-        return null;
-      }
-    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    buildQuotaRepo(BigInt(0)) as WorkspaceQuotaAccountingRepository,
     {
       async execute() {
         return {
@@ -227,23 +240,7 @@ async function run(): Promise<void> {
   const serviceIgnoringLegacyCostQuota = new EnforceAssistantCapabilityAndQuotaService(
     governanceRepo as AssistantGovernanceRepository,
     planRepo as AssistantPlanCatalogRepository,
-    {
-      async findByWorkspaceId() {
-        return {
-          id: "state-2",
-          workspaceId: "workspace-1",
-          tokenBudgetUsed: BigInt(20),
-          tokenBudgetLimit: BigInt(100),
-          costOrTokenDrivingToolClassUnitsUsed: 99,
-          costOrTokenDrivingToolClassUnitsLimit: 3,
-          activeWebChatsCurrent: 1,
-          activeWebChatsLimit: 20,
-          lastComputedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date()
-        };
-      }
-    } as QuotaRepoStub as WorkspaceQuotaAccountingRepository,
+    buildQuotaRepo(BigInt(20)) as WorkspaceQuotaAccountingRepository,
     capabilityResolver as ResolveEffectiveCapabilityStateService,
     subscriptionResolver as ResolveEffectiveSubscriptionStateService
   );
@@ -268,6 +265,23 @@ async function run(): Promise<void> {
       error instanceof ApiErrorHttpException &&
       error.errorObject.code === "plan_feature_unavailable" &&
       error.errorObject.message.includes('Inbound surface "telegram" is unavailable')
+  );
+
+  const serviceIgnoringStaleCompatibilityTokenUsage = new EnforceAssistantCapabilityAndQuotaService(
+    governanceRepo as AssistantGovernanceRepository,
+    planRepo as AssistantPlanCatalogRepository,
+    buildQuotaRepo(BigInt(0)) as WorkspaceQuotaAccountingRepository,
+    capabilityResolver as ResolveEffectiveCapabilityStateService,
+    subscriptionResolver as ResolveEffectiveSubscriptionStateService
+  );
+
+  await assert.deepEqual(
+    await serviceIgnoringStaleCompatibilityTokenUsage.enforceWebChatTurn({
+      assistant,
+      isNewThread: false,
+      activeWebChatsCount: 1
+    }),
+    { mode: "allow" }
   );
 }
 

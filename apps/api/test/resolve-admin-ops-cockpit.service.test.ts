@@ -118,10 +118,19 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
           tokenBudgetLimit: 5000,
           activeWebChatsLimit: 3
         };
+      },
+      async resolveAssistantTokenBudgetQuotaSnapshot() {
+        return {
+          usedCredits: BigInt(3200),
+          limitCredits: BigInt(5000),
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period"
+        };
       }
     } as Pick<
       TrackWorkspaceQuotaUsageService,
-      "resolveEffectiveLimitsForAssistant"
+      "resolveEffectiveLimitsForAssistant" | "resolveAssistantTokenBudgetQuotaSnapshot"
     > as TrackWorkspaceQuotaUsageService,
     prisma
   );
@@ -179,6 +188,59 @@ async function run(): Promise<void> {
       assistantChannelSurfaceBinding: {
         async findMany() {
           return [{ providerKey: "telegram", surfaceType: "dm", bindingState: "active" }];
+        }
+      },
+      workspaceSubscription: {
+        async findUnique() {
+          return {
+            id: "sub-1",
+            planCode: "pro",
+            status: "grace_period",
+            trialStartedAt: null,
+            trialEndsAt: null,
+            graceStartedAt: new Date("2026-05-03T00:00:00.000Z"),
+            graceEndsAt: new Date("2026-05-08T00:00:00.000Z"),
+            currentPeriodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+            currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+            cancelAtPeriodEnd: false,
+            providerCustomerRef: "cust-1",
+            providerSubscriptionRef: "sub-provider-1"
+          };
+        }
+      },
+      workspaceSubscriptionLifecycleEvent: {
+        async findMany() {
+          return [
+            {
+              id: "event-1",
+              eventCode: "grace_started",
+              source: "provider",
+              previousStatus: "active",
+              nextStatus: "grace_period",
+              previousPlanCode: "pro",
+              nextPlanCode: "pro",
+              nextPeriodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+              nextPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+              createdAt: new Date("2026-05-03T00:00:00.000Z")
+            }
+          ];
+        }
+      },
+      billingLifecycleNotificationJob: {
+        async findMany() {
+          return [
+            {
+              id: "job-1",
+              notificationCode: "renewal_failed",
+              channel: "email",
+              status: "pending",
+              scheduledFor: new Date("2026-05-03T00:00:00.000Z"),
+              recipientEmail: "user@example.com",
+              deliveryTarget: null,
+              lastErrorCode: null,
+              createdAt: new Date("2026-05-03T00:00:00.000Z")
+            }
+          ];
         }
       },
       planCatalogPlan: {
@@ -297,6 +359,15 @@ async function run(): Promise<void> {
     const result = await service.execute("admin-1", "user-1");
 
     assert.equal(result.assistant.exists, true);
+    assert.equal(result.quotaUsage?.tokenBudgetUsed, 3200);
+    assert.equal(result.quotaUsage?.tokenBudgetPeriodSource, "subscription_period");
+    assert.equal(result.billingSupport?.subscription.status, "grace_period");
+    assert.equal(result.billingSupport?.quotaPeriod.startedAt, "2026-05-01T00:00:00.000Z");
+    assert.equal(result.billingSupport?.latestLifecycleEvents[0]?.eventCode, "grace_started");
+    assert.equal(
+      result.billingSupport?.latestNotificationJobs[0]?.notificationCode,
+      "renewal_failed"
+    );
     assert.equal(result.sandbox?.effectivePolicy.enabled, true);
     assert.equal(result.sandbox?.effectivePolicy.maxCpuMsPerJob, 7777);
     assert.equal(result.sandbox?.effectivePolicy.maxMemoryBytesPerJob, 64 * 1024 * 1024);

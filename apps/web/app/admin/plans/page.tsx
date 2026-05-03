@@ -59,6 +59,8 @@ export type PlanDraft = {
   defaultOnRegistration: boolean;
   trialEnabled: boolean;
   trialDurationDays: number | null;
+  trialFallbackPlanCode: string;
+  paidFallbackPlanCode: string;
   metadataCommercialTag: string;
   metadataNotes: string;
   toolCostDriving: boolean;
@@ -520,15 +522,16 @@ function describeContextPolicySummaryBudget(policy: AdminPlanState["contextPolic
 }
 
 function isDraftTrialFieldsInvalid(
-  draft: Pick<PlanDraft, "trialEnabled" | "trialDurationDays">
+  draft: Pick<PlanDraft, "trialEnabled" | "trialDurationDays" | "trialFallbackPlanCode">
 ): boolean {
   // Server rejects the whole plan with a generic 400 when trialEnabled=true but
-  // trialDurationDays is null/<=0 (see parseTrialDuration in manage-admin-plans.service.ts).
-  // We block Save locally so the operator sees "required" inline instead of a cryptic error
-  // toast after the roundtrip.
+  // lifecycle policy fields are incomplete. Block Save locally so the operator
+  // sees "required" inline instead of a cryptic error toast after the roundtrip.
   return (
     draft.trialEnabled === true &&
-    (draft.trialDurationDays === null || draft.trialDurationDays <= 0)
+    (draft.trialDurationDays === null ||
+      draft.trialDurationDays <= 0 ||
+      draft.trialFallbackPlanCode.trim().length === 0)
   );
 }
 
@@ -540,6 +543,8 @@ function emptyDraft(): PlanDraft {
     defaultOnRegistration: false,
     trialEnabled: false,
     trialDurationDays: null,
+    trialFallbackPlanCode: "",
+    paidFallbackPlanCode: "",
     metadataCommercialTag: "",
     metadataNotes: "",
     toolCostDriving: false,
@@ -617,6 +622,8 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     defaultOnRegistration: plan.defaultOnRegistration,
     trialEnabled: plan.trialEnabled,
     trialDurationDays: plan.trialDurationDays,
+    trialFallbackPlanCode: plan.lifecyclePolicy.trialFallbackPlanCode ?? "",
+    paidFallbackPlanCode: plan.lifecyclePolicy.paidFallbackPlanCode ?? "",
     metadataCommercialTag: plan.metadata.commercialTag ?? "",
     metadataNotes: plan.metadata.notes ?? "",
     toolCostDriving: plan.entitlements.toolClasses.costDrivingTools,
@@ -728,6 +735,9 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   if (firstValidationError) {
     throw new Error(firstValidationError);
   }
+  if (isDraftTrialFieldsInvalid(draft)) {
+    throw new Error("Trial plan needs duration and fallback plan.");
+  }
   const tokenBudgetLimit = parseStrictIntegerDraft(draft.tokenBudgetLimit, {
     label: "Token budget",
     min: 1,
@@ -794,6 +804,10 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     defaultOnRegistration: draft.defaultOnRegistration,
     trialEnabled: draft.trialEnabled,
     trialDurationDays: draft.trialEnabled ? draft.trialDurationDays : null,
+    lifecyclePolicy: {
+      trialFallbackPlanCode: draft.trialEnabled ? toNullable(draft.trialFallbackPlanCode) : null,
+      paidFallbackPlanCode: toNullable(draft.paidFallbackPlanCode)
+    },
     metadata: {
       commercialTag: toNullable(draft.metadataCommercialTag),
       notes: toNullable(draft.metadataNotes)
@@ -1584,6 +1598,7 @@ function PlanForm({
   showCode,
   code,
   onCodeChange,
+  fallbackPlanOptions = [],
   availableModelKeys = [],
   availableImageModelKeys = [],
   availableVideoModelKeys = []
@@ -1594,12 +1609,16 @@ function PlanForm({
   showCode: boolean;
   code: string;
   onCodeChange: (v: string) => void;
+  fallbackPlanOptions?: Array<{ code: string; displayName: string; status: "active" | "inactive" }>;
   availableModelKeys?: { provider: string; model: string }[];
   availableImageModelKeys?: { provider: string; model: string }[];
   availableVideoModelKeys?: { provider: string; model: string }[];
 }) {
   const editableActivations = draft.toolActivations.filter(
     (ta) => ta.policyClass === "plan_managed"
+  );
+  const selectableFallbackPlans = fallbackPlanOptions.filter(
+    (plan) => plan.status === "active" && plan.code !== code
   );
   return (
     <div className="space-y-2.5">
@@ -1654,43 +1673,69 @@ function PlanForm({
         <Check
           label="Trial"
           checked={draft.trialEnabled}
-          onChange={(v) => {
-            // Auto-fill a sane default when the operator toggles Trial on and the number
-            // field is still empty. Without this the server rejected the whole plan with a
-            // generic 400 because the client sent { trialEnabled: true, trialDurationDays: null },
-            // which looked to the user like "Trial plans cannot be saved at all".
-            if (v && (draft.trialDurationDays === null || draft.trialDurationDays <= 0)) {
-              onPatch({ trialEnabled: true, trialDurationDays: 14 });
-              return;
-            }
-            onPatch({ trialEnabled: v });
-          }}
+          onChange={(v) => onPatch({ trialEnabled: v })}
         />
         {draft.trialEnabled && (
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min={1}
-              value={draft.trialDurationDays ?? ""}
-              onChange={(e) =>
-                onPatch({
-                  trialDurationDays:
-                    e.target.value === "" ? null : Math.max(1, Math.floor(Number(e.target.value)))
-                })
-              }
+          <div className="flex flex-wrap items-center gap-1">
+            <label className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                value={draft.trialDurationDays ?? ""}
+                onChange={(e) =>
+                  onPatch({
+                    trialDurationDays:
+                      e.target.value === "" ? null : Math.max(1, Math.floor(Number(e.target.value)))
+                  })
+                }
+                className={cn(
+                  "w-14 rounded border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50",
+                  draft.trialDurationDays === null || draft.trialDurationDays <= 0
+                    ? "border-red-500/60"
+                    : "border-border"
+                )}
+              />
+              <span className="text-[10px] text-text-muted">days</span>
+            </label>
+            <select
+              value={draft.trialFallbackPlanCode}
+              onChange={(e) => onPatch({ trialFallbackPlanCode: e.target.value })}
               className={cn(
-                "w-14 rounded border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50",
-                draft.trialDurationDays === null || draft.trialDurationDays <= 0
+                "rounded border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50",
+                draft.trialFallbackPlanCode.trim().length === 0
                   ? "border-red-500/60"
                   : "border-border"
               )}
-            />
-            <span className="text-[10px] text-text-muted">days</span>
-            {(draft.trialDurationDays === null || draft.trialDurationDays <= 0) && (
+            >
+              <option value="">Fallback plan required</option>
+              {selectableFallbackPlans.map((plan) => (
+                <option key={plan.code} value={plan.code}>
+                  {plan.displayName} ({plan.code})
+                </option>
+              ))}
+            </select>
+            {(draft.trialDurationDays === null ||
+              draft.trialDurationDays <= 0 ||
+              draft.trialFallbackPlanCode.trim().length === 0) && (
               <span className="text-[10px] font-medium text-red-500/80">required</span>
             )}
           </div>
         )}
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-text-muted">Paid fallback</span>
+          <select
+            value={draft.paidFallbackPlanCode}
+            onChange={(e) => onPatch({ paidFallbackPlanCode: e.target.value })}
+            className="rounded border border-border bg-surface-raised px-1.5 py-0.5 text-[11px] text-text focus:outline-none focus:ring-1 focus:ring-accent/50"
+          >
+            <option value="">Use global fallback</option>
+            {selectableFallbackPlans.map((plan) => (
+              <option key={plan.code} value={plan.code}>
+                {plan.displayName} ({plan.code})
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* row 3: metadata */}
@@ -2682,6 +2727,12 @@ function PlanCardReadOnly({
         <Pill variant={plan.status === "active" ? "default" : "dim"}>{plan.status}</Pill>
         {plan.defaultOnRegistration && <Pill variant="green">default</Pill>}
         {plan.trialEnabled && <Pill variant="amber">trial {plan.trialDurationDays}d</Pill>}
+        {plan.trialEnabled && plan.lifecyclePolicy.trialFallbackPlanCode && (
+          <Pill variant="dim">fallback {plan.lifecyclePolicy.trialFallbackPlanCode}</Pill>
+        )}
+        {plan.lifecyclePolicy.paidFallbackPlanCode && (
+          <Pill variant="dim">paid fallback {plan.lifecyclePolicy.paidFallbackPlanCode}</Pill>
+        )}
         <span className="flex-1" />
         <span className="text-[10px] text-text-subtle">
           {new Date(plan.updatedAt).toLocaleDateString()}
@@ -2728,6 +2779,14 @@ function PlanCardReadOnly({
         <div className="space-y-2 border-t border-border/50 px-3 py-2">
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <KV label="Description">{plan.description ?? "—"}</KV>
+            {plan.trialEnabled && (
+              <KV label="Trial fallback">
+                {plan.lifecyclePolicy.trialFallbackPlanCode ?? "missing"}
+              </KV>
+            )}
+            <KV label="Paid fallback">
+              {plan.lifecyclePolicy.paidFallbackPlanCode ?? "global billing setting"}
+            </KV>
             {plan.metadata.commercialTag && <KV label="Tag">{plan.metadata.commercialTag}</KV>}
             {plan.metadata.notes && <KV label="Notes">{plan.metadata.notes}</KV>}
           </div>
@@ -3257,6 +3316,11 @@ export default function AdminPlansPage() {
             showCode
             code={createCode}
             onCodeChange={setCreateCode}
+            fallbackPlanOptions={plans.map((plan) => ({
+              code: plan.code,
+              displayName: plan.displayName,
+              status: plan.status
+            }))}
             availableModelKeys={availableModelKeys}
             availableImageModelKeys={availableImageModelKeys}
             availableVideoModelKeys={availableVideoModelKeys}
@@ -3279,7 +3343,7 @@ export default function AdminPlansPage() {
             </button>
             {isDraftTrialFieldsInvalid(createDraft) && (
               <span className="self-center text-[10px] font-medium text-red-500/80">
-                Trial plan needs trialDurationDays &gt; 0
+                Trial plan needs duration and fallback plan
               </span>
             )}
           </div>
@@ -3317,8 +3381,13 @@ export default function AdminPlansPage() {
                     onPatch={patchEdit}
                     validationErrors={editValidationErrors}
                     showCode={false}
-                    code=""
+                    code={plan.code}
                     onCodeChange={() => {}}
+                    fallbackPlanOptions={plans.map((candidate) => ({
+                      code: candidate.code,
+                      displayName: candidate.displayName,
+                      status: candidate.status
+                    }))}
                     availableModelKeys={availableModelKeys}
                     availableImageModelKeys={availableImageModelKeys}
                     availableVideoModelKeys={availableVideoModelKeys}
@@ -3345,7 +3414,7 @@ export default function AdminPlansPage() {
                     </button>
                     {isDraftTrialFieldsInvalid(editDraft) && (
                       <span className="self-center text-[10px] font-medium text-red-500/80">
-                        Trial plan needs trialDurationDays &gt; 0
+                        Trial plan needs duration and fallback plan
                       </span>
                     )}
                   </div>

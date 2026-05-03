@@ -6,8 +6,11 @@ export type BillingProviderSubscriptionSnapshot = {
   workspaceId: string;
   planCode: string;
   status: WorkspaceSubscriptionStatus;
+  billingProvider: string | null;
   trialStartedAt: string | null;
   trialEndsAt: string | null;
+  graceStartedAt?: string | null;
+  graceEndsAt?: string | null;
   currentPeriodStartedAt: string | null;
   currentPeriodEndsAt: string | null;
   cancelAtPeriodEnd: boolean;

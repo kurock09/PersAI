@@ -234,6 +234,14 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true,
     "PATCH /api/v1/admin/notifications/policies/idle-reengagement must be guarded by ClerkAuthMiddleware"
   );
+  assert.equal(
+    hasRoute(consumer.routes, {
+      path: "api/v1/admin/ops/users/:userId/billing-support-action",
+      method: RequestMethod.POST
+    }),
+    true,
+    "POST /api/v1/admin/ops/users/:userId/billing-support-action must be guarded by ClerkAuthMiddleware"
+  );
   // ADR-076 Slice 4 follow-up (2026-04-25 founder report): GET avatar bytes
   // hit `apps/api` via a parameterized path — `/assistant/avatar/:hash` —
   // but the allowlist initially registered the bare `/assistant/avatar`,

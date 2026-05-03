@@ -81,6 +81,13 @@ function trackLimitsMatchingQuotaRepo(
       costOrTokenDrivingToolClassUnitsLimit: toolLimit,
       activeWebChatsLimit: 20,
       mediaStorageBytesLimit: BigInt(104_857_600)
+    }),
+    resolveAssistantTokenBudgetQuotaSnapshot: async () => ({
+      usedCredits: BigInt(100),
+      limitCredits: tokenLimit,
+      periodStartedAt: "2026-05-01T00:00:00.000Z",
+      periodEndsAt: "2026-06-01T00:00:00.000Z",
+      periodSource: "subscription_period" as const
     })
   };
 }
@@ -91,6 +98,13 @@ type TrackWorkspaceQuotaUsageStub = {
     costOrTokenDrivingToolClassUnitsLimit: number | null;
     activeWebChatsLimit: number | null;
     mediaStorageBytesLimit: bigint | null;
+  }>;
+  resolveAssistantTokenBudgetQuotaSnapshot: (assistant: Assistant) => Promise<{
+    usedCredits: bigint;
+    limitCredits: bigint | null;
+    periodStartedAt: string;
+    periodEndsAt: string;
+    periodSource: "subscription_period" | "calendar_month_fallback";
   }>;
 };
 
@@ -447,6 +461,13 @@ async function runQuotaPressureUsesEffectivePlanLimitsNotStaleSnapshot(): Promis
         costOrTokenDrivingToolClassUnitsLimit: 1000,
         activeWebChatsLimit: 20,
         mediaStorageBytesLimit: BigInt(104_857_600)
+      }),
+      resolveAssistantTokenBudgetQuotaSnapshot: async () => ({
+        usedCredits: BigInt(500),
+        limitCredits: BigInt(10_000),
+        periodStartedAt: "2026-05-01T00:00:00.000Z",
+        periodEndsAt: "2026-06-01T00:00:00.000Z",
+        periodSource: "subscription_period" as const
       })
     } as never
   );

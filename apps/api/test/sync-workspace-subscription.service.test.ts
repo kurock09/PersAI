@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { SyncWorkspaceSubscriptionService } from "../src/modules/workspace-management/application/sync-workspace-subscription.service";
 import type { BillingProviderPort } from "../src/modules/workspace-management/application/billing-provider.port";
+import type { ApplyWorkspaceSubscriptionBillingEventService } from "../src/modules/workspace-management/application/apply-workspace-subscription-billing-event.service";
 import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-management/domain/workspace-subscription.repository";
-import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
 
 async function run(): Promise<void> {
-  const dirtyWrites: string[] = [];
-  const upserts: string[] = [];
-  const deletes: string[] = [];
+  const appliedEvents: Array<{
+    eventCode: string;
+    eventRef: string | null;
+    billingProvider: string | null;
+  }> = [];
 
   let currentSubscription: ReturnType<
     WorkspaceSubscriptionRepository["findByWorkspaceId"]
@@ -16,14 +18,16 @@ async function run(): Promise<void> {
     : never = {
     id: "sub-1",
     workspaceId: "ws-1",
-    planCode: "starter_trial",
-    status: "trialing",
-    trialStartedAt: new Date("2026-04-06T00:00:00.000Z"),
-    trialEndsAt: new Date("2026-04-20T00:00:00.000Z"),
-    currentPeriodStartedAt: null,
-    currentPeriodEndsAt: null,
+    planCode: "pro",
+    status: "active",
+    trialStartedAt: null,
+    trialEndsAt: null,
+    graceStartedAt: null,
+    graceEndsAt: null,
+    currentPeriodStartedAt: new Date("2026-04-06T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-05-06T00:00:00.000Z"),
     cancelAtPeriodEnd: false,
-    billingProvider: null,
+    billingProvider: "stripe",
     providerCustomerRef: "cust-1",
     providerSubscriptionRef: "sub-1",
     metadata: { source: "seed" },
@@ -36,12 +40,13 @@ async function run(): Promise<void> {
       return currentSubscription;
     },
     async upsertFromBillingSnapshot(snapshot) {
-      upserts.push(snapshot.workspaceId);
       currentSubscription = {
         id: "sub-1",
         workspaceId: snapshot.workspaceId,
         planCode: snapshot.planCode,
         status: snapshot.status,
+        graceStartedAt: snapshot.graceStartedAt ? new Date(snapshot.graceStartedAt) : null,
+        graceEndsAt: snapshot.graceEndsAt ? new Date(snapshot.graceEndsAt) : null,
         trialStartedAt: snapshot.trialStartedAt ? new Date(snapshot.trialStartedAt) : null,
         trialEndsAt: snapshot.trialEndsAt ? new Date(snapshot.trialEndsAt) : null,
         currentPeriodStartedAt: snapshot.currentPeriodStartedAt
@@ -51,7 +56,7 @@ async function run(): Promise<void> {
           ? new Date(snapshot.currentPeriodEndsAt)
           : null,
         cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
-        billingProvider: null,
+        billingProvider: snapshot.billingProvider,
         providerCustomerRef: snapshot.providerCustomerRef,
         providerSubscriptionRef: snapshot.providerSubscriptionRef,
         metadata: snapshot.metadata,
@@ -61,19 +66,22 @@ async function run(): Promise<void> {
       return currentSubscription;
     },
     async deleteByWorkspaceId(workspaceId) {
-      deletes.push(workspaceId);
+      void workspaceId;
       currentSubscription = null;
     }
   };
 
   let providerSnapshot = {
     workspaceId: "ws-1",
-    planCode: "starter_trial",
-    status: "trialing" as const,
-    trialStartedAt: "2026-04-06T00:00:00.000Z",
-    trialEndsAt: "2026-04-20T00:00:00.000Z",
-    currentPeriodStartedAt: null,
-    currentPeriodEndsAt: null,
+    planCode: "pro",
+    status: "active" as const,
+    billingProvider: "stripe",
+    trialStartedAt: null,
+    trialEndsAt: null,
+    graceStartedAt: null,
+    graceEndsAt: null,
+    currentPeriodStartedAt: "2026-04-06T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-05-06T00:00:00.000Z",
     cancelAtPeriodEnd: false,
     providerCustomerRef: "cust-1",
     providerSubscriptionRef: "sub-1",
@@ -88,33 +96,40 @@ async function run(): Promise<void> {
     } as BillingProviderPort,
     repository,
     {
-      assistant: {
-        async updateMany(args: { where: { workspaceId: string }; data: { configDirtyAt: Date } }) {
-          assert.equal(args.where.workspaceId, "ws-1");
-          assert.ok(args.data.configDirtyAt instanceof Date);
-          dirtyWrites.push(args.where.workspaceId);
-          return { count: 2 };
-        }
+      async apply(input) {
+        appliedEvents.push({
+          eventCode: input.eventCode,
+          eventRef: input.eventRef ?? null,
+          billingProvider: input.billingProvider ?? null
+        });
+        return { status: "applied", billingEventId: `billing-event-${appliedEvents.length}` };
       }
-    } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService
+    } as Pick<
+      ApplyWorkspaceSubscriptionBillingEventService,
+      "apply"
+    > as ApplyWorkspaceSubscriptionBillingEventService
   );
 
   const unchanged = await service.syncWorkspace("ws-1");
   assert.deepEqual(unchanged, { status: "unchanged", workspaceId: "ws-1" });
-  assert.deepEqual(upserts, []);
-  assert.deepEqual(dirtyWrites, []);
+  assert.deepEqual(appliedEvents, []);
 
   providerSnapshot = {
     ...providerSnapshot,
-    planCode: "pro",
-    status: "active"
+    currentPeriodStartedAt: "2026-05-06T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-06-06T00:00:00.000Z"
   };
   const changed = await service.syncWorkspace("ws-1");
   assert.deepEqual(changed, { status: "updated", workspaceId: "ws-1", changed: true });
-  assert.deepEqual(upserts, ["ws-1"]);
-  assert.deepEqual(dirtyWrites, ["ws-1"]);
+  assert.deepEqual(appliedEvents, [
+    {
+      eventCode: "renewal_succeeded",
+      eventRef: "stripe:ws-1:sub-1:active:2026-06-06T00:00:00.000Z",
+      billingProvider: "stripe"
+    }
+  ]);
 
-  const deleted = await new SyncWorkspaceSubscriptionService(
+  const missingProvider = await new SyncWorkspaceSubscriptionService(
     {
       async pullWorkspaceSubscription() {
         return null;
@@ -122,19 +137,15 @@ async function run(): Promise<void> {
     } as BillingProviderPort,
     repository,
     {
-      assistant: {
-        async updateMany(args: { where: { workspaceId: string }; data: { configDirtyAt: Date } }) {
-          assert.equal(args.where.workspaceId, "ws-1");
-          assert.ok(args.data.configDirtyAt instanceof Date);
-          dirtyWrites.push(`delete:${args.where.workspaceId}`);
-          return { count: 2 };
-        }
+      async apply() {
+        throw new Error("provider-null sync should not apply a billing event");
       }
-    } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService
+    } as Pick<
+      ApplyWorkspaceSubscriptionBillingEventService,
+      "apply"
+    > as ApplyWorkspaceSubscriptionBillingEventService
   ).syncWorkspace("ws-1");
-  assert.deepEqual(deleted, { status: "deleted", workspaceId: "ws-1", changed: true });
-  assert.deepEqual(deletes, ["ws-1"]);
-  assert.deepEqual(dirtyWrites, ["ws-1", "delete:ws-1"]);
+  assert.deepEqual(missingProvider, { status: "unchanged", workspaceId: "ws-1" });
 }
 
 void run();

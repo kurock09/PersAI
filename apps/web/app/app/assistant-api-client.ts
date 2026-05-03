@@ -3,6 +3,9 @@ import {
   type AdminNotificationChannelState,
   type AdminRuntimeProviderSettingsRequest,
   type AdminRuntimeProviderSettingsState,
+  type AdminBillingLifecycleSettingsRequest,
+  type AdminBillingLifecycleSettingsState,
+  type PutAdminBillingLifecycleSettingsResponse,
   type AssistantSkillCatalogItemState,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
@@ -85,6 +88,7 @@ import {
   deleteAdminOpsUserPlanOverride as deleteAdminOpsUserPlanOverrideContract,
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
+  getAdminBillingLifecycleSettings as getAdminBillingLifecycleSettingsContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
@@ -97,7 +101,8 @@ import {
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
   postAdminPlatformRollout as postAdminPlatformRolloutContract,
   postAdminPlatformRolloutRollback as postAdminPlatformRolloutRollbackContract,
-  putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract
+  putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract,
+  putAdminBillingLifecycleSettings as putAdminBillingLifecycleSettingsContract
 } from "@persai/contracts";
 import {
   uploadWithProgress,
@@ -2388,7 +2393,53 @@ export async function getAdminPlatformRollouts(token: string): Promise<PlatformR
   }
 }
 
-export type { AdminRuntimeProviderSettingsState, PutAdminRuntimeProviderSettingsResponse };
+export type {
+  AdminRuntimeProviderSettingsState,
+  PutAdminRuntimeProviderSettingsResponse,
+  AdminBillingLifecycleSettingsRequest,
+  AdminBillingLifecycleSettingsState,
+  PutAdminBillingLifecycleSettingsResponse
+};
+
+export async function getAdminBillingLifecycleSettings(
+  token: string
+): Promise<AdminBillingLifecycleSettingsState> {
+  try {
+    const response = await getAdminBillingLifecycleSettingsContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /admin/billing/lifecycle-settings.");
+    }
+    return response.data.settings;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function putAdminBillingLifecycleSettings(
+  token: string,
+  input: AdminBillingLifecycleSettingsRequest
+): Promise<PutAdminBillingLifecycleSettingsResponse> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(
+      token,
+      "admin.billing_lifecycle_settings.update"
+    );
+    const response = await putAdminBillingLifecycleSettingsContract(input, {
+      headers: {
+        ...getAuthHeaders(token),
+        "x-persai-step-up-token": stepUpToken
+      }
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for PUT /admin/billing/lifecycle-settings.");
+    }
+    return response.data;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
 
 export async function getAdminRuntimeProviderSettings(
   token: string
@@ -2574,8 +2625,7 @@ export async function postAdminOpsUserWorkspaceSubscription(
           "x-persai-step-up-token": stepUpToken
         },
         body: JSON.stringify({
-          planCode: payload.planCode,
-          status: "active"
+          planCode: payload.planCode
         })
       }
     );
@@ -2607,6 +2657,51 @@ export async function deleteAdminOpsUserWorkspaceSubscription(
     if (!res.ok) {
       throw new Error(await readJsonErrorMessage(res, "Failed to reset workspace subscription."));
     }
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAdminOpsUserBillingSupportAction(
+  token: string,
+  userId: string,
+  payload: {
+    action:
+      | "extend_trial"
+      | "grant_grace"
+      | "extend_grace"
+      | "send_billing_reminder"
+      | "apply_fallback_now"
+      | "restore_paid_manually";
+  }
+): Promise<{ summary: string }> {
+  try {
+    const stepUpToken = await issueAdminStepUpToken(token, "admin.plan.update");
+    const base = getApiBaseUrl();
+    const res = await fetch(
+      `${base}/admin/ops/users/${encodeURIComponent(userId)}/billing-support-action`,
+      {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(token),
+          "Content-Type": "application/json",
+          "x-persai-step-up-token": stepUpToken
+        },
+        body: JSON.stringify({
+          action: payload.action
+        })
+      }
+    );
+    if (!res.ok) {
+      throw new Error(await readJsonErrorMessage(res, "Failed to run billing support action."));
+    }
+    const response = (await res.json()) as { summary?: unknown };
+    return {
+      summary:
+        typeof response.summary === "string"
+          ? response.summary
+          : "Billing support action completed."
+    };
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

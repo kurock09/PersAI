@@ -113,6 +113,7 @@ enum AssistantNotificationOutboxSource {
   background_task
   idle_reengagement
   system_event
+  billing_lifecycle
 }
 
 enum AssistantNotificationOutboxStatus {
@@ -126,6 +127,18 @@ enum AssistantNotificationOutboxStatus {
 
 enum WorkspaceNotificationPolicySource {
   idle_reengagement
+}
+
+enum BillingLifecycleNotificationChannel {
+  email
+  assistant_notification
+}
+
+enum BillingLifecycleNotificationJobStatus {
+  pending
+  enqueued
+  skipped
+  failed
 }
 
 enum PlanCatalogStatus {
@@ -163,6 +176,21 @@ enum WorkspaceSubscriptionStatus {
   paused
   canceled
   expired
+  expired_fallback
+}
+
+enum WorkspaceSubscriptionLifecycleEventSource {
+  system
+  admin
+  provider
+  manual
+}
+
+enum WorkspaceSubscriptionBillingEventApplyStatus {
+  pending
+  applied
+  ignored
+  failed
 }
 
 enum WorkspaceQuotaDimension {
@@ -437,6 +465,10 @@ model AppUser {
   updatedPlatformRuntimeProviderSettings PlatformRuntimeProviderSettings[]   @relation("PlatformRuntimeProviderSettingsUpdatedByUser")
   updatedPlatformRuntimeProviderSecrets  PlatformRuntimeProviderSecret[]     @relation("PlatformRuntimeProviderSecretsUpdatedByUser")
   updatedWorkspaceNotificationPolicies   WorkspaceNotificationPolicy[]       @relation("WorkspaceNotificationPolicyUpdatedByUser")
+  updatedBillingLifecycleSettings        BillingLifecycleSettings[]          @relation("BillingLifecycleSettingsUpdatedByUser")
+  workspaceSubscriptionLifecycleEvents   WorkspaceSubscriptionLifecycleEvent[]
+  workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
+  billingLifecycleNotificationJobs       BillingLifecycleNotificationJob[]
 
   @@map("app_users")
 }
@@ -484,6 +516,9 @@ model Workspace {
   assistantWebChatTurnAttempts      AssistantWebChatTurnAttempt[]
   assistantNotificationOutboxItems  AssistantNotificationOutbox[]
   notificationPolicies              WorkspaceNotificationPolicy[]
+  subscriptionLifecycleEvents       WorkspaceSubscriptionLifecycleEvent[]
+  subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
+  billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
 
   @@map("workspaces")
 }
@@ -558,6 +593,7 @@ model Assistant {
   backgroundTasks                      AssistantBackgroundTask[]
   backgroundTaskRuns                   AssistantBackgroundTaskRun[]
   notificationOutboxItems              AssistantNotificationOutbox[]
+  billingLifecycleNotificationJobs     BillingLifecycleNotificationJob[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
   skillAssignments                     AssistantSkillAssignment[]
@@ -778,6 +814,57 @@ model PlatformRuntimeProviderSecret {
   @@map("platform_runtime_provider_secrets")
 }
 
+model BillingLifecycleSettings {
+  id                     String    @id @default("global") @db.VarChar(32)
+  gracePeriodDays        Int       @default(5) @map("grace_period_days")
+  globalFallbackPlanCode String?   @map("global_fallback_plan_code") @db.VarChar(64)
+  metadata               Json      @default("{}") @db.JsonB
+  updatedByUserId        String?   @map("updated_by_user_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByUser          AppUser?  @relation("BillingLifecycleSettingsUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@map("billing_lifecycle_settings")
+}
+
+model BillingLifecycleNotificationJob {
+  id                            String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId                   String                                @map("workspace_id") @db.Uuid
+  userId                        String?                               @map("user_id") @db.Uuid
+  assistantId                   String?                               @map("assistant_id") @db.Uuid
+  subscriptionId                String?                               @map("subscription_id") @db.Uuid
+  lifecycleEventId              String?                               @map("lifecycle_event_id") @db.Uuid
+  eventCode                     String                                @map("event_code") @db.VarChar(64)
+  notificationCode              String                                @map("notification_code") @db.VarChar(64)
+  channel                       BillingLifecycleNotificationChannel
+  status                        BillingLifecycleNotificationJobStatus @default(pending)
+  dedupeKey                     String                                @unique @map("dedupe_key") @db.VarChar(512)
+  scheduledFor                  DateTime                              @map("scheduled_for") @db.Timestamptz(6)
+  recipientEmail                String?                               @map("recipient_email") @db.VarChar(255)
+  subject                       String?                               @db.VarChar(255)
+  text                          String                                @db.Text
+  metadata                      Json                                  @default("{}") @db.JsonB
+  assistantNotificationOutboxId String?                               @map("assistant_notification_outbox_id") @db.Uuid
+  enqueuedAt                    DateTime?                             @map("enqueued_at") @db.Timestamptz(6)
+  skippedAt                     DateTime?                             @map("skipped_at") @db.Timestamptz(6)
+  failedAt                      DateTime?                             @map("failed_at") @db.Timestamptz(6)
+  lastErrorCode                 String?                               @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage              String?                               @map("last_error_message") @db.Text
+  createdAt                     DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace                     Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                          AppUser?                              @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  assistant                     Assistant?                            @relation(fields: [assistantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  subscription                  WorkspaceSubscription?                 @relation(fields: [subscriptionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lifecycleEvent                WorkspaceSubscriptionLifecycleEvent?   @relation(fields: [lifecycleEventId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([workspaceId, scheduledFor])
+  @@index([status, scheduledFor])
+  @@index([lifecycleEventId])
+  @@index([assistantNotificationOutboxId])
+  @@map("billing_lifecycle_notification_jobs")
+}
+
 model AssistantPlatformRollout {
   id                  String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workspaceId         String                         @map("workspace_id") @db.Uuid
@@ -971,6 +1058,8 @@ model WorkspaceSubscription {
   status                  WorkspaceSubscriptionStatus
   trialStartedAt          DateTime?                   @map("trial_started_at") @db.Timestamptz(6)
   trialEndsAt             DateTime?                   @map("trial_ends_at") @db.Timestamptz(6)
+  graceStartedAt          DateTime?                   @map("grace_started_at") @db.Timestamptz(6)
+  graceEndsAt             DateTime?                   @map("grace_ends_at") @db.Timestamptz(6)
   currentPeriodStartedAt  DateTime?                   @map("current_period_started_at") @db.Timestamptz(6)
   currentPeriodEndsAt     DateTime?                   @map("current_period_ends_at") @db.Timestamptz(6)
   cancelAtPeriodEnd       Boolean                     @default(false) @map("cancel_at_period_end")
@@ -981,9 +1070,78 @@ model WorkspaceSubscription {
   createdAt               DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                    @updatedAt @map("updated_at") @db.Timestamptz(6)
   workspace               Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  billingEvents           WorkspaceSubscriptionBillingEvent[]
+  lifecycleEvents         WorkspaceSubscriptionLifecycleEvent[]
+  billingNotificationJobs BillingLifecycleNotificationJob[]
 
   @@index([planCode, status])
+  @@index([status, graceEndsAt])
   @@map("workspace_subscriptions")
+}
+
+model WorkspaceSubscriptionLifecycleEvent {
+  id                       String                                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId              String                                     @map("workspace_id") @db.Uuid
+  userId                   String?                                    @map("user_id") @db.Uuid
+  subscriptionId           String?                                    @map("subscription_id") @db.Uuid
+  eventCode                String                                     @map("event_code") @db.VarChar(64)
+  previousStatus           WorkspaceSubscriptionStatus?               @map("previous_status")
+  nextStatus               WorkspaceSubscriptionStatus?               @map("next_status")
+  previousPlanCode         String?                                    @map("previous_plan_code") @db.VarChar(64)
+  nextPlanCode             String?                                    @map("next_plan_code") @db.VarChar(64)
+  previousPeriodStartedAt  DateTime?                                  @map("previous_period_started_at") @db.Timestamptz(6)
+  previousPeriodEndsAt     DateTime?                                  @map("previous_period_ends_at") @db.Timestamptz(6)
+  nextPeriodStartedAt      DateTime?                                  @map("next_period_started_at") @db.Timestamptz(6)
+  nextPeriodEndsAt         DateTime?                                  @map("next_period_ends_at") @db.Timestamptz(6)
+  source                   WorkspaceSubscriptionLifecycleEventSource
+  relatedPaymentIntentRef  String?                                    @map("related_payment_intent_ref") @db.VarChar(128)
+  relatedProviderEventRef  String?                                    @map("related_provider_event_ref") @db.VarChar(128)
+  metadata                 Json                                       @default("{}") @db.JsonB
+  createdAt                DateTime                                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  workspace                Workspace                                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                     AppUser?                                   @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  subscription             WorkspaceSubscription?                     @relation(fields: [subscriptionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  billingNotificationJobs  BillingLifecycleNotificationJob[]
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([eventCode, createdAt(sort: Desc)])
+  @@index([source, createdAt(sort: Desc)])
+  @@map("workspace_subscription_lifecycle_events")
+}
+
+model WorkspaceSubscriptionBillingEvent {
+  id                      String                                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId             String                                       @map("workspace_id") @db.Uuid
+  userId                  String?                                      @map("user_id") @db.Uuid
+  subscriptionId          String?                                      @map("subscription_id") @db.Uuid
+  source                  WorkspaceSubscriptionLifecycleEventSource
+  eventCode               String                                       @map("event_code") @db.VarChar(64)
+  eventRef                String?                                      @map("event_ref") @db.VarChar(128)
+  paymentIntentRef        String?                                      @map("payment_intent_ref") @db.VarChar(128)
+  billingProvider         String?                                      @map("billing_provider") @db.VarChar(64)
+  providerCustomerRef     String?                                      @map("provider_customer_ref") @db.VarChar(128)
+  providerSubscriptionRef String?                                      @map("provider_subscription_ref") @db.VarChar(128)
+  planCode                String?                                      @map("plan_code") @db.VarChar(64)
+  currentPeriodStartedAt  DateTime?                                    @map("current_period_started_at") @db.Timestamptz(6)
+  currentPeriodEndsAt     DateTime?                                    @map("current_period_ends_at") @db.Timestamptz(6)
+  metadata                Json                                         @default("{}") @db.JsonB
+  applyStatus             WorkspaceSubscriptionBillingEventApplyStatus  @default(pending) @map("apply_status")
+  appliedAt               DateTime?                                    @map("applied_at") @db.Timestamptz(6)
+  failedAt                DateTime?                                    @map("failed_at") @db.Timestamptz(6)
+  lastErrorCode           String?                                      @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage        String?                                      @map("last_error_message") @db.Text
+  createdAt               DateTime                                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace               Workspace                                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                    AppUser?                                     @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  subscription            WorkspaceSubscription?                       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([source, eventRef])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([subscriptionId, createdAt(sort: Desc)])
+  @@index([applyStatus, createdAt(sort: Desc)])
+  @@map("workspace_subscription_billing_events")
 }
 
 model WorkspaceQuotaAccountingState {

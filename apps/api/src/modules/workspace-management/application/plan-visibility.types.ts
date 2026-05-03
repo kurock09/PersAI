@@ -12,6 +12,8 @@ export type UserPlanVisibilityState = {
     status: "active" | "inactive" | null;
     source:
       | "workspace_subscription"
+      | "subscription_trial_fallback"
+      | "subscription_paid_fallback"
       | "assistant_plan_override"
       | "assistant_plan_fallback"
       | "catalog_default_fallback"
@@ -24,10 +26,15 @@ export type UserPlanVisibilityState = {
       | "paused"
       | "canceled"
       | "expired"
+      | "expired_fallback"
       | "unconfigured";
     trialEndsAt: string | null;
+    graceStartedAt: string | null;
+    graceEndsAt: string | null;
     currentPeriodEndsAt: string | null;
     isTrialPlan: boolean;
+    trialFallbackPlanCode: string | null;
+    paidFallbackPlanCode: string | null;
   };
   entitlements: {
     channelsAndSurfaces: {

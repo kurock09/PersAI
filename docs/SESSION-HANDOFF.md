@@ -1,5 +1,245 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-083 Slice 6 closeout) — Ops Cockpit becomes action-capable billing support
+
+### What changed
+
+- Finished ADR-083 Slice 6 as a production-ready `Admin > Ops` billing support surface instead of leaving it as a mostly informative cockpit plus generic subscription controls.
+- Added lifecycle-native admin support actions for extend trial, grant grace, extend grace, send billing reminder, apply fallback now, and restore paid manually when lifecycle history provides a safe paid-period shape to reuse.
+- Extended the lifecycle service with admin-safe trial/grace extension, manual fallback-now, and manual reminder event paths so support actions append `source=admin` lifecycle history instead of writing a second admin-only billing truth.
+- Updated billing notification scheduling so admin reminder requests create durable notification jobs from lifecycle history, and trial/grace extension reschedules the existing reminder work against the new window.
+- Reworked the `Admin > Ops` detail layout to use more page width, replaced the generic workspace-subscription buttons with explicit support actions plus lightweight confirmation UX, and refresh the selected detail immediately after each successful action.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx`
+
+### Risks / residuals
+
+- Public payment-intent APIs, provider-neutral checkout/session creation, and verified webhook ingestion remain ADR-084 work; this slice only finishes the admin support surface on top of PersAI-owned lifecycle truth.
+- Email lifecycle jobs are still durable pending work until a real email adapter/provider is introduced; manual reminder now creates correct work, but not provider delivery.
+
+### Next recommended step
+
+ADR-083 Slice 6 is now truly complete. Continue with ADR-084 Slice 3: payment intent and provider port, reusing the already-landed ADR-083 Slice 7 billing-event application path.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 7) — provider/admin billing events now feed PersAI lifecycle truth
+
+### What changed
+
+- Completed ADR-083 Slice 7: billing provider integration readiness.
+- Added durable `workspace_subscription_billing_events` as the PersAI-owned snapshot layer for trusted provider/admin/manual payment inputs before they mutate subscription truth.
+- Added `ApplyWorkspaceSubscriptionBillingEventService`, which normalizes trusted payment inputs into the existing lifecycle state machine instead of letting provider/admin paths write raw subscription truth directly.
+- Extended lifecycle handling with explicit paid activation, renewal success, and payment-reversal fallback transitions while reusing the existing recovery/failure/grace/fallback paths and notification scheduling hook.
+- Updated provider snapshot sync so missing provider data no longer deletes local subscription truth; supported provider state changes now map into lifecycle transitions instead.
+- Updated the admin workspace-subscription path so explicit paid-period admin activations route through the same billing-event/lifecycle flow, while non-payment admin overrides keep the existing raw control path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec prisma generate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/sync-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/prisma-workspace-subscription.repository.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Public payment-intent APIs, provider-neutral checkout/session creation, and verified webhook controllers are still ADR-084 work; Slice 7 only prepares the PersAI-owned application path behind them.
+- Ops Cockpit still exposes lifecycle/support truth rather than the raw new billing-event snapshot log; the snapshot layer is currently for correctness, idempotency, and future provider/admin wiring.
+
+### Next recommended step
+
+Continue ADR-084 Slice 3: payment intent and provider port. The next slice should create the PersAI-owned payment intent model and provider-neutral adapter boundary that feeds the new Slice 7 billing-event application path.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 6) — Ops Cockpit exposes billing support truth
+
+### What changed
+
+- Completed ADR-083 Slice 6: Ops Cockpit billing support UX foundation.
+- Changed the `Admin > Ops` user directory from assistant-centric columns to compact billing support columns: email, plan, billing status, next date, usage risk, and actions.
+- Extended Ops Cockpit API/contracts with selected-workspace billing support detail: subscription state, trial/grace/current-period windows, provider refs, quota period, latest lifecycle events, and latest billing notification jobs.
+- Added the previously raw `/admin/ops/users` directory response to the OpenAPI contract so the admin surface is not an undocumented API shape.
+- Updated the Ops Cockpit UI with a selected `Billing Support` card and `Lifecycle & Notifications` card that read PersAI-owned subscription/event/notification truth.
+- Follow-up live-test hardening: added Clerk middleware coverage for Billing Settings, added admin-role checks to the Ops user directory and per-user reapply path, made per-user reapply failures visible, stopped row-click propagation from the row reapply button, and removed the UI-forced `status=active` from workspace subscription assignment so trial plans use service-owned defaults.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-ops-user-directory.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-billing-lifecycle-settings.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/billing-settings/page.test.tsx`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Ops support actions still reuse the existing assistant override / workspace subscription controls. Dedicated manual reminder, extend trial, and grant/extend grace buttons are not yet implemented.
+- Email jobs are visible as durable work, but real email provider delivery remains future provider/readiness work.
+
+### Next recommended step
+
+Continue ADR-083 Slice 7: billing provider integration readiness. Provider events should update PersAI-owned lifecycle state and reuse the same recovery/failure/grace/fallback paths.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 5) — lifecycle notifications create durable billing work
+
+### What changed
+
+- Completed ADR-083 Slice 5: notification settings and lifecycle outbox foundation.
+- Extended persisted Billing Settings with an admin-owned notification policy: email remains required, assistant push is optional, and lifecycle notification rules/offsets are stored as settings truth instead of code-only product truth.
+- Added durable `billing_lifecycle_notification_jobs` with email and assistant-notification channels. Email jobs are created as pending work but not falsely marked delivered because no real email adapter exists yet.
+- Wired `trial_started`, `trial_expired`, `renewal_failed`, `grace_started`, `grace_expired`, and `payment_recovered` lifecycle events into billing notification job creation. Optional assistant push reuses the existing `assistant_notification_outbox` with `billing_lifecycle` source and static required-facts copy.
+- Updated Admin Billing Settings UI/contracts so admins can enable assistant push and edit lifecycle notification rule enablement/offsets.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-billing-lifecycle-settings.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/billing-settings/page.test.tsx`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Email delivery adapter/provider is still intentionally not implemented in ADR-083 Slice 5; required email notification work is durable and pending, but actual provider delivery belongs with provider/readiness work.
+- Assistant push currently uses static required-facts billing copy. LLM-personalized assistant billing copy remains future work behind the same guardrails and static fallback.
+
+### Next recommended step
+
+Continue ADR-083 Slice 6: Ops Cockpit billing support UX. The Ops surface should read lifecycle events, notification job status, subscription period/quota truth, and support actions from PersAI-owned state.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 4) — paid recurring quota reads subscription-period truth
+
+### What changed
+
+- Completed ADR-083 Slice 4: billing-period quota reset foundation.
+- Extracted shared recurring quota period resolution so Credits/token budget and monthly media snapshots use the same `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt` boundary, with UTC calendar-month fallback only when subscription period truth is absent.
+- Added a current-period token budget snapshot path and routed user plan visibility, inbound token-budget enforcement, abuse quota-pressure, Ops Cockpit quota detail, and Business Cockpit quota-pressure distribution through `workspace_token_budget_period_counters` instead of the compatibility `WorkspaceQuotaAccountingState.tokenBudgetUsed`.
+- Added focused coverage proving Slice 3 payment-recovery periods are read as `subscription_period` for token and media snapshots, and stale compatibility token usage does not block a fresh billing period.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/quota-accounting.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/enforcement-points.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-business-platform.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/internal-runtime-tool-quota.controller.test.ts`
+
+### Next recommended step
+
+Continue ADR-083 Slice 5: notification settings and lifecycle outbox. Notification work should derive from lifecycle events and subscription period facts, not UI timers or provider callbacks.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 3) — subscription lifecycle state machine now covers grace/fallback/recovery
+
+### What changed
+
+- Completed ADR-083 Slice 3: subscription lifecycle state machine.
+- Effective subscription resolution now creates a `WorkspaceSubscription` from the active default registration plan when no workspace subscription exists, instead of leaving runtime/user visibility on catalog-only fallback truth.
+- Default trial registration writes real trial/current-period start and end timestamps from the plan-owned trial duration and appends `trial_started`.
+- Expired trial subscriptions apply `lifecyclePolicy.trialFallbackPlanCode`, persist `expired_fallback`, append `trial_expired`/`fallback_applied`, and mark workspace assistants dirty.
+- Added persisted `Admin > Billing Settings` lifecycle policy for `gracePeriodDays` and global fallback plan; defaults are seeded but product truth is the persisted row.
+- Admin Plans now supports `lifecyclePolicy.paidFallbackPlanCode`; grace expiry uses plan-level paid fallback first, then global fallback.
+- Added append-only `WorkspaceSubscriptionLifecycleEvent` rows and explicit `graceStartedAt`/`graceEndsAt` on `WorkspaceSubscription`.
+- Paid renewal failure enters `grace_period` while keeping the paid plan effective; grace expiry applies fallback; payment recovery restores active paid state with a new billing period.
+- User/admin visibility contracts now include grace windows, paid fallback plan, `expired_fallback`, and `subscription_paid_fallback`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-billing-lifecycle-settings.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/billing-settings/page.test.tsx`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Next recommended step
+
+Continue ADR-083 Slice 4: billing-period quota reset foundation. Credits and future paid recurring quota visibility should read the effective `WorkspaceSubscription.currentPeriodStartedAt/currentPeriodEndsAt`, including payment recovery periods from Slice 3.
+
+---
+
+## 2026-05-03 (ADR-083 Slice 2) — trial plans now carry admin-selected fallback policy
+
+### What changed
+
+- Completed ADR-083 Slice 2: plan-level lifecycle policy fields.
+- Added `lifecyclePolicy.trialFallbackPlanCode` to Admin Plan contracts/state and persisted it in `billingProviderHints.lifecyclePolicy`.
+- API plan writes now require trial plans to carry a fallback plan and reject missing, self-referential, or inactive fallback references.
+- `Admin > Plans` now exposes the fallback selector beside trial duration and no longer auto-fills a hard-coded trial duration when Trial is toggled on.
+- User plan visibility preserves the effective plan's trial fallback code for downstream lifecycle/UI work.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx`
+
+### Next recommended step
+
+Continue ADR-083 Slice 3: Subscription lifecycle state machine. Registration/trial/fallback transitions should consume the plan-owned `lifecyclePolicy.trialFallbackPlanCode` rather than hard-coding Free or any plan code.
+
+---
+
+## 2026-05-03 (ADR-085 controlled rollouts) — Admin Rollouts becomes materialization control plane
+
+### What changed
+
+- Added `docs/ADR/085-controlled-materialization-rollouts-and-admin-rollouts-dashboard.md`.
+- Accepted the decision to retire the old `/admin/rollouts` JSON governance patch workflow from active product truth rather than preserving it as legacy UX.
+- Defined `/admin/rollouts` as the future operational dashboard for controlled materialization rollouts: automatic jobs after global config changes, queued manual reapply, statuses, progress, failed items, retry/cancel, concurrency limits, per-assistant locks, retry/backoff, and skip-if-fresh semantics.
+- Linked ADR-085 to ADR-083/084 so billing lifecycle activation and plan/payment changes use the same system materialization pipeline instead of synchronous `Reapply all` or unbounded lazy refresh.
+- Added an implementation guardrail: the next ADR-085 implementation session must audit current rollout/reapply/materialization/generation-bump/runtime-freshness/admin-rollouts paths first, then build one production-grade replacement without running old JSON governance rollout and new materialization rollout as parallel product truths.
+
+### Verification
+
+- `corepack pnpm exec prettier --check "docs/ADR/085-controlled-materialization-rollouts-and-admin-rollouts-dashboard.md" "docs/CHANGELOG.md" "docs/SESSION-HANDOFF.md"`
+
+### Next recommended step
+
+Continue ADR-083 Slice 2 if billing lifecycle remains the active workstream. When ready to address rollout scalability, start ADR-085 Slice 2: data model and service boundary for materialization rollouts/items, then replace old active JSON governance rollout paths cleanly.
+
+---
+
 ## 2026-05-03 (runtime quota-status media snapshot) — assistants see monthly media quota truth
 
 ### What changed

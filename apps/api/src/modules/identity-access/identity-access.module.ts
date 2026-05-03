@@ -126,11 +126,17 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/assistants/ownership/recover", method: RequestMethod.POST },
       { path: "api/v1/admin/plans", method: RequestMethod.GET },
       { path: "api/v1/admin/plans/visibility", method: RequestMethod.GET },
+      { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.GET },
+      { path: "api/v1/admin/billing/lifecycle-settings", method: RequestMethod.PUT },
       { path: "api/v1/admin/ops/cockpit", method: RequestMethod.GET },
       { path: "api/v1/admin/ops/users", method: RequestMethod.GET },
       { path: "api/v1/admin/ops/users/:userId/reapply", method: RequestMethod.POST },
       { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.POST },
       { path: "api/v1/admin/ops/users/:userId/plan-override", method: RequestMethod.DELETE },
+      {
+        path: "api/v1/admin/ops/users/:userId/billing-support-action",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/ops/users/:userId/workspace-subscription", method: RequestMethod.POST },
       {
         path: "api/v1/admin/ops/users/:userId/workspace-subscription",

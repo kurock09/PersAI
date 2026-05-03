@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { TrackWorkspaceQuotaUsageService } from "../src/modules/workspace-management/application/track-workspace-quota-usage.service";
 import type { ResolveEffectiveSubscriptionStateService } from "../src/modules/workspace-management/application/resolve-effective-subscription-state.service";
+import type { EffectiveSubscriptionState } from "../src/modules/workspace-management/application/effective-subscription.types";
 import type { ResolvePlatformRuntimeProviderSettingsService } from "../src/modules/workspace-management/application/resolve-platform-runtime-provider-settings.service";
 import type { AssistantGovernanceRepository } from "../src/modules/workspace-management/domain/assistant-governance.repository";
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
@@ -353,17 +354,19 @@ async function run(): Promise<void> {
     }
   };
 
+  let effectiveSubscription: EffectiveSubscriptionState = {
+    source: "assistant_plan_fallback",
+    status: "unconfigured",
+    planCode: "starter_trial",
+    trialEndsAt: null,
+    currentPeriodStartedAt: null,
+    currentPeriodEndsAt: null,
+    cancelAtPeriodEnd: false
+  };
+
   const subscriptionResolver: SubscriptionResolverStub = {
     async execute() {
-      return {
-        source: "assistant_plan_fallback",
-        status: "unconfigured",
-        planCode: "starter_trial",
-        trialEndsAt: null,
-        currentPeriodStartedAt: null,
-        currentPeriodEndsAt: null,
-        cancelAtPeriodEnd: false
-      };
+      return effectiveSubscription;
     }
   };
 
@@ -504,6 +507,7 @@ async function run(): Promise<void> {
     dailyCallLimit: 3
   });
   const monthlyMediaQuota = await service.resolveAssistantMonthlyMediaQuotaSnapshot(assistant);
+  const tokenBudgetQuota = await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
   const reservedMonthlyMediaQuota = await service.reserveAssistantMonthlyMediaQuota({
     assistant,
     toolCode: "image_generate",
@@ -557,6 +561,9 @@ async function run(): Promise<void> {
     limit: 3
   });
   assert.equal(monthlyMediaQuota.periodSource, "calendar_month_fallback");
+  assert.equal(tokenBudgetQuota.periodSource, "calendar_month_fallback");
+  assert.equal(tokenBudgetQuota.usedCredits, BigInt(17));
+  assert.equal(tokenBudgetQuota.limitCredits, BigInt(120000));
   assert.equal(
     monthlyMediaQuota.tools.find((tool) => tool.toolCode === "image_generate")?.usedUnits,
     4
@@ -620,6 +627,26 @@ async function run(): Promise<void> {
       }
     ]
   );
+
+  effectiveSubscription = {
+    source: "workspace_subscription",
+    status: "active",
+    planCode: "starter_trial",
+    trialEndsAt: null,
+    currentPeriodStartedAt: "2026-05-03T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-06-03T00:00:00.000Z",
+    cancelAtPeriodEnd: false
+  };
+  const recoveredPeriodMediaQuota =
+    await service.resolveAssistantMonthlyMediaQuotaSnapshot(assistant);
+  const recoveredPeriodTokenBudget =
+    await service.resolveAssistantTokenBudgetQuotaSnapshot(assistant);
+  assert.equal(recoveredPeriodMediaQuota.periodSource, "subscription_period");
+  assert.equal(recoveredPeriodMediaQuota.periodStartedAt, "2026-05-03T00:00:00.000Z");
+  assert.equal(recoveredPeriodMediaQuota.periodEndsAt, "2026-06-03T00:00:00.000Z");
+  assert.equal(recoveredPeriodTokenBudget.periodSource, "subscription_period");
+  assert.equal(recoveredPeriodTokenBudget.periodStartedAt, "2026-05-03T00:00:00.000Z");
+  assert.equal(recoveredPeriodTokenBudget.periodEndsAt, "2026-06-03T00:00:00.000Z");
 }
 
 void run();

@@ -11,6 +11,7 @@ import type {
   QuotaPressureDistribution,
   RuntimeTurnAverages
 } from "./platform-business.types";
+import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 
 const BUSINESS_WINDOW_DAYS = 7;
 
@@ -101,7 +102,7 @@ export class ResolveAdminBusinessPlatformService {
         percent: toPercent(count, totalUsers)
       }));
 
-    const quotaPressureDistribution = await this.computeQuotaPressure();
+    const quotaPressureDistribution = await this.computeQuotaPressure(now);
     const runtimeTurnAverages = await this.computeRuntimeTurnAverages(windowStart);
 
     const webChats = await this.prisma.assistantChat.count({
@@ -184,20 +185,49 @@ export class ResolveAdminBusinessPlatformService {
     };
   }
 
-  private async computeQuotaPressure(): Promise<QuotaPressureDistribution> {
+  private async computeQuotaPressure(now: Date): Promise<QuotaPressureDistribution> {
     const quotaStates = await this.prisma.workspaceQuotaAccountingState.findMany({
       select: {
-        tokenBudgetUsed: true,
+        workspaceId: true,
         tokenBudgetLimit: true
       }
     });
+    const subscriptions = await this.prisma.workspaceSubscription.findMany({
+      where: { workspaceId: { in: quotaStates.map((state) => state.workspaceId) } },
+      select: {
+        workspaceId: true,
+        currentPeriodStartedAt: true,
+        currentPeriodEndsAt: true
+      }
+    });
+    const subscriptionByWorkspaceId = new Map(
+      subscriptions.map((subscription) => [subscription.workspaceId, subscription])
+    );
 
     const distribution: QuotaPressureDistribution = { low: 0, elevated: 0, high: 0 };
     for (const quotaState of quotaStates) {
       const tokenLimit = quotaState.tokenBudgetLimit;
+      const subscription = subscriptionByWorkspaceId.get(quotaState.workspaceId);
+      const period = resolveRecurringQuotaPeriod(
+        {
+          currentPeriodStartedAt: subscription?.currentPeriodStartedAt?.toISOString() ?? null,
+          currentPeriodEndsAt: subscription?.currentPeriodEndsAt?.toISOString() ?? null
+        },
+        now
+      );
+      const tokenCounter = await this.prisma.workspaceTokenBudgetPeriodCounter.findUnique({
+        where: {
+          workspaceId_periodStartedAt_periodEndsAt: {
+            workspaceId: quotaState.workspaceId,
+            periodStartedAt: period.periodStartedAt,
+            periodEndsAt: period.periodEndsAt
+          }
+        },
+        select: { usedCredits: true }
+      });
       const tokenPercent =
         tokenLimit !== null && tokenLimit > BigInt(0)
-          ? Number((quotaState.tokenBudgetUsed * BigInt(100)) / tokenLimit)
+          ? Number(((tokenCounter?.usedCredits ?? BigInt(0)) * BigInt(100)) / tokenLimit)
           : 0;
 
       if (tokenPercent >= 90) {

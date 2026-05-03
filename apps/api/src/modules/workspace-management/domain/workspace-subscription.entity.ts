@@ -5,7 +5,8 @@ export type WorkspaceSubscriptionStatus =
   | "past_due"
   | "paused"
   | "canceled"
-  | "expired";
+  | "expired"
+  | "expired_fallback";
 
 export type WorkspaceSubscription = {
   id: string;
@@ -14,6 +15,8 @@ export type WorkspaceSubscription = {
   status: WorkspaceSubscriptionStatus;
   trialStartedAt: Date | null;
   trialEndsAt: Date | null;
+  graceStartedAt: Date | null;
+  graceEndsAt: Date | null;
   currentPeriodStartedAt: Date | null;
   currentPeriodEndsAt: Date | null;
   cancelAtPeriodEnd: boolean;

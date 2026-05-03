@@ -5,6 +5,7 @@ import { PrismaService } from "../identity-access/infrastructure/persistence/pri
 import { AppBootstrapController } from "./interface/http/app-bootstrap.controller";
 import { AssistantController } from "./interface/http/assistant.controller";
 import { AdminPlansController } from "./interface/http/admin-plans.controller";
+import { AdminBillingLifecycleSettingsController } from "./interface/http/admin-billing-lifecycle-settings.controller";
 import { AdminSecurityController } from "./interface/http/admin-security.controller";
 import { AdminAbuseControlsController } from "./interface/http/admin-abuse-controls.controller";
 import { AdminAssistantOwnershipController } from "./interface/http/admin-assistant-ownership.controller";
@@ -100,6 +101,11 @@ import { ManageAdminAbuseControlsService } from "./application/manage-admin-abus
 import { ManageAdminAssistantOwnershipService } from "./application/manage-admin-assistant-ownership.service";
 import { ManageAdminAssistantPlanOverrideService } from "./application/manage-admin-assistant-plan-override.service";
 import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-admin-workspace-subscription.service";
+import { ManageAdminOpsBillingSupportService } from "./application/manage-admin-ops-billing-support.service";
+import { ManageAdminBillingLifecycleSettingsService } from "./application/manage-admin-billing-lifecycle-settings.service";
+import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
+import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
+import { ScheduleBillingLifecycleNotificationsService } from "./application/schedule-billing-lifecycle-notifications.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
 import { AssistantRuntimePreflightService } from "./application/assistant-runtime-preflight.service";
 import { CreateAssistantService } from "./application/create-assistant.service";
@@ -255,6 +261,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AssistantController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
+    AdminBillingLifecycleSettingsController,
     AdminSecurityController,
     AdminAbuseControlsController,
     AdminAssistantOwnershipController,
@@ -338,6 +345,11 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminAssistantOwnershipService,
     ManageAdminAssistantPlanOverrideService,
     ManageAdminWorkspaceSubscriptionService,
+    ManageAdminOpsBillingSupportService,
+    ManageAdminBillingLifecycleSettingsService,
+    ManageWorkspaceSubscriptionLifecycleService,
+    ApplyWorkspaceSubscriptionBillingEventService,
+    ScheduleBillingLifecycleNotificationsService,
     HandleInternalCronFireService,
     AssistantNotificationDeliveryService,
     AssistantNotificationOutboxService,

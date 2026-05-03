@@ -6,20 +6,44 @@ import type { WorkspaceSubscriptionRepository } from "../src/modules/workspace-m
 import type { AssistantPlanCatalogRepository } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
+import type { ApplyWorkspaceSubscriptionBillingEventService } from "../src/modules/workspace-management/application/apply-workspace-subscription-billing-event.service";
 
 async function run(): Promise<void> {
   const authCalls: Array<{ userId: string; action: string; stepUpToken: string | null }> = [];
   const upserts: Array<{ workspaceId: string; planCode: string; status: string }> = [];
   const deletes: string[] = [];
   const dirtyWrites: string[] = [];
+  const appliedBillingEvents: Array<{
+    eventCode: string;
+    source: string;
+    planCode: string | null;
+  }> = [];
 
   const planCatalogByCode: Record<
     string,
-    Pick<AssistantPlanCatalog, "isTrialPlan" | "trialDurationDays">
+    Pick<AssistantPlanCatalog, "isTrialPlan" | "trialDurationDays" | "billingProviderHints">
   > = {
-    starter_trial: { isTrialPlan: true, trialDurationDays: 14 },
-    pro: { isTrialPlan: false, trialDurationDays: null },
-    fresh_trial: { isTrialPlan: true, trialDurationDays: 7 }
+    starter_trial: {
+      isTrialPlan: true,
+      trialDurationDays: 14,
+      billingProviderHints: {
+        lifecyclePolicy: {
+          schema: "persai.planLifecyclePolicy.v1",
+          trialFallbackPlanCode: "pro"
+        }
+      }
+    },
+    pro: { isTrialPlan: false, trialDurationDays: null, billingProviderHints: null },
+    fresh_trial: {
+      isTrialPlan: true,
+      trialDurationDays: 7,
+      billingProviderHints: {
+        lifecyclePolicy: {
+          schema: "persai.planLifecyclePolicy.v1",
+          trialFallbackPlanCode: "pro"
+        }
+      }
+    }
   };
 
   let currentSubscription = {
@@ -29,6 +53,8 @@ async function run(): Promise<void> {
     status: "trialing" as const,
     trialStartedAt: new Date("2026-04-06T00:00:00.000Z"),
     trialEndsAt: new Date("2026-04-20T00:00:00.000Z"),
+    graceStartedAt: null as Date | null,
+    graceEndsAt: null as Date | null,
     currentPeriodStartedAt: null,
     currentPeriodEndsAt: null,
     cancelAtPeriodEnd: false,
@@ -107,6 +133,8 @@ async function run(): Promise<void> {
           status: snapshot.status,
           trialStartedAt: snapshot.trialStartedAt ? new Date(snapshot.trialStartedAt) : null,
           trialEndsAt: snapshot.trialEndsAt ? new Date(snapshot.trialEndsAt) : null,
+          graceStartedAt: snapshot.graceStartedAt ? new Date(snapshot.graceStartedAt) : null,
+          graceEndsAt: snapshot.graceEndsAt ? new Date(snapshot.graceEndsAt) : null,
           currentPeriodStartedAt: snapshot.currentPeriodStartedAt
             ? new Date(snapshot.currentPeriodStartedAt)
             : null,
@@ -114,7 +142,7 @@ async function run(): Promise<void> {
             ? new Date(snapshot.currentPeriodEndsAt)
             : null,
           cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
-          billingProvider: null,
+          billingProvider: snapshot.billingProvider,
           providerCustomerRef: snapshot.providerCustomerRef,
           providerSubscriptionRef: snapshot.providerSubscriptionRef,
           metadata: snapshot.metadata,
@@ -138,7 +166,7 @@ async function run(): Promise<void> {
           displayName: code,
           description: null,
           status: "active",
-          billingProviderHints: null,
+          billingProviderHints: row.billingProviderHints,
           entitlementModel: null,
           toolActivations: [],
           isDefaultFirstRegistrationPlan: false,
@@ -158,7 +186,58 @@ async function run(): Promise<void> {
           return { count: 1 };
         }
       }
-    } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService
+    } as Pick<WorkspaceManagementPrismaService, "assistant"> as WorkspaceManagementPrismaService,
+    {
+      async apply(input) {
+        appliedBillingEvents.push({
+          eventCode: input.eventCode,
+          source: input.source,
+          planCode: input.paidPlanCode ?? null
+        });
+        currentSubscription = {
+          ...(currentSubscription ?? {
+            id: "sub-1",
+            workspaceId: input.workspaceId,
+            createdAt: new Date("2026-04-06T00:00:00.000Z"),
+            updatedAt: new Date("2026-04-06T00:00:00.000Z"),
+            trialStartedAt: null,
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            cancelAtPeriodEnd: false,
+            metadata: null,
+            billingProvider: null,
+            providerCustomerRef: null,
+            providerSubscriptionRef: null
+          }),
+          workspaceId: input.workspaceId,
+          planCode: input.paidPlanCode ?? currentSubscription?.planCode ?? "pro",
+          status:
+            input.eventCode === "payment_recovered" || input.eventCode === "renewal_succeeded"
+              ? "active"
+              : "active",
+          billingProvider: input.billingProvider ?? null,
+          providerCustomerRef: input.providerCustomerRef ?? null,
+          providerSubscriptionRef: input.providerSubscriptionRef ?? null,
+          currentPeriodStartedAt: input.currentPeriodStartedAt
+            ? new Date(input.currentPeriodStartedAt)
+            : null,
+          currentPeriodEndsAt: input.currentPeriodEndsAt
+            ? new Date(input.currentPeriodEndsAt)
+            : null,
+          graceStartedAt: null,
+          graceEndsAt: null,
+          updatedAt: new Date()
+        };
+        return {
+          status: "applied",
+          billingEventId: `billing-event-${appliedBillingEvents.length}`
+        };
+      }
+    } as Pick<
+      ApplyWorkspaceSubscriptionBillingEventService,
+      "apply"
+    > as ApplyWorkspaceSubscriptionBillingEventService
   );
 
   const parsed = service.parseApplyInput({
@@ -207,13 +286,18 @@ async function run(): Promise<void> {
     "step-up-2"
   );
   assert.deepEqual(changed, { ok: true, changed: true, workspaceId: "ws-1" });
-  assert.deepEqual(upserts, [{ workspaceId: "ws-1", planCode: "pro", status: "active" }]);
-  assert.deepEqual(dirtyWrites, ["ws-1"]);
+  assert.deepEqual(upserts, []);
+  assert.deepEqual(appliedBillingEvents, [
+    { eventCode: "payment_activated", source: "manual", planCode: "pro" }
+  ]);
+  assert.deepEqual(dirtyWrites, []);
+  assert.equal(currentSubscription?.status, "active");
+  assert.equal(currentSubscription?.planCode, "pro");
 
   const deleted = await service.resetWorkspaceSubscription("admin-1", "user-1", "step-up-3");
   assert.deepEqual(deleted, { ok: true, changed: true, workspaceId: "ws-1" });
   assert.deepEqual(deletes, ["ws-1"]);
-  assert.deepEqual(dirtyWrites, ["ws-1", "ws-1"]);
+  assert.deepEqual(dirtyWrites, ["ws-1"]);
   assert.deepEqual(authCalls, [
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-1" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-2" },
@@ -237,6 +321,14 @@ async function run(): Promise<void> {
   assert.equal(currentSubscription?.status, "trialing");
   assert.ok(currentSubscription?.trialStartedAt instanceof Date);
   assert.ok(currentSubscription?.trialEndsAt instanceof Date);
+  assert.ok(currentSubscription?.currentPeriodStartedAt instanceof Date);
+  assert.ok(currentSubscription?.currentPeriodEndsAt instanceof Date);
+  assert.deepEqual(currentSubscription?.metadata, {
+    schema: "persai.subscriptionLifecycle.v1",
+    lifecycleState: "trialing",
+    lifecycleReason: "admin_trial_assignment",
+    trialFallbackPlanCode: "pro"
+  });
   const startedAtMs = currentSubscription?.trialStartedAt?.getTime() ?? 0;
   const endsAtMs = currentSubscription?.trialEndsAt?.getTime() ?? 0;
   assert.ok(startedAtMs >= beforeTrial && startedAtMs <= afterTrial);

@@ -17,6 +17,7 @@ import type {
   UserPlanVisibilityState
 } from "./plan-visibility.types";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 
 function indexQuotaBuckets(
   buckets: QuotaVisibilityBucketState[]
@@ -74,6 +75,7 @@ export class ResolvePlanVisibilityService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
         assistant
       );
+    const lifecyclePolicy = resolveStoredPlanLifecyclePolicy(plan?.billingProviderHints ?? null);
     return {
       effectivePlan: {
         code: plan?.code ?? subscription.planCode,
@@ -82,8 +84,12 @@ export class ResolvePlanVisibilityService {
         source: subscription.source,
         subscriptionStatus: subscription.status,
         trialEndsAt: subscription.trialEndsAt,
+        graceStartedAt: subscription.graceStartedAt ?? null,
+        graceEndsAt: subscription.graceEndsAt ?? null,
         currentPeriodEndsAt: subscription.currentPeriodEndsAt,
-        isTrialPlan: plan?.isTrialPlan ?? false
+        isTrialPlan: plan?.isTrialPlan ?? false,
+        trialFallbackPlanCode: lifecyclePolicy.trialFallbackPlanCode,
+        paidFallbackPlanCode: lifecyclePolicy.paidFallbackPlanCode
       },
       entitlements: {
         channelsAndSurfaces: {

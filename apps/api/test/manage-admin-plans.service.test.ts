@@ -54,6 +54,9 @@ async function run(): Promise<void> {
     defaultOnRegistration: true,
     trialEnabled: true,
     trialDurationDays: 7,
+    lifecyclePolicy: {
+      trialFallbackPlanCode: "starter_fallback"
+    },
     metadata: {
       commercialTag: "trial",
       notes: null
@@ -113,6 +116,8 @@ async function run(): Promise<void> {
   assert.equal(parsed.videoGenerateModelKey, "sora-2-pro");
   assert.equal(parsed.videoGenerateFallbackModelKey, "sora-2");
   assert.equal(parsed.contextPolicy.preset, "balanced");
+  assert.equal(parsed.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
+  assert.equal(parsed.lifecyclePolicy.paidFallbackPlanCode, null);
 
   const writeInput = (
     service as unknown as {
@@ -135,6 +140,11 @@ async function run(): Promise<void> {
     (writeInput.billingProviderHints as Record<string, unknown>).videoGenerateFallbackModelKey,
     "sora-2"
   );
+  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).lifecyclePolicy, {
+    schema: "persai.planLifecyclePolicy.v1",
+    trialFallbackPlanCode: "starter_fallback",
+    paidFallbackPlanCode: null
+  });
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).quotaAccounting, {
     tokenBudgetLimit: 1000,
     activeWebChatsLimit: 12,
@@ -159,6 +169,10 @@ async function run(): Promise<void> {
         videoGenerateModelKey: string | null;
         videoGenerateFallbackModelKey: string | null;
         contextPolicy: { preset: string };
+        lifecyclePolicy: {
+          trialFallbackPlanCode: string | null;
+          paidFallbackPlanCode: string | null;
+        };
         quotaLimits: {
           activeWebChatsLimit: number | null;
           imageGenerateMonthlyUnitsLimit: number | null;
@@ -189,6 +203,8 @@ async function run(): Promise<void> {
   assert.equal(state.videoGenerateModelKey, "sora-2-pro");
   assert.equal(state.videoGenerateFallbackModelKey, "sora-2");
   assert.equal(state.contextPolicy.preset, "balanced");
+  assert.equal(state.lifecyclePolicy.trialFallbackPlanCode, "starter_fallback");
+  assert.equal(state.lifecyclePolicy.paidFallbackPlanCode, null);
   assert.equal(state.quotaLimits.activeWebChatsLimit, 12);
   assert.equal(state.quotaLimits.imageGenerateMonthlyUnitsLimit, 20);
   assert.equal(state.quotaLimits.imageEditMonthlyUnitsLimit, 10);
@@ -290,6 +306,9 @@ async function run(): Promise<void> {
     defaultOnRegistration: true,
     trialEnabled: true,
     trialDurationDays: 7,
+    lifecyclePolicy: {
+      trialFallbackPlanCode: "starter_fallback"
+    },
     metadata: {
       commercialTag: "trial",
       notes: null
@@ -582,12 +601,100 @@ async function run(): Promise<void> {
   assert.throws(
     () =>
       service.parseUpdateInput({
+        ...parsed,
+        lifecyclePolicy: {
+          trialFallbackPlanCode: null
+        }
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes("lifecyclePolicy.trialFallbackPlanCode")
+  );
+
+  const inactiveFallbackService = createService({
+    planCatalogRepository: {
+      async findByCode(code: string) {
+        if (code === "starter") {
+          return null;
+        }
+        if (code === "starter_fallback") {
+          return {
+            id: "fallback-plan",
+            code,
+            displayName: "Starter Fallback",
+            description: null,
+            status: "inactive",
+            billingProviderHints: null,
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+          } satisfies AssistantPlanCatalog;
+        }
+        return null;
+      }
+    },
+    adminAuthorizationService: {
+      async assertCanPerformDangerousAdminAction() {
+        return {
+          workspaceId: "ws-1",
+          roles: ["business_admin"],
+          hasLegacyOwnerFallback: false
+        };
+      }
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: ["gpt-5.4"],
+            anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: {
+              models: [
+                { model: "gpt-image-2", capabilities: ["image"] },
+                { model: "gpt-image-1.5", capabilities: ["image"] },
+                { model: "sora-2-pro", capabilities: ["video"] },
+                { model: "sora-2", capabilities: ["video"] }
+              ]
+            },
+            anthropic: { models: [] }
+          }
+        };
+      }
+    }
+  });
+  await assert.rejects(
+    () =>
+      inactiveFallbackService.createPlan(
+        "admin-user",
+        {
+          code: "starter",
+          ...parsed
+        },
+        "step-up"
+      ),
+    (error) =>
+      error instanceof BadRequestException &&
+      error.message.includes("trial fallback plan must reference an active plan")
+  );
+
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
         displayName: "Starter",
         description: "Trial plan",
         status: "active",
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: {
+          trialFallbackPlanCode: "starter_fallback"
+        },
         metadata: {
           commercialTag: "trial",
           notes: null
@@ -636,6 +743,9 @@ async function run(): Promise<void> {
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: {
+          trialFallbackPlanCode: "starter_fallback"
+        },
         metadata: {
           commercialTag: "trial",
           notes: null
@@ -681,6 +791,9 @@ async function run(): Promise<void> {
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: {
+          trialFallbackPlanCode: "starter_fallback"
+        },
         metadata: {
           commercialTag: "trial",
           notes: null
@@ -732,6 +845,9 @@ async function run(): Promise<void> {
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: {
+          trialFallbackPlanCode: "starter_fallback"
+        },
         metadata: {
           commercialTag: "trial",
           notes: null
@@ -860,6 +976,9 @@ async function run(): Promise<void> {
     defaultOnRegistration: true,
     trialEnabled: true,
     trialDurationDays: 7,
+    lifecyclePolicy: {
+      trialFallbackPlanCode: "starter_fallback"
+    },
     metadata: {
       commercialTag: "trial",
       notes: null
@@ -945,6 +1064,7 @@ async function run(): Promise<void> {
     defaultOnRegistration: true,
     trialEnabled: true,
     trialDurationDays: 7,
+    lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
     metadata: { commercialTag: "trial", notes: null },
     entitlements: {
       toolClasses: {
@@ -984,6 +1104,7 @@ async function run(): Promise<void> {
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
         metadata: { commercialTag: "trial", notes: null },
         entitlements: {
           toolClasses: {
@@ -1021,6 +1142,7 @@ async function run(): Promise<void> {
         defaultOnRegistration: true,
         trialEnabled: true,
         trialDurationDays: 7,
+        lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
         metadata: { commercialTag: "trial", notes: null },
         entitlements: {
           toolClasses: {

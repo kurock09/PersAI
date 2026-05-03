@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminPlanInputBaseStatus } from "./adminPlanInputBaseStatus";
+import type { AdminPlanLifecyclePolicy } from "./adminPlanLifecyclePolicy";
 import type { AdminPlanMetadata } from "./adminPlanMetadata";
 import type { AdminPlanEntitlements } from "./adminPlanEntitlements";
 import type { AdminPlanQuotaLimits } from "./adminPlanQuotaLimits";
@@ -25,6 +26,7 @@ export interface AdminPlanInputBase {
   trialEnabled: boolean;
   /** @nullable */
   trialDurationDays: number | null;
+  lifecyclePolicy: AdminPlanLifecyclePolicy;
   metadata: AdminPlanMetadata;
   entitlements: AdminPlanEntitlements;
   quotaLimits?: AdminPlanQuotaLimits;

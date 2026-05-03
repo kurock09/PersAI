@@ -20,11 +20,16 @@ import {
 } from "../../application/admin-ops-user-directory.service";
 import { ReapplyAssistantService } from "../../application/reapply-assistant.service";
 import { AdminDeleteUserService } from "../../application/admin-delete-user.service";
+import { AdminAuthorizationService } from "../../application/admin-authorization.service";
 import { ManageAdminAssistantPlanOverrideService } from "../../application/manage-admin-assistant-plan-override.service";
 import {
   ManageAdminWorkspaceSubscriptionService,
   type AdminWorkspaceSubscriptionInput
 } from "../../application/manage-admin-workspace-subscription.service";
+import {
+  ManageAdminOpsBillingSupportService,
+  type AdminOpsBillingSupportActionInput
+} from "../../application/manage-admin-ops-billing-support.service";
 
 @Controller("api/v1/admin/ops")
 export class AdminOpsController {
@@ -33,8 +38,10 @@ export class AdminOpsController {
     private readonly adminOpsUserDirectoryService: AdminOpsUserDirectoryService,
     private readonly reapplyAssistantService: ReapplyAssistantService,
     private readonly adminDeleteUserService: AdminDeleteUserService,
+    private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly manageAdminAssistantPlanOverrideService: ManageAdminAssistantPlanOverrideService,
-    private readonly manageAdminWorkspaceSubscriptionService: ManageAdminWorkspaceSubscriptionService
+    private readonly manageAdminWorkspaceSubscriptionService: ManageAdminWorkspaceSubscriptionService,
+    private readonly manageAdminOpsBillingSupportService: ManageAdminOpsBillingSupportService
   ) {}
 
   @Get("cockpit")
@@ -65,11 +72,11 @@ export class AdminOpsController {
     users: AdminOpsUserDirectoryResult["users"];
     total: number;
   }> {
-    this.resolveRequestUserId(req);
+    const callerId = this.resolveRequestUserId(req);
     const offset = Math.max(0, parseInt(offsetRaw ?? "0", 10) || 0);
     const limit = Math.min(100, Math.max(1, parseInt(limitRaw ?? "50", 10) || 50));
     const trimmed = search?.trim();
-    const result = await this.adminOpsUserDirectoryService.execute({
+    const result = await this.adminOpsUserDirectoryService.execute(callerId, {
       ...(trimmed ? { search: trimmed } : {}),
       offset,
       limit
@@ -83,10 +90,11 @@ export class AdminOpsController {
     @Req() req: RequestWithPlatformContext,
     @Param("userId") targetUserId: string
   ): Promise<{ requestId: string | null; ok: boolean }> {
-    this.resolveRequestUserId(req);
+    const callerId = this.resolveRequestUserId(req);
     if (!targetUserId || targetUserId.trim().length === 0) {
       throw new BadRequestException("userId is required.");
     }
+    await this.adminAuthorizationService.assertCanReadAdminSurface(callerId);
     await this.reapplyAssistantService.execute(targetUserId.trim());
     return { requestId: req.requestId ?? null, ok: true };
   }
@@ -162,6 +170,32 @@ export class AdminOpsController {
     const result = await this.manageAdminWorkspaceSubscriptionService.resetWorkspaceSubscription(
       callerId,
       targetUserId,
+      this.resolveStepUpToken(req)
+    );
+    return { requestId: req.requestId ?? null, ...result };
+  }
+
+  @Post("users/:userId/billing-support-action")
+  @HttpCode(200)
+  async runBillingSupportAction(
+    @Req() req: RequestWithPlatformContext,
+    @Param("userId") targetUserId: string,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    ok: boolean;
+    changed: boolean;
+    workspaceId: string;
+    action: string;
+    summary: string;
+  }> {
+    const callerId = this.resolveRequestUserId(req);
+    const input: AdminOpsBillingSupportActionInput =
+      this.manageAdminOpsBillingSupportService.parseActionInput(body);
+    const result = await this.manageAdminOpsBillingSupportService.execute(
+      callerId,
+      targetUserId,
+      input,
       this.resolveStepUpToken(req)
     );
     return { requestId: req.requestId ?? null, ...result };

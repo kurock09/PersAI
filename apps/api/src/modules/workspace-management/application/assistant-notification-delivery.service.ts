@@ -38,7 +38,8 @@ export type AssistantNotificationSource =
   | "user_reminder"
   | "background_task"
   | "idle_reengagement"
-  | "system_event";
+  | "system_event"
+  | "billing_lifecycle";
 
 export type AssistantNotificationDeliveryStatus = "ok" | "error" | "skipped";
 

@@ -50,6 +50,45 @@ For production slices that touch API contracts, runtime behavior, or shared cont
 corepack pnpm run test
 ```
 
+## ADR-083 subscription lifecycle focused checks
+
+When a change touches plan lifecycle policy, subscription lifecycle state, trial fallback behavior, or Admin Plans lifecycle fields, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/admin-billing-lifecycle-settings.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-plans.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts
+corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx app/admin/billing-settings/page.test.tsx
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Trial plans must carry an admin-selected fallback plan in `lifecyclePolicy.trialFallbackPlanCode`.
+2. Plan writes must reject missing, inactive, self-referential, or otherwise invalid fallback references.
+3. Admin Plans must make fallback selection visible next to trial duration and must not hard-code trial duration or fallback plan codes.
+4. Plan visibility must preserve the effective trial fallback code so the lifecycle state machine can consume PersAI-owned plan truth.
+5. New default-registration workspaces must materialize a `WorkspaceSubscription` with real trial/current-period boundaries when the default plan is a trial.
+6. Expired trial fallback must read `lifecyclePolicy.trialFallbackPlanCode`, validate the fallback plan is active, persist the fallback state, and mark affected assistant materialization dirty.
+7. Paid grace duration must come from persisted billing lifecycle settings, not code constants.
+8. Failed renewal must enter `grace_period`, keep the paid plan effective, set explicit grace windows, and append `renewal_failed`/`grace_started`.
+9. Grace expiry must apply plan-level `paidFallbackPlanCode` first, then global fallback, persist `expired_fallback`, and append `grace_expired`/`fallback_applied`.
+10. Payment recovery must restore active paid state with provider/manual period truth and append `payment_recovered`.
+11. Credits/token budget visibility, inbound enforcement, abuse quota-pressure, and admin quota-pressure surfaces must read the current `workspace_token_budget_period_counters` bucket for the effective subscription period, not stale compatibility token totals from a previous period.
+12. Billing lifecycle notification schedules must come from persisted Billing Settings policy, with email required and assistant push optional.
+13. Lifecycle events must create durable billing notification jobs instead of process-local timers; required email jobs stay pending until a real email adapter exists, and assistant push must reuse `assistant_notification_outbox` with required-facts static fallback copy.
+14. Ops Cockpit user-directory rows should be billing-support rows: email, plan, lifecycle status, next relevant billing/trial/grace date, usage risk, and actions, not assistant setup trivia.
+15. Ops Cockpit selected detail must expose PersAI-owned subscription truth, lifecycle events, notification jobs, quota period, and support identifiers without reading billing-provider state directly at request time.
+16. Ops Cockpit support actions must run through lifecycle/subscription services rather than raw admin row mutation: extend trial updates trial windows, grant/extend grace preserves paid access logic, fallback now moves deterministically to configured fallback truth, manual reminder creates durable notification work, and the selected detail refreshes to the new lifecycle state after each action.
+
 ## ADR-079 grounded Skill/user-KB routing focused checks
 
 When a change touches Skill routing, orchestrated retrieval context injection, model-role selection, or provider context-window failure mapping, add focused checks that prove:

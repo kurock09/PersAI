@@ -65,6 +65,10 @@ async function run(): Promise<void> {
           description: null,
           status: "active",
           billingProviderHints: {
+            lifecyclePolicy: {
+              schema: "persai.planLifecyclePolicy.v1",
+              trialFallbackPlanCode: "free"
+            },
             quotaAccounting: {
               tokenBudgetLimit: 5000
             }
@@ -104,8 +108,8 @@ async function run(): Promise<void> {
             }
           ],
           isDefaultFirstRegistrationPlan: false,
-          isTrialPlan: false,
-          trialDurationDays: null,
+          isTrialPlan: true,
+          trialDurationDays: 7,
           createdAt: new Date(),
           updatedAt: new Date()
         };
@@ -134,6 +138,10 @@ async function run(): Promise<void> {
             description: null,
             status: "active",
             billingProviderHints: {
+              lifecyclePolicy: {
+                schema: "persai.planLifecyclePolicy.v1",
+                trialFallbackPlanCode: "free"
+              },
               quotaAccounting: {
                 tokenBudgetLimit: 5000
               }
@@ -157,8 +165,8 @@ async function run(): Promise<void> {
               }
             ],
             isDefaultFirstRegistrationPlan: false,
-            isTrialPlan: false,
-            trialDurationDays: null,
+            isTrialPlan: true,
+            trialDurationDays: 7,
             createdAt: new Date(),
             updatedAt: new Date()
           }
@@ -348,6 +356,7 @@ async function run(): Promise<void> {
 
   assert.equal(visibility.effectivePlan.code, "pro");
   assert.equal(visibility.effectivePlan.displayName, "Pro");
+  assert.equal(visibility.effectivePlan.trialFallbackPlanCode, "free");
   assert.equal(visibility.entitlements.channelsAndSurfaces.telegram, true);
   assert.equal(visibility.entitlements.channelsAndSurfaces.whatsapp, false);
   assert.equal(visibility.limits.quotaBuckets.length, 4);

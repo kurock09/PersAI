@@ -17,5 +17,6 @@ export const UserPlanVisibilityEffectivePlanSubscriptionStatus = {
   paused: "paused",
   canceled: "canceled",
   expired: "expired",
+  expired_fallback: "expired_fallback",
   unconfigured: "unconfigured"
 } as const;

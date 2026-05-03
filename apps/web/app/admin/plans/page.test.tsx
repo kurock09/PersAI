@@ -12,6 +12,10 @@ function createPlanState(): AdminPlanState {
     defaultOnRegistration: false,
     trialEnabled: false,
     trialDurationDays: null,
+    lifecyclePolicy: {
+      trialFallbackPlanCode: null,
+      paidFallbackPlanCode: "starter"
+    },
     metadata: {
       commercialTag: null,
       notes: null
@@ -140,6 +144,8 @@ describe("admin plans page helpers", () => {
     expect(draft.imageGenerateMonthlyUnitsLimit).toBe("20");
     expect(draft.imageEditMonthlyUnitsLimit).toBe("10");
     expect(draft.videoGenerateMonthlyUnitsLimit).toBe("4");
+    expect(draft.trialFallbackPlanCode).toBe("");
+    expect(draft.paidFallbackPlanCode).toBe("starter");
 
     expect(draftToPayload(draft).imageGenerateModelKey).toBe("gpt-image-2");
     expect(draftToPayload(draft).imageGenerateFallbackModelKey).toBe("gpt-image-1.5");
@@ -159,6 +165,23 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).reasoningModelKey).toBe("gpt-5.4-mini");
     expect(draftToPayload(draft).retrievalModelKey).toBe("gpt-5.4-nano");
     expect(draftToPayload(draft).contextPolicy.sharedCompactionSummaryBudgetTokens).toBeUndefined();
+    expect(
+      draftToPayload({
+        ...draft,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        trialFallbackPlanCode: "starter_fallback"
+      }).lifecyclePolicy?.trialFallbackPlanCode
+    ).toBe("starter_fallback");
+    expect(draftToPayload(draft).lifecyclePolicy?.paidFallbackPlanCode).toBe("starter");
+    expect(() =>
+      draftToPayload({
+        ...draft,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        trialFallbackPlanCode: ""
+      })
+    ).toThrow(/fallback plan/);
     expect("runtimeTierDefault" in draftToPayload(draft)).toBe(false);
     expect(
       draftToPayload({

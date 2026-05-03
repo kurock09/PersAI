@@ -63,16 +63,40 @@ async function run(): Promise<void> {
       },
       workspaceSubscription: {
         async findMany() {
-          return [{ workspaceId: "ws-1", planCode: "pro" }];
+          return [
+            {
+              workspaceId: "ws-1",
+              planCode: "pro",
+              currentPeriodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+              currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z")
+            }
+          ];
         }
       },
       workspaceQuotaAccountingState: {
         async findMany() {
           return [
-            { tokenBudgetUsed: BigInt(20), tokenBudgetLimit: BigInt(100) },
-            { tokenBudgetUsed: BigInt(70), tokenBudgetLimit: BigInt(100) },
-            { tokenBudgetUsed: BigInt(95), tokenBudgetLimit: BigInt(100) }
+            { workspaceId: "ws-1", tokenBudgetLimit: BigInt(100) },
+            { workspaceId: "ws-2", tokenBudgetLimit: BigInt(100) },
+            { workspaceId: "ws-3", tokenBudgetLimit: BigInt(100) }
           ];
+        }
+      },
+      workspaceTokenBudgetPeriodCounter: {
+        async findUnique(args: {
+          where: {
+            workspaceId_periodStartedAt_periodEndsAt: {
+              workspaceId: string;
+              periodStartedAt: Date;
+              periodEndsAt: Date;
+            };
+          };
+        }) {
+          const workspaceId = args.where.workspaceId_periodStartedAt_periodEndsAt.workspaceId;
+          return {
+            usedCredits:
+              workspaceId === "ws-1" ? BigInt(20) : workspaceId === "ws-2" ? BigInt(70) : BigInt(95)
+          };
         }
       },
       assistantChannelSurfaceBinding: {

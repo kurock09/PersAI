@@ -18,6 +18,7 @@ import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capa
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { createAssistantInboundConflict } from "./assistant-inbound-error";
 import type { AssistantInboundSurface } from "./assistant-inbound.types";
+import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
@@ -130,15 +131,11 @@ export class EnforceAssistantCapabilityAndQuotaService {
       );
     }
 
-    const quotaState = await this.workspaceQuotaAccountingRepository.findByWorkspaceId(
-      params.assistant.workspaceId
+    const tokenBudgetUsage = await this.resolveCurrentTokenBudgetUsage(
+      params.assistant,
+      governance
     );
-
-    if (
-      limits.tokenBudgetLimit !== null &&
-      quotaState !== null &&
-      quotaState.tokenBudgetUsed >= limits.tokenBudgetLimit
-    ) {
+    if (limits.tokenBudgetLimit !== null && tokenBudgetUsage >= limits.tokenBudgetLimit) {
       return {
         mode: "degrade_allowed",
         reason: "token_budget_limit_reached"
@@ -208,5 +205,25 @@ export class EnforceAssistantCapabilityAndQuotaService {
         activeWebChatsLimitFromEntitlements ??
         config.WEB_ACTIVE_CHATS_CAP
     };
+  }
+
+  private async resolveCurrentTokenBudgetUsage(
+    assistant: Assistant,
+    governance: AssistantGovernance
+  ): Promise<bigint> {
+    const effectiveSubscription = await this.resolveEffectiveSubscriptionStateService.execute({
+      userId: assistant.userId,
+      workspaceId: assistant.workspaceId,
+      assistantId: assistant.id,
+      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
+      assistantQuotaPlanCode: governance.quotaPlanCode
+    });
+    const period = resolveRecurringQuotaPeriod(effectiveSubscription);
+    const counter = await this.workspaceQuotaAccountingRepository.findTokenBudgetPeriodCounter({
+      workspaceId: assistant.workspaceId,
+      periodStartedAt: period.periodStartedAt,
+      periodEndsAt: period.periodEndsAt
+    });
+    return counter?.usedCredits ?? BigInt(0);
   }
 }

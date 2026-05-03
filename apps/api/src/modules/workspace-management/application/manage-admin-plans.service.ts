@@ -115,6 +115,24 @@ function parseTrialDuration(value: unknown, trialEnabled: boolean): number | nul
   return value;
 }
 
+function parseTrialFallbackPlanCode(value: unknown, trialEnabled: boolean): string | null {
+  if (!trialEnabled) {
+    return null;
+  }
+  const planCode = parseRequiredString(
+    value,
+    "lifecyclePolicy.trialFallbackPlanCode"
+  ).toLowerCase();
+  return planCode;
+}
+
+function parseOptionalFallbackPlanCode(value: unknown, fieldName: string): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return parseRequiredString(value, fieldName).toLowerCase();
+}
+
 function toNullablePositiveInt(value: unknown): number | null {
   if (value === null || value === undefined) {
     return null;
@@ -385,6 +403,7 @@ export class ManageAdminPlansService {
       { modelKey: input.videoGenerateModelKey, capability: "video" },
       { modelKey: input.videoGenerateFallbackModelKey, capability: "video" }
     ]);
+    await this.assertLifecycleFallbackPlansAreActive(input, input.code);
 
     const created = await this.planCatalogRepository.create(input.code, this.toWriteInput(input));
     await this.bumpConfigGenerationService.execute();
@@ -443,6 +462,7 @@ export class ManageAdminPlansService {
       { modelKey: mergedInput.videoGenerateModelKey, capability: "video" },
       { modelKey: mergedInput.videoGenerateFallbackModelKey, capability: "video" }
     ]);
+    await this.assertLifecycleFallbackPlansAreActive(mergedInput, normalizedCode);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
       this.toWriteInput(mergedInput)
@@ -534,6 +554,10 @@ export class ManageAdminPlansService {
       ? parseObject(entitlements.mediaClasses, "entitlements.mediaClasses")
       : {};
     const metadata = parseObject(parsed.metadata, "metadata");
+    const lifecyclePolicyRaw =
+      parsed.lifecyclePolicy !== undefined && parsed.lifecyclePolicy !== null
+        ? parseObject(parsed.lifecyclePolicy, "lifecyclePolicy")
+        : {};
     const quotaLimitsRaw =
       parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
         ? parseObject(parsed.quotaLimits, "quotaLimits")
@@ -565,6 +589,16 @@ export class ManageAdminPlansService {
       defaultOnRegistration: toBoolean(parsed.defaultOnRegistration),
       trialEnabled,
       trialDurationDays: parseTrialDuration(parsed.trialDurationDays, trialEnabled),
+      lifecyclePolicy: {
+        trialFallbackPlanCode: parseTrialFallbackPlanCode(
+          lifecyclePolicyRaw.trialFallbackPlanCode,
+          trialEnabled
+        ),
+        paidFallbackPlanCode: parseOptionalFallbackPlanCode(
+          lifecyclePolicyRaw.paidFallbackPlanCode,
+          "lifecyclePolicy.paidFallbackPlanCode"
+        )
+      },
       metadata: {
         commercialTag: toNullableString(metadata.commercialTag),
         notes: toNullableString(metadata.notes)
@@ -747,6 +781,11 @@ export class ManageAdminPlansService {
         providerAgnostic: true,
         commercialTag: input.metadata.commercialTag,
         notes: input.metadata.notes,
+        lifecyclePolicy: {
+          schema: "persai.planLifecyclePolicy.v1",
+          trialFallbackPlanCode: input.lifecyclePolicy.trialFallbackPlanCode,
+          paidFallbackPlanCode: input.lifecyclePolicy.paidFallbackPlanCode
+        },
         ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
         ...(input.skillPolicy.maxEnabledSkills !== null
           ? { skillPolicy: { maxEnabledSkills: input.skillPolicy.maxEnabledSkills } }
@@ -888,6 +927,40 @@ export class ManageAdminPlansService {
     }
   }
 
+  private async assertLifecycleFallbackPlansAreActive(
+    input: AdminPlanInput,
+    currentPlanCode: string
+  ): Promise<void> {
+    const fallbackChecks: Array<{ code: string | null; label: string; required: boolean }> = [
+      {
+        code: input.lifecyclePolicy.trialFallbackPlanCode,
+        label: "trial fallback plan",
+        required: input.trialEnabled
+      },
+      {
+        code: input.lifecyclePolicy.paidFallbackPlanCode,
+        label: "paid fallback plan",
+        required: false
+      }
+    ];
+
+    for (const check of fallbackChecks) {
+      if (!check.required && check.code === null) {
+        continue;
+      }
+      if (check.code === null) {
+        throw new BadRequestException(`${check.label} must reference an active plan.`);
+      }
+      if (check.code === currentPlanCode) {
+        throw new BadRequestException(`${check.label} must be a different active plan.`);
+      }
+      const fallbackPlan = await this.planCatalogRepository.findByCode(check.code);
+      if (fallbackPlan === null || fallbackPlan.status !== "active") {
+        throw new BadRequestException(`${check.label} must reference an active plan.`);
+      }
+    }
+  }
+
   private toAdminPlanState(plan: AssistantPlanCatalog): AdminPlanState {
     const billingHints =
       plan.billingProviderHints !== null &&
@@ -907,6 +980,12 @@ export class ManageAdminPlansService {
       !Array.isArray(billingHints.skillPolicy)
         ? (billingHints.skillPolicy as Record<string, unknown>)
         : {};
+    const lifecyclePolicyRaw =
+      billingHints.lifecyclePolicy !== null &&
+      typeof billingHints.lifecyclePolicy === "object" &&
+      !Array.isArray(billingHints.lifecyclePolicy)
+        ? (billingHints.lifecyclePolicy as Record<string, unknown>)
+        : {};
     const entitlement = plan.entitlementModel;
     const toolClasses = entitlement?.toolClasses ?? [];
     const channelsAndSurfaces = entitlement?.channelsAndSurfaces ?? [];
@@ -924,6 +1003,10 @@ export class ManageAdminPlansService {
       defaultOnRegistration: plan.isDefaultFirstRegistrationPlan,
       trialEnabled: plan.isTrialPlan,
       trialDurationDays: plan.trialDurationDays,
+      lifecyclePolicy: {
+        trialFallbackPlanCode: toNullableString(lifecyclePolicyRaw.trialFallbackPlanCode),
+        paidFallbackPlanCode: toNullableString(lifecyclePolicyRaw.paidFallbackPlanCode)
+      },
       metadata: {
         commercialTag: toNullableString(billingHints.commercialTag),
         notes: toNullableString(billingHints.notes)

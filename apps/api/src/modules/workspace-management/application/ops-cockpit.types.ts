@@ -5,10 +5,61 @@ export type OpsIncidentSeverity = "info" | "elevated" | "high";
 export type AdminOpsCockpitQuotaUsage = {
   tokenBudgetUsed: number;
   tokenBudgetLimit: number | null;
+  tokenBudgetPeriodStartedAt: string | null;
+  tokenBudgetPeriodEndsAt: string | null;
+  tokenBudgetPeriodSource: "subscription_period" | "calendar_month_fallback" | null;
   mediaStorageBytesUsed: number;
   mediaStorageBytesLimit: number | null;
   activeWebChats: number;
   activeWebChatsLimit: number | null;
+};
+
+export type AdminOpsCockpitBillingLifecycleEvent = {
+  id: string;
+  eventCode: string;
+  source: string;
+  previousStatus: string | null;
+  nextStatus: string | null;
+  previousPlanCode: string | null;
+  nextPlanCode: string | null;
+  nextPeriodStartedAt: string | null;
+  nextPeriodEndsAt: string | null;
+  createdAt: string;
+};
+
+export type AdminOpsCockpitBillingNotificationJob = {
+  id: string;
+  notificationCode: string;
+  channel: "email" | "assistant_notification";
+  status: "pending" | "enqueued" | "skipped" | "failed";
+  scheduledFor: string;
+  recipientEmail: string | null;
+  lastErrorCode: string | null;
+  createdAt: string;
+};
+
+export type AdminOpsCockpitBillingSupport = {
+  subscription: {
+    id: string | null;
+    planCode: string | null;
+    status: string | null;
+    trialStartedAt: string | null;
+    trialEndsAt: string | null;
+    graceStartedAt: string | null;
+    graceEndsAt: string | null;
+    currentPeriodStartedAt: string | null;
+    currentPeriodEndsAt: string | null;
+    cancelAtPeriodEnd: boolean | null;
+    providerCustomerRef: string | null;
+    providerSubscriptionRef: string | null;
+  };
+  quotaPeriod: {
+    startedAt: string | null;
+    endsAt: string | null;
+    source: "subscription_period" | "calendar_month_fallback" | null;
+  };
+  latestLifecycleEvents: AdminOpsCockpitBillingLifecycleEvent[];
+  latestNotificationJobs: AdminOpsCockpitBillingNotificationJob[];
 };
 
 export type AdminOpsCockpitChannelBinding = {
@@ -69,6 +120,7 @@ export type AdminOpsCockpitSandbox = {
 
 export type AdminOpsCockpitState = {
   quotaUsage: AdminOpsCockpitQuotaUsage | null;
+  billingSupport: AdminOpsCockpitBillingSupport | null;
   chatStats: AdminOpsCockpitChatStats | null;
   channels: AdminOpsCockpitChannelBinding[];
   sandbox: AdminOpsCockpitSandbox | null;
@@ -80,6 +132,8 @@ export type AdminOpsCockpitState = {
       code: string | null;
       source:
         | "workspace_subscription"
+        | "subscription_trial_fallback"
+        | "subscription_paid_fallback"
         | "assistant_plan_override"
         | "assistant_plan_fallback"
         | "catalog_default_fallback"

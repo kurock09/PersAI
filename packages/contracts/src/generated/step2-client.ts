@@ -8,6 +8,7 @@ import type {
   AdminAbuseUnblockRequest,
   AdminAssistantOwnershipRecoveryRequest,
   AdminAssistantOwnershipTransferRequest,
+  AdminBillingLifecycleSettingsRequest,
   AdminDocumentProcessingSettingsRequest,
   AdminDocumentProcessingTestConnectionRequest,
   AdminPlanCreateRequest,
@@ -34,6 +35,7 @@ import type {
   DeleteAssistantWebChatResponse,
   DeleteProductKnowledgeTextEntryResponse,
   ErrorEnvelope,
+  GetAdminBillingLifecycleSettingsResponse,
   GetAdminBusinessCockpitResponse,
   GetAdminDocumentProcessingSettingsResponse,
   GetAdminIdleReengagementNotificationPolicyResponse,
@@ -46,6 +48,8 @@ import type {
   GetAdminKnowledgeSourcesResponse,
   GetAdminNotificationChannelsResponse,
   GetAdminOpsCockpitResponse,
+  GetAdminOpsUsersParams,
+  GetAdminOpsUsersResponse,
   GetAdminPlanVisibilityResponse,
   GetAdminPlansResponse,
   GetAdminPlatformRolloutsResponse,
@@ -90,6 +94,8 @@ import type {
   PostAdminAssistantOwnershipResponse,
   PostAdminDocumentProcessingTestConnectionResponse,
   PostAdminKnowledgeSourceUploadBody,
+  PostAdminOpsUserBillingSupportActionRequest,
+  PostAdminOpsUserBillingSupportActionResponse,
   PostAdminOpsUserPlanOverrideParams,
   PostAdminPlanResponse,
   PostAdminPlatformRolloutRequest,
@@ -112,6 +118,7 @@ import type {
   PostAssistantWebChatCompactResponse,
   PostProductKnowledgeTextEntryResponse,
   ProductKnowledgeTextEntryInput,
+  PutAdminBillingLifecycleSettingsResponse,
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
   PutAssistantSkillAssignmentsRequest,
@@ -2902,6 +2909,113 @@ export const postAdminPlanCreate = async (
 };
 
 /**
+ * @summary Read global billing lifecycle settings
+ */
+export type getAdminBillingLifecycleSettingsResponse200 = {
+  data: GetAdminBillingLifecycleSettingsResponse;
+  status: 200;
+};
+
+export type getAdminBillingLifecycleSettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminBillingLifecycleSettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminBillingLifecycleSettingsResponseSuccess =
+  getAdminBillingLifecycleSettingsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminBillingLifecycleSettingsResponseError = (
+  | getAdminBillingLifecycleSettingsResponse401
+  | getAdminBillingLifecycleSettingsResponse403
+) & {
+  headers: Headers;
+};
+
+export type getAdminBillingLifecycleSettingsResponse =
+  | getAdminBillingLifecycleSettingsResponseSuccess
+  | getAdminBillingLifecycleSettingsResponseError;
+
+export const getGetAdminBillingLifecycleSettingsUrl = () => {
+  return `/admin/billing/lifecycle-settings`;
+};
+
+export const getAdminBillingLifecycleSettings = async (
+  options?: RequestInit
+): Promise<getAdminBillingLifecycleSettingsResponse> => {
+  return customFetch<getAdminBillingLifecycleSettingsResponse>(
+    getGetAdminBillingLifecycleSettingsUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update global billing lifecycle settings
+ */
+export type putAdminBillingLifecycleSettingsResponse200 = {
+  data: PutAdminBillingLifecycleSettingsResponse;
+  status: 200;
+};
+
+export type putAdminBillingLifecycleSettingsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminBillingLifecycleSettingsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminBillingLifecycleSettingsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminBillingLifecycleSettingsResponseSuccess =
+  putAdminBillingLifecycleSettingsResponse200 & {
+    headers: Headers;
+  };
+export type putAdminBillingLifecycleSettingsResponseError = (
+  | putAdminBillingLifecycleSettingsResponse400
+  | putAdminBillingLifecycleSettingsResponse401
+  | putAdminBillingLifecycleSettingsResponse403
+) & {
+  headers: Headers;
+};
+
+export type putAdminBillingLifecycleSettingsResponse =
+  | putAdminBillingLifecycleSettingsResponseSuccess
+  | putAdminBillingLifecycleSettingsResponseError;
+
+export const getPutAdminBillingLifecycleSettingsUrl = () => {
+  return `/admin/billing/lifecycle-settings`;
+};
+
+export const putAdminBillingLifecycleSettings = async (
+  adminBillingLifecycleSettingsRequest: AdminBillingLifecycleSettingsRequest,
+  options?: RequestInit
+): Promise<putAdminBillingLifecycleSettingsResponse> => {
+  return customFetch<putAdminBillingLifecycleSettingsResponse>(
+    getPutAdminBillingLifecycleSettingsUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminBillingLifecycleSettingsRequest)
+    }
+  );
+};
+
+/**
  * @summary List admin-managed global knowledge sources for one scope
  */
 export type getAdminKnowledgeSourcesResponse200 = {
@@ -4880,6 +4994,70 @@ export const getAdminOpsCockpit = async (
 };
 
 /**
+ * @summary List compact ops user directory rows
+ */
+export type getAdminOpsUsersResponse200 = {
+  data: GetAdminOpsUsersResponse;
+  status: 200;
+};
+
+export type getAdminOpsUsersResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminOpsUsersResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminOpsUsersResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminOpsUsersResponseSuccess = getAdminOpsUsersResponse200 & {
+  headers: Headers;
+};
+export type getAdminOpsUsersResponseError = (
+  | getAdminOpsUsersResponse401
+  | getAdminOpsUsersResponse403
+  | getAdminOpsUsersResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminOpsUsersResponse =
+  | getAdminOpsUsersResponseSuccess
+  | getAdminOpsUsersResponseError;
+
+export const getGetAdminOpsUsersUrl = (params?: GetAdminOpsUsersParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/admin/ops/users?${stringifiedParams}`
+    : `/admin/ops/users`;
+};
+
+export const getAdminOpsUsers = async (
+  params?: GetAdminOpsUsersParams,
+  options?: RequestInit
+): Promise<getAdminOpsUsersResponse> => {
+  return customFetch<getAdminOpsUsersResponse>(getGetAdminOpsUsersUrl(params), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
  * @summary Set assistant-level effective plan override for a target user
  */
 export type postAdminOpsUserPlanOverrideResponse200 = {
@@ -5027,6 +5205,77 @@ export const deleteAdminOpsUserPlanOverride = async (
     {
       ...options,
       method: "DELETE"
+    }
+  );
+};
+
+/**
+ * @summary Run a lifecycle-native billing support action for a target user
+ */
+export type postAdminOpsUserBillingSupportActionResponse200 = {
+  data: PostAdminOpsUserBillingSupportActionResponse;
+  status: 200;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminOpsUserBillingSupportActionResponseSuccess =
+  postAdminOpsUserBillingSupportActionResponse200 & {
+    headers: Headers;
+  };
+export type postAdminOpsUserBillingSupportActionResponseError = (
+  | postAdminOpsUserBillingSupportActionResponse400
+  | postAdminOpsUserBillingSupportActionResponse401
+  | postAdminOpsUserBillingSupportActionResponse403
+  | postAdminOpsUserBillingSupportActionResponse404
+  | postAdminOpsUserBillingSupportActionResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminOpsUserBillingSupportActionResponse =
+  | postAdminOpsUserBillingSupportActionResponseSuccess
+  | postAdminOpsUserBillingSupportActionResponseError;
+
+export const getPostAdminOpsUserBillingSupportActionUrl = (userId: string) => {
+  return `/admin/ops/users/${userId}/billing-support-action`;
+};
+
+export const postAdminOpsUserBillingSupportAction = async (
+  userId: string,
+  postAdminOpsUserBillingSupportActionRequest: PostAdminOpsUserBillingSupportActionRequest,
+  options?: RequestInit
+): Promise<postAdminOpsUserBillingSupportActionResponse> => {
+  return customFetch<postAdminOpsUserBillingSupportActionResponse>(
+    getPostAdminOpsUserBillingSupportActionUrl(userId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postAdminOpsUserBillingSupportActionRequest)
     }
   );
 };

@@ -90,6 +90,10 @@ export type AdminPlanInput = {
   defaultOnRegistration: boolean;
   trialEnabled: boolean;
   trialDurationDays: number | null;
+  lifecyclePolicy: {
+    trialFallbackPlanCode: string | null;
+    paidFallbackPlanCode: string | null;
+  };
   metadata: {
     commercialTag: string | null;
     notes: string | null;
@@ -144,6 +148,10 @@ export type AdminPlanState = {
   defaultOnRegistration: boolean;
   trialEnabled: boolean;
   trialDurationDays: number | null;
+  lifecyclePolicy: {
+    trialFallbackPlanCode: string | null;
+    paidFallbackPlanCode: string | null;
+  };
   metadata: {
     commercialTag: string | null;
     notes: string | null;

@@ -36,10 +36,9 @@ import {
   type AssistantRuntimeApplyStatus as ApplyStatus
 } from "@persai/contracts";
 import {
-  deleteAdminOpsUserWorkspaceSubscription,
   deleteAdminOpsUserPlanOverride,
   getAdminPlans,
-  postAdminOpsUserWorkspaceSubscription,
+  postAdminOpsUserBillingSupportAction,
   postAdminOpsUserPlanOverride,
   postAssistantReapply
 } from "@/app/app/assistant-api-client";
@@ -62,15 +61,87 @@ interface OpsUserRow {
     latestPublishedVersion: number | null;
     lastPublishedAt: string | null;
   } | null;
+  billing: {
+    workspaceId: string | null;
+    planCode: string | null;
+    status: string | null;
+    trialEndsAt: string | null;
+    graceEndsAt: string | null;
+    currentPeriodEndsAt: string | null;
+    usageRisk: "unknown" | "ok" | "elevated" | "high";
+  };
 }
 
 type QuotaUsageData = {
   tokenBudgetUsed: number;
   tokenBudgetLimit: number | null;
+  tokenBudgetPeriodStartedAt?: string | null;
+  tokenBudgetPeriodEndsAt?: string | null;
+  tokenBudgetPeriodSource?: "subscription_period" | "calendar_month_fallback" | null;
   mediaStorageBytesUsed: number;
   mediaStorageBytesLimit: number | null;
   activeWebChats: number;
   activeWebChatsLimit: number | null;
+};
+
+type BillingSupportData = {
+  subscription: {
+    id: string | null;
+    planCode: string | null;
+    status: string | null;
+    trialStartedAt: string | null;
+    trialEndsAt: string | null;
+    graceStartedAt: string | null;
+    graceEndsAt: string | null;
+    currentPeriodStartedAt: string | null;
+    currentPeriodEndsAt: string | null;
+    cancelAtPeriodEnd: boolean | null;
+    providerCustomerRef: string | null;
+    providerSubscriptionRef: string | null;
+  };
+  quotaPeriod: {
+    startedAt: string | null;
+    endsAt: string | null;
+    source: "subscription_period" | "calendar_month_fallback" | null;
+  };
+  latestLifecycleEvents: Array<{
+    id: string;
+    eventCode: string;
+    source: string;
+    previousStatus: string | null;
+    nextStatus: string | null;
+    previousPlanCode: string | null;
+    nextPlanCode: string | null;
+    nextPeriodStartedAt: string | null;
+    nextPeriodEndsAt: string | null;
+    createdAt: string;
+  }>;
+  latestNotificationJobs: Array<{
+    id: string;
+    notificationCode: string;
+    channel: "email" | "assistant_notification";
+    status: "pending" | "enqueued" | "skipped" | "failed";
+    scheduledFor: string;
+    recipientEmail: string | null;
+    lastErrorCode: string | null;
+    createdAt: string;
+  }>;
+};
+
+export type BillingSupportAction =
+  | "extend_trial"
+  | "grant_grace"
+  | "extend_grace"
+  | "send_billing_reminder"
+  | "apply_fallback_now"
+  | "restore_paid_manually";
+
+export type BillingSupportActionConfig = {
+  action: BillingSupportAction;
+  label: string;
+  preview: string;
+  confirmLabel: string;
+  tone: "default" | "danger";
 };
 
 /* ------------------------------------------------------------------ */
@@ -106,21 +177,6 @@ function truncateId(value: string | null | undefined): string {
   if (value == null || value === "") return "—";
   if (value.length <= 12) return value;
   return `${value.slice(0, 8)}…${value.slice(-4)}`;
-}
-
-function applyStatusTone(status: string): string {
-  switch (status) {
-    case "succeeded":
-      return "bg-success/15 text-success";
-    case "failed":
-      return "bg-destructive/15 text-destructive";
-    case "in_progress":
-      return "bg-warning/15 text-warning";
-    case "degraded":
-      return "bg-orange-400/15 text-orange-400";
-    default:
-      return "bg-surface text-text-muted";
-  }
 }
 
 function applyStatusBorderTone(status: ApplyStatus): string {
@@ -327,6 +383,145 @@ function sandboxJobTone(status: string): string {
   }
 }
 
+function usageRiskTone(risk: OpsUserRow["billing"]["usageRisk"]): string {
+  switch (risk) {
+    case "high":
+      return "bg-destructive/15 text-destructive";
+    case "elevated":
+      return "bg-warning/15 text-warning";
+    case "ok":
+      return "bg-success/15 text-success";
+    default:
+      return "bg-surface text-text-muted";
+  }
+}
+
+function billingStatusTone(status: string | null | undefined): string {
+  switch (status) {
+    case "active":
+    case "trialing":
+      return "bg-success/15 text-success";
+    case "grace_period":
+    case "past_due":
+      return "bg-warning/15 text-warning";
+    case "expired_fallback":
+    case "expired":
+    case "canceled":
+      return "bg-destructive/15 text-destructive";
+    default:
+      return "bg-surface text-text-muted";
+  }
+}
+
+export function resolveBillingSupportActions(
+  billing: BillingSupportData | null | undefined
+): BillingSupportActionConfig[] {
+  const status = billing?.subscription.status ?? null;
+  if (status === null) {
+    return [];
+  }
+
+  const reminder: BillingSupportActionConfig = {
+    action: "send_billing_reminder",
+    label: "Send billing reminder",
+    preview:
+      "Create billing reminder notification work from admin-triggered lifecycle history without changing the current plan.",
+    confirmLabel: "Send reminder",
+    tone: "default"
+  };
+
+  switch (status) {
+    case "trialing":
+      return [
+        {
+          action: "extend_trial",
+          label: "Extend trial",
+          preview:
+            "Push the trial end forward using the current trial window length and reschedule trial-ending reminder work.",
+          confirmLabel: "Extend trial",
+          tone: "default"
+        },
+        reminder,
+        {
+          action: "apply_fallback_now",
+          label: "Apply fallback now",
+          preview:
+            "End the current trial immediately and move the workspace to the configured fallback plan.",
+          confirmLabel: "Apply fallback",
+          tone: "danger"
+        }
+      ];
+    case "active":
+    case "past_due":
+      return [
+        {
+          action: "grant_grace",
+          label: "Grant grace",
+          preview:
+            "Move the workspace into paid grace using the persisted grace-period policy while keeping paid access active.",
+          confirmLabel: "Grant grace",
+          tone: "default"
+        },
+        reminder,
+        {
+          action: "apply_fallback_now",
+          label: "Apply fallback now",
+          preview:
+            "Move the workspace to the configured paid fallback plan immediately and end paid access now.",
+          confirmLabel: "Apply fallback",
+          tone: "danger"
+        }
+      ];
+    case "grace_period":
+      return [
+        {
+          action: "extend_grace",
+          label: "Extend grace",
+          preview:
+            "Push the grace end forward by the persisted grace-period length while keeping paid access active.",
+          confirmLabel: "Extend grace",
+          tone: "default"
+        },
+        reminder,
+        {
+          action: "apply_fallback_now",
+          label: "Apply fallback now",
+          preview:
+            "End grace immediately and move the workspace to the configured fallback plan now.",
+          confirmLabel: "Apply fallback",
+          tone: "danger"
+        }
+      ];
+    case "expired_fallback":
+      return [
+        {
+          action: "restore_paid_manually",
+          label: "Restore paid manually",
+          preview:
+            "Restore paid access using the most recent paid plan and billing-period shape recorded in lifecycle history.",
+          confirmLabel: "Restore paid",
+          tone: "danger"
+        },
+        reminder
+      ];
+    default:
+      return [reminder];
+  }
+}
+
+function notificationJobTone(status: string): string {
+  switch (status) {
+    case "enqueued":
+      return "bg-success/15 text-success";
+    case "pending":
+      return "bg-blue-500/15 text-blue-300";
+    case "failed":
+      return "bg-destructive/15 text-destructive";
+    default:
+      return "bg-surface text-text-muted";
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Users Directory                                                    */
 /* ------------------------------------------------------------------ */
@@ -406,10 +601,13 @@ function UsersDirectory({
       if (!token) return;
       setReapplyingId(userId);
       try {
-        await fetch(`/api/v1/admin/ops/users/${userId}/reapply`, {
+        const res = await fetch(`/api/v1/admin/ops/users/${userId}/reapply`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` }
         });
+        if (!res.ok) {
+          throw new Error(`Reapply failed with status ${res.status}.`);
+        }
         await load(search.trim(), offset);
       } finally {
         setReapplyingId(null);
@@ -480,11 +678,11 @@ function UsersDirectory({
               <thead>
                 <tr className="border-b border-border text-left text-text-muted">
                   <th className="pb-1.5 pr-2 font-medium">Email</th>
-                  <th className="pb-1.5 pr-2 font-medium">Name</th>
-                  <th className="pb-1.5 pr-2 font-medium">Assistant</th>
-                  <th className="pb-1.5 pr-2 font-medium">Gender</th>
-                  <th className="pb-1.5 pr-2 font-medium">Status</th>
-                  <th className="pb-1.5 pr-2 font-medium">Published</th>
+                  <th className="pb-1.5 pr-2 font-medium">Plan</th>
+                  <th className="pb-1.5 pr-2 font-medium">Billing status</th>
+                  <th className="pb-1.5 pr-2 font-medium">Next date</th>
+                  <th className="pb-1.5 pr-2 font-medium">Usage risk</th>
+                  <th className="pb-1.5 pr-2 font-medium">Actions</th>
                   <th className="pb-1.5 font-medium" />
                 </tr>
               </thead>
@@ -500,41 +698,49 @@ function UsersDirectory({
                   >
                     <td className="max-w-[160px] truncate py-1.5 pr-2 font-mono text-text">
                       {u.email}
+                      {u.displayName ? (
+                        <span className="ml-1 block truncate font-sans text-[9px] text-text-subtle">
+                          {u.displayName}
+                        </span>
+                      ) : null}
                     </td>
-                    <td className="max-w-[100px] truncate py-1.5 pr-2 text-text-muted">
-                      {u.displayName || "—"}
-                    </td>
-                    <td className="py-1.5 pr-2 text-text">
-                      {u.assistant?.draftDisplayName || "—"}
+                    <td className="py-1.5 pr-2 font-mono text-text">{u.billing.planCode ?? "—"}</td>
+                    <td className="py-1.5 pr-2">
+                      <span
+                        className={cn(
+                          "inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                          billingStatusTone(u.billing.status)
+                        )}
+                      >
+                        {(u.billing.status ?? "unknown").replace(/_/g, " ")}
+                      </span>
                     </td>
                     <td className="py-1.5 pr-2 text-text-muted">
-                      {u.assistant?.draftAssistantGender || "—"}
-                    </td>
-                    <td className="py-1.5 pr-2">
-                      {u.assistant ? (
-                        <span
-                          className={cn(
-                            "inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
-                            applyStatusTone(u.assistant.applyStatus)
-                          )}
-                        >
-                          {u.assistant.applyStatus.replace(/_/g, " ")}
-                        </span>
-                      ) : (
-                        <span className="text-text-subtle">—</span>
+                      {formatShortDate(
+                        u.billing.graceEndsAt ??
+                          u.billing.trialEndsAt ??
+                          u.billing.currentPeriodEndsAt
                       )}
                     </td>
-                    <td className="py-1.5 pr-2 text-text-muted">
-                      {u.assistant?.latestPublishedVersion
-                        ? `v${u.assistant.latestPublishedVersion} · ${formatShortDate(u.assistant.lastPublishedAt)}`
-                        : "—"}
+                    <td className="py-1.5 pr-2">
+                      <span
+                        className={cn(
+                          "inline-block rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                          usageRiskTone(u.billing.usageRisk)
+                        )}
+                      >
+                        {u.billing.usageRisk}
+                      </span>
                     </td>
                     <td className="py-1.5 text-right">
                       {u.assistant && (
                         <button
                           type="button"
                           disabled={reapplyingId === u.userId}
-                          onClick={() => void onReapply(u.userId)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void onReapply(u.userId);
+                          }}
                           className="inline-flex cursor-pointer items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[9px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-40"
                         >
                           {reapplyingId === u.userId ? (
@@ -650,7 +856,9 @@ export default function AdminOpsPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [reapplyBusy, setReapplyBusy] = useState(false);
   const [planOverrideBusy, setPlanOverrideBusy] = useState(false);
-  const [workspaceSubscriptionBusy, setWorkspaceSubscriptionBusy] = useState(false);
+  const [billingSupportBusy, setBillingSupportBusy] = useState<BillingSupportAction | null>(null);
+  const [pendingBillingSupportAction, setPendingBillingSupportAction] =
+    useState<BillingSupportActionConfig | null>(null);
   const [selectedPlanCode, setSelectedPlanCode] = useState("");
   const [planSelectionDirty, setPlanSelectionDirty] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -709,6 +917,7 @@ export default function AdminOpsPage() {
       setSelectedUserId(userId);
       setSelectedUserLabel(email);
       setActionMessage(null);
+      setPendingBillingSupportAction(null);
       setPlanSelectionDirty(false);
       void load(userId);
     },
@@ -726,10 +935,13 @@ export default function AdminOpsPage() {
     setReapplyBusy(true);
     try {
       if (selectedUserId) {
-        await fetch(`/api/v1/admin/ops/users/${selectedUserId}/reapply`, {
+        const res = await fetch(`/api/v1/admin/ops/users/${selectedUserId}/reapply`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` }
         });
+        if (!res.ok) {
+          throw new Error(`Reapply failed with status ${res.status}.`);
+        }
       } else {
         await postAssistantReapply(token);
       }
@@ -802,13 +1014,12 @@ export default function AdminOpsPage() {
     }
   }, [cockpit?.controls.assistantPlanResetSupported, getToken, load, selectedUserId]);
 
-  const onApplyWorkspaceSubscription = useCallback(async () => {
+  const onRunBillingSupportAction = useCallback(async () => {
     if (!selectedUserId) {
       setActionMessage("Select a user assistant first.");
       return;
     }
-    if (!selectedPlanCode) {
-      setActionMessage("Choose a target plan first.");
+    if (pendingBillingSupportAction === null) {
       return;
     }
     const token = await getToken();
@@ -816,43 +1027,21 @@ export default function AdminOpsPage() {
       setActionMessage("Not signed in.");
       return;
     }
-    setWorkspaceSubscriptionBusy(true);
+    setBillingSupportBusy(pendingBillingSupportAction.action);
     setActionMessage(null);
     try {
-      await postAdminOpsUserWorkspaceSubscription(token, selectedUserId, {
-        planCode: selectedPlanCode
+      const result = await postAdminOpsUserBillingSupportAction(token, selectedUserId, {
+        action: pendingBillingSupportAction.action
       });
-      setActionMessage("Workspace subscription snapshot applied for live propagation check.");
+      setActionMessage(result.summary);
+      setPendingBillingSupportAction(null);
       await load(selectedUserId);
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : "Failed to apply workspace subscription.");
+      setActionMessage(e instanceof Error ? e.message : "Failed to run billing support action.");
     } finally {
-      setWorkspaceSubscriptionBusy(false);
+      setBillingSupportBusy(null);
     }
-  }, [getToken, load, selectedPlanCode, selectedUserId]);
-
-  const onResetWorkspaceSubscription = useCallback(async () => {
-    if (!selectedUserId) {
-      setActionMessage("Select a user assistant first.");
-      return;
-    }
-    const token = await getToken();
-    if (!token) {
-      setActionMessage("Not signed in.");
-      return;
-    }
-    setWorkspaceSubscriptionBusy(true);
-    setActionMessage(null);
-    try {
-      await deleteAdminOpsUserWorkspaceSubscription(token, selectedUserId);
-      setActionMessage("Workspace subscription snapshot removed.");
-      await load(selectedUserId);
-    } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : "Failed to reset workspace subscription.");
-    } finally {
-      setWorkspaceSubscriptionBusy(false);
-    }
-  }, [getToken, load, selectedUserId]);
+  }, [getToken, load, pendingBillingSupportAction, selectedUserId]);
 
   if (loading && cockpit === null) {
     return (
@@ -863,7 +1052,7 @@ export default function AdminOpsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-2.5 px-1">
+    <div className="mx-auto w-full max-w-[1700px] space-y-2.5 px-2">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Activity className="h-4 w-4 text-accent" />
@@ -882,6 +1071,7 @@ export default function AdminOpsPage() {
                 setSelectedUserId(null);
                 setSelectedUserLabel(null);
                 setActionMessage(null);
+                setPendingBillingSupportAction(null);
                 setPlanSelectionDirty(false);
                 void load(undefined);
               }}
@@ -1127,41 +1317,6 @@ export default function AdminOpsPage() {
                   Reset to normal
                 </button>
               </div>
-              <div className="border-t border-border pt-2">
-                <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-text-subtle">
-                  Workspace subscription
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={!selectedUserId || !selectedPlanCode || workspaceSubscriptionBusy}
-                    onClick={() => void onApplyWorkspaceSubscription()}
-                    className={cn(
-                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                    )}
-                  >
-                    {workspaceSubscriptionBusy ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Users className="h-3 w-3" />
-                    )}
-                    Apply workspace subscription
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!selectedUserId || workspaceSubscriptionBusy}
-                    onClick={() => void onResetWorkspaceSubscription()}
-                    className={cn(
-                      "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      "hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
-                    )}
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    Reset workspace subscription
-                  </button>
-                </div>
-              </div>
               {actionMessage && (
                 <p className="rounded border border-border/60 bg-surface px-2 py-1.5 text-[10px] text-text-muted">
                   {actionMessage}
@@ -1171,6 +1326,229 @@ export default function AdminOpsPage() {
           </div>
 
           {/* --- Row 1.5: Quota & Usage --- */}
+          {(() => {
+            const raw = cockpit as unknown as Record<string, unknown>;
+            const billing = raw.billingSupport as BillingSupportData | null | undefined;
+            if (!billing) return null;
+            const supportActions = resolveBillingSupportActions(billing);
+            return (
+              <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,1.25fr)]">
+                <CardShell title="Billing Support" icon={Gauge}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-text-muted">Status</span>
+                    <span
+                      className={cn(
+                        "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        billingStatusTone(billing.subscription.status)
+                      )}
+                    >
+                      {(billing.subscription.status ?? "unknown").replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <CopyableDetailRow
+                    label="Subscription"
+                    value={truncateId(billing.subscription.id)}
+                    copyValue={billing.subscription.id}
+                  />
+                  <DetailRow label="Plan" value={formatNullable(billing.subscription.planCode)} />
+                  <DetailRow
+                    label="Trial"
+                    value={`${formatTs(billing.subscription.trialStartedAt)} → ${formatTs(billing.subscription.trialEndsAt)}`}
+                  />
+                  <DetailRow
+                    label="Grace"
+                    value={`${formatTs(billing.subscription.graceStartedAt)} → ${formatTs(billing.subscription.graceEndsAt)}`}
+                  />
+                  <DetailRow
+                    label="Paid period"
+                    value={`${formatTs(billing.subscription.currentPeriodStartedAt)} → ${formatTs(billing.subscription.currentPeriodEndsAt)}`}
+                  />
+                  <DetailRow
+                    label="Quota period"
+                    value={`${formatTs(billing.quotaPeriod.startedAt)} → ${formatTs(billing.quotaPeriod.endsAt)} (${billing.quotaPeriod.source ?? "unknown"})`}
+                  />
+                  <DetailRow
+                    label="Cancel at period end"
+                    value={
+                      billing.subscription.cancelAtPeriodEnd === null
+                        ? "—"
+                        : billing.subscription.cancelAtPeriodEnd
+                          ? "Yes"
+                          : "No"
+                    }
+                  />
+                  <CopyableDetailRow
+                    label="Provider customer"
+                    value={truncateId(billing.subscription.providerCustomerRef)}
+                    copyValue={billing.subscription.providerCustomerRef}
+                  />
+                  <CopyableDetailRow
+                    label="Provider subscription"
+                    value={truncateId(billing.subscription.providerSubscriptionRef)}
+                    copyValue={billing.subscription.providerSubscriptionRef}
+                  />
+                </CardShell>
+
+                <CardShell title="Support Actions" icon={AlertTriangle}>
+                  <p className="text-[11px] leading-relaxed text-text-muted">
+                    These actions write through PersAI lifecycle truth and refresh the selected
+                    detail after success. `Reset to normal` above still handles assistant override
+                    reset only.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {supportActions.map((supportAction) => (
+                      <button
+                        key={supportAction.action}
+                        type="button"
+                        disabled={!selectedUserId || billingSupportBusy !== null}
+                        onClick={() => {
+                          setActionMessage(null);
+                          setPendingBillingSupportAction(supportAction);
+                        }}
+                        className={cn(
+                          "rounded border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                          supportAction.tone === "danger"
+                            ? "border-destructive/25 bg-destructive/5 hover:bg-destructive/10"
+                            : "border-border/60 bg-surface-raised hover:bg-surface-hover"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold text-text">
+                            {supportAction.label}
+                          </span>
+                          {billingSupportBusy === supportAction.action ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-text-muted" />
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                          {supportAction.preview}
+                        </p>
+                      </button>
+                    ))}
+                    {supportActions.length === 0 && (
+                      <p className="text-[11px] text-text-muted">
+                        No lifecycle-native support action is available for the current billing
+                        state.
+                      </p>
+                    )}
+                  </div>
+                  {pendingBillingSupportAction && (
+                    <div
+                      className={cn(
+                        "rounded border px-3 py-2",
+                        pendingBillingSupportAction.tone === "danger"
+                          ? "border-destructive/30 bg-destructive/5"
+                          : "border-accent/25 bg-accent/5"
+                      )}
+                    >
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-text-subtle">
+                        Confirm action
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold text-text">
+                        {pendingBillingSupportAction.label}
+                      </p>
+                      <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
+                        {pendingBillingSupportAction.preview}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={!selectedUserId || billingSupportBusy !== null}
+                          onClick={() => void onRunBillingSupportAction()}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
+                            pendingBillingSupportAction.tone === "danger"
+                              ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/15"
+                              : "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15"
+                          )}
+                        >
+                          {billingSupportBusy === pendingBillingSupportAction.action ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : null}
+                          {pendingBillingSupportAction.confirmLabel}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={billingSupportBusy !== null}
+                          onClick={() => setPendingBillingSupportAction(null)}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </CardShell>
+
+                <CardShell title="Lifecycle & Notifications" icon={Activity}>
+                  <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Latest events
+                      </p>
+                      {billing.latestLifecycleEvents.length === 0 ? (
+                        <p className="text-[11px] text-text-muted">No lifecycle events yet.</p>
+                      ) : (
+                        billing.latestLifecycleEvents.slice(0, 4).map((event) => (
+                          <div
+                            key={event.id}
+                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[10px] font-semibold text-text">
+                                {event.eventCode}
+                              </span>
+                              <span className="text-[9px] text-text-subtle">
+                                {formatShortDate(event.createdAt)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-[9px] text-text-muted">
+                              {event.previousStatus ?? "—"} → {event.nextStatus ?? "—"} ·{" "}
+                              {event.previousPlanCode ?? "—"} → {event.nextPlanCode ?? "—"}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                        Notification work
+                      </p>
+                      {billing.latestNotificationJobs.length === 0 ? (
+                        <p className="text-[11px] text-text-muted">No notification jobs yet.</p>
+                      ) : (
+                        billing.latestNotificationJobs.slice(0, 4).map((job) => (
+                          <div
+                            key={job.id}
+                            className="rounded border border-border/60 bg-surface-raised px-2 py-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-[10px] font-semibold text-text">
+                                {job.notificationCode}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase",
+                                  notificationJobTone(job.status)
+                                )}
+                              >
+                                {job.status}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-[9px] text-text-muted">
+                              {job.channel.replace(/_/g, " ")} · {formatTs(job.scheduledFor)}
+                              {job.lastErrorCode ? ` · ${job.lastErrorCode}` : ""}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </CardShell>
+              </div>
+            );
+          })()}
+
           {(() => {
             const raw = cockpit as unknown as Record<string, unknown>;
             const qu = raw.quotaUsage as QuotaUsageData | null | undefined;

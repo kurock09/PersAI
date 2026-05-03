@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminOpsCockpitStateQuotaUsage } from "./adminOpsCockpitStateQuotaUsage";
+import type { AdminOpsCockpitStateBillingSupport } from "./adminOpsCockpitStateBillingSupport";
 import type { AdminOpsCockpitStateChatStats } from "./adminOpsCockpitStateChatStats";
 import type { AdminOpsCockpitChannelBinding } from "./adminOpsCockpitChannelBinding";
 import type { AdminOpsCockpitStateSandbox } from "./adminOpsCockpitStateSandbox";
@@ -16,6 +17,8 @@ import type { AdminOpsIncidentSignal } from "./adminOpsIncidentSignal";
 export interface AdminOpsCockpitState {
   /** @nullable */
   quotaUsage: AdminOpsCockpitStateQuotaUsage;
+  /** @nullable */
+  billingSupport: AdminOpsCockpitStateBillingSupport;
   /** @nullable */
   chatStats: AdminOpsCockpitStateChatStats;
   channels: AdminOpsCockpitChannelBinding[];
