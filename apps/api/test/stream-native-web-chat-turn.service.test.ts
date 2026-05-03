@@ -549,4 +549,64 @@ describe("StreamNativeWebChatTurnService", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("maps provider context-window failures to a distinct runtime code", async () => {
+    setApiEnv();
+    const originalFetch = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        [
+          JSON.stringify({
+            type: "started",
+            requestId: "runtime-request-5",
+            sessionId: "runtime-session-5"
+          }),
+          JSON.stringify({
+            type: "failed",
+            requestId: "runtime-request-5",
+            sessionId: "runtime-session-5",
+            code: "provider_context_window_exceeded",
+            message: "Your input exceeds the context window of this model.",
+            willRetry: false
+          })
+        ].join("\n"),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/x-ndjson"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    try {
+      const service = new StreamNativeWebChatTurnService({
+        findByPublishedVersionId: async () => createMaterializedSpec()
+      } as AssistantMaterializedSpecRepository);
+
+      await assert.rejects(
+        () =>
+          collectChunks(
+            service.execute({
+              assistantId: "assistant-1",
+              publishedVersionId: "version-1",
+              runtimeTier: "paid_shared_restricted",
+              surfaceThreadKey: "thread-1",
+              userId: "user-1",
+              workspaceId: "workspace-1",
+              userMessageId: "user-msg-1",
+              userMessage: "use my skill and uploaded KB",
+              attachments: []
+            })
+          ),
+        (error) =>
+          error instanceof AssistantRuntimeError &&
+          error.code === "runtime_context_window_exceeded" &&
+          error.message === "Your input exceeds the context window of this model."
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

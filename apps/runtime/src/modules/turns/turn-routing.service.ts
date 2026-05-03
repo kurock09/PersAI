@@ -295,7 +295,7 @@ export class TurnRoutingService {
       fallbackMode
     });
     if (precheck.confidence === "high") {
-      return precheck;
+      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
     }
 
     const classifierSelection = this.resolveClassifierProviderSelection(input.bundle);
@@ -309,7 +309,7 @@ export class TurnRoutingService {
       classifierPrompt === null ||
       !this.providerGatewayClientService.isConfigured()
     ) {
-      return precheck;
+      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
     }
 
     try {
@@ -345,46 +345,53 @@ export class TurnRoutingService {
         parsed.retrievalPlan,
         input.bundle
       );
-      return this.createDecision({
-        ...parsed,
-        retrievalPlan: sanitizedRetrievalPlan,
-        executionMode: this.coerceExecutionMode(
-          parsed.executionMode,
-          input.request.deepMode === true
-        ),
-        fallbackMode: this.coerceExecutionMode(
-          parsed.fallbackMode,
-          input.request.deepMode === true
-        ),
-        source: "classifier",
-        mode: policy.mode,
-        usage: result.usage,
-        autoSkillState: this.createAutoSkillStateFromPlan({
-          bundle: input.bundle,
-          request: input.request,
-          plan: sanitizedRetrievalPlan
-        })
-      });
+      const guardedDecision = this.applyGroundedSkillPremiumFloor(
+        this.createDecision({
+          ...parsed,
+          retrievalPlan: sanitizedRetrievalPlan,
+          executionMode: this.coerceExecutionMode(
+            parsed.executionMode,
+            input.request.deepMode === true
+          ),
+          fallbackMode: this.coerceExecutionMode(
+            parsed.fallbackMode,
+            input.request.deepMode === true
+          ),
+          source: "classifier",
+          mode: policy.mode,
+          usage: result.usage,
+          autoSkillState: this.createAutoSkillStateFromPlan({
+            bundle: input.bundle,
+            request: input.request,
+            plan: sanitizedRetrievalPlan
+          })
+        }),
+        input.request
+      );
+      return guardedDecision;
     } catch (error) {
       this.logger.warn(
         `Router classifier failed for assistant ${input.bundle.metadata.assistantId}: ${
           error instanceof Error ? error.message : String(error)
         }`
       );
-      return this.createDecision({
-        executionMode: fallbackMode,
-        retrievalHint: precheck.retrievalHint,
-        toolHints: precheck.toolHints,
-        confidence: "low",
-        clarifyNeeded: precheck.clarifyNeeded,
-        fallbackMode,
-        reasonCode: "classifier_failure",
-        retrievalPlan: precheck.retrievalPlan,
-        source: "fallback",
-        mode: policy.mode,
-        usage: null,
-        autoSkillState: precheck.autoSkillState
-      });
+      return this.applyGroundedSkillPremiumFloor(
+        this.createDecision({
+          executionMode: fallbackMode,
+          retrievalHint: precheck.retrievalHint,
+          toolHints: precheck.toolHints,
+          confidence: "low",
+          clarifyNeeded: precheck.clarifyNeeded,
+          fallbackMode,
+          reasonCode: "classifier_failure",
+          retrievalPlan: precheck.retrievalPlan,
+          source: "fallback",
+          mode: policy.mode,
+          usage: null,
+          autoSkillState: precheck.autoSkillState
+        }),
+        input.request
+      );
     }
   }
 
@@ -1088,6 +1095,34 @@ export class TurnRoutingService {
 
   private createDecision(input: TurnRouteDecision): TurnRouteDecision {
     return input;
+  }
+
+  private applyGroundedSkillPremiumFloor(
+    decision: TurnRouteDecision,
+    request: RuntimeTurnRequest
+  ): TurnRouteDecision {
+    if (decision.executionMode !== "normal") {
+      return decision;
+    }
+    if (!this.isGroundedSkillTurn(decision.retrievalPlan, request)) {
+      return decision;
+    }
+    return {
+      ...decision,
+      executionMode: "premium",
+      reasonCode:
+        decision.reasonCode === "grounded_skill_retrieval_premium_floor"
+          ? decision.reasonCode
+          : `${decision.reasonCode}:grounded_skill_retrieval_premium_floor`
+    };
+  }
+
+  private isGroundedSkillTurn(plan: TurnRetrievalPlan, request: RuntimeTurnRequest): boolean {
+    return (
+      plan.useSkills &&
+      (plan.useUserKnowledge ||
+        request.message.attachments.some((attachment) => attachment.kind === "file"))
+    );
   }
 
   private createEmptyRetrievalPlan(reasonCode: string): TurnRetrievalPlan {

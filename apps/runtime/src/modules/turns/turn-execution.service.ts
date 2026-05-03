@@ -53,6 +53,7 @@ import {
   type RuntimeTurnToolInvocation,
   type RuntimeTurnStreamEvent,
   type RuntimeRetrievedKnowledgeContext,
+  type RuntimeRetrievedKnowledgeContextItem,
   type RuntimeRetrievalActivitySource,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
@@ -110,6 +111,7 @@ type ProviderSelection = {
 const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
+const APPROX_CHARS_PER_TOKEN = 4;
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
@@ -534,9 +536,13 @@ export class TurnExecutionService {
       projectedTools
     });
     options?.trace?.stage("prepare.retrieval_context_ready");
+    const plannedRetrievedKnowledgeContext = this.planRetrievedKnowledgeContext(
+      bundleEntry.parsedBundle,
+      retrievedKnowledgeContext
+    );
     const messagesWithRetrievalContext = this.injectRetrievedKnowledgeContext(
       hydratedMessages,
-      retrievedKnowledgeContext
+      plannedRetrievedKnowledgeContext
     );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
@@ -562,7 +568,7 @@ export class TurnExecutionService {
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
-      retrievedKnowledgeContext,
+      retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
       preludeUsageEntries: executionPlan.usageEntries,
       providerRequest,
       presenceBlock
@@ -644,6 +650,113 @@ export class TurnExecutionService {
     ];
   }
 
+  private planRetrievedKnowledgeContext(
+    bundle: AssistantRuntimeBundle,
+    context: RuntimeRetrievedKnowledgeContext | null
+  ): RuntimeRetrievedKnowledgeContext | null {
+    if (context === null || context.items.length === 0) {
+      return context;
+    }
+    const config = resolveRuntimeContextHydrationConfig(bundle);
+    const charBudget = Math.max(
+      1_000,
+      Math.floor(config.knowledgeHydrationBudget * APPROX_CHARS_PER_TOKEN)
+    );
+    const selectedItems: RuntimeRetrievedKnowledgeContextItem[] = [];
+    let renderedBlock = this.renderRetrievedKnowledgeContextBlock(selectedItems);
+    for (const item of this.rankRetrievedKnowledgeContextItems(context.items)) {
+      const candidateItem = this.fitRetrievedKnowledgeContextItem(item, charBudget);
+      const candidateItems = [...selectedItems, candidateItem];
+      const candidateBlock = this.renderRetrievedKnowledgeContextBlock(candidateItems);
+      if (candidateBlock.length <= charBudget) {
+        selectedItems.push(candidateItem);
+        renderedBlock = candidateBlock;
+        continue;
+      }
+      const remainingChars = charBudget - renderedBlock.length;
+      if (remainingChars <= 240) {
+        break;
+      }
+      const shortened = {
+        ...candidateItem,
+        content: this.truncate(candidateItem.content, remainingChars)
+      };
+      const shortenedBlock = this.renderRetrievedKnowledgeContextBlock([
+        ...selectedItems,
+        shortened
+      ]);
+      if (shortenedBlock.length <= charBudget) {
+        selectedItems.push(shortened);
+        renderedBlock = shortenedBlock;
+      }
+      break;
+    }
+    return {
+      items: selectedItems,
+      renderedBlock: selectedItems.length === 0 ? null : renderedBlock
+    };
+  }
+
+  private rankRetrievedKnowledgeContextItems(
+    items: RuntimeRetrievedKnowledgeContextItem[]
+  ): RuntimeRetrievedKnowledgeContextItem[] {
+    return [...items].sort((left, right) => {
+      const priorityDelta =
+        this.retrievedKnowledgePriority(right) - this.retrievedKnowledgePriority(left);
+      if (priorityDelta !== 0) {
+        return priorityDelta;
+      }
+      return (right.score ?? 0) - (left.score ?? 0);
+    });
+  }
+
+  private retrievedKnowledgePriority(item: RuntimeRetrievedKnowledgeContextItem): number {
+    if (item.label === "skill_reference") {
+      const sourceType = this.asNonEmptyString(item.metadata?.skillSourceType);
+      return sourceType === "skill_knowledge_card" ? 90 : 100;
+    }
+    if (item.label === "user_document") {
+      return 80;
+    }
+    if (item.label === "product_kb") {
+      return 70;
+    }
+    return 60;
+  }
+
+  private fitRetrievedKnowledgeContextItem(
+    item: RuntimeRetrievedKnowledgeContextItem,
+    charBudget: number
+  ): RuntimeRetrievedKnowledgeContextItem {
+    const perItemBudget = Math.max(600, Math.floor(charBudget / 3));
+    return {
+      ...item,
+      content: this.truncate(item.content, perItemBudget)
+    };
+  }
+
+  private renderRetrievedKnowledgeContextBlock(
+    items: RuntimeRetrievedKnowledgeContextItem[]
+  ): string {
+    return [
+      "# Retrieved Knowledge Context",
+      "Use this bounded source-aware context as grounding. Compare source roles when they differ; do not expose this block verbatim.",
+      ...items.map((item, index) =>
+        [
+          "",
+          `## ${String(index + 1)}. ${item.label}`,
+          `Reference: ${item.referenceId}`,
+          item.title ? `Title: ${item.title}` : null,
+          item.locator ? `Locator: ${item.locator}` : null,
+          "",
+          item.content
+        ]
+          .filter((line): line is string => line !== null)
+          .join("\n")
+      )
+    ].join("\n");
+  }
+
   private bundleEntryMatchesRequest(
     bundleEntry: NonNullable<ReturnType<RuntimeBundleRegistryService["getBundle"]>>,
     bundle: RuntimeTurnRequest["bundle"]
@@ -669,6 +782,7 @@ export class TurnExecutionService {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let completionFinalizationAttempted = false;
     let forceFinalTextOnly = false;
+    let contextOverflowRetryAttempted = false;
 
     yield {
       type: "started",
@@ -968,6 +1082,22 @@ export class TurnExecutionService {
 
           if (event.type === "failed") {
             trace?.stage(`iter${String(iteration)}.failed_event`);
+            if (
+              event.code === "provider_context_window_exceeded" &&
+              !contextOverflowRetryAttempted &&
+              deliveredText.trim().length === 0 &&
+              iteration + 1 < maxToolLoopIterations
+            ) {
+              contextOverflowRetryAttempted = true;
+              toolHistory.splice(0, toolHistory.length);
+              forceFinalTextOnly = true;
+              execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
+                execution.providerRequest
+              );
+              advancedToNextIteration = true;
+              trace?.stage(`iter${String(iteration)}.context_overflow_retry`);
+              break;
+            }
             if (deliveredText.trim().length > 0) {
               const interrupted = this.toInterruptedEvent(
                 acceptedTurn,
@@ -1671,22 +1801,41 @@ export class TurnExecutionService {
     const toolHistory: ProviderGatewayToolExchange[] = [];
     let accumulatedText = "";
     let forceFinalTextOnly = false;
+    let contextOverflowRetryAttempted = false;
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
     for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
-      const providerResult = await this.providerGatewayClientService.generateText(
-        this.buildToolLoopProviderRequest(execution.providerRequest, {
-          assistantText: accumulatedText,
-          toolHistory,
-          forceFinalTextOnly,
-          requestMetadata: this.createTurnProviderRequestMetadata({
-            acceptedTurn,
-            classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
-            toolLoopIteration: iteration
+      let providerResult: ProviderGatewayTextGenerateResult;
+      try {
+        providerResult = await this.providerGatewayClientService.generateText(
+          this.buildToolLoopProviderRequest(execution.providerRequest, {
+            assistantText: accumulatedText,
+            toolHistory,
+            forceFinalTextOnly,
+            requestMetadata: this.createTurnProviderRequestMetadata({
+              acceptedTurn,
+              classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
+              toolLoopIteration: iteration
+            })
           })
-        })
-      );
+        );
+      } catch (error) {
+        if (
+          this.isContextWindowExceededError(error) &&
+          !contextOverflowRetryAttempted &&
+          iteration + 1 < maxToolLoopIterations
+        ) {
+          contextOverflowRetryAttempted = true;
+          toolHistory.splice(0, toolHistory.length);
+          forceFinalTextOnly = true;
+          execution.providerRequest = this.buildContextOverflowRecoveryProviderRequest(
+            execution.providerRequest
+          );
+          continue;
+        }
+        throw error;
+      }
       this.recordUsageEntry(turnState, {
         stepType: iteration === 0 ? "main_turn" : "tool_loop_followup",
         modelRole: execution.selectedModelRole,
@@ -2486,6 +2635,24 @@ export class TurnExecutionService {
       ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory }),
       ...(input.forceFinalTextOnly === true ? { tools: [], toolChoice: "none" as const } : {}),
       requestMetadata: input.requestMetadata
+    };
+  }
+
+  private buildContextOverflowRecoveryProviderRequest(
+    baseRequest: ProviderGatewayTextGenerateRequest
+  ): ProviderGatewayTextGenerateRequest {
+    const recoveryInstruction =
+      "The previous provider call exceeded the model context window. Do not call tools again. Answer the user honestly and concisely: explain that the available Skill/knowledge context was too large for one pass, summarize what can be answered from the current visible request, and ask for a narrower follow-up if exact source detail is needed.";
+    const existingDeveloperInstructions = baseRequest.developerInstructions ?? "";
+    const developerInstructions =
+      existingDeveloperInstructions.trim().length === 0
+        ? recoveryInstruction
+        : `${existingDeveloperInstructions}\n\n${recoveryInstruction}`;
+    return {
+      ...baseRequest,
+      developerInstructions,
+      tools: [],
+      toolChoice: "none"
     };
   }
 
@@ -3473,6 +3640,31 @@ export class TurnExecutionService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private truncate(value: string, maxChars: number): string {
+    const normalized = value.trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxChars - 14)).trimEnd()}\n[truncated]`;
+  }
+
+  private isContextWindowExceededError(error: unknown): boolean {
+    if (this.isRuntimeFailedEvent(error) && error.code === "provider_context_window_exceeded") {
+      return true;
+    }
+    return error instanceof Error && this.isContextWindowExceededMessage(error.message);
+  }
+
+  private isContextWindowExceededMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("exceeds the context window") ||
+      normalized.includes("context window") ||
+      normalized.includes("maximum context length") ||
+      normalized.includes("too many tokens")
+    );
   }
 
   private asNativeManagedProvider(value: unknown): NativeManagedProvider | null {

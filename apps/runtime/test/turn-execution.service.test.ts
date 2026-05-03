@@ -17,6 +17,7 @@ import type {
   ProviderGatewayVideoGenerateRequest,
   ProviderGatewayVideoGenerateResult,
   RuntimeKnowledgeAccessConfig,
+  RuntimeRetrievedKnowledgeContext,
   RuntimeBrowserConfig,
   RuntimeCompactionResult,
   ProviderGatewayTextGenerateRequest,
@@ -1164,7 +1165,7 @@ class FakePersaiInternalApiClientService {
   reminderTaskControlError: Error | null = null;
   memoryWriteError: Error | null = null;
   orchestrateRetrievalCalls: Array<Record<string, unknown>> = [];
-  orchestrateRetrievalOutcome = {
+  orchestrateRetrievalOutcome: RuntimeRetrievedKnowledgeContext = {
     items: [
       {
         label: "user_document" as const,
@@ -2656,6 +2657,166 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[retrievalHintPlannerOffset]?.systemPrompt ?? "",
     /Assistant knowledge retrieval is likely needed before answering/
   );
+
+  if (bundleRegistry.entry !== null) {
+    const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
+      .runtimeProviderRouting as Record<string, unknown>;
+    bundleRegistry.entry.parsedBundle.runtime.runtimeProviderRouting = {
+      ...runtimeProviderRouting,
+      modelSlots: {
+        normalReply: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4-mini"
+        },
+        premiumReply: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4-pro"
+        },
+        reasoning: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4-thinking"
+        },
+        systemTool: {
+          providerKey: "openai",
+          modelKey: "gpt-4.1"
+        },
+        retrieval: {
+          providerKey: "openai",
+          modelKey: "gpt-4.1-mini"
+        }
+      }
+    };
+    bundleRegistry.entry.parsedBundle.skills = {
+      enabled: [
+        {
+          id: "skill-diet",
+          name: "Dietitian",
+          description: "Nutrition planning",
+          category: "personal",
+          tags: ["nutrition"],
+          iconEmoji: "🥦",
+          routingExamples: ["Explain nutrition principles"]
+        }
+      ]
+    };
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration = {
+      ...bundleRegistry.entry.parsedBundle.runtime.contextHydration,
+      knowledgeHydrationBudget: 300
+    };
+  }
+  persaiInternalApiClientService.orchestrateRetrievalOutcome = {
+    items: [
+      {
+        label: "user_document" as const,
+        referenceId: "document:user-kb",
+        title: "Large user KB",
+        locator: null,
+        content: "user knowledge ".repeat(500),
+        score: 0.9,
+        metadata: { source: "document" }
+      },
+      {
+        label: "skill_reference" as const,
+        referenceId: "skill:skill-diet:doc:1",
+        title: "Dietitian guide",
+        locator: "chunk 1",
+        content: "skill grounded exact nutrition facts ".repeat(500),
+        score: 0.95,
+        metadata: { skillId: "skill-diet", skillSourceType: "skill_document" }
+      }
+    ],
+    renderedBlock: "# Retrieved Knowledge Context\n" + "oversized ".repeat(2_000)
+  };
+  const groundedSkillRequest = createRuntimeTurnRequest();
+  groundedSkillRequest.bundle.bundleHash = request.bundle.bundleHash;
+  groundedSkillRequest.message.text = "Explain nutrition principles using my uploaded plan.";
+  groundedSkillRequest.skillRoutingContext = {
+    state: null,
+    currentUserMessageIndex: 8,
+    recentMessages: [{ role: "user", text: groundedSkillRequest.message.text }],
+    forceCheck: true
+  };
+  turnContextHydrationService.messages = [
+    {
+      role: "user",
+      content: groundedSkillRequest.message.text
+    }
+  ];
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    groundedSkillRequest.bundle.bundleHash;
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-4.1",
+      text: JSON.stringify({
+        executionMode: "normal",
+        retrievalHint: true,
+        toolHints: "knowledge",
+        confidence: "high",
+        clarifyNeeded: false,
+        fallbackMode: "normal",
+        reasonCode: "classifier_grounded_skill",
+        retrievalPlan: {
+          useSkills: true,
+          selectedSkillIds: ["skill-diet"],
+          useUserKnowledge: true,
+          useProductKnowledge: false,
+          useWeb: false,
+          confidence: "high",
+          reasonCode: "classifier_grounded_skill"
+        }
+      }),
+      respondedAt: "2026-04-11T12:00:04.000Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-4.1",
+        inputTokens: 5,
+        outputTokens: 3,
+        totalTokens: 8
+      },
+      stopReason: "completed",
+      toolCalls: []
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4-pro",
+      text: "grounded premium reply",
+      respondedAt: "2026-04-11T12:00:04.100Z",
+      usage: {
+        providerKey: "openai",
+        modelKey: "gpt-5.4-pro",
+        inputTokens: 30,
+        outputTokens: 20,
+        totalTokens: 50
+      },
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const groundedSkillOffset = providerGatewayClient.calls.length;
+  const groundedSkillCompleted = await service.createTurn(groundedSkillRequest);
+  assert.equal(groundedSkillCompleted.assistantText, "grounded premium reply");
+  assert.equal(providerGatewayClient.calls[groundedSkillOffset + 1]?.model, "gpt-5.4-pro");
+  assert.equal(
+    groundedSkillCompleted.usageAccounting?.entries.some(
+      (entry) => entry.modelRole === "premium_reply"
+    ),
+    true
+  );
+  const plannedRetrievalBlock = String(
+    providerGatewayClient.calls[groundedSkillOffset + 1]?.messages[0]?.content ?? ""
+  );
+  assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
+  assert.ok(plannedRetrievalBlock.length <= 1_250);
+  if (bundleRegistry.entry !== null) {
+    bundleRegistry.entry.parsedBundle.skills = { enabled: [] };
+    bundleRegistry.entry.parsedBundle.runtime.contextHydration = {
+      ...bundleRegistry.entry.parsedBundle.runtime.contextHydration,
+      knowledgeHydrationBudget: 2400
+    };
+  }
+
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     retrievalHintRequest.bundle.bundleHash;

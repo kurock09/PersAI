@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-079 grounded Skill/user-KB routing guard) — heavy grounded turns avoid mini-model context overflow (`apps/runtime`, `apps/api`, `apps/provider-gateway`; focused checks green)
+
+### What changed
+
+- Investigated the live failure pattern where a Skill turn with user KB context selected the normal/mini reply path and later failed on provider context-window overflow.
+- Added a production routing guard after classifier sanitization: if a turn uses selected Skills together with user KB or file attachments, runtime raises `normal` to `premium` while preserving the existing classifier plan and leaving ordinary no-Skill/no-retrieval turns on the normal path.
+- Added runtime context planning for injected `Retrieved Knowledge Context`: the runtime rebuilds and prioritizes source-aware context under the plan-managed `knowledgeHydrationBudget` instead of relying only on a fixed rendered block.
+- Added one provider context-overflow recovery pass that disables further tools and asks the model to answer honestly/briefly when the gathered Skill/knowledge context is too large for one pass.
+- Mapped OpenAI context-window overflow to `provider_context_window_exceeded` in provider-gateway and then to API `runtime_context_window_exceeded`, so this class is no longer masked as generic `runtime_unreachable`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+
+### Next recommended step
+
+Run full AGENTS gates, deploy, then retry assistant `275e2382-cb4e-41d8-98da-fe04d4569f55` on the same Skill + user KB scenario. Expected routing: `executionMode=premium`, selected Skill remains active, user-private KB remains workspace/assistant-scoped, and context-window overflow should either recover with an honest model answer or surface `runtime_context_window_exceeded`.
+
+---
+
 ## 2026-05-03 (Global admin Knowledge ownership) — Skill/Product/global KB are platform-owned shared bases (`apps/api`, docs; focused checks green)
 
 ### What changed

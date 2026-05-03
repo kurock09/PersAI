@@ -23,6 +23,23 @@ For production slices that touch API contracts, runtime behavior, or shared cont
 corepack pnpm run test
 ```
 
+## ADR-079 grounded Skill/user-KB routing focused checks
+
+When a change touches Skill routing, orchestrated retrieval context injection, model-role selection, or provider context-window failure mapping, add focused checks that prove:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts
+```
+
+Interpretation rules:
+
+1. A turn that combines selected Skills with user KB or current file context should not stay on `normal_reply`; it should route to at least `premium_reply` through configured model slots.
+2. Users without enabled Skills and without grounded retrieval should keep existing normal/simple routing.
+3. Retrieved context must be planned against `runtime.contextHydration.knowledgeHydrationBudget` rather than expanded until the provider rejects the request.
+4. Provider context-window errors must surface as a distinct context-window class, not generic runtime unreachable.
+
 ## ADR-080 admin Knowledge authoring focused checks
 
 When a change implements ADR-080 Skill knowledge cards, Product KB text entries, or assistant-assisted admin authoring, add focused checks for the touched area before broad verification:

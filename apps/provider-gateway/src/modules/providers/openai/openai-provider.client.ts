@@ -34,6 +34,7 @@ const OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 const MAX_OPENAI_IMAGE_GENERATION_TIMEOUT_MS = 240_000;
 const OPENAI_VIDEO_GENERATION_TIMEOUT_MS = 300_000;
 const OPENAI_VIDEO_POLL_INTERVAL_MS = 2_000;
+const OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE = "provider_context_window_exceeded";
 type OpenAIResponseCreateParams = Parameters<OpenAI["responses"]["create"]>[0];
 type OpenAINonStreamingCreateParams = Exclude<OpenAIResponseCreateParams, { stream: true }>;
 type OpenAIResponseInputParam = NonNullable<OpenAINonStreamingCreateParams["input"]>;
@@ -702,11 +703,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         }
 
         if (event?.type === "error") {
+          const message =
+            typeof event.message === "string" ? event.message : "OpenAI provider stream failed.";
           const failedEvent: ProviderGatewayTextFailedEvent = {
             type: "failed",
-            code: typeof event.code === "string" ? event.code : "provider_stream_error",
-            message:
-              typeof event.message === "string" ? event.message : "OpenAI provider stream failed."
+            code: this.isContextWindowExceededMessage(message)
+              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
+              : typeof event.code === "string"
+                ? event.code
+                : "provider_stream_error",
+            message
           };
           yield failedEvent;
           return;
@@ -715,13 +721,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         if (event?.type === "response.failed" || event?.type === "response.incomplete") {
           const response = this.asObject(event.response);
           const error = this.asObject(response?.error);
+          const message =
+            typeof error?.message === "string"
+              ? error.message
+              : "OpenAI provider stream did not complete successfully.";
           const failedEvent: ProviderGatewayTextFailedEvent = {
             type: "failed",
-            code: "provider_stream_failed",
-            message:
-              typeof error?.message === "string"
-                ? error.message
-                : "OpenAI provider stream did not complete successfully."
+            code: this.isContextWindowExceededMessage(message)
+              ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
+              : "provider_stream_failed",
+            message
           };
           yield failedEvent;
           return;
@@ -748,7 +757,10 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       }
       const failedEvent: ProviderGatewayTextFailedEvent = {
         type: "failed",
-        code: "provider_stream_failed",
+        code:
+          error instanceof Error && this.isContextWindowExceededMessage(error.message)
+            ? OPENAI_CONTEXT_WINDOW_EXCEEDED_CODE
+            : "provider_stream_failed",
         message: error instanceof Error ? error.message : "OpenAI provider stream failed."
       };
       yield failedEvent;
@@ -1063,6 +1075,16 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private isContextWindowExceededMessage(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes("exceeds the context window") ||
+      normalized.includes("context window") ||
+      normalized.includes("maximum context length") ||
+      normalized.includes("too many tokens")
+    );
   }
 
   private resolveApiKey(apiKey?: string): string {

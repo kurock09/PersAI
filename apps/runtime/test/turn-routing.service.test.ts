@@ -458,8 +458,60 @@ async function run(): Promise<void> {
     projectedTools
   });
   assert.equal(metadataSkillMatchDecision.source, "classifier");
+  assert.equal(metadataSkillMatchDecision.executionMode, "premium");
+  assert.match(metadataSkillMatchDecision.reasonCode, /grounded_skill_retrieval_premium_floor/);
   assert.deepEqual(metadataSkillMatchDecision.retrievalPlan.selectedSkillIds, ["skill-dietitian"]);
   assert.equal(providerGatewayClient.calls.length, 3);
+
+  providerGatewayClient.result = {
+    ...skillClassifierResult,
+    text: JSON.stringify({
+      executionMode: "normal",
+      retrievalHint: false,
+      toolHints: "none",
+      confidence: "high",
+      clarifyNeeded: false,
+      fallbackMode: "normal",
+      reasonCode: "classifier_no_retrieval",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: false,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "low",
+        reasonCode: "classifier_no_retrieval"
+      }
+    })
+  };
+  const ordinaryNoSkillDecision = await service.decide({
+    bundle: createBundle(undefined, false),
+    request: createRequest("Please tell me a short friendly fact about coffee."),
+    projectedTools
+  });
+  assert.equal(ordinaryNoSkillDecision.executionMode, "normal");
+  assert.equal(ordinaryNoSkillDecision.retrievalPlan.useSkills, false);
+  providerGatewayClient.result = {
+    ...skillClassifierResult,
+    text: JSON.stringify({
+      executionMode: "normal",
+      retrievalHint: true,
+      toolHints: "knowledge",
+      confidence: "high",
+      clarifyNeeded: false,
+      fallbackMode: "normal",
+      reasonCode: "classifier_result",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-dietitian"],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "classifier_skill_plan"
+      }
+    })
+  };
 
   const assistantContextSkillMatchDecision = await service.decide({
     bundle: createBundle(undefined, true, [
@@ -518,6 +570,42 @@ async function run(): Promise<void> {
   assert.equal(stickySkillDecision.autoSkillState?.messageCountSinceCheck, 3);
   assert.equal(providerGatewayClient.calls.length, 4);
 
+  const stickySkillWithFileRequest = withSkillRoutingContext(createRequest("Use this file too."), {
+    state: {
+      status: "active",
+      activeSkillId: "skill-accounting",
+      activeSkillName: "Accountant",
+      topicSummary: "quarterly tax categories",
+      confidence: "high",
+      checkedAtMessageIndex: 4,
+      messageCountSinceCheck: 1
+    },
+    currentUserMessageIndex: 5,
+    recentMessages: [{ role: "user", text: "Use this file too." }]
+  });
+  stickySkillWithFileRequest.message.attachments = [
+    {
+      attachmentId: "attachment-1",
+      kind: "file",
+      objectKey: "assistant-media/assistants/assistant-1/uploads/tax.pdf",
+      mimeType: "application/pdf",
+      filename: "tax.pdf",
+      sizeBytes: 1024,
+      fileRef: "file-1"
+    }
+  ];
+  const stickySkillWithFileDecision = await service.decide({
+    bundle: createBundle(),
+    request: stickySkillWithFileRequest,
+    projectedTools
+  });
+  assert.equal(stickySkillWithFileDecision.source, "classifier");
+  assert.equal(stickySkillWithFileDecision.executionMode, "premium");
+  assert.deepEqual(stickySkillWithFileDecision.retrievalPlan.selectedSkillIds, [
+    "skill-accounting"
+  ]);
+  assert.equal(providerGatewayClient.calls.length, 5);
+
   providerGatewayClient.result = {
     ...skillClassifierResult,
     text: JSON.stringify({
@@ -568,7 +656,7 @@ async function run(): Promise<void> {
   assert.equal(driftRecheckDecision.autoSkillState?.checkedAtMessageIndex, 9);
   assert.equal(driftRecheckDecision.autoSkillState?.messageCountSinceCheck, 0);
   assert.match(
-    String(providerGatewayClient.calls[4]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
     /Current auto Skill state: status=active/
   );
   providerGatewayClient.result = skillClassifierResult;
@@ -585,7 +673,7 @@ async function run(): Promise<void> {
   });
   assert.equal(noSkillsDecision.source, "precheck");
   assert.equal(noSkillsDecision.reasonCode, "simple_turn");
-  assert.equal(providerGatewayClient.calls.length, 5);
+  assert.equal(providerGatewayClient.calls.length, 6);
 
   const ambiguousDecision = await service.decide({
     bundle: createBundle(),
@@ -605,19 +693,19 @@ async function run(): Promise<void> {
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
-  assert.equal(providerGatewayClient.calls.length, 6);
-  assert.equal(providerGatewayClient.calls[5]?.requestMetadata?.classification, "turn_routing");
-  assert.equal(providerGatewayClient.calls[5]?.outputSchema?.name, "turn_route_decision");
+  assert.equal(providerGatewayClient.calls.length, 7);
+  assert.equal(providerGatewayClient.calls[6]?.requestMetadata?.classification, "turn_routing");
+  assert.equal(providerGatewayClient.calls[6]?.outputSchema?.name, "turn_route_decision");
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[6]?.messages[0]?.content ?? ""),
     /Recent conversation tail/
   );
   assert.match(
-    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[6]?.messages[0]?.content ?? ""),
     /Current user message:/
   );
   assert.match(
-    String(providerGatewayClient.calls[5]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[6]?.messages[0]?.content ?? ""),
     /Enabled Skills summary: id=skill-accounting/
   );
   assert.doesNotMatch(

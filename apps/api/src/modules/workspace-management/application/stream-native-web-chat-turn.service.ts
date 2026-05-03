@@ -565,6 +565,9 @@ export class StreamNativeWebChatTurnService {
     if (event.code.includes("timeout")) {
       return new AssistantRuntimeError("timeout", event.message);
     }
+    if (event.code === "provider_context_window_exceeded") {
+      return new AssistantRuntimeError("runtime_context_window_exceeded", event.message);
+    }
     if (
       event.code === "runtime_bundle_missing" ||
       event.code === "runtime_bundle_hash_mismatch" ||

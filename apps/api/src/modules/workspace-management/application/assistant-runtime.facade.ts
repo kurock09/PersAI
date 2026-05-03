@@ -11,6 +11,7 @@ export type AssistantRuntimeErrorCode =
   | "timeout"
   | "invalid_response"
   | "runtime_degraded"
+  | "runtime_context_window_exceeded"
   | "compaction_unavailable";
 
 export class AssistantRuntimeError extends Error {
