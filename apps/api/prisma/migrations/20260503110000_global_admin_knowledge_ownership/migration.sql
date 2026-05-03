@@ -162,6 +162,12 @@ duplicate_baseline_entries AS (
 DELETE FROM product_knowledge_text_entries
 WHERE id IN (SELECT id FROM duplicate_baseline_entries);
 
+ALTER TABLE "knowledge_indexing_jobs"
+  ALTER COLUMN "workspace_id" DROP NOT NULL;
+
+ALTER TABLE "knowledge_vector_chunks"
+  ALTER COLUMN "workspace_id" DROP NOT NULL;
+
 UPDATE knowledge_indexing_jobs
 SET workspace_id = NULL
 WHERE source_type IN (
@@ -291,12 +297,6 @@ ALTER TABLE "skill_knowledge_cards"
 ALTER TABLE "skill_knowledge_card_chunks"
   DROP CONSTRAINT IF EXISTS "skill_knowledge_card_chunks_workspace_id_fkey",
   DROP COLUMN IF EXISTS "workspace_id";
-
-ALTER TABLE "knowledge_indexing_jobs"
-  ALTER COLUMN "workspace_id" DROP NOT NULL;
-
-ALTER TABLE "knowledge_vector_chunks"
-  ALTER COLUMN "workspace_id" DROP NOT NULL;
 
 CREATE INDEX "product_knowledge_text_entries_lifecycle_created_idx"
   ON "product_knowledge_text_entries"("lifecycle_status", "created_at" DESC);
