@@ -2443,9 +2443,7 @@ export class ReadAssistantKnowledgeService {
     const queryInfo = buildSearchQueryInfo(normalizedQuery);
     const rows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
       where: {
-        workspaceId: assistant.workspaceId,
         globalKnowledgeSource: {
-          workspaceId: assistant.workspaceId,
           status: "ready"
         },
         OR: queryInfo.searchTerms.flatMap((term) => [
@@ -2548,10 +2546,8 @@ export class ReadAssistantKnowledgeService {
     if (queryEmbedding !== null && resolvedEmbeddingModelKey !== null) {
       const vectorRows = (await this.prisma.globalKnowledgeSourceChunk.findMany({
         where: {
-          workspaceId: assistant.workspaceId,
           embeddingModelKey: resolvedEmbeddingModelKey,
           globalKnowledgeSource: {
-            workspaceId: assistant.workspaceId,
             status: "ready"
           }
         },
@@ -2634,7 +2630,6 @@ export class ReadAssistantKnowledgeService {
       return left.row.chunkIndex - right.row.chunkIndex;
     });
     const productTextEntryHits = await this.searchProductKnowledgeTextEntries({
-      workspaceId: assistant.workspaceId,
       queryInfo,
       maxResults: resolveMaxResults(
         input.maxResults,
@@ -2691,15 +2686,12 @@ export class ReadAssistantKnowledgeService {
   }
 
   private async searchProductKnowledgeTextEntries(input: {
-    workspaceId: string;
     queryInfo: SearchQueryInfo;
     maxResults: number;
   }): Promise<RuntimeKnowledgeSearchHit[]> {
     const rows = (await this.prisma.productKnowledgeTextEntryChunk.findMany({
       where: {
-        workspaceId: input.workspaceId,
         textEntry: {
-          workspaceId: input.workspaceId,
           status: "ready",
           lifecycleStatus: "active"
         },
@@ -2813,9 +2805,7 @@ export class ReadAssistantKnowledgeService {
         globalKnowledgeSourceId: reference.globalKnowledgeSourceId,
         sourceVersion: reference.sourceVersion,
         chunkIndex: reference.chunkIndex,
-        workspaceId: assistant.workspaceId,
         globalKnowledgeSource: {
-          workspaceId: assistant.workspaceId,
           status: "ready"
         }
       },
@@ -2837,7 +2827,6 @@ export class ReadAssistantKnowledgeService {
       where: {
         globalKnowledgeSourceId: reference.globalKnowledgeSourceId,
         sourceVersion: reference.sourceVersion,
-        workspaceId: assistant.workspaceId,
         chunkIndex: {
           gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
           lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
@@ -2891,9 +2880,7 @@ export class ReadAssistantKnowledgeService {
         textEntryId: reference.textEntryId,
         sourceVersion: reference.sourceVersion,
         chunkIndex: reference.chunkIndex,
-        workspaceId: assistant.workspaceId,
         textEntry: {
-          workspaceId: assistant.workspaceId,
           status: "ready",
           lifecycleStatus: "active"
         }
@@ -2916,13 +2903,11 @@ export class ReadAssistantKnowledgeService {
       where: {
         textEntryId: reference.textEntryId,
         sourceVersion: reference.sourceVersion,
-        workspaceId: assistant.workspaceId,
         chunkIndex: {
           gte: Math.max(0, reference.chunkIndex - retrievalPolicy.knowledgeFetchWindowRadius),
           lte: reference.chunkIndex + retrievalPolicy.knowledgeFetchWindowRadius
         },
         textEntry: {
-          workspaceId: assistant.workspaceId,
           status: "ready",
           lifecycleStatus: "active"
         }

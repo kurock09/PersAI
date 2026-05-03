@@ -67,7 +67,7 @@ export type NormalizedKnowledgeSource = {
   sourceType: KnowledgeSourceType;
   sourceId: string;
   sourceVersion: number;
-  workspaceId: string;
+  workspaceId: string | null;
   assistantId?: string | null;
   skillId?: string | null;
   provenance: KnowledgeSourceProvenance;
@@ -79,7 +79,7 @@ export type NormalizedKnowledgeChunk = {
   sourceType: KnowledgeSourceType;
   sourceId: string;
   sourceVersion: number;
-  workspaceId: string;
+  workspaceId: string | null;
   assistantId?: string | null;
   skillId?: string | null;
   chunkIndex: number;

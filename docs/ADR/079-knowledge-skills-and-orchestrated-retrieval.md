@@ -87,7 +87,7 @@ A Skill is a first-class admin-created professional capability, for example "Acc
 
 A Skill is not a prompt preset, not a tool, and not a legacy `GlobalKnowledgeSource.scope=skill` row.
 
-Skills are a platform-wide admin catalog in the first version, not tenant/workspace-local product truth. Any `active` admin-created Skill is available for every user's assistant to select, subject to plan limits and the user's explicit assignment choice. Workspace ids on backing rows are ownership/audit provenance for the admin who created the Skill and must not hide active Skills from other assistants.
+Skills are a platform-wide admin catalog in the first version, not tenant/workspace-local product truth. Any `active` admin-created Skill is available for every user's assistant to select, subject to plan limits and the user's explicit assignment choice. Skill backing rows, documents, chunks, indexing jobs, and vectors are platform/admin-managed shared KB state and must not be hidden by the consuming assistant workspace.
 
 The first version uses:
 

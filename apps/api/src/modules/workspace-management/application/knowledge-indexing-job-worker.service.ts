@@ -32,7 +32,7 @@ const LAST_ERROR_MAX_CHARS = 1_000;
 
 type ClaimedKnowledgeIndexingJob = {
   id: string;
-  workspaceId: string;
+  workspaceId: string | null;
   assistantId: string | null;
   skillId: string | null;
   requestedByUserId: string | null;
@@ -108,7 +108,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
   }
 
   async enqueueSourceJob(input: {
-    workspaceId: string;
+    workspaceId?: string | null;
     sourceType: KnowledgeSourceType;
     sourceId: string;
     sourceVersion: number;
@@ -120,7 +120,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
   }) {
     return this.prisma.knowledgeIndexingJob.create({
       data: {
-        workspaceId: input.workspaceId,
+        workspaceId: input.workspaceId ?? null,
         assistantId: input.assistantId ?? null,
         skillId: input.skillId ?? null,
         requestedByUserId: input.requestedByUserId ?? null,
@@ -176,7 +176,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
       const rows = await tx.$queryRaw<
         Array<{
           id: string;
-          workspaceId: string;
+          workspaceId: string | null;
           assistantId: string | null;
           skillId: string | null;
           requestedByUserId: string | null;
@@ -314,7 +314,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           sourceType: job.sourceType,
           sourceId: source.id,
           sourceVersion: job.sourceVersion,
-          workspaceId: source.workspaceId,
+          workspaceId: null,
           assistantId: source.assistantId,
           skillId: null,
           provenance: {
@@ -363,7 +363,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           sourceType: job.sourceType,
           sourceId: source.id,
           sourceVersion: job.sourceVersion,
-          workspaceId: source.workspaceId,
+          workspaceId: null,
           assistantId: null,
           skillId: null,
           provenance: {
@@ -423,7 +423,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           sourceType: job.sourceType,
           sourceId: source.id,
           sourceVersion: job.sourceVersion,
-          workspaceId: source.workspaceId,
+          workspaceId: null,
           assistantId: null,
           skillId: null,
           provenance: {
@@ -490,7 +490,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           sourceType: job.sourceType,
           sourceId: source.id,
           sourceVersion: job.sourceVersion,
-          workspaceId: source.workspaceId,
+          workspaceId: null,
           assistantId: null,
           skillId: source.skillId,
           provenance: {
@@ -548,7 +548,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         sourceType: job.sourceType,
         sourceId: source.id,
         sourceVersion: job.sourceVersion,
-        workspaceId: source.workspaceId,
+        workspaceId: null,
         assistantId: null,
         skillId: source.skillId,
         provenance: {
@@ -655,7 +655,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
     if (input.job.sourceType === "global_knowledge_source") {
       const source = await this.prisma.globalKnowledgeSource.findUniqueOrThrow({
         where: { id: input.job.sourceId },
-        select: { workspaceId: true, scope: true }
+        select: { scope: true }
       });
       await this.prisma.$transaction(async (tx) => {
         await tx.globalKnowledgeSourceChunk.deleteMany({
@@ -664,7 +664,6 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         await tx.globalKnowledgeSourceChunk.createMany({
           data: input.chunks.map((chunk) => ({
             globalKnowledgeSourceId: input.job.sourceId,
-            workspaceId: source.workspaceId,
             scope: source.scope,
             sourceVersion: input.job.sourceVersion,
             chunkIndex: chunk.chunkIndex,
@@ -697,9 +696,9 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
     }
 
     if (input.job.sourceType === "product_knowledge_text_entry") {
-      const source = await this.prisma.productKnowledgeTextEntry.findUniqueOrThrow({
+      await this.prisma.productKnowledgeTextEntry.findUniqueOrThrow({
         where: { id: input.job.sourceId },
-        select: { workspaceId: true }
+        select: { id: true }
       });
       await this.prisma.$transaction(async (tx) => {
         await tx.productKnowledgeTextEntryChunk.deleteMany({
@@ -708,7 +707,6 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         await tx.productKnowledgeTextEntryChunk.createMany({
           data: input.chunks.map((chunk) => ({
             textEntryId: input.job.sourceId,
-            workspaceId: source.workspaceId,
             sourceVersion: input.job.sourceVersion,
             chunkIndex: chunk.chunkIndex,
             locator: chunk.locator,
@@ -742,7 +740,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
     if (input.job.sourceType === "skill_knowledge_card") {
       const source = await this.prisma.skillKnowledgeCard.findUniqueOrThrow({
         where: { id: input.job.sourceId },
-        select: { skillId: true, workspaceId: true }
+        select: { skillId: true }
       });
       await this.prisma.$transaction(async (tx) => {
         await tx.skillKnowledgeCardChunk.deleteMany({
@@ -752,7 +750,6 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
           data: input.chunks.map((chunk) => ({
             skillKnowledgeCardId: input.job.sourceId,
             skillId: source.skillId,
-            workspaceId: source.workspaceId,
             sourceVersion: input.job.sourceVersion,
             chunkIndex: chunk.chunkIndex,
             locator: chunk.locator,
@@ -781,7 +778,7 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
 
     const source = await this.prisma.skillDocument.findUniqueOrThrow({
       where: { id: input.job.sourceId },
-      select: { skillId: true, workspaceId: true }
+      select: { skillId: true }
     });
     await this.prisma.$transaction(async (tx) => {
       await tx.skillDocumentChunk.deleteMany({
@@ -791,7 +788,6 @@ export class KnowledgeIndexingJobWorkerService implements OnModuleInit, OnModule
         data: input.chunks.map((chunk) => ({
           skillDocumentId: input.job.sourceId,
           skillId: source.skillId,
-          workspaceId: source.workspaceId,
           sourceVersion: input.job.sourceVersion,
           chunkIndex: chunk.chunkIndex,
           locator: chunk.locator,

@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { ConflictException } from "@nestjs/common";
 import { ManageAdminKnowledgeSourcesService } from "../src/modules/workspace-management/application/manage-admin-knowledge-sources.service";
 
 type SourceRow = {
   id: string;
-  workspaceId: string;
   createdByUserId: string;
   scope: "product";
   displayName: string | null;
@@ -26,12 +24,18 @@ type SourceRow = {
   updatedAt: Date;
 };
 
-function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolean }) {
+function createHarness() {
   const sources = new Map<string, SourceRow>();
   const textEntries = new Map<string, Record<string, unknown>>();
   const deletedObjectKeys: string[] = [];
-  const releasedBytes: bigint[] = [];
-  const jobs: Array<{ sourceType: string; sourceId: string; sourceVersion: number }> = [];
+  const jobs: Array<{
+    workspaceId?: string | null;
+    requestedByUserId?: string | null;
+    sourceType: string;
+    sourceId: string;
+    sourceVersion: number;
+    processorMode?: string;
+  }> = [];
   let nextId = 1;
   let nextTextEntryId = 1;
 
@@ -73,16 +77,14 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
         sources.set(row.id, row);
         return row;
       },
-      findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) =>
-        [...sources.values()].find(
-          (row) => row.id === where.id && row.workspaceId === where.workspaceId
-        ) ?? null,
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        [...sources.values()].find((row) => row.id === where.id) ?? null,
       findUniqueOrThrow: async ({
         where,
         select
       }: {
         where: { id: string };
-        select?: { workspaceId: true; scope: true };
+        select?: { scope: true };
       }) => {
         const row = sources.get(where.id);
         if (!row) {
@@ -90,7 +92,6 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
         }
         if (select) {
           return {
-            workspaceId: row.workspaceId,
             scope: row.scope
           };
         }
@@ -120,9 +121,9 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
     },
     productKnowledgeTextEntry: {
       findMany: async () => [...textEntries.values()],
-      findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) => {
+      findFirst: async ({ where }: { where: { id: string } }) => {
         const row = textEntries.get(where.id);
-        return row && row.workspaceId === where.workspaceId ? row : null;
+        return row ?? null;
       },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const now = new Date();
@@ -213,7 +214,7 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
               createdAt: new Date(),
               updatedAt: new Date()
             };
-            jobs.push(job as { sourceType: string; sourceId: string; sourceVersion: number });
+            jobs.push(job as (typeof jobs)[number]);
             return job;
           },
           deleteMany: async () => undefined
@@ -275,57 +276,6 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
       }) => {
         jobs.push(input);
       }
-    } as never,
-    {
-      checkWorkspaceKnowledgeStorageQuota: async () => ({
-        allowed: options?.quotaAllowed ?? true,
-        usedBytes: BigInt(0),
-        limitBytes: BigInt(1024)
-      }),
-      recordWorkspaceKnowledgeStorageUpload: async ({ sizeBytes }: { sizeBytes: bigint }) => ({
-        appliedDelta: options?.cappedUpload ? BigInt(0) : sizeBytes,
-        capped: options?.cappedUpload ?? false,
-        state: {
-          id: "quota-state",
-          workspaceId: "ws-1",
-          tokenBudgetUsed: BigInt(0),
-          tokenBudgetLimit: null,
-          costOrTokenDrivingToolClassUnitsUsed: 0,
-          costOrTokenDrivingToolClassUnitsLimit: null,
-          activeWebChatsCurrent: 0,
-          activeWebChatsLimit: null,
-          mediaStorageBytesUsed: BigInt(0),
-          mediaStorageBytesLimit: null,
-          knowledgeStorageBytesUsed: sizeBytes,
-          knowledgeStorageBytesLimit: BigInt(1024),
-          lastComputedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      }),
-      releaseWorkspaceKnowledgeStorage: async ({ sizeBytes }: { sizeBytes: bigint }) => {
-        releasedBytes.push(sizeBytes);
-        return {
-          releasedDelta: sizeBytes,
-          state: {
-            id: "quota-state",
-            workspaceId: "ws-1",
-            tokenBudgetUsed: BigInt(0),
-            tokenBudgetLimit: null,
-            costOrTokenDrivingToolClassUnitsUsed: 0,
-            costOrTokenDrivingToolClassUnitsLimit: null,
-            activeWebChatsCurrent: 0,
-            activeWebChatsLimit: null,
-            mediaStorageBytesUsed: BigInt(0),
-            mediaStorageBytesLimit: null,
-            knowledgeStorageBytesUsed: BigInt(0),
-            knowledgeStorageBytesLimit: BigInt(1024),
-            lastComputedAt: new Date(),
-            createdAt: new Date(),
-            updatedAt: new Date()
-          }
-        };
-      }
     } as never
   );
 
@@ -334,7 +284,6 @@ function createHarness(options?: { quotaAllowed?: boolean; cappedUpload?: boolea
     sources,
     textEntries,
     deletedObjectKeys,
-    releasedBytes,
     jobs
   };
 }
@@ -355,7 +304,7 @@ async function runUploadAndDeleteHappyPath(): Promise<void> {
   assert.equal(uploaded.status, "processing");
   assert.equal(harness.sources.size, 1);
   assert.deepEqual(harness.jobs[0], {
-    workspaceId: "ws-1",
+    workspaceId: null,
     requestedByUserId: "admin-1",
     sourceType: "global_knowledge_source",
     sourceId: uploaded.id,
@@ -365,43 +314,6 @@ async function runUploadAndDeleteHappyPath(): Promise<void> {
 
   await harness.service.delete("admin-1", uploaded.id);
   assert.equal(harness.sources.size, 0);
-  assert.deepEqual(harness.releasedBytes, [BigInt(Buffer.from("persai product knowledge").length)]);
-}
-
-async function runQuotaFailures(): Promise<void> {
-  const blockedHarness = createHarness({ quotaAllowed: false });
-  await assert.rejects(
-    () =>
-      blockedHarness.service.upload({
-        userId: "admin-1",
-        scope: "product",
-        displayName: null,
-        file: {
-          buffer: Buffer.from("blocked"),
-          mimetype: "text/plain",
-          originalname: "blocked.txt"
-        }
-      }),
-    ConflictException
-  );
-
-  const cappedHarness = createHarness({ cappedUpload: true });
-  await assert.rejects(
-    () =>
-      cappedHarness.service.upload({
-        userId: "admin-1",
-        scope: "product",
-        displayName: "Product KB",
-        file: {
-          buffer: Buffer.from("product"),
-          mimetype: "text/plain",
-          originalname: "product.txt"
-        }
-      }),
-    ConflictException
-  );
-  assert.equal(cappedHarness.sources.size, 0);
-  assert.equal(cappedHarness.deletedObjectKeys.length, 1);
 }
 
 async function runProductTextEntryLifecycle(): Promise<void> {
@@ -432,6 +344,7 @@ async function runProductTextEntryLifecycle(): Promise<void> {
   });
   assert.equal(active.entry.lifecycleStatus, "active");
   assert.equal(active.indexingJob?.sourceType, "product_knowledge_text_entry");
+  assert.equal(harness.jobs[0]?.workspaceId, null);
   assert.equal(harness.jobs.length, 1);
 
   await harness.service.archiveTextEntry("admin-1", draft.entry.id);
@@ -439,7 +352,6 @@ async function runProductTextEntryLifecycle(): Promise<void> {
 }
 
 void runUploadAndDeleteHappyPath()
-  .then(runQuotaFailures)
   .then(runProductTextEntryLifecycle)
   .catch((error: unknown) => {
     console.error(error);

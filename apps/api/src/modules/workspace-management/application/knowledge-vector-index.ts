@@ -34,7 +34,7 @@ export type KnowledgeVectorIndexReplaceInput = {
 };
 
 export type KnowledgeVectorSearchInput = {
-  workspaceId: string;
+  workspaceId: string | null;
   embeddingModelKey: string;
   queryVector: number[];
   limit: number;
@@ -45,7 +45,7 @@ export type KnowledgeVectorSearchInput = {
 
 export type KnowledgeVectorSearchHit = {
   id: string;
-  workspaceId: string;
+  workspaceId: string | null;
   assistantId: string | null;
   skillId: string | null;
   sourceType: KnowledgeSourceType;
@@ -66,7 +66,7 @@ export interface KnowledgeVectorIndex {
 
 type PostgresKnowledgeVectorSearchRow = {
   id: string;
-  workspace_id: string;
+  workspace_id: string | null;
   assistant_id: string | null;
   skill_id: string | null;
   source_type: KnowledgeSourceType;
@@ -109,7 +109,7 @@ export class PostgresPgvectorKnowledgeIndex implements KnowledgeVectorIndex {
             "updated_at"
           )
           VALUES (
-            ${chunk.workspaceId}::uuid,
+            ${chunk.workspaceId ?? null}::uuid,
             ${chunk.assistantId ?? null}::uuid,
             ${chunk.skillId ?? null}::uuid,
             ${chunk.sourceType}::"KnowledgeVectorSourceType",
@@ -152,10 +152,12 @@ export class PostgresPgvectorKnowledgeIndex implements KnowledgeVectorIndex {
 
   async searchNearest(input: KnowledgeVectorSearchInput): Promise<KnowledgeVectorSearchHit[]> {
     const conditions: Prisma.Sql[] = [
-      Prisma.sql`"workspace_id" = ${input.workspaceId}::uuid`,
       Prisma.sql`"embedding_model_key" = ${input.embeddingModelKey}`
     ];
 
+    if (input.workspaceId !== null) {
+      conditions.push(Prisma.sql`"workspace_id" = ${input.workspaceId}::uuid`);
+    }
     if (input.sourceTypes && input.sourceTypes.length > 0) {
       conditions.push(
         Prisma.sql`"source_type" IN (${Prisma.join(

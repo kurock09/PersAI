@@ -13,7 +13,7 @@ async function run(): Promise<void> {
     sourceType: "skill_document",
     sourceId: "source-1",
     sourceVersion: 3,
-    workspaceId: "workspace-1",
+    workspaceId: null,
     skillId: "skill-1",
     assistantId: null,
     chunkId: "chunk-1",

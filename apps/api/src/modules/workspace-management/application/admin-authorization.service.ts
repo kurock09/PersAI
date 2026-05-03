@@ -24,7 +24,7 @@ export interface AdminAccessContext {
   roles: SupportedAdminRole[];
   hasLegacyOwnerFallback: boolean;
   /**
-   * At least one ops/security/super row in `app_user_admin_roles` with `workspace_id` null
+   * At least one admin role row in `app_user_admin_roles` with `workspace_id` null
    * (platform-wide scope), not tied to a single tenant workspace.
    */
   hasGlobalPlatformAdminScope: boolean;
@@ -130,10 +130,11 @@ export class AdminAuthorizationService {
     await this.requireAdminEmailAllowlist(userId);
     const context = await this.resolveAdminAccessContext(userId);
     if (
+      !context.hasGlobalPlatformAdminScope ||
       !this.hasAnyRole(context, ["ops_admin", "business_admin", "security_admin", "super_admin"])
     ) {
       throw new ForbiddenException(
-        "Global knowledge write access requires ops/business/security/super-admin role or legacy owner fallback."
+        "Global knowledge write access requires a platform-scoped admin role."
       );
     }
     return context;
@@ -259,13 +260,14 @@ export class AdminAuthorizationService {
     if (hasLegacyOwnerFallback) {
       roleSet.add("business_admin");
     }
-    const globalAbuseAdminRoles = new Set<AppUserAdminRoleCode>([
+    const globalPlatformAdminRoles = new Set<AppUserAdminRoleCode>([
       AppUserAdminRoleCode.ops_admin,
+      AppUserAdminRoleCode.business_admin,
       AppUserAdminRoleCode.security_admin,
       AppUserAdminRoleCode.super_admin
     ]);
     const hasGlobalPlatformAdminScope = adminRoles.some(
-      (row) => row.workspaceId === null && globalAbuseAdminRoles.has(row.roleCode)
+      (row) => row.workspaceId === null && globalPlatformAdminRoles.has(row.roleCode)
     );
     return {
       userId,

@@ -725,7 +725,6 @@ async function main() {
     const workspace = await resolveWorkspace(prisma);
     const actorUserId = await resolveActorUserId(prisma, workspace.id);
     const existingSkills = await prisma.skill.findMany({
-      where: { workspaceId: workspace.id },
       select: { id: true, name: true }
     });
 
@@ -734,7 +733,6 @@ async function main() {
     for (const seed of BASE_SKILLS) {
       const existing = existingSkills.find((skill) => matchesSeed(skill.name, seed));
       const data = {
-        workspaceId: workspace.id,
         createdByUserId: actorUserId,
         updatedByUserId: actorUserId,
         status: "active" as const,
@@ -764,7 +762,6 @@ async function main() {
 
     const total = await prisma.skill.count({
       where: {
-        workspaceId: workspace.id,
         status: "active"
       }
     });
@@ -784,13 +781,6 @@ async function main() {
 }
 
 async function resolveWorkspace(prisma: PrismaClient) {
-  const existingSkill = await prisma.skill.findFirst({
-    orderBy: [{ createdAt: "asc" }],
-    select: { workspace: { select: { id: true } } }
-  });
-  if (existingSkill !== null) {
-    return existingSkill.workspace;
-  }
   const workspace = await prisma.workspace.findFirst({
     orderBy: [{ createdAt: "asc" }],
     select: { id: true }

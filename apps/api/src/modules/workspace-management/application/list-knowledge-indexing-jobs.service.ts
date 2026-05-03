@@ -23,10 +23,9 @@ export class ListKnowledgeIndexingJobsService {
       status: KnowledgeIndexingJobStatus | null;
     }
   ): Promise<KnowledgeIndexingJobState[]> {
-    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const rows = await this.prisma.knowledgeIndexingJob.findMany({
       where: {
-        workspaceId: access.workspaceId,
         ...(filters.sourceType === null ? {} : { sourceType: filters.sourceType }),
         ...(filters.status === null ? {} : { status: filters.status })
       },
@@ -46,9 +45,8 @@ export class ListKnowledgeIndexingJobsService {
     }
     const rows = await this.prisma.knowledgeIndexingJob.findMany({
       where: {
-        workspaceId: assistant.workspaceId,
         OR: [
-          { assistantId: assistant.id },
+          { assistantId: assistant.id, workspaceId: assistant.workspaceId },
           {
             sourceType: { in: ["skill_document", "skill_knowledge_card"] },
             skill: {

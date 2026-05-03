@@ -71,7 +71,6 @@ async function seedProductKbTextEntries(): Promise<void> {
   for (const entry of PRODUCT_KB_SEED_TEXT_ENTRIES) {
     const existing = await prisma.productKnowledgeTextEntry.findFirst({
       where: {
-        workspaceId: SEED_WORKSPACE_ID,
         title: entry.title,
         category: entry.category
       },
@@ -84,7 +83,6 @@ async function seedProductKbTextEntries(): Promise<void> {
     await prisma.$transaction(async (tx) => {
       const created = await tx.productKnowledgeTextEntry.create({
         data: {
-          workspaceId: SEED_WORKSPACE_ID,
           createdByUserId: SEED_USER_ID,
           title: entry.title,
           body: entry.body,
@@ -107,7 +105,6 @@ async function seedProductKbTextEntries(): Promise<void> {
       await tx.productKnowledgeTextEntryChunk.create({
         data: {
           textEntryId: created.id,
-          workspaceId: SEED_WORKSPACE_ID,
           sourceVersion: 1,
           chunkIndex: 0,
           locator: entry.locator,

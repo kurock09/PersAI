@@ -53,9 +53,9 @@ export class GenerateSkillAuthoringDraftService {
     skillId: string;
     request: SkillAuthoringDraftRequest;
   }): Promise<SkillAuthoringDraftProposalState> {
-    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(input.userId);
+    await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(input.userId);
     const skill = await this.prisma.skill.findFirst({
-      where: { id: input.skillId, workspaceId: access.workspaceId },
+      where: { id: input.skillId },
       include: {
         documents: {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],

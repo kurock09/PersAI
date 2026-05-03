@@ -38,7 +38,6 @@ type SkillChunkRow = {
   sourceKind: "skill_document" | "skill_knowledge_card";
   sourceId: string;
   skillId: string;
-  workspaceId: string;
   sourceVersion: number;
   chunkIndex: number;
   locator: string | null;
@@ -363,7 +362,6 @@ export class OrchestrateRuntimeRetrievalService {
           sourceKind: "skill_document",
           sourceId: row.skillDocumentId,
           skillId: row.skillId,
-          workspaceId: row.workspaceId,
           sourceVersion: row.sourceVersion,
           chunkIndex: row.chunkIndex,
           locator: row.locator,
@@ -380,7 +378,6 @@ export class OrchestrateRuntimeRetrievalService {
           sourceKind: "skill_knowledge_card",
           sourceId: row.skillKnowledgeCardId,
           skillId: row.skillId,
-          workspaceId: row.workspaceId,
           sourceVersion: row.sourceVersion,
           chunkIndex: row.chunkIndex,
           locator: row.locator,
@@ -420,7 +417,7 @@ export class OrchestrateRuntimeRetrievalService {
     if (workspaceId !== null && queryEmbedding !== null && embeddingModelKey !== null) {
       retrievalMode = "hybrid";
       const vectorHits = await this.knowledgeVectorIndex.searchNearest({
-        workspaceId,
+        workspaceId: null,
         embeddingModelKey,
         queryVector: queryEmbedding,
         limit: retrievalPolicy.vectorCandidateLimit,
@@ -862,7 +859,6 @@ export class OrchestrateRuntimeRetrievalService {
           sourceKind: "skill_document",
           sourceId: row.skillDocumentId,
           skillId: row.skillId,
-          workspaceId: row.workspaceId,
           sourceVersion: row.sourceVersion,
           chunkIndex: row.chunkIndex,
           locator: row.locator,
@@ -879,7 +875,6 @@ export class OrchestrateRuntimeRetrievalService {
           sourceKind: "skill_knowledge_card",
           sourceId: row.skillKnowledgeCardId,
           skillId: row.skillId,
-          workspaceId: row.workspaceId,
           sourceVersion: row.sourceVersion,
           chunkIndex: row.chunkIndex,
           locator: row.locator,

@@ -5,7 +5,7 @@ const skillChunks = [
   {
     skillDocumentId: "doc-1",
     skillId: "skill-accounting",
-    workspaceId: "workspace-1",
+    workspaceId: "platform-skill-workspace",
     sourceVersion: 1,
     chunkIndex: 0,
     locator: "tax#1",
@@ -28,7 +28,7 @@ const skillChunks = [
   {
     skillDocumentId: "doc-1",
     skillId: "skill-accounting",
-    workspaceId: "workspace-1",
+    workspaceId: "platform-skill-workspace",
     sourceVersion: 1,
     chunkIndex: 1,
     locator: "tax#2",
@@ -51,7 +51,7 @@ const skillChunks = [
   {
     skillDocumentId: "doc-1",
     skillId: "skill-accounting",
-    workspaceId: "workspace-1",
+    workspaceId: "platform-skill-workspace",
     sourceVersion: 1,
     chunkIndex: 2,
     locator: "tax#3",
@@ -150,6 +150,7 @@ class FakeKnowledgeRetrievalObservabilityService {
 }
 
 async function run(): Promise<void> {
+  const vectorSearches: Array<Record<string, unknown>> = [];
   const prisma = {
     assistant: {
       findUnique: async () => ({ workspaceId: "workspace-1" })
@@ -191,22 +192,25 @@ async function run(): Promise<void> {
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
     {
-      searchNearest: async () => [
-        {
-          id: "vector-1",
-          workspaceId: "workspace-1",
-          assistantId: null,
-          skillId: "skill-accounting",
-          sourceType: "skill_document",
-          sourceId: "doc-1",
-          chunkId: null,
-          sourceVersion: 1,
-          chunkIndex: 1,
-          embeddingModelKey: "text-embedding-3-small",
-          score: 0.92,
-          metadata: null
-        }
-      ]
+      searchNearest: async (input: Record<string, unknown>) => {
+        vectorSearches.push(input);
+        return [
+          {
+            id: "vector-1",
+            workspaceId: "platform-skill-workspace",
+            assistantId: null,
+            skillId: "skill-accounting",
+            sourceType: "skill_document",
+            sourceId: "doc-1",
+            chunkId: null,
+            sourceVersion: 1,
+            chunkIndex: 1,
+            embeddingModelKey: "text-embedding-3-small",
+            score: 0.92,
+            metadata: null
+          }
+        ];
+      }
     } as never
   );
 
@@ -270,6 +274,8 @@ async function run(): Promise<void> {
   );
   assert.equal((skillItem.metadata as { retrievalMode?: string }).retrievalMode, "hybrid");
   assert.equal((skillItem.metadata as { vectorScore?: number }).vectorScore, 0.92);
+  assert.equal(vectorSearches[0]?.workspaceId, null);
+  assert.deepEqual(vectorSearches[0]?.skillIds, ["skill-accounting"]);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
     ["document", "memory", "chat", "global", "subscription"]

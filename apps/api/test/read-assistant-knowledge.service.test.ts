@@ -262,7 +262,7 @@ const rows: KnowledgeChunkRow[] = [
 
 const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     globalKnowledgeSourceId: "global-source-1",
     scope: "product",
     sourceVersion: 1,
@@ -273,7 +273,7 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
     embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       status: "ready",
       displayName: "Product Sync Guide",
       originalFilename: "product-sync-guide.md",
@@ -281,7 +281,7 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
     }
   },
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     globalKnowledgeSourceId: "global-source-1",
     scope: "product",
     sourceVersion: 1,
@@ -293,7 +293,7 @@ const globalKnowledgeRows: GlobalKnowledgeChunkRow[] = [
     embeddingVector: null,
     globalKnowledgeSource: {
       id: "global-source-1",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       status: "ready",
       displayName: "Product Sync Guide",
       originalFilename: "product-sync-guide.md",
@@ -585,7 +585,7 @@ const planCatalogRows: PlanCatalogKnowledgeRow[] = [
 
 const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     textEntryId: "product-text-1",
     sourceVersion: 1,
     chunkIndex: 0,
@@ -596,7 +596,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     embeddingVector: null,
     textEntry: {
       id: "product-text-1",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       title: "PersAI Product Overview",
       category: "product_baseline",
       locale: "en-US",
@@ -605,7 +605,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     }
   },
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     textEntryId: "product-text-2",
     sourceVersion: 1,
     chunkIndex: 0,
@@ -616,7 +616,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     embeddingVector: null,
     textEntry: {
       id: "product-text-2",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       title: "PersAI Product Principles",
       category: "product_baseline",
       locale: "en-US",
@@ -625,7 +625,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     }
   },
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     textEntryId: "product-text-draft",
     sourceVersion: 1,
     chunkIndex: 0,
@@ -635,7 +635,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     embeddingVector: null,
     textEntry: {
       id: "product-text-draft",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       title: "Draft Product KB",
       category: "product_baseline",
       locale: "en-US",
@@ -644,7 +644,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     }
   },
   {
-    workspaceId: "workspace-1",
+    workspaceId: "platform-kb-workspace",
     textEntryId: "product-text-archived",
     sourceVersion: 1,
     chunkIndex: 0,
@@ -654,7 +654,7 @@ const productKnowledgeTextEntryRows: ProductKnowledgeTextEntryChunkRow[] = [
     embeddingVector: null,
     textEntry: {
       id: "product-text-archived",
-      workspaceId: "workspace-1",
+      workspaceId: "platform-kb-workspace",
       title: "Archived Product KB",
       category: "product_baseline",
       locale: "en-US",

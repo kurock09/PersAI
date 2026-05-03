@@ -23,7 +23,6 @@ import { AdminAuthorizationService } from "./admin-authorization.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { KnowledgeIndexingJobWorkerService } from "./knowledge-indexing-job-worker.service";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
-import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const KNOWLEDGE_DOCUMENT_MIMES = new Set([
@@ -41,8 +40,7 @@ export class ManageAdminKnowledgeSourcesService {
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
-    private readonly knowledgeIndexingJobWorkerService: KnowledgeIndexingJobWorkerService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly knowledgeIndexingJobWorkerService: KnowledgeIndexingJobWorkerService
   ) {}
 
   parseUploadInput(body: unknown): { displayName: string | null } {
@@ -83,10 +81,9 @@ export class ManageAdminKnowledgeSourcesService {
     userId: string,
     scope: GlobalKnowledgeSourceScope
   ): Promise<GlobalKnowledgeSourceState[]> {
-    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const rows = await this.prisma.globalKnowledgeSource.findMany({
       where: {
-        workspaceId: access.workspaceId,
         scope
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }]
@@ -95,10 +92,9 @@ export class ManageAdminKnowledgeSourcesService {
   }
 
   async listTextEntries(userId: string): Promise<ProductKnowledgeTextEntryState[]> {
-    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const rows = await this.prisma.productKnowledgeTextEntry.findMany({
       where: {
-        workspaceId: access.workspaceId,
         lifecycleStatus: { not: "archived" }
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }]
@@ -118,7 +114,6 @@ export class ManageAdminKnowledgeSourcesService {
     const result = await this.prisma.$transaction(async (tx) => {
       const entry = await tx.productKnowledgeTextEntry.create({
         data: {
-          workspaceId: access.workspaceId,
           createdByUserId: access.userId,
           updatedByUserId: access.userId,
           title: input.title,
@@ -141,7 +136,7 @@ export class ManageAdminKnowledgeSourcesService {
         lifecycleStatus === "active"
           ? await tx.knowledgeIndexingJob.create({
               data: {
-                workspaceId: access.workspaceId,
+                workspaceId: null,
                 requestedByUserId: access.userId,
                 sourceType: "product_knowledge_text_entry",
                 sourceId: entry.id,
@@ -171,7 +166,7 @@ export class ManageAdminKnowledgeSourcesService {
   }> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
-      where: { id: entryId, workspaceId: access.workspaceId }
+      where: { id: entryId }
     });
     if (existing === null) {
       throw new NotFoundException("Product KB text entry not found.");
@@ -214,7 +209,7 @@ export class ManageAdminKnowledgeSourcesService {
       const indexingJob = shouldIndex
         ? await tx.knowledgeIndexingJob.create({
             data: {
-              workspaceId: access.workspaceId,
+              workspaceId: null,
               requestedByUserId: access.userId,
               sourceType: "product_knowledge_text_entry",
               sourceId: existing.id,
@@ -237,7 +232,7 @@ export class ManageAdminKnowledgeSourcesService {
   async archiveTextEntry(userId: string, entryId: string): Promise<void> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
-      where: { id: entryId, workspaceId: access.workspaceId }
+      where: { id: entryId }
     });
     if (existing === null) {
       throw new NotFoundException("Product KB text entry not found.");
@@ -262,7 +257,7 @@ export class ManageAdminKnowledgeSourcesService {
   ): Promise<{ entry: ProductKnowledgeTextEntryState; indexingJob: KnowledgeIndexingJobState }> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const existing = await this.prisma.productKnowledgeTextEntry.findFirst({
-      where: { id: entryId, workspaceId: access.workspaceId }
+      where: { id: entryId }
     });
     if (existing === null) {
       throw new NotFoundException("Product KB text entry not found.");
@@ -284,7 +279,7 @@ export class ManageAdminKnowledgeSourcesService {
       });
       const indexingJob = await tx.knowledgeIndexingJob.create({
         data: {
-          workspaceId: access.workspaceId,
+          workspaceId: null,
           requestedByUserId: access.userId,
           sourceType: "product_knowledge_text_entry",
           sourceId: existing.id,
@@ -320,14 +315,6 @@ export class ManageAdminKnowledgeSourcesService {
     if (!this.isKnowledgeDocumentMime(validated.effectiveMimeType)) {
       throw new BadRequestException("Only document-like files can be added as knowledge sources.");
     }
-    const quota = await this.trackWorkspaceQuotaUsageService.checkWorkspaceKnowledgeStorageQuota({
-      workspaceId: access.workspaceId,
-      userId: access.userId
-    });
-    if (!quota.allowed) {
-      throw new ConflictException("Workspace knowledge storage quota is already exhausted.");
-    }
-
     const objectKey = this.knowledgeObjectStorage.buildGlobalKnowledgeSourceObjectKey({
       scope: params.scope,
       extension: validated.normalizedExtension,
@@ -343,7 +330,6 @@ export class ManageAdminKnowledgeSourcesService {
     try {
       source = await this.prisma.globalKnowledgeSource.create({
         data: {
-          workspaceId: access.workspaceId,
           createdByUserId: access.userId,
           scope: params.scope,
           displayName: params.displayName,
@@ -356,27 +342,13 @@ export class ManageAdminKnowledgeSourcesService {
         }
       });
       await this.knowledgeIndexingJobWorkerService.enqueueSourceJob({
-        workspaceId: access.workspaceId,
+        workspaceId: null,
         requestedByUserId: access.userId,
         sourceType: "global_knowledge_source",
         sourceId: source.id,
         sourceVersion: 1,
         processorMode: "auto"
       });
-      const applied =
-        await this.trackWorkspaceQuotaUsageService.recordWorkspaceKnowledgeStorageUpload({
-          workspaceId: access.workspaceId,
-          userId: access.userId,
-          sizeBytes: BigInt(stored.sizeBytes),
-          source: "admin_global_knowledge_upload",
-          metadata: {
-            scope: params.scope,
-            sourceId: source.id
-          }
-        });
-      if (applied.capped) {
-        throw new ConflictException("Workspace knowledge storage quota is exhausted.");
-      }
     } catch (error) {
       if (source !== null) {
         await this.prisma.globalKnowledgeSource
@@ -393,11 +365,10 @@ export class ManageAdminKnowledgeSourcesService {
   }
 
   async delete(userId: string, sourceId: string): Promise<void> {
-    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const source = await this.prisma.globalKnowledgeSource.findFirst({
       where: {
-        id: sourceId,
-        workspaceId: access.workspaceId
+        id: sourceId
       }
     });
     if (source === null) {
@@ -415,24 +386,13 @@ export class ManageAdminKnowledgeSourcesService {
       });
     });
     await this.knowledgeObjectStorage.deleteObject(source.storagePath);
-    await this.trackWorkspaceQuotaUsageService.releaseWorkspaceKnowledgeStorage({
-      workspaceId: access.workspaceId,
-      userId: access.userId,
-      sizeBytes: source.sizeBytes,
-      source: "admin_global_knowledge_delete",
-      metadata: {
-        scope: source.scope,
-        sourceId: source.id
-      }
-    });
   }
 
   async reindex(userId: string, sourceId: string): Promise<GlobalKnowledgeSourceState> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const source = await this.prisma.globalKnowledgeSource.findFirst({
       where: {
-        id: sourceId,
-        workspaceId: access.workspaceId
+        id: sourceId
       }
     });
     if (source === null) {
@@ -450,7 +410,7 @@ export class ManageAdminKnowledgeSourcesService {
       }
     });
     await this.knowledgeIndexingJobWorkerService.enqueueSourceJob({
-      workspaceId: source.workspaceId,
+      workspaceId: null,
       requestedByUserId: access.userId,
       sourceType: "global_knowledge_source",
       sourceId: source.id,

@@ -109,6 +109,7 @@ Current active config expectations:
 - runtime bundle is the active materialized execution artifact
 - `assistant_files` is the canonical persisted assistant-workspace/file authority on the active path
 - runtime knowledge access now publishes the active bounded `hybrid` retrieval contract
+- Skill, Product KB, and platform/global Knowledge sources are platform/admin-managed shared KBs, not tenant workspace-owned rows. Assistant workspace remains consumer context for private assistant knowledge, assignment validation, memory/chat/files, quota, and retrieval telemetry.
 - admin-authored Knowledge entries are Knowledge sources, not Files; ADR-080 defines their draft/review/apply lifecycle before ADR-079 indexing and runtime retrieval
 - historical compatibility/migration traces do not define current request-time behavior
 

@@ -273,12 +273,22 @@ corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
 corepack pnpm --filter @persai/api exec tsx test/admin-authorization.test.ts
 corepack pnpm --filter @persai/api exec tsx test/runtime-knowledge-access.test.ts
 corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/shared-knowledge-platform-ownership-audit.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
 corepack pnpm --filter @persai/web exec vitest run app/admin/skills/page.test.tsx
 corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx
 corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts app/app/setup/page.test.tsx
 ```
+
+For shared admin-managed KB ownership changes, also verify:
+
+1. selected active Skill retrieval searches by assigned/selected Skill ids and Skill source types, not by the consuming assistant workspace
+2. Product KB/global retrieval reads active/ready platform rows for assistants from any workspace
+3. assistant uploads, memory/chat, Files, and retrieval telemetry remain workspace-scoped
+4. inactive or unassigned Skills do not contribute runtime context
+5. admin Skill/Product/global KB uploads do not debit tenant workspace knowledge-storage quota
+6. the post-migration audit SQL fails if shared KB tables, chunks, jobs, or vectors still have tenant workspace-owned leftovers
 
 ## Helm / deploy truth checks
 

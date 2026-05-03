@@ -217,7 +217,6 @@ The implementation may either add dedicated tables or extend existing source tab
 
 Authored records should carry:
 
-- `workspaceId`
 - author/admin ids where available
 - target `skillId` or Product KB scope
 - title/body/locale/tags
@@ -225,6 +224,8 @@ Authored records should carry:
 - processing/indexing status or link to `KnowledgeIndexingJob`
 - provenance: manual, assistant-generated, document-summary, imported
 - timestamps and last edited by
+
+Authored Skill cards and Product KB text entries are platform/admin-managed shared KB records. They are not owned by a tenant workspace; the consuming assistant workspace is recorded only later as usage/retrieval telemetry.
 
 When an active entry changes, indexing should enqueue or refresh a `KnowledgeIndexingJob` using the existing source-normalization pipeline. Draft/archived entries should not be injected into runtime retrieval.
 

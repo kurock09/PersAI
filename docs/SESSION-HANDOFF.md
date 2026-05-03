@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (Global admin Knowledge ownership) — Skill/Product/global KB are platform-owned shared bases (`apps/api`, docs; focused checks green)
+
+### What changed
+
+- Completed the clean target-state ownership cut for shared admin-managed Knowledge: Skill, Skill documents/cards, Product KB text entries, global Knowledge sources, and their chunk tables are no longer tenant workspace-owned in Prisma.
+- Added `20260503110000_global_admin_knowledge_ownership` migration to normalize existing shared KB jobs/vectors to `workspace_id=NULL`, deduplicate Product Overview/Product Principles baseline rows, drop shared-table `workspace_id` columns, and enforce source ownership shape on `knowledge_indexing_jobs` / `knowledge_vector_chunks`.
+- Added `apps/api/prisma/audits/shared-knowledge-platform-ownership.sql` plus a focused static regression to ensure the migration/audit continues to fail if workspace-owned shared KB leftovers can remain.
+- Updated admin Skill/Product/global Knowledge services to manage platform-wide shared rows, require platform-scoped admin write authority, and stop debiting tenant workspace quota for shared admin KB uploads.
+- Updated indexing and retrieval semantics so shared KB indexing jobs/vectors are platform-owned, selected Skills search by active assigned Skill ids plus Skill source types without an assistant workspace source filter, Product KB/global retrieval reads active/ready platform rows, and assistant-private knowledge plus usage telemetry remain workspace-scoped.
+- Updated architecture/API/data/test docs and ADR-079/080 truth to remove the old workspace-owned shared KB wording.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-knowledge-sources.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-assistant-knowledge.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-vector-index-boundary.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-indexing-job-worker.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/generate-skill-authoring-draft.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-authorization.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/shared-knowledge-platform-ownership-audit.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Next recommended step
+
+Run full AGENTS gates, apply/deploy the migration, execute the audit SQL against the target DB, then live-smoke assistant `7fd2c02c-6663-4691-977d-feb3f706836d`. Expected post-deploy telemetry: `source=skill`, `outcome=success`, `resultCount>0`, `vectorCandidateCount>0`, and visible `skill_reference` in Retrieved Knowledge Context.
+
+---
+
+## 2026-05-03 (ADR-079 Skill document retrieval workspace fix) — selected cross-workspace Skills can retrieve vector-grounded docs (`apps/api`; focused checks green)
+
+### What changed
+
+- Investigated live assistant `7fd2c02c-6663-4691-977d-feb3f706836d` after the founder reported the chat did not visibly use Skill documents.
+- Confirmed the active Skill did route correctly: persisted `turnRouting` selected `Dietitian / Диетолог` (`skillId=7f581145-2806-48e3-b671-1160de592faf`) with `useSkills=true`, and sticky reuse kept it active across later turns.
+- Confirmed the document grounding failed: live `KnowledgeRetrievalEvent` rows for `source=skill` had `outcome=empty`, `resultCount=0`, and `vectorCandidateCount=0`.
+- Root cause: Skill documents/vector chunks are owned by the platform/admin Skill workspace, while the assistant belongs to a different user workspace. The Skill vector search incorrectly filtered by the assistant workspace even though assignment validation already constrains access by active `assistant_skill_assignments`.
+- Fixed Skill vector retrieval to search by validated active `skillIds` and Skill source types without applying the assistant workspace filter. User/Product/assistant knowledge retrieval keeps its workspace boundaries unchanged.
+- Added a regression where the assistant workspace differs from the Skill document workspace and the selected Skill still returns vector-grounded fetched context.
+
+### Live evidence
+
+- Active assistant workspace: `b70641fe-7bac-48b8-9993-14289ea62189`.
+- Dietitian Skill vector chunks workspace: `d7a26ffe-a553-4a0d-9b46-63c4c2ab6ba3`.
+- With the old assistant-workspace filter: `0` matching vector chunks.
+- Without that filter, constrained by `skillId` + `skill_document`/`skill_knowledge_card`: `291` matching vector chunks.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `ReadLints` on changed API files
+- Live SQL root-cause check through the API pod
+
+### Next recommended step
+
+Run full AGENTS gates, commit, push, deploy, then smoke the same Dietitian chat. Expected post-deploy telemetry: `source=skill`, `outcome=success`, `resultCount>0`, `vectorCandidateCount>0`, and a visible `skill_reference` item in Retrieved Knowledge Context.
+
+---
+
 ## 2026-05-03 (ADR-080 admin locale dropdowns) — Skill/Product KB locale fields use fixed selects (`apps/web`; focused checks green)
 
 ### What changed

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { ConflictException } from "@nestjs/common";
 import { ManageAdminSkillsService } from "../src/modules/workspace-management/application/manage-admin-skills.service";
 
 type MockRow = Record<string, unknown> & {
@@ -11,7 +10,7 @@ type MockRow = Record<string, unknown> & {
   documents?: MockRow[];
 };
 
-function createHarness(options?: { quotaUploadCapped?: boolean }) {
+function createHarness() {
   const now = new Date("2026-05-01T12:00:00.000Z");
   const skills = new Map<string, MockRow>();
   const documents = new Map<string, MockRow>();
@@ -19,7 +18,6 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
   const jobs = new Map<string, MockRow>();
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
   const deletedObjects: string[] = [];
-  const releasedKnowledgeStorage: bigint[] = [];
   let nextSkill = 1;
   let nextDocument = 1;
   let nextCard = 1;
@@ -138,9 +136,9 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
           documents: [...documents.values()].filter((document) => document.skillId === skill.id),
           knowledgeCards: [...cards.values()].filter((card) => card.skillId === skill.id)
         })),
-      findFirst: async ({ where }: { where: { id: string; workspaceId: string } }) => {
+      findFirst: async ({ where }: { where: { id: string } }) => {
         const skill = skills.get(where.id);
-        return skill && skill.workspaceId === where.workspaceId ? skill : null;
+        return skill ?? null;
       },
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const skill = {
@@ -164,30 +162,16 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
       }
     },
     skillDocument: {
-      findFirst: async ({
-        where
-      }: {
-        where: { id: string; skillId: string; workspaceId: string };
-      }) => {
+      findFirst: async ({ where }: { where: { id: string; skillId: string } }) => {
         const document = documents.get(where.id);
-        return document &&
-          document.skillId === where.skillId &&
-          document.workspaceId === where.workspaceId
-          ? document
-          : null;
+        return document && document.skillId === where.skillId ? document : null;
       },
       delete: tx.skillDocument.delete
     },
     skillKnowledgeCard: {
-      findFirst: async ({
-        where
-      }: {
-        where: { id: string; skillId: string; workspaceId: string };
-      }) => {
+      findFirst: async ({ where }: { where: { id: string; skillId: string } }) => {
         const card = cards.get(where.id);
-        return card && card.skillId === where.skillId && card.workspaceId === where.workspaceId
-          ? card
-          : null;
+        return card && card.skillId === where.skillId ? card : null;
       }
     },
     knowledgeIndexingJob: {
@@ -232,22 +216,6 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
       deleteObject: async (objectKey: string) => {
         deletedObjects.push(objectKey);
       }
-    } as never,
-    {
-      checkWorkspaceKnowledgeStorageQuota: async () => ({
-        allowed: true,
-        usedBytes: BigInt(0),
-        limitBytes: BigInt(1024)
-      }),
-      recordWorkspaceKnowledgeStorageUpload: async ({ sizeBytes }: { sizeBytes: bigint }) => ({
-        appliedDelta: options?.quotaUploadCapped === true ? BigInt(5) : sizeBytes,
-        capped: options?.quotaUploadCapped === true,
-        state: {}
-      }),
-      releaseWorkspaceKnowledgeStorage: async ({ sizeBytes }: { sizeBytes: bigint }) => {
-        releasedKnowledgeStorage.push(sizeBytes);
-        return {};
-      }
     } as never
   );
 
@@ -257,8 +225,7 @@ function createHarness(options?: { quotaUploadCapped?: boolean }) {
     cards,
     jobs,
     deletedObjects,
-    vectorDeletes,
-    releasedKnowledgeStorage
+    vectorDeletes
   };
 }
 
@@ -299,6 +266,7 @@ async function run(): Promise<void> {
   assert.equal(upload.indexingJob.sourceType, "skill_document");
   assert.equal(upload.indexingJob.sourceId, upload.document.id);
   assert.equal(upload.indexingJob.status, "pending");
+  assert.equal(harness.jobs.get(upload.indexingJob.id)?.workspaceId, null);
 
   const reindexed = await harness.service.reindexDocument(
     "admin-1",
@@ -336,6 +304,7 @@ async function run(): Promise<void> {
   );
   assert.equal(activeCard.card.lifecycleStatus, "active");
   assert.equal(activeCard.indexingJob?.sourceType, "skill_knowledge_card");
+  assert.equal(harness.jobs.get(activeCard.indexingJob?.id ?? "")?.workspaceId, null);
 
   await harness.service.archiveKnowledgeCard("admin-1", created.id, draftCard.card.id);
   assert.equal(harness.cards.get(draftCard.card.id)?.lifecycleStatus, "archived");
@@ -347,31 +316,10 @@ async function run(): Promise<void> {
   await harness.service.deleteDocument("admin-1", created.id, upload.document.id);
   assert.equal(harness.documents.has(upload.document.id), false);
   assert.equal(harness.deletedObjects.length, 1);
-  assert.deepEqual(harness.releasedKnowledgeStorage, [BigInt(15)]);
   assert.deepEqual(harness.vectorDeletes, [
     { sourceType: "skill_knowledge_card", sourceId: draftCard.card.id },
     { sourceType: "skill_document", sourceId: upload.document.id }
   ]);
-
-  const cappedHarness = createHarness({ quotaUploadCapped: true });
-  const cappedSkill = await cappedHarness.service.create("admin-1", skillInput);
-  await assert.rejects(
-    () =>
-      cappedHarness.service.uploadDocument({
-        userId: "admin-1",
-        skillId: cappedSkill.id,
-        input: { displayName: "Large", description: null },
-        file: {
-          buffer: Buffer.from("too large for remaining quota"),
-          mimetype: "text/plain",
-          originalname: "large.txt"
-        }
-      }),
-    ConflictException
-  );
-  assert.equal(cappedHarness.documents.size, 0);
-  assert.equal(cappedHarness.jobs.size, 0);
-  assert.deepEqual(cappedHarness.releasedKnowledgeStorage, [BigInt(5)]);
 }
 
 void run();

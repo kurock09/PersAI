@@ -61,10 +61,25 @@ async function run(): Promise<void> {
   assert.equal(scopedContext.hasLegacyOwnerFallback, true);
   assert.equal(scopedContext.hasGlobalPlatformAdminScope, false);
   assert.equal(scopedContext.roles.includes("security_admin"), true);
+  await assert.rejects(
+    () => scopedRoleService.assertCanWriteGlobalKnowledge("user-1"),
+    ForbiddenException
+  );
+
+  const globalKnowledgeWriter = createService({
+    memberships: [
+      {
+        workspaceId: "ws-member",
+        role: "member",
+        createdAt: new Date("2026-03-25T10:00:00.000Z")
+      }
+    ],
+    adminRoles: [{ roleCode: "business_admin", workspaceId: null }]
+  });
   const globalKnowledgeWriteContext =
-    await scopedRoleService.assertCanWriteGlobalKnowledge("user-1");
-  assert.equal(globalKnowledgeWriteContext.workspaceId, "ws-owner");
-  assert.equal(globalKnowledgeWriteContext.roles.includes("security_admin"), true);
+    await globalKnowledgeWriter.assertCanWriteGlobalKnowledge("user-1");
+  assert.equal(globalKnowledgeWriteContext.hasGlobalPlatformAdminScope, true);
+  assert.equal(globalKnowledgeWriteContext.roles.includes("business_admin"), true);
 
   const issuer = createService({
     memberships: [

@@ -464,15 +464,6 @@ model Workspace {
   chatMessageAttachments            AssistantChatMessageAttachment[]
   knowledgeSources                  AssistantKnowledgeSource[]
   knowledgeSourceChunks             AssistantKnowledgeSourceChunk[]
-  globalKnowledgeSources            GlobalKnowledgeSource[]
-  globalKnowledgeSourceChunks       GlobalKnowledgeSourceChunk[]
-  productKnowledgeTextEntries       ProductKnowledgeTextEntry[]
-  productKnowledgeTextEntryChunks   ProductKnowledgeTextEntryChunk[]
-  skills                            Skill[]
-  skillDocuments                    SkillDocument[]
-  skillDocumentChunks               SkillDocumentChunk[]
-  skillKnowledgeCards               SkillKnowledgeCard[]
-  skillKnowledgeCardChunks          SkillKnowledgeCardChunk[]
   assistantSkillAssignments         AssistantSkillAssignment[]
   knowledgeIndexingJobs             KnowledgeIndexingJob[]
   knowledgeVectorChunks             KnowledgeVectorChunk[]
@@ -1662,7 +1653,6 @@ model AssistantKnowledgeSourceChunk {
 
 model GlobalKnowledgeSource {
   id                     String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId            String                         @map("workspace_id") @db.Uuid
   createdByUserId        String                         @map("created_by_user_id") @db.Uuid
   scope                  GlobalKnowledgeSourceScope
   displayName            String?                        @map("display_name") @db.VarChar(255)
@@ -1682,20 +1672,17 @@ model GlobalKnowledgeSource {
   lastErrorMessage       String?                        @map("last_error_message") @db.Text
   createdAt              DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace              Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdByUser          AppUser                        @relation(fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   chunks                 GlobalKnowledgeSourceChunk[]
 
   @@index([scope, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
-  @@index([workspaceId, scope, createdAt(sort: Desc)])
   @@map("global_knowledge_sources")
 }
 
 model GlobalKnowledgeSourceChunk {
   id                      String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   globalKnowledgeSourceId String                     @map("global_knowledge_source_id") @db.Uuid
-  workspaceId             String                     @map("workspace_id") @db.Uuid
   scope                   GlobalKnowledgeSourceScope
   sourceVersion           Int                        @map("source_version")
   chunkIndex              Int                        @map("chunk_index")
@@ -1706,18 +1693,15 @@ model GlobalKnowledgeSourceChunk {
   embeddingGeneratedAt    DateTime?                  @map("embedding_generated_at") @db.Timestamptz(6)
   createdAt               DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   globalKnowledgeSource   GlobalKnowledgeSource      @relation(fields: [globalKnowledgeSourceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([globalKnowledgeSourceId, sourceVersion, chunkIndex])
   @@index([globalKnowledgeSourceId, createdAt(sort: Desc)])
   @@index([scope, createdAt(sort: Desc)])
-  @@index([workspaceId, scope, createdAt(sort: Desc)])
   @@map("global_knowledge_source_chunks")
 }
 
 model ProductKnowledgeTextEntry {
   id                     String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId            String                           @map("workspace_id") @db.Uuid
   createdByUserId        String                           @map("created_by_user_id") @db.Uuid
   updatedByUserId        String?                          @map("updated_by_user_id") @db.Uuid
   title                  String                           @db.VarChar(255)
@@ -1741,13 +1725,12 @@ model ProductKnowledgeTextEntry {
   archivedAt             DateTime?                        @map("archived_at") @db.Timestamptz(6)
   createdAt              DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace              Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdByUser          AppUser                          @relation("ProductKnowledgeTextEntryCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   updatedByUser          AppUser?                         @relation("ProductKnowledgeTextEntryUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   chunks                 ProductKnowledgeTextEntryChunk[]
 
-  @@index([workspaceId, lifecycleStatus, createdAt(sort: Desc)])
-  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@index([lifecycleStatus, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("product_knowledge_text_entries")
 }
@@ -1755,7 +1738,6 @@ model ProductKnowledgeTextEntry {
 model ProductKnowledgeTextEntryChunk {
   id                  String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   textEntryId         String                    @map("text_entry_id") @db.Uuid
-  workspaceId         String                    @map("workspace_id") @db.Uuid
   sourceVersion       Int                       @map("source_version")
   chunkIndex          Int                       @map("chunk_index")
   locator             String?                   @db.Text
@@ -1765,17 +1747,14 @@ model ProductKnowledgeTextEntryChunk {
   embeddingGeneratedAt DateTime?                @map("embedding_generated_at") @db.Timestamptz(6)
   createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   textEntry           ProductKnowledgeTextEntry @relation(fields: [textEntryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace           Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([textEntryId, sourceVersion, chunkIndex])
   @@index([textEntryId, createdAt(sort: Desc)])
-  @@index([workspaceId, createdAt(sort: Desc)])
   @@map("product_knowledge_text_entry_chunks")
 }
 
 model Skill {
   id              String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId     String                     @map("workspace_id") @db.Uuid
   createdByUserId String                     @map("created_by_user_id") @db.Uuid
   updatedByUserId String?                    @map("updated_by_user_id") @db.Uuid
   status          SkillStatus                @default(draft)
@@ -1790,7 +1769,6 @@ model Skill {
   archivedAt      DateTime?                  @map("archived_at") @db.Timestamptz(6)
   createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace       Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdByUser   AppUser                    @relation("SkillCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   updatedByUser   AppUser?                   @relation("SkillUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   documents       SkillDocument[]
@@ -1801,8 +1779,8 @@ model Skill {
   indexingJobs    KnowledgeIndexingJob[]
   vectorChunks    KnowledgeVectorChunk[]
 
-  @@index([workspaceId, status, displayOrder])
-  @@index([workspaceId, category, status])
+  @@index([status, displayOrder])
+  @@index([category, status])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("skills")
 }
@@ -1810,7 +1788,6 @@ model Skill {
 model SkillDocument {
   id                     String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   skillId                String                             @map("skill_id") @db.Uuid
-  workspaceId            String                             @map("workspace_id") @db.Uuid
   createdByUserId        String                             @map("created_by_user_id") @db.Uuid
   displayName            String?                            @map("display_name") @db.VarChar(255)
   description            String?                            @db.Text
@@ -1831,12 +1808,10 @@ model SkillDocument {
   createdAt              DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
   skill                  Skill                              @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace              Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdByUser          AppUser                            @relation("SkillDocumentCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   chunks                 SkillDocumentChunk[]
 
   @@index([skillId, status, createdAt(sort: Desc)])
-  @@index([workspaceId, status, createdAt(sort: Desc)])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("skill_documents")
 }
@@ -1845,7 +1820,6 @@ model SkillDocumentChunk {
   id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   skillDocumentId      String        @map("skill_document_id") @db.Uuid
   skillId              String        @map("skill_id") @db.Uuid
-  workspaceId          String        @map("workspace_id") @db.Uuid
   sourceVersion        Int           @map("source_version")
   chunkIndex           Int           @map("chunk_index")
   locator              String?       @db.Text
@@ -1855,18 +1829,15 @@ model SkillDocumentChunk {
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   skillDocument        SkillDocument @relation(fields: [skillDocumentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   skill                Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace            Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([skillDocumentId, sourceVersion, chunkIndex])
   @@index([skillId, createdAt(sort: Desc)])
-  @@index([workspaceId, skillId, createdAt(sort: Desc)])
   @@map("skill_document_chunks")
 }
 
 model SkillKnowledgeCard {
   id                     String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   skillId                String                            @map("skill_id") @db.Uuid
-  workspaceId            String                            @map("workspace_id") @db.Uuid
   createdByUserId        String                            @map("created_by_user_id") @db.Uuid
   updatedByUserId        String?                           @map("updated_by_user_id") @db.Uuid
   title                  String                            @db.VarChar(255)
@@ -1890,14 +1861,12 @@ model SkillKnowledgeCard {
   createdAt              DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
   skill                  Skill                             @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace              Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   createdByUser          AppUser                           @relation("SkillKnowledgeCardCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   updatedByUser          AppUser?                          @relation("SkillKnowledgeCardUpdatedByUser", fields: [updatedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   chunks                 SkillKnowledgeCardChunk[]
 
   @@index([skillId, lifecycleStatus, createdAt(sort: Desc)])
-  @@index([workspaceId, lifecycleStatus, createdAt(sort: Desc)])
-  @@index([workspaceId, status, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("skill_knowledge_cards")
 }
@@ -1906,7 +1875,6 @@ model SkillKnowledgeCardChunk {
   id                   String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   skillKnowledgeCardId String             @map("skill_knowledge_card_id") @db.Uuid
   skillId              String             @map("skill_id") @db.Uuid
-  workspaceId          String             @map("workspace_id") @db.Uuid
   sourceVersion        Int                @map("source_version")
   chunkIndex           Int                @map("chunk_index")
   locator              String?            @db.Text
@@ -1916,11 +1884,9 @@ model SkillKnowledgeCardChunk {
   createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   knowledgeCard        SkillKnowledgeCard @relation(fields: [skillKnowledgeCardId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   skill                Skill              @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@unique([skillKnowledgeCardId, sourceVersion, chunkIndex])
   @@index([skillId, createdAt(sort: Desc)])
-  @@index([workspaceId, skillId, createdAt(sort: Desc)])
   @@map("skill_knowledge_card_chunks")
 }
 
@@ -1949,7 +1915,7 @@ model AssistantSkillAssignment {
 
 model KnowledgeIndexingJob {
   id                      String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId             String                            @map("workspace_id") @db.Uuid
+  workspaceId             String?                           @map("workspace_id") @db.Uuid
   assistantId             String?                           @map("assistant_id") @db.Uuid
   skillId                 String?                           @map("skill_id") @db.Uuid
   requestedByUserId       String?                           @map("requested_by_user_id") @db.Uuid
@@ -1977,7 +1943,7 @@ model KnowledgeIndexingJob {
   completedAt             DateTime?                         @map("completed_at") @db.Timestamptz(6)
   createdAt               DateTime                          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime                          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace               Workspace                         @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace               Workspace?                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assistant               Assistant?                        @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   skill                   Skill?                            @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   requestedByUser         AppUser?                          @relation("KnowledgeIndexingJobRequestedByUser", fields: [requestedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -1992,7 +1958,7 @@ model KnowledgeIndexingJob {
 
 model KnowledgeVectorChunk {
   id                String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workspaceId       String                    @map("workspace_id") @db.Uuid
+  workspaceId       String?                   @map("workspace_id") @db.Uuid
   assistantId       String?                   @map("assistant_id") @db.Uuid
   skillId           String?                   @map("skill_id") @db.Uuid
   sourceType        KnowledgeVectorSourceType @map("source_type")
@@ -2005,7 +1971,7 @@ model KnowledgeVectorChunk {
   metadata          Json?                     @db.JsonB
   createdAt         DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  workspace         Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace         Workspace?                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   assistant         Assistant?                @relation(fields: [assistantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   skill             Skill?                    @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 

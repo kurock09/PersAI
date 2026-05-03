@@ -8,7 +8,6 @@ import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
-import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
 import {
   parseAdminSkillUpsertInput,
   parseSkillDocumentUploadInput,
@@ -43,8 +42,7 @@ export class ManageAdminSkillsService {
   constructor(
     private readonly adminAuthorizationService: AdminAuthorizationService,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly knowledgeObjectStorage: PersaiKnowledgeObjectStorageService
   ) {}
 
   parseUpsertInput(body: unknown): AdminSkillUpsertInput {
@@ -76,9 +74,8 @@ export class ManageAdminSkillsService {
   }
 
   async list(userId: string): Promise<AdminSkillState[]> {
-    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const rows = await this.prisma.skill.findMany({
-      where: { workspaceId: access.workspaceId },
       include: {
         documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
         knowledgeCards: {
@@ -92,9 +89,9 @@ export class ManageAdminSkillsService {
   }
 
   async get(userId: string, skillId: string): Promise<AdminSkillState> {
-    const access = await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
+    await this.adminAuthorizationService.assertCanReadAdminSurface(userId);
     const skill = await this.prisma.skill.findFirst({
-      where: { id: skillId, workspaceId: access.workspaceId },
+      where: { id: skillId },
       include: {
         documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
         knowledgeCards: {
@@ -114,7 +111,6 @@ export class ManageAdminSkillsService {
     const status = input.status ?? "draft";
     const skill = await this.prisma.skill.create({
       data: {
-        workspaceId: access.workspaceId,
         createdByUserId: access.userId,
         updatedByUserId: access.userId,
         status,
@@ -140,7 +136,7 @@ export class ManageAdminSkillsService {
   ): Promise<AdminSkillState> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const existing = await this.prisma.skill.findFirst({
-      where: { id: skillId, workspaceId: access.workspaceId }
+      where: { id: skillId }
     });
     if (existing === null) {
       throw new NotFoundException("Skill not found.");
@@ -184,7 +180,7 @@ export class ManageAdminSkillsService {
   async archive(userId: string, skillId: string): Promise<void> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const existing = await this.prisma.skill.findFirst({
-      where: { id: skillId, workspaceId: access.workspaceId }
+      where: { id: skillId }
     });
     if (existing === null) {
       throw new NotFoundException("Skill not found.");
@@ -211,7 +207,7 @@ export class ManageAdminSkillsService {
       params.userId
     );
     const skill = await this.prisma.skill.findFirst({
-      where: { id: params.skillId, workspaceId: access.workspaceId }
+      where: { id: params.skillId }
     });
     if (skill === null) {
       throw new NotFoundException("Skill not found.");
@@ -225,14 +221,6 @@ export class ManageAdminSkillsService {
     if (!this.isSkillDocumentMime(validated.effectiveMimeType)) {
       throw new BadRequestException("Only document-like files can be added to Skills.");
     }
-    const quota = await this.trackWorkspaceQuotaUsageService.checkWorkspaceKnowledgeStorageQuota({
-      workspaceId: access.workspaceId,
-      userId: access.userId
-    });
-    if (!quota.allowed) {
-      throw new ConflictException("Workspace knowledge storage quota is already exhausted.");
-    }
-
     const objectKey = this.knowledgeObjectStorage.buildSkillDocumentObjectKey({
       skillId: skill.id,
       extension: validated.normalizedExtension,
@@ -245,13 +233,11 @@ export class ManageAdminSkillsService {
     });
 
     let documentId: string | null = null;
-    let appliedQuotaBytes = BigInt(0);
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const document = await tx.skillDocument.create({
           data: {
             skillId: skill.id,
-            workspaceId: access.workspaceId,
             createdByUserId: access.userId,
             displayName: params.input.displayName,
             description: params.input.description,
@@ -266,7 +252,7 @@ export class ManageAdminSkillsService {
         documentId = document.id;
         const indexingJob = await tx.knowledgeIndexingJob.create({
           data: {
-            workspaceId: access.workspaceId,
+            workspaceId: null,
             skillId: skill.id,
             requestedByUserId: access.userId,
             sourceType: "skill_document",
@@ -280,18 +266,6 @@ export class ManageAdminSkillsService {
         return { document, indexingJob };
       });
 
-      const applied =
-        await this.trackWorkspaceQuotaUsageService.recordWorkspaceKnowledgeStorageUpload({
-          workspaceId: access.workspaceId,
-          userId: access.userId,
-          sizeBytes: BigInt(stored.sizeBytes),
-          source: "admin_skill_document_upload",
-          metadata: { skillId: skill.id, documentId: result.document.id }
-        });
-      appliedQuotaBytes = applied.appliedDelta;
-      if (applied.capped) {
-        throw new ConflictException("Workspace knowledge storage quota is exhausted.");
-      }
       return {
         document: toSkillDocumentState(result.document),
         indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
@@ -305,29 +279,17 @@ export class ManageAdminSkillsService {
           .delete({ where: { id: documentId } })
           .catch(() => undefined);
       }
-      if (appliedQuotaBytes > BigInt(0)) {
-        await this.trackWorkspaceQuotaUsageService
-          .releaseWorkspaceKnowledgeStorage({
-            workspaceId: access.workspaceId,
-            userId: access.userId,
-            sizeBytes: appliedQuotaBytes,
-            source: "admin_skill_document_upload_rollback",
-            metadata: { skillId: skill.id, documentId }
-          })
-          .catch(() => undefined);
-      }
       await this.knowledgeObjectStorage.deleteObject(stored.objectKey).catch(() => undefined);
       throw error;
     }
   }
 
   async deleteDocument(userId: string, skillId: string, documentId: string): Promise<void> {
-    const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
+    await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
     const document = await this.prisma.skillDocument.findFirst({
       where: {
         id: documentId,
-        skillId,
-        workspaceId: access.workspaceId
+        skillId
       }
     });
     if (document === null) {
@@ -343,13 +305,6 @@ export class ManageAdminSkillsService {
       await tx.skillDocument.delete({ where: { id: document.id } });
     });
     await this.knowledgeObjectStorage.deleteObject(document.storagePath);
-    await this.trackWorkspaceQuotaUsageService.releaseWorkspaceKnowledgeStorage({
-      workspaceId: access.workspaceId,
-      userId: access.userId,
-      sizeBytes: document.sizeBytes,
-      source: "admin_skill_document_delete",
-      metadata: { skillId, documentId }
-    });
   }
 
   async reindexDocument(
@@ -361,8 +316,7 @@ export class ManageAdminSkillsService {
     const document = await this.prisma.skillDocument.findFirst({
       where: {
         id: documentId,
-        skillId,
-        workspaceId: access.workspaceId
+        skillId
       }
     });
     if (document === null) {
@@ -382,7 +336,7 @@ export class ManageAdminSkillsService {
       });
       const indexingJob = await tx.knowledgeIndexingJob.create({
         data: {
-          workspaceId: access.workspaceId,
+          workspaceId: null,
           skillId,
           requestedByUserId: access.userId,
           sourceType: "skill_document",
@@ -407,13 +361,12 @@ export class ManageAdminSkillsService {
     input: SkillKnowledgeCardInput
   ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    const skill = await this.requireSkill(access.workspaceId, skillId);
+    const skill = await this.requireSkill(skillId);
     const lifecycleStatus = input.lifecycleStatus ?? "draft";
     const result = await this.prisma.$transaction(async (tx) => {
       const card = await tx.skillKnowledgeCard.create({
         data: {
           skillId: skill.id,
-          workspaceId: access.workspaceId,
           createdByUserId: access.userId,
           updatedByUserId: access.userId,
           title: input.title,
@@ -435,7 +388,7 @@ export class ManageAdminSkillsService {
         lifecycleStatus === "active"
           ? await tx.knowledgeIndexingJob.create({
               data: {
-                workspaceId: access.workspaceId,
+                workspaceId: null,
                 skillId: skill.id,
                 requestedByUserId: access.userId,
                 sourceType: "skill_knowledge_card",
@@ -463,9 +416,9 @@ export class ManageAdminSkillsService {
     input: SkillKnowledgeCardInput
   ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState | null }> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    await this.requireSkill(access.workspaceId, skillId);
+    await this.requireSkill(skillId);
     const existing = await this.prisma.skillKnowledgeCard.findFirst({
-      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+      where: { id: cardId, skillId }
     });
     if (existing === null) {
       throw new NotFoundException("Skill knowledge card not found.");
@@ -507,7 +460,7 @@ export class ManageAdminSkillsService {
       const indexingJob = shouldIndex
         ? await tx.knowledgeIndexingJob.create({
             data: {
-              workspaceId: access.workspaceId,
+              workspaceId: null,
               skillId,
               requestedByUserId: access.userId,
               sourceType: "skill_knowledge_card",
@@ -530,9 +483,9 @@ export class ManageAdminSkillsService {
 
   async archiveKnowledgeCard(userId: string, skillId: string, cardId: string): Promise<void> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    await this.requireSkill(access.workspaceId, skillId);
+    await this.requireSkill(skillId);
     const existing = await this.prisma.skillKnowledgeCard.findFirst({
-      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+      where: { id: cardId, skillId }
     });
     if (existing === null) {
       throw new NotFoundException("Skill knowledge card not found.");
@@ -557,9 +510,9 @@ export class ManageAdminSkillsService {
     cardId: string
   ): Promise<{ card: SkillKnowledgeCardState; indexingJob: KnowledgeIndexingJobState }> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    await this.requireSkill(access.workspaceId, skillId);
+    await this.requireSkill(skillId);
     const existing = await this.prisma.skillKnowledgeCard.findFirst({
-      where: { id: cardId, skillId, workspaceId: access.workspaceId }
+      where: { id: cardId, skillId }
     });
     if (existing === null) {
       throw new NotFoundException("Skill knowledge card not found.");
@@ -581,7 +534,7 @@ export class ManageAdminSkillsService {
       });
       const indexingJob = await tx.knowledgeIndexingJob.create({
         data: {
-          workspaceId: access.workspaceId,
+          workspaceId: null,
           skillId,
           requestedByUserId: access.userId,
           sourceType: "skill_knowledge_card",
@@ -611,9 +564,9 @@ export class ManageAdminSkillsService {
     });
   }
 
-  private async requireSkill(workspaceId: string, skillId: string) {
+  private async requireSkill(skillId: string) {
     const skill = await this.prisma.skill.findFirst({
-      where: { id: skillId, workspaceId }
+      where: { id: skillId }
     });
     if (skill === null) {
       throw new NotFoundException("Skill not found.");
