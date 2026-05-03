@@ -515,6 +515,11 @@ period shape. These actions write through the PersAI lifecycle/subscription serv
 `source=admin` lifecycle history, refresh the selected support detail immediately, and do not create
 an admin-only second source of billing truth. Manual reminder work is created from lifecycle history
 into the existing durable notification job pipeline instead of bypassing it with UI-local behavior.
+For legacy assistants that still resolve only through the old assistant quota-plan fallback and have
+no real `WorkspaceSubscription`, Ops now also exposes an explicit admin normalization action that
+initializes lifecycle truth from the current registration policy using the current time. That action
+creates the first real subscription row, clears the stale legacy fallback pointer, and makes the user
+testable through the normal trial/grace/fallback support path.
 
 ### Slice 7 implementation note
 

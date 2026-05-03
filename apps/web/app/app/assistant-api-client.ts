@@ -2667,6 +2667,7 @@ export async function postAdminOpsUserBillingSupportAction(
   userId: string,
   payload: {
     action:
+      | "initialize_lifecycle_now"
       | "extend_trial"
       | "grant_grace"
       | "extend_grace"

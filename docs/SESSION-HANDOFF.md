@@ -1,5 +1,88 @@
 # SESSION-HANDOFF
 
+## 2026-05-03 (ADR-083 legacy-user normalization) — Ops can initialize lifecycle truth for old fallback users
+
+### What changed
+
+- Added a new `Admin > Ops` support action for legacy assistants that still resolve only through the old assistant quota-plan fallback and therefore show `unknown` billing state with no lifecycle support buttons.
+- The new `Initialize lifecycle now` action creates the first real `WorkspaceSubscription` from the current default registration policy using the current time, writes the resulting lifecycle row through the existing PersAI-native resolver path, and clears the stale assistant `quotaPlanCode` fallback so the migrated user no longer depends on legacy fallback truth.
+- `Admin > Ops` now surfaces that action only for the legacy fallback case and refreshes both the selected detail and the top user directory after success, so the user immediately starts showing real plan/status/date columns and the normal lifecycle support actions.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This action intentionally initializes lifecycle from the current registration policy and current time; it does not reconstruct the user's historical signup date or historical billing windows.
+- Legacy users with an active assistant plan override still need that override reset first; the new action is only for legacy fallback users without a real workspace subscription.
+
+### Next recommended step
+
+Continue with ADR-084 Slice 2: pricing cards from Admin Plans.
+
+---
+
+## 2026-05-03 (ADR-084 Slice 2 pricing surface prep) — Ops tester plan selector no longer drops valid plan options
+
+### What changed
+
+- Fixed an `Admin > Ops` regression in the legacy tester/manual `Plan Control` card where the selector could appear empty because the page eagerly collapsed the fetched plan catalog down to active-only state and lost the context needed to represent the currently selected override cleanly.
+- `apps/web/app/admin/ops/page.tsx` now keeps the full admin plan catalog in state and derives tester override options from it, so the selector still prefers active plans but can also surface an existing inactive override as explicit legacy cleanup state instead of silently looking blank.
+- Disabled applying an inactive legacy override from the selector and added a focused web regression test around the new option-resolution helper.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This change only hardens the old tester/manual override card in `Admin > Ops`; it does not change billing truth, subscription lifecycle state, or the ADR-084 pricing/checkout path.
+- If the environment truly has zero active plans, the selector now says so explicitly instead of looking like a broken empty dropdown.
+
+### Next recommended step
+
+Continue with ADR-084 Slice 2: pricing cards from Admin Plans.
+
+---
+
+## 2026-05-03 (ADR-083 verification hardening) — lifecycle reminder reschedule now matches support truth
+
+### What changed
+
+- Verified the completed ADR-083 Slice 6/7 support surface instead of starting ADR-084 work, with focus on Clerk auth coverage, Ops support actions, lifecycle ordering, reminder creation, and second-source-of-truth risk.
+- Fixed a real ADR-083 mismatch in `ScheduleBillingLifecycleNotificationsService`: `trial_extended` and `grace_extended` were previously able to create duplicate future reminder jobs because notification dedupe was keyed by lifecycle event id. The scheduler now reuses and reschedules the active pending/skipped `trial_ending` and `grace_ending` jobs per channel when the lifecycle window moves, so reminder work follows the latest PersAI lifecycle truth instead of accumulating stale future jobs.
+- Expanded `ClerkAuthMiddleware` regression coverage for the adjacent upload/media/file routes that were part of this session's audit: staged web attachment upload, direct chat attachment upload, voice transcription, and Files cache cleanup are now pinned in the identity-access middleware test alongside the already-fixed admin billing support action route.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/billing-lifecycle-notifications.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This session hardened lifecycle-derived reminder scheduling and auth coverage, but did not add a real email provider/delivery adapter; email lifecycle jobs remain durable pending work until ADR-084/provider delivery work lands.
+- ADR-084 payment-intent/provider checkout/webhook surfaces are still intentionally untouched here; the next slice remains provider-boundary work rather than more ADR-083 feature expansion.
+
+### Next recommended step
+
+ADR-083 Slice 6/7 is now re-verified and the reminder-reschedule drift is fixed. Before opening payment-intent/provider-port work, reconcile ADR-084 execution order and continue with ADR-084 Slice 2: pricing cards from Admin Plans. The current repo/docs truth does not yet show Slice 2 as implemented, so Slice 3 should not be treated as the active next slice.
+
+---
+
 ## 2026-05-03 (ADR-083 Slice 6 closeout) — Ops Cockpit becomes action-capable billing support
 
 ### What changed
@@ -24,7 +107,7 @@
 
 ### Next recommended step
 
-ADR-083 Slice 6 is now truly complete. Continue with ADR-084 Slice 3: payment intent and provider port, reusing the already-landed ADR-083 Slice 7 billing-event application path.
+ADR-083 Slice 6 is now truly complete. Continue with ADR-084 Slice 2: pricing cards from Admin Plans. Payment intent/provider-port work remains the later Slice 3 after the pricing surface exists.
 
 ---
 
@@ -60,7 +143,7 @@ ADR-083 Slice 6 is now truly complete. Continue with ADR-084 Slice 3: payment in
 
 ### Next recommended step
 
-Continue ADR-084 Slice 3: payment intent and provider port. The next slice should create the PersAI-owned payment intent model and provider-neutral adapter boundary that feeds the new Slice 7 billing-event application path.
+Continue ADR-084 Slice 2: pricing cards from Admin Plans. Payment intent/provider-port work remains the later Slice 3 that should feed the already-landed Slice 7 billing-event application path after the pricing surface is in place.
 
 ---
 

@@ -7,6 +7,8 @@ Accepted; implementation pending.
 Current continuation state:
 
 - **Purpose:** finish the PersAI-owned billing/provider boundary so only concrete provider adapter wiring remains for YooKassa, CloudPayments, Stripe, or another provider.
+- **Completed through:** Slice 1 — ADR and provider-readiness policy.
+- **Next active item:** Slice 2 — pricing cards from Admin Plans.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 

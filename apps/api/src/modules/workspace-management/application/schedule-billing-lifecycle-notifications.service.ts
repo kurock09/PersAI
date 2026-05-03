@@ -329,40 +329,91 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
     status: "pending" | "skipped";
     skipReason: string | null;
   }): Promise<void> {
+    const now = new Date();
     const dedupeKey = [
       "billing_lifecycle",
       input.channel,
       input.intent.notificationCode,
       input.event.id
     ].join(":");
+    const createData = {
+      workspaceId: input.event.workspaceId,
+      userId: input.event.userId,
+      assistantId: input.assistant?.id ?? null,
+      subscriptionId: input.event.subscriptionId,
+      lifecycleEventId: input.event.id,
+      eventCode: input.event.eventCode,
+      notificationCode: input.intent.notificationCode,
+      channel: input.channel,
+      status: input.status,
+      dedupeKey,
+      scheduledFor: input.intent.scheduledFor,
+      recipientEmail: input.recipientEmail,
+      subject: input.copy.subject,
+      text: input.copy.text,
+      metadata: this.toJsonValue({
+        schema: "persai.billingLifecycleNotificationJob.v1",
+        lifecycleEventId: input.event.id,
+        lifecycleEventMetadata: isRecord(input.event.metadata) ? input.event.metadata : {},
+        relevantDate: input.intent.relevantDate?.toISOString() ?? null,
+        skipReason: input.skipReason
+      }),
+      ...(input.status === "skipped" ? { skippedAt: now, lastErrorCode: input.skipReason } : {})
+    };
+
+    if (this.isReschedulableNotificationCode(input.intent.notificationCode)) {
+      const reschedulableStatuses: Array<"pending" | "skipped"> = ["pending", "skipped"];
+      const activeWhere = {
+        workspaceId: input.event.workspaceId,
+        subscriptionId: input.event.subscriptionId,
+        channel: input.channel,
+        notificationCode: input.intent.notificationCode,
+        status: { in: reschedulableStatuses }
+      };
+      const existing = await this.prisma.billingLifecycleNotificationJob.findFirst({
+        where: activeWhere,
+        orderBy: [{ createdAt: "desc" }]
+      });
+      if (existing !== null) {
+        await this.prisma.billingLifecycleNotificationJob.update({
+          where: { id: existing.id },
+          data: {
+            assistantId: input.assistant?.id ?? null,
+            lifecycleEventId: input.event.id,
+            eventCode: input.event.eventCode,
+            status: input.status,
+            scheduledFor: input.intent.scheduledFor,
+            recipientEmail: input.recipientEmail,
+            subject: input.copy.subject,
+            text: input.copy.text,
+            metadata: createData.metadata,
+            assistantNotificationOutboxId: null,
+            enqueuedAt: null,
+            skippedAt: input.status === "skipped" ? now : null,
+            failedAt: null,
+            lastErrorCode: input.status === "skipped" ? input.skipReason : null,
+            lastErrorMessage: null
+          }
+        });
+        await this.prisma.billingLifecycleNotificationJob.updateMany({
+          where: {
+            ...activeWhere,
+            id: { not: existing.id }
+          },
+          data: {
+            status: "skipped",
+            skippedAt: now,
+            lastErrorCode: "rescheduled_by_lifecycle_extension",
+            lastErrorMessage: "Superseded by a newer billing lifecycle extension."
+          }
+        });
+        return;
+      }
+    }
+
     await this.prisma.billingLifecycleNotificationJob.upsert({
       where: { dedupeKey },
-      create: {
-        workspaceId: input.event.workspaceId,
-        userId: input.event.userId,
-        assistantId: input.assistant?.id ?? null,
-        subscriptionId: input.event.subscriptionId,
-        lifecycleEventId: input.event.id,
-        eventCode: input.event.eventCode,
-        notificationCode: input.intent.notificationCode,
-        channel: input.channel,
-        status: input.status,
-        dedupeKey,
-        scheduledFor: input.intent.scheduledFor,
-        recipientEmail: input.recipientEmail,
-        subject: input.copy.subject,
-        text: input.copy.text,
-        metadata: this.toJsonValue({
-          schema: "persai.billingLifecycleNotificationJob.v1",
-          lifecycleEventId: input.event.id,
-          lifecycleEventMetadata: isRecord(input.event.metadata) ? input.event.metadata : {},
-          relevantDate: input.intent.relevantDate?.toISOString() ?? null,
-          skipReason: input.skipReason
-        }),
-        ...(input.status === "skipped"
-          ? { skippedAt: new Date(), lastErrorCode: input.skipReason }
-          : {})
-      },
+      create: createData,
       update: {}
     });
   }
@@ -440,5 +491,11 @@ export class ScheduleBillingLifecycleNotificationsService implements OnModuleIni
 
   private toJsonValue(value: unknown): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private isReschedulableNotificationCode(
+    value: BillingLifecycleNotificationCode | "billing_reminder"
+  ): value is BillingLifecycleNotificationCode {
+    return value === "trial_ending" || value === "grace_ending";
   }
 }

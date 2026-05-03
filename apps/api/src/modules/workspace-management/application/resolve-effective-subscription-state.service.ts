@@ -22,6 +22,12 @@ export type ResolveEffectiveSubscriptionInput = {
   assistantQuotaPlanCode: string | null;
 };
 
+export type InitializeLifecycleNowInput = {
+  userId: string;
+  workspaceId: string;
+  source: "system" | "admin";
+};
+
 @Injectable()
 export class ResolveEffectiveSubscriptionStateService {
   constructor(
@@ -86,6 +92,24 @@ export class ResolveEffectiveSubscriptionStateService {
     };
   }
 
+  async initializeLifecycleNow(
+    input: InitializeLifecycleNowInput
+  ): Promise<EffectiveSubscriptionState> {
+    const current = await this.workspaceSubscriptionRepository.findByWorkspaceId(input.workspaceId);
+    if (current !== null) {
+      throw new BadRequestException("Workspace subscription already exists.");
+    }
+
+    const defaultPlan = await this.planCatalogRepository.findDefaultRegistrationPlan();
+    if (defaultPlan === null) {
+      throw new BadRequestException("Default registration plan is not configured.");
+    }
+
+    return this.createInitialWorkspaceSubscription(input.workspaceId, input.userId, defaultPlan, {
+      source: input.source
+    });
+  }
+
   private async resolveWorkspaceSubscription(
     input: ResolveEffectiveSubscriptionInput,
     workspaceSubscription: WorkspaceSubscription
@@ -104,8 +128,12 @@ export class ResolveEffectiveSubscriptionStateService {
   private async createInitialWorkspaceSubscription(
     workspaceId: string,
     userId: string,
-    defaultPlan: AssistantPlanCatalog
+    defaultPlan: AssistantPlanCatalog,
+    options?: {
+      source?: "system" | "admin";
+    }
   ): Promise<EffectiveSubscriptionState> {
+    const source = options?.source ?? "system";
     if (defaultPlan.status !== "active") {
       throw new BadRequestException("Default registration plan must be active.");
     }
@@ -147,7 +175,7 @@ export class ResolveEffectiveSubscriptionStateService {
           eventCode: "trial_started",
           previous: null,
           next: created,
-          source: "system"
+          source
         })
       );
     }

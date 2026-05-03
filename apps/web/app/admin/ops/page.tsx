@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -129,6 +130,7 @@ type BillingSupportData = {
 };
 
 export type BillingSupportAction =
+  | "initialize_lifecycle_now"
   | "extend_trial"
   | "grant_grace"
   | "extend_grace"
@@ -142,6 +144,13 @@ export type BillingSupportActionConfig = {
   preview: string;
   confirmLabel: string;
   tone: "default" | "danger";
+};
+
+type PlanControlOption = {
+  code: string;
+  displayName: string;
+  status: "active" | "inactive";
+  selectedInactive: boolean;
 };
 
 /* ------------------------------------------------------------------ */
@@ -414,9 +423,26 @@ function billingStatusTone(status: string | null | undefined): string {
 }
 
 export function resolveBillingSupportActions(
-  billing: BillingSupportData | null | undefined
+  billing: BillingSupportData | null | undefined,
+  effectivePlanSource?: string | null
 ): BillingSupportActionConfig[] {
   const status = billing?.subscription.status ?? null;
+  if (
+    status === null &&
+    billing?.subscription.id === null &&
+    effectivePlanSource === "assistant_plan_fallback"
+  ) {
+    return [
+      {
+        action: "initialize_lifecycle_now",
+        label: "Initialize lifecycle now",
+        preview:
+          "Create a real workspace subscription from the current registration policy using the current time, so this legacy fallback user can be tested through the normal lifecycle flow.",
+        confirmLabel: "Initialize lifecycle",
+        tone: "default"
+      }
+    ];
+  }
   if (status === null) {
     return [];
   }
@@ -509,6 +535,44 @@ export function resolveBillingSupportActions(
   }
 }
 
+export function resolvePlanControlOptions(
+  plans: Array<Pick<AdminPlanState, "code" | "displayName" | "status">>,
+  currentOverrideCode: string | null | undefined
+): PlanControlOption[] {
+  const options: PlanControlOption[] = plans
+    .filter((plan) => plan.status === "active")
+    .map((plan) => ({
+      code: plan.code,
+      displayName: plan.displayName,
+      status: plan.status,
+      selectedInactive: false
+    }));
+
+  if (!currentOverrideCode) {
+    return options;
+  }
+
+  const hasSelected = options.some((plan) => plan.code === currentOverrideCode);
+  if (hasSelected) {
+    return options;
+  }
+
+  const selectedPlan = plans.find((plan) => plan.code === currentOverrideCode);
+  if (selectedPlan?.status !== "inactive") {
+    return options;
+  }
+
+  return [
+    ...options,
+    {
+      code: selectedPlan.code,
+      displayName: selectedPlan.displayName,
+      status: selectedPlan.status,
+      selectedInactive: true
+    }
+  ];
+}
+
 function notificationJobTone(status: string): string {
   switch (status) {
     case "enqueued":
@@ -531,11 +595,13 @@ const PAGE_SIZE = 5;
 function UsersDirectory({
   getToken,
   selectedUserId,
-  onSelectUser
+  onSelectUser,
+  reloadNonce
 }: {
   getToken: () => Promise<string | null>;
   selectedUserId: string | null;
   onSelectUser: (userId: string, email: string) => void;
+  reloadNonce: number;
 }) {
   const [users, setUsers] = useState<OpsUserRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -546,6 +612,10 @@ function UsersDirectory({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef(search);
+  const offsetRef = useRef(offset);
+  searchRef.current = search;
+  offsetRef.current = offset;
 
   const load = useCallback(
     async (q: string, off: number) => {
@@ -575,6 +645,13 @@ function UsersDirectory({
   useEffect(() => {
     void load("", 0);
   }, [load]);
+
+  useEffect(() => {
+    if (reloadNonce === 0) {
+      return;
+    }
+    void load(searchRef.current.trim(), offsetRef.current);
+  }, [load, reloadNonce]);
 
   const onSearch = useCallback(
     (val: string) => {
@@ -863,8 +940,21 @@ export default function AdminOpsPage() {
   const [planSelectionDirty, setPlanSelectionDirty] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
+  const [usersReloadNonce, setUsersReloadNonce] = useState(0);
   const selectedUserIdRef = useRef<string | null>(null);
   selectedUserIdRef.current = selectedUserId;
+  const planControlOptions = useMemo(
+    () =>
+      resolvePlanControlOptions(
+        plans,
+        cockpit?.assistant.effectivePlan.assistantPlanOverrideCode ?? null
+      ),
+    [plans, cockpit?.assistant.effectivePlan.assistantPlanOverrideCode]
+  );
+  const selectedPlanOption = useMemo(
+    () => planControlOptions.find((plan) => plan.code === selectedPlanCode) ?? null,
+    [planControlOptions, selectedPlanCode]
+  );
 
   const load = useCallback(
     async (targetUserId?: string) => {
@@ -887,7 +977,7 @@ export default function AdminOpsPage() {
           getAdminPlans(token)
         ]);
         setCockpit(nextCockpit);
-        setPlans(nextPlans.filter((plan) => plan.status === "active"));
+        setPlans(nextPlans);
       } catch (e) {
         setCockpit(null);
         setPlans([]);
@@ -1035,6 +1125,7 @@ export default function AdminOpsPage() {
       });
       setActionMessage(result.summary);
       setPendingBillingSupportAction(null);
+      setUsersReloadNonce((value) => value + 1);
       await load(selectedUserId);
     } catch (e) {
       setActionMessage(e instanceof Error ? e.message : "Failed to run billing support action.");
@@ -1106,6 +1197,7 @@ export default function AdminOpsPage() {
         getToken={getToken}
         selectedUserId={selectedUserId}
         onSelectUser={onSelectUser}
+        reloadNonce={usersReloadNonce}
       />
 
       {cockpit && (
@@ -1271,19 +1363,32 @@ export default function AdminOpsPage() {
                   className="h-9 rounded border border-border bg-bg px-2 text-sm text-text focus:border-accent/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <option value="">Choose plan…</option>
-                  {plans.map((plan) => (
+                  {planControlOptions.map((plan) => (
                     <option key={plan.code} value={plan.code}>
                       {plan.code} - {plan.displayName}
+                      {plan.selectedInactive ? " (inactive current override)" : ""}
                     </option>
                   ))}
                 </select>
               </label>
+              {planControlOptions.length === 0 && (
+                <p className="text-[10px] text-text-subtle">
+                  No active plans are currently available for tester override.
+                </p>
+              )}
+              {selectedPlanOption?.selectedInactive && (
+                <p className="text-[10px] text-warning">
+                  The current override points to an inactive legacy plan. Reset it or choose an
+                  active plan before applying.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   disabled={
                     !selectedUserId ||
                     !selectedPlanCode ||
+                    selectedPlanOption?.status !== "active" ||
                     !cockpit.controls.assistantPlanOverrideSupported ||
                     planOverrideBusy
                   }
@@ -1330,7 +1435,10 @@ export default function AdminOpsPage() {
             const raw = cockpit as unknown as Record<string, unknown>;
             const billing = raw.billingSupport as BillingSupportData | null | undefined;
             if (!billing) return null;
-            const supportActions = resolveBillingSupportActions(billing);
+            const supportActions = resolveBillingSupportActions(
+              billing,
+              cockpit.assistant.effectivePlan.source
+            );
             return (
               <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,1.25fr)]">
                 <CardShell title="Billing Support" icon={Gauge}>

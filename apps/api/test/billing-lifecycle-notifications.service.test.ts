@@ -31,10 +31,38 @@ async function run(): Promise<void> {
       nextStatus: "expired_fallback",
       nextPlanCode: "starter",
       nextPeriodEndsAt: null,
-      createdAt: new Date("2026-05-04T00:00:00.000Z"),
+      createdAt: new Date("2026-05-03T00:00:00.000Z"),
       metadata: { adminAction: "send_billing_reminder" },
       user: { email: "user@example.com" },
       subscription: { graceEndsAt: null, trialEndsAt: null }
+    },
+    "event-3": {
+      id: "event-3",
+      workspaceId: "ws-1",
+      userId: "user-1",
+      subscriptionId: "sub-1",
+      eventCode: "grace_started",
+      nextStatus: "grace_period",
+      nextPlanCode: "pro",
+      nextPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+      createdAt: new Date("2026-05-03T00:00:00.000Z"),
+      metadata: {},
+      user: { email: "user@example.com" },
+      subscription: { graceEndsAt: new Date("2026-05-08T00:00:00.000Z"), trialEndsAt: null }
+    },
+    "event-4": {
+      id: "event-4",
+      workspaceId: "ws-1",
+      userId: "user-1",
+      subscriptionId: "sub-1",
+      eventCode: "grace_extended",
+      nextStatus: "grace_period",
+      nextPlanCode: "pro",
+      nextPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+      createdAt: new Date("2026-05-04T00:00:00.000Z"),
+      metadata: {},
+      user: { email: "user@example.com" },
+      subscription: { graceEndsAt: new Date("2026-05-12T00:00:00.000Z"), trialEndsAt: null }
     }
   } as const;
   const prisma = {
@@ -57,20 +85,99 @@ async function run(): Promise<void> {
       async upsert(args: { create: Record<string, unknown> }) {
         const existing = jobs.find((job) => job.dedupeKey === args.create.dedupeKey);
         if (existing === undefined) {
-          jobs.push({ id: `job-${jobs.length + 1}`, ...args.create });
+          jobs.push({
+            id: `job-${jobs.length + 1}`,
+            createdAt: new Date(`2026-05-03T00:00:${String(jobs.length).padStart(2, "0")}.000Z`),
+            ...args.create
+          });
         }
         return {};
       },
-      async findMany() {
-        return jobs.filter(
-          (job) => job.channel === "assistant_notification" && job.status === "pending"
+      async findFirst(args: {
+        where: {
+          workspaceId: string;
+          subscriptionId: string | null;
+          channel: string;
+          notificationCode: string;
+          status: { in: string[] };
+        };
+      }) {
+        const matches = jobs.filter(
+          (job) =>
+            job.workspaceId === args.where.workspaceId &&
+            job.subscriptionId === args.where.subscriptionId &&
+            job.channel === args.where.channel &&
+            job.notificationCode === args.where.notificationCode &&
+            args.where.status.in.includes(String(job.status))
         );
+        return matches.at(-1) ?? null;
+      },
+      async findMany(args: {
+        where?: {
+          channel?: string;
+          status?: string;
+          scheduledFor?: { lte: Date };
+          assistantId?: { not: null };
+        };
+      }) {
+        return jobs.filter((job) => {
+          if (
+            args.where?.channel !== undefined &&
+            String(job.channel) !== String(args.where.channel)
+          ) {
+            return false;
+          }
+          if (
+            args.where?.status !== undefined &&
+            String(job.status) !== String(args.where.status)
+          ) {
+            return false;
+          }
+          if (args.where?.scheduledFor?.lte instanceof Date) {
+            const scheduledFor = job.scheduledFor;
+            if (!(scheduledFor instanceof Date) || scheduledFor > args.where.scheduledFor.lte) {
+              return false;
+            }
+          }
+          if (args.where?.assistantId?.not === null) {
+            return job.assistantId !== null && job.assistantId !== undefined;
+          }
+          return true;
+        });
       },
       async update(args: { where: { id: string }; data: Record<string, unknown> }) {
         const index = jobs.findIndex((job) => job.id === args.where.id);
         assert.notEqual(index, -1);
         jobs[index] = { ...jobs[index], ...args.data };
         return jobs[index];
+      },
+      async updateMany(args: {
+        where: {
+          workspaceId: string;
+          subscriptionId: string | null;
+          channel: string;
+          notificationCode: string;
+          status: { in: string[] };
+          id: { not: string };
+        };
+        data: Record<string, unknown>;
+      }) {
+        let count = 0;
+        for (let index = 0; index < jobs.length; index += 1) {
+          const job = jobs[index];
+          if (
+            job.workspaceId === args.where.workspaceId &&
+            job.subscriptionId === args.where.subscriptionId &&
+            job.channel === args.where.channel &&
+            job.notificationCode === args.where.notificationCode &&
+            args.where.status.in.includes(String(job.status)) &&
+            job.id !== args.where.id.not
+          ) {
+            jobs[index] = { ...job, ...args.data };
+            count += 1;
+          }
+        }
+        return { count };
       }
     }
   };
@@ -108,8 +215,10 @@ async function run(): Promise<void> {
 
   await service.scheduleForLifecycleEventIds(["event-1"]);
   await service.scheduleForLifecycleEventIds(["event-2"]);
+  await service.scheduleForLifecycleEventIds(["event-3"]);
+  await service.scheduleForLifecycleEventIds(["event-4"]);
 
-  assert.equal(jobs.length, 4);
+  assert.equal(jobs.length, 6);
   assert.equal(jobs[0]?.channel, "email");
   assert.equal(jobs[0]?.status, "pending");
   assert.equal(jobs[0]?.recipientEmail, "user@example.com");
@@ -121,6 +230,23 @@ async function run(): Promise<void> {
   assert.equal(jobs[2]?.notificationCode, "billing_reminder");
   assert.equal(jobs[3]?.notificationCode, "billing_reminder");
   assert.match(String(outboxInputs[1]?.text), /manual billing reminder/i);
+
+  const graceEndingJobs = jobs.filter((job) => job.notificationCode === "grace_ending");
+  assert.equal(graceEndingJobs.length, 2);
+  assert.equal(graceEndingJobs[0]?.channel, "email");
+  assert.equal(graceEndingJobs[1]?.channel, "assistant_notification");
+  assert.equal(graceEndingJobs[0]?.lifecycleEventId, "event-4");
+  assert.equal(graceEndingJobs[1]?.lifecycleEventId, "event-4");
+  assert.equal(graceEndingJobs[0]?.status, "pending");
+  assert.equal(graceEndingJobs[1]?.status, "pending");
+  assert.equal(
+    (graceEndingJobs[0]?.scheduledFor as Date).toISOString(),
+    "2026-05-11T00:00:00.000Z"
+  );
+  assert.equal(
+    (graceEndingJobs[1]?.scheduledFor as Date).toISOString(),
+    "2026-05-11T00:00:00.000Z"
+  );
 }
 
 void run();

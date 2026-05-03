@@ -3,8 +3,10 @@ import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assist
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
 export type AdminOpsBillingSupportAction =
+  | "initialize_lifecycle_now"
   | "extend_trial"
   | "grant_grace"
   | "extend_grace"
@@ -40,7 +42,8 @@ export class ManageAdminOpsBillingSupportService {
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
+    private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService,
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
   parseActionInput(body: unknown): AdminOpsBillingSupportActionInput {
@@ -72,12 +75,23 @@ export class ManageAdminOpsBillingSupportService {
       stepUpToken
     );
     const assistant = await this.requireAssistantByUserId(targetUserId);
-    const current = await this.requireWorkspaceSubscription(assistant.workspaceId);
+    const current = await this.prisma.workspaceSubscription.findUnique({
+      where: { workspaceId: assistant.workspaceId }
+    });
+    const governance = await this.prisma.assistantGovernance.findUnique({
+      where: { assistantId: assistant.id },
+      select: {
+        assistantPlanOverrideCode: true,
+        quotaPlanCode: true
+      }
+    });
 
     const summary = await this.executeAction(
+      assistant.id,
       assistant.workspaceId,
       targetUserId,
       current,
+      governance,
       input.action
     );
     return {
@@ -90,13 +104,49 @@ export class ManageAdminOpsBillingSupportService {
   }
 
   private async executeAction(
+    assistantId: string,
     workspaceId: string,
     userId: string,
-    current: SubscriptionState,
+    current: SubscriptionState | null,
+    governance: {
+      assistantPlanOverrideCode: string | null;
+      quotaPlanCode: string | null;
+    } | null,
     action: AdminOpsBillingSupportAction
   ): Promise<string> {
     switch (action) {
+      case "initialize_lifecycle_now": {
+        if (current !== null) {
+          throw new BadRequestException("Workspace subscription already exists.");
+        }
+        if (governance?.assistantPlanOverrideCode !== null) {
+          throw new BadRequestException(
+            "Reset the assistant plan override before initializing lifecycle truth."
+          );
+        }
+        if (governance?.quotaPlanCode === null) {
+          throw new BadRequestException(
+            "Legacy lifecycle initialization is only available for assistant fallback users."
+          );
+        }
+
+        const initialized =
+          await this.resolveEffectiveSubscriptionStateService.initializeLifecycleNow({
+            workspaceId,
+            userId,
+            source: "admin"
+          });
+        await this.prisma.assistantGovernance.updateMany({
+          where: { assistantId },
+          data: { quotaPlanCode: null }
+        });
+        if (initialized.status === "trialing" && initialized.trialEndsAt !== null) {
+          return `Lifecycle initialized from current registration policy on ${initialized.planCode} with trial until ${initialized.trialEndsAt}.`;
+        }
+        return `Lifecycle initialized from current registration policy on ${initialized.planCode}.`;
+      }
       case "extend_trial": {
+        this.assertCurrentSubscription(current);
         const nextTrialEndsAt = await this.resolveExtendedTrialEndsAt(current);
         await this.manageWorkspaceSubscriptionLifecycleService.extendTrial({
           workspaceId,
@@ -112,6 +162,7 @@ export class ManageAdminOpsBillingSupportService {
         return `Trial extended until ${nextTrialEndsAt.toISOString()}.`;
       }
       case "grant_grace": {
+        this.assertCurrentSubscription(current);
         await this.manageWorkspaceSubscriptionLifecycleService.grantGrace({
           workspaceId,
           userId,
@@ -126,6 +177,7 @@ export class ManageAdminOpsBillingSupportService {
         return "Grace granted using the persisted billing lifecycle settings.";
       }
       case "extend_grace": {
+        this.assertCurrentSubscription(current);
         const nextGraceEndsAt = this.resolveExtendedGraceEndsAt(current);
         await this.manageWorkspaceSubscriptionLifecycleService.extendGrace({
           workspaceId,
@@ -140,6 +192,7 @@ export class ManageAdminOpsBillingSupportService {
         return `Grace extended until ${nextGraceEndsAt.toISOString()}.`;
       }
       case "send_billing_reminder": {
+        this.assertCurrentSubscription(current);
         await this.manageWorkspaceSubscriptionLifecycleService.recordBillingReminder({
           workspaceId,
           userId,
@@ -155,6 +208,7 @@ export class ManageAdminOpsBillingSupportService {
         return "Billing reminder notification work created.";
       }
       case "apply_fallback_now": {
+        this.assertCurrentSubscription(current);
         await this.manageWorkspaceSubscriptionLifecycleService.applyFallbackNow({
           workspaceId,
           userId,
@@ -170,6 +224,7 @@ export class ManageAdminOpsBillingSupportService {
         return "Workspace moved to the configured fallback plan.";
       }
       case "restore_paid_manually": {
+        this.assertCurrentSubscription(current);
         const recovered = await this.resolveManualRestoreContext(workspaceId, current);
         await this.manageWorkspaceSubscriptionLifecycleService.activatePaidSubscription({
           workspaceId,
@@ -216,6 +271,14 @@ export class ManageAdminOpsBillingSupportService {
       throw new NotFoundException("Workspace subscription not found.");
     }
     return subscription;
+  }
+
+  private assertCurrentSubscription(
+    current: SubscriptionState | null
+  ): asserts current is SubscriptionState {
+    if (current === null) {
+      throw new NotFoundException("Workspace subscription not found.");
+    }
   }
 
   private async resolveExtendedTrialEndsAt(current: SubscriptionState): Promise<Date> {
@@ -316,6 +379,7 @@ export class ManageAdminOpsBillingSupportService {
 
   private isBillingSupportAction(value: unknown): value is AdminOpsBillingSupportAction {
     return (
+      value === "initialize_lifecycle_now" ||
       value === "extend_trial" ||
       value === "grant_grace" ||
       value === "extend_grace" ||
