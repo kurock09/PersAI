@@ -893,6 +893,7 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(screen.getByText("Trial until May 12")).toBeInTheDocument();
+    expect(screen.getByText("Pro")).toBeInTheDocument();
     expect(screen.getByText("Token budget")).toBeInTheDocument();
     expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
     expect(screen.getByText("Active chats")).toBeInTheDocument();

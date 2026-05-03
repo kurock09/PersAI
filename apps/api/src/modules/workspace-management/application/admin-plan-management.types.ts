@@ -230,6 +230,7 @@ export type PublicPricingPlanState = {
   trialEnabled: boolean;
   trialDurationDays: number | null;
   defaultOnRegistration: boolean;
+  enabledToolCodes: string[];
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: AdminPlanState["quotaLimits"];
   skillPolicy: AdminPlanState["skillPolicy"];

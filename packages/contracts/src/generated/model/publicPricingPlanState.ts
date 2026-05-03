@@ -18,6 +18,7 @@ export interface PublicPricingPlanState {
   /** @nullable */
   trialDurationDays: number | null;
   defaultOnRegistration: boolean;
+  enabledToolCodes: string[];
   entitlements: AdminPlanEntitlements;
   quotaLimits: AdminPlanQuotaLimits;
   skillPolicy: AdminPlanSkillPolicy;

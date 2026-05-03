@@ -403,7 +403,8 @@ function AccountFooter({
 
   const initials = (user?.firstName?.[0] ?? user?.username?.[0] ?? "U").toUpperCase();
 
-  const planName = data.plan?.effectivePlan.displayName ?? t("freePlan");
+  const planName =
+    data.plan?.effectivePlan.displayName ?? data.plan?.effectivePlan.code ?? t("freePlan");
   const tokenBucket =
     data.plan?.limits.quotaBuckets.find((bucket) => bucket.bucketCode === "token_budget") ?? null;
   const tokenUsage = tokenBucket?.percent ?? 0;
@@ -492,8 +493,8 @@ function AccountFooter({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium text-text">{displayName}</span>
-          <span className="block truncate text-[11px] uppercase tracking-wide text-text-muted">
-            {ts(billingSummary.statusKey)} · {tokenUsage}%
+          <span className="block truncate text-[11px] tracking-wide text-text-muted">
+            {planName} · {tokenUsage}%
           </span>
         </span>
         <MoreHorizontal className="h-4 w-4 shrink-0 text-text-subtle" />
@@ -544,10 +545,10 @@ function AccountFooter({
                 />
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px]">
-                <span className="text-text-subtle uppercase tracking-wide">
-                  {ts(billingSummary.statusKey)} · {tokenUsage}%
+                <span className="max-w-[160px] truncate text-text-muted">{planName}</span>
+                <span className="text-text-subtle">
+                  {ts("tokenPercentCompact", { pct: tokenUsage })}
                 </span>
-                <span className="max-w-[140px] truncate text-text-muted">{planName}</span>
               </div>
               {billingSummary.dateKey && billingSummary.dateLabel ? (
                 <p className="mt-1 text-[10px] text-text-subtle">

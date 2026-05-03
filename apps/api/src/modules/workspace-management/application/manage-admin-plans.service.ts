@@ -474,6 +474,9 @@ export class ManageAdminPlansService {
         trialEnabled: plan.trialEnabled,
         trialDurationDays: plan.trialDurationDays,
         defaultOnRegistration: plan.defaultOnRegistration,
+        enabledToolCodes: plan.toolActivations
+          .filter((tool) => tool.active)
+          .map((tool) => tool.toolCode),
         entitlements: plan.entitlements,
         quotaLimits: plan.quotaLimits,
         skillPolicy: plan.skillPolicy,

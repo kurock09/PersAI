@@ -2370,12 +2370,24 @@ export function AssistantSettings({
           <div className="space-y-3">
             <div className="rounded-xl border border-border/80 bg-surface-raised/40 p-3.5">
               <div className="flex items-start justify-between gap-3">
+                <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
+                  {t("currentPlan")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenPricingPage?.()}
+                  className="inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-surface/70 px-3 text-[11px] font-medium text-text-muted transition-all hover:border-accent/25 hover:bg-surface hover:text-text"
+                >
+                  {t("changePlan")}
+                </button>
+              </div>
+
+              <div className="mt-3 flex items-end justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
-                    {t("currentPlan")}
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-text">
-                    {data.plan.effectivePlan.displayName ?? t("freePlan")}
+                  <p className="truncate text-xl font-semibold tracking-[-0.02em] text-text">
+                    {data.plan.effectivePlan.displayName ??
+                      data.plan.effectivePlan.code ??
+                      t("freePlan")}
                   </p>
                   {billingSummary.dateKey && billingSummary.dateLabel && (
                     <p className="mt-1 text-[11px] text-text-muted">
@@ -2383,19 +2395,11 @@ export function AssistantSettings({
                     </p>
                   )}
                 </div>
-                <span className="shrink-0 rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                  {t(billingSummary.statusKey)}
-                </span>
-              </div>
-
-              <div className="mt-3 flex justify-start">
-                <button
-                  type="button"
-                  onClick={() => onOpenPricingPage?.()}
-                  className="inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface px-3.5 text-xs font-medium text-text-muted transition-colors hover:border-accent/25 hover:text-text"
-                >
-                  {t("changePlan")}
-                </button>
+                {tokenBucket?.percent !== null && tokenBucket?.percent !== undefined ? (
+                  <span className="shrink-0 text-sm font-medium text-text-muted">
+                    {t("tokenPercentCompact", { pct: tokenBucket.percent })}
+                  </span>
+                ) : null}
               </div>
 
               {tokenBucket && (

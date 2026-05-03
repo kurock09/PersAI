@@ -27,6 +27,7 @@ function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricin
     trialEnabled: true,
     trialDurationDays: 7,
     defaultOnRegistration: false,
+    enabledToolCodes: ["image_generate", "video_generate"],
     entitlements: {
       toolClasses: {
         costDrivingTools: true,
@@ -81,7 +82,7 @@ describe("PricingPageView", () => {
   it("renders guest pricing cards with sign-up CTA", () => {
     renderView(<PricingPageView plans={[makePlan()]} signedIn={false} backHref="/" />);
 
-    expect(screen.getByText("Choose the right PersAI access level")).toBeInTheDocument();
+    expect(screen.getByText("Choose your PersAI")).toBeInTheDocument();
     expect(screen.getByText("Popular")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Choose" })).toHaveAttribute("href", "/sign-up");
   });
@@ -127,5 +128,45 @@ describe("PricingPageView", () => {
       "8 videos / month",
       "12 skills"
     ]);
+  });
+
+  it("hides disabled or zero-value facts", () => {
+    const t = ((key: string, values?: Record<string, string | number>) => {
+      switch (key) {
+        case "factTokens":
+          return `${values?.count} tokens`;
+        case "factImages":
+          return `${values?.count} images / month`;
+        case "factVideos":
+          return `${values?.count} videos / month`;
+        case "factSkills":
+          return `${values?.count} skills`;
+        case "factChats":
+          return `${values?.count} active chats`;
+        default:
+          return key;
+      }
+    }) as unknown as Parameters<typeof derivePlanFacts>[1];
+
+    expect(
+      derivePlanFacts(
+        makePlan({
+          enabledToolCodes: [],
+          quotaLimits: {
+            tokenBudgetLimit: 20000,
+            activeWebChatsLimit: 0,
+            mediaStorageBytesLimit: 1000000,
+            knowledgeStorageBytesLimit: 1000000,
+            imageGenerateMonthlyUnitsLimit: 30,
+            imageEditMonthlyUnitsLimit: 10,
+            videoGenerateMonthlyUnitsLimit: 1
+          },
+          skillPolicy: {
+            maxEnabledSkills: 0
+          }
+        }),
+        t
+      )
+    ).toEqual(["20,000 tokens"]);
   });
 });

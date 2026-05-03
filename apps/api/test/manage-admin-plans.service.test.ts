@@ -717,7 +717,26 @@ async function run(): Promise<void> {
             status: "inactive",
             billingProviderHints: null,
             entitlementModel: null,
-            toolActivations: [],
+            toolActivations: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                toolClass: "cost_driving",
+                policyClass: "plan_managed",
+                activationStatus: "active",
+                dailyCallLimit: null,
+                perTurnCap: null
+              },
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                toolClass: "cost_driving",
+                policyClass: "plan_managed",
+                activationStatus: "inactive",
+                dailyCallLimit: null,
+                perTurnCap: null
+              }
+            ],
             isDefaultFirstRegistrationPlan: false,
             isTrialPlan: false,
             trialDurationDays: null,
@@ -1338,7 +1357,26 @@ async function run(): Promise<void> {
               }
             },
             entitlementModel: null,
-            toolActivations: [],
+            toolActivations: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                toolClass: "cost_driving",
+                policyClass: "plan_managed",
+                activationStatus: "active",
+                dailyCallLimit: null,
+                perTurnCap: null
+              },
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                toolClass: "cost_driving",
+                policyClass: "plan_managed",
+                activationStatus: "inactive",
+                dailyCallLimit: null,
+                perTurnCap: null
+              }
+            ],
             isDefaultFirstRegistrationPlan: false,
             isTrialPlan: false,
             trialDurationDays: null,
@@ -1412,6 +1450,7 @@ async function run(): Promise<void> {
   assert.equal(publicPlans[0]?.defaultOnRegistration, true);
   assert.equal(publicPlans[1]?.presentation.price.amount, 4900);
   assert.equal(publicPlans[1]?.skillPolicy.maxEnabledSkills, 10);
+  assert.deepEqual(publicPlans[1]?.enabledToolCodes, ["image_generate"]);
 }
 
 void run();

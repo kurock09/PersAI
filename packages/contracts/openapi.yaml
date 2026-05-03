@@ -8872,6 +8872,7 @@ components:
         - trialEnabled
         - trialDurationDays
         - defaultOnRegistration
+        - enabledToolCodes
         - entitlements
         - quotaLimits
         - skillPolicy
@@ -8891,6 +8892,10 @@ components:
           nullable: true
         defaultOnRegistration:
           type: boolean
+        enabledToolCodes:
+          type: array
+          items:
+            type: string
         entitlements:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:

@@ -53,20 +53,29 @@ export function derivePlanFacts(
   plan: PublicPricingPlanState,
   t: ReturnType<typeof useTranslations>
 ): string[] {
+  const enabledTools = new Set(plan.enabledToolCodes);
   const facts: string[] = [];
-  if (plan.quotaLimits.tokenBudgetLimit != null) {
+  if (plan.quotaLimits.tokenBudgetLimit != null && plan.quotaLimits.tokenBudgetLimit > 0) {
     facts.push(t("factTokens", { count: plan.quotaLimits.tokenBudgetLimit.toLocaleString() }));
   }
-  if (plan.quotaLimits.imageGenerateMonthlyUnitsLimit != null) {
+  if (
+    enabledTools.has("image_generate") &&
+    plan.quotaLimits.imageGenerateMonthlyUnitsLimit != null &&
+    plan.quotaLimits.imageGenerateMonthlyUnitsLimit > 0
+  ) {
     facts.push(t("factImages", { count: plan.quotaLimits.imageGenerateMonthlyUnitsLimit }));
   }
-  if (plan.quotaLimits.videoGenerateMonthlyUnitsLimit != null) {
+  if (
+    enabledTools.has("video_generate") &&
+    plan.quotaLimits.videoGenerateMonthlyUnitsLimit != null &&
+    plan.quotaLimits.videoGenerateMonthlyUnitsLimit > 0
+  ) {
     facts.push(t("factVideos", { count: plan.quotaLimits.videoGenerateMonthlyUnitsLimit }));
   }
-  if (plan.skillPolicy.maxEnabledSkills != null) {
+  if (plan.skillPolicy.maxEnabledSkills != null && plan.skillPolicy.maxEnabledSkills > 0) {
     facts.push(t("factSkills", { count: plan.skillPolicy.maxEnabledSkills }));
   }
-  if (plan.quotaLimits.activeWebChatsLimit != null) {
+  if (plan.quotaLimits.activeWebChatsLimit != null && plan.quotaLimits.activeWebChatsLimit > 0) {
     facts.push(t("factChats", { count: plan.quotaLimits.activeWebChatsLimit }));
   }
   return facts.slice(0, 4);
@@ -105,9 +114,6 @@ export function PricingPageView({
           <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
             {t("title")}
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-text-muted sm:text-base">
-            {t("subtitle")}
-          </p>
         </header>
 
         {plans.length === 0 ? (
@@ -139,7 +145,7 @@ export function PricingPageView({
                 <section
                   key={plan.code}
                   className={cn(
-                    "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-6 lg:min-h-[40rem]",
+                    "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:border-accent/35 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] sm:p-6 lg:min-h-[40rem]",
                     plan.presentation.highlighted || isCurrent
                       ? "border-accent/40 bg-surface-raised/90"
                       : "border-border/80"

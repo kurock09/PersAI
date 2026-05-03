@@ -225,9 +225,9 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
       />
     );
 
-    expect(screen.getByText("billingStatusTrial · 21%")).toBeInTheDocument();
+    expect(screen.getByText("Starter Trial · 21%")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("billingStatusTrial · 21%").closest("button")!);
+    fireEvent.click(screen.getByText("Starter Trial · 21%").closest("button")!);
 
     await waitFor(() => {
       expect(screen.getByText("billingDateTrialEnds")).toBeInTheDocument();
