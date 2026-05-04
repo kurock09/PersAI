@@ -616,8 +616,8 @@ export class TurnExecutionService {
         locale: input.input.message.locale ?? input.bundle.userContext.locale,
         retrievalPlan: plan,
         conversation: {
-          channel: input.conversation.channel,
-          surfaceThreadKey: input.conversation.externalThreadKey
+          channel: input.input.conversation.channel,
+          surfaceThreadKey: input.input.conversation.externalThreadKey
         }
       });
       return context.renderedBlock === null || context.items.length === 0 ? null : context;
