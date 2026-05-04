@@ -678,12 +678,6 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
       searchCredentialToolCode: null,
       fetchCredentialToolCode: null
     });
-    this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "preset", {
-      searchAliasToolCode: null,
-      fetchAliasToolCode: null,
-      searchCredentialToolCode: null,
-      fetchCredentialToolCode: null
-    });
     this.assertKnowledgeSourceMapping(sourceConfigBySource, toolPolicyByCode, "subscription", {
       searchAliasToolCode: null,
       fetchAliasToolCode: null,
@@ -707,7 +701,7 @@ export class RuntimeBundleRegistryService implements OnModuleInit {
   private assertKnowledgeSourceMapping(
     sourceConfigBySource: Map<string, Record<string, unknown>>,
     toolPolicyByCode: Map<string, RuntimeToolPolicy>,
-    source: "web" | "memory" | "chat" | "preset" | "subscription" | "global" | "document",
+    source: "web" | "memory" | "chat" | "subscription" | "global" | "document",
     expected: {
       searchAliasToolCode: string | null;
       fetchAliasToolCode: string | null;

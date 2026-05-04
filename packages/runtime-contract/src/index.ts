@@ -326,12 +326,23 @@ export interface RuntimeUsageAccounting {
   entries: RuntimeUsageAccountingEntry[];
 }
 
+export const RUNTIME_ORDINARY_SOURCE_PRIORITY_MODES = [
+  "personal_first",
+  "product_first",
+  "web_first",
+  "mixed_ambiguous",
+  "not_applicable"
+] as const;
+export type RuntimeOrdinarySourcePriorityMode =
+  (typeof RUNTIME_ORDINARY_SOURCE_PRIORITY_MODES)[number];
+
 export interface RuntimeRetrievalPlan {
   useSkills: boolean;
   selectedSkillIds: string[];
   useUserKnowledge: boolean;
   useProductKnowledge: boolean;
   useWeb: boolean;
+  ordinarySourcePriorityMode: RuntimeOrdinarySourcePriorityMode;
   confidence: "low" | "medium" | "high";
   reasonCode: string;
 }
@@ -629,7 +640,6 @@ export const PERSAI_RUNTIME_KNOWLEDGE_SOURCES = [
   "web",
   "memory",
   "chat",
-  "preset",
   "subscription",
   "global",
   "document",

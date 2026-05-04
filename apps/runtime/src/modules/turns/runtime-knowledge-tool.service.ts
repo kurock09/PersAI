@@ -26,6 +26,7 @@ export class RuntimeKnowledgeToolService {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
     allowedSources: RuntimeKnowledgeAccessSourceConfig[];
+    availableSources?: RuntimeKnowledgeAccessSourceConfig[];
   }): Promise<RuntimeKnowledgeSearchExecutionResult> {
     const request = this.readSearchArguments(params.toolCall.arguments);
     if (request instanceof Error) {
@@ -43,6 +44,12 @@ export class RuntimeKnowledgeToolService {
     }
 
     if (!this.isSourceAllowed(params.allowedSources, request.source)) {
+      const reason = this.isSourceAvailableInBundle(
+        params.availableSources ?? params.allowedSources,
+        request.source
+      )
+        ? "source_blocked_by_turn_policy"
+        : "source_unavailable";
       return {
         payload: {
           toolCode: params.bundle.runtime.knowledgeAccess.searchToolCode,
@@ -50,7 +57,7 @@ export class RuntimeKnowledgeToolService {
           executionMode: "inline",
           hits: [],
           action: "skipped",
-          reason: "source_unavailable"
+          reason
         },
         isError: false
       };
@@ -113,6 +120,7 @@ export class RuntimeKnowledgeToolService {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
     allowedSources: RuntimeKnowledgeAccessSourceConfig[];
+    availableSources?: RuntimeKnowledgeAccessSourceConfig[];
   }): Promise<RuntimeKnowledgeFetchExecutionResult> {
     const request = this.readFetchArguments(params.toolCall.arguments);
     if (request instanceof Error) {
@@ -130,6 +138,12 @@ export class RuntimeKnowledgeToolService {
     }
 
     if (!this.isSourceAllowed(params.allowedSources, request.source)) {
+      const reason = this.isSourceAvailableInBundle(
+        params.availableSources ?? params.allowedSources,
+        request.source
+      )
+        ? "source_blocked_by_turn_policy"
+        : "source_unavailable";
       return {
         payload: {
           toolCode: params.bundle.runtime.knowledgeAccess.fetchToolCode,
@@ -137,7 +151,7 @@ export class RuntimeKnowledgeToolService {
           executionMode: "inline",
           document: null,
           action: "skipped",
-          reason: "source_unavailable"
+          reason
         },
         isError: false
       };
@@ -264,6 +278,13 @@ export class RuntimeKnowledgeToolService {
     source: string
   ): boolean {
     return allowedSources.some((allowedSource) => allowedSource.source === source);
+  }
+
+  private isSourceAvailableInBundle(
+    availableSources: RuntimeKnowledgeAccessSourceConfig[],
+    source: string
+  ): boolean {
+    return availableSources.some((availableSource) => availableSource.source === source);
   }
 
   private asNonEmptyString(value: unknown): string | null {

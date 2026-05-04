@@ -518,6 +518,30 @@ Follow-up production retrieval note, 2026-05-04:
 - once a Skill is already active, retrieval should not automatically pay full lexical/vector search plus helper rerank on every near-identical turn
 - active-Skill retrieval may choose among `reuse_cached_refs`, `refresh_search_only`, and `refresh_with_helper` based on generic signals such as recent-query similarity, cached-reference coverage, candidate ambiguity, and prior helper usefulness
 - sticky retrieval must reset when active Skill truth changes or clears, and it must remain measurable through retrieval observability rather than being a hidden optimization
+- when a Skill is active, ordinary retrieval must become runtime-owned staged policy rather than a model-owned generic source choice: Skill grounding runs first, user-owned knowledge (`document`, `memory`, `chat`) may escalate only when Skill grounding is insufficient, web remains a later explicit stage, and Product/subscription/global knowledge is only the final explicit stage for real product/platform/billing intent
+- the main model must not see unrestricted generic `knowledge_search` / `knowledge_fetch` source enums during ordinary active-Skill turns; runtime should narrow model-visible low-level knowledge sources per turn and reject blocked product/global fallback attempts structurally instead of relying on prompt wording alone
+- orchestrated retrieval merge semantics for active-Skill turns must preserve stage priority so later user/product additions cannot outrank Skill grounding by raw search score alone
+- retrieval observability should expose whether an active-Skill turn stayed `skill_only` or escalated to later stages, while preserving the separate sticky-retrieval mode metrics (`reuse_cached_refs`, `refresh_search_only`, `refresh_with_helper`)
+
+Follow-up ordinary-turn source priority note, 2026-05-04:
+
+- when no Skill is active and retrieval is needed, source ordering is also runtime-owned and decided by the existing router (`precheck` -> optional `classifier`), not by the main model and not on every turn by an extra LLM call
+- the router emits an ordinary source priority mode on the retrieval plan: `personal_first`, `product_first`, `web_first`, `mixed_ambiguous`, or `not_applicable` (used for active-Skill turns and trivial continuation turns)
+- `personal_first` means user-owned context (`document`, `memory`, `chat`) is searched first, then Product KB (`global`, `subscription`), then web only when explicit web intent is present; this is the default when no signal points elsewhere
+- `product_first` means Product KB (`global`, `subscription`) is the primary source when the user clearly asks about product/plan/billing/quota intent; user-owned context still runs as a secondary stage but ranks below product results in the staged merge
+- `web_first` means web is the primary source when the user clearly asks for fresh external facts (current news, prices, weather, schedules); user-owned and product context still run but rank below web
+- `mixed_ambiguous` keeps the `personal -> product -> web` order but flags the turn for higher-priority widening of stages and is recorded explicitly in observability so the policy is debuggable
+- precheck signals are short hardcoded code defaults that platform admins can override per workspace via `Admin > Runtime > Router Policy` (`personalPriorityTerms`, `productPriorityTerms`, `webPriorityTerms`); this avoids paying an LLM classifier on every ordinary turn while keeping flexibility
+- the existing cheap classifier already runs only on ambiguous precheck outcomes and is the place where ambiguous mixes are upgraded; it now also returns `ordinarySourcePriorityMode` so the same plan structure is reused
+- orchestrated retrieval converts the chosen mode into a stage priority map (`{ skill, user, product }`) and emits `policyState` values `ordinary_personal_first`, `ordinary_product_first`, `ordinary_web_first`, `ordinary_mixed_ambiguous` to retrieval observability so non-Skill turns are as auditable as Skill turns
+- the model never picks ordering through prompt-only "first try X then Y" hints during ordinary turns; ordering is enforced by the orchestrator's staged merge and source policy
+
+Follow-up Product KB consolidation note, 2026-05-04:
+
+- prompt presets (system / persona / soul / preview / welcome / router classifier text) are no longer modeled as a runtime knowledge source; they remain the runtime prompt itself, not something the model can search or fetch
+- the runtime knowledge source enum drops `preset`; `knowledge_search` / `knowledge_fetch` exposes only `document`, `memory`, `chat`, `subscription`, `global`, plus the explicit Skill grounding path and `web_search`
+- the Admin Prompts editor and runtime prompt materialization are unaffected: prompt content continues to be authored in admin and projected into the runtime prompt as before
+- retrieval observability and `KnowledgeRetrievalEventSource` enum drop `preset` accordingly; existing telemetry rows tagged with the old `preset` value are dropped during the migration since prompt presets are not a knowledge source in the target architecture
 
 ## Orchestrated retrieval
 

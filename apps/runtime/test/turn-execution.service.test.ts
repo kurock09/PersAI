@@ -96,13 +96,6 @@ const KNOWLEDGE_ACCESS_CONFIG = {
       fetchCredentialToolCode: null
     },
     {
-      source: "preset",
-      searchAliasToolCode: null,
-      fetchAliasToolCode: null,
-      searchCredentialToolCode: null,
-      fetchCredentialToolCode: null
-    },
-    {
       source: "subscription",
       searchAliasToolCode: null,
       fetchAliasToolCode: null,
@@ -2052,6 +2045,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     useUserKnowledge: false,
     useProductKnowledge: false,
     useWeb: false,
+    ordinarySourcePriorityMode: "not_applicable",
     confidence: "low",
     reasonCode: "simple_turn"
   });
@@ -2826,6 +2820,23 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const groundedSkillCompleted = await service.createTurn(groundedSkillRequest);
   assert.equal(groundedSkillCompleted.assistantText, "grounded premium reply");
   assert.equal(providerGatewayClient.calls[groundedSkillOffset + 1]?.model, "gpt-5.4-pro");
+  const groundedSkillKnowledgeSearchTool = providerGatewayClient.calls[
+    groundedSkillOffset + 1
+  ]?.tools?.find((tool) => tool.name === "knowledge_search");
+  assert.deepEqual(
+    (
+      groundedSkillKnowledgeSearchTool?.inputSchema as {
+        properties?: { source?: { enum?: string[] } };
+      }
+    )?.properties?.source?.enum,
+    ["memory", "chat"]
+  );
+  assert.deepEqual(persaiInternalApiClientService.orchestrateRetrievalCalls.at(-1)?.sourcePolicy, {
+    mode: "active_skill",
+    state: "skill_only",
+    allowedKnowledgeSearchSources: ["memory", "chat"],
+    allowedKnowledgeFetchSources: ["memory", "chat"]
+  });
   assert.equal(
     groundedSkillCompleted.usageAccounting?.entries.some(
       (entry) => entry.modelRole === "premium_reply"

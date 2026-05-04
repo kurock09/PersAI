@@ -20,6 +20,15 @@ type RoutingMode = "shadow" | "active";
 type RoutingExecutionMode = "normal" | "premium" | "reasoning";
 type RoutingToolHint = "knowledge" | "web" | "browser" | "media" | "none";
 type RoutingRetrievalPlanConfidence = "low" | "medium" | "high";
+
+export const ORDINARY_SOURCE_PRIORITY_MODES = [
+  "personal_first",
+  "product_first",
+  "web_first",
+  "mixed_ambiguous",
+  "not_applicable"
+] as const;
+export type OrdinarySourcePriorityMode = (typeof ORDINARY_SOURCE_PRIORITY_MODES)[number];
 type EnabledSkillSummary = {
   id: string;
   name: string;
@@ -36,6 +45,7 @@ export type TurnRetrievalPlan = {
   useUserKnowledge: boolean;
   useProductKnowledge: boolean;
   useWeb: boolean;
+  ordinarySourcePriorityMode: OrdinarySourcePriorityMode;
   confidence: RoutingRetrievalPlanConfidence;
   reasonCode: string;
 };
@@ -51,6 +61,9 @@ type RouterPolicy = {
     reasoningTerms: string[];
     premiumTerms: string[];
     toolTerms: string[];
+    productPriorityTerms: string[];
+    webPriorityTerms: string[];
+    personalPriorityTerms: string[];
   } | null;
 };
 
@@ -120,6 +133,7 @@ const ROUTER_OUTPUT_SCHEMA = {
           "useUserKnowledge",
           "useProductKnowledge",
           "useWeb",
+          "ordinarySourcePriorityMode",
           "confidence",
           "reasonCode"
         ],
@@ -133,6 +147,10 @@ const ROUTER_OUTPUT_SCHEMA = {
           useUserKnowledge: { type: "boolean" },
           useProductKnowledge: { type: "boolean" },
           useWeb: { type: "boolean" },
+          ordinarySourcePriorityMode: {
+            type: "string",
+            enum: [...ORDINARY_SOURCE_PRIORITY_MODES]
+          },
           confidence: {
             type: "string",
             enum: ["low", "medium", "high"]
@@ -252,6 +270,76 @@ const DEFAULT_PREMIUM_WRITING_TERMS = [
 const WEB_HINT_TERMS = ["latest", "today", "current", "news", "pricing", "recent", "сегодня"];
 const BROWSER_HINT_TERMS = ["browser", "browse", "open", "website", "site", "в браузере", "сайт"];
 const MEDIA_HINT_TERMS = ["image", "photo", "video", "voice", "audio", "картин", "видео", "аудио"];
+
+const DEFAULT_PRODUCT_PRIORITY_TERMS = [
+  "tariff",
+  "plan",
+  "subscription",
+  "billing",
+  "quota",
+  "limit",
+  "upgrade",
+  "downgrade",
+  "trial",
+  "free plan",
+  "pricing",
+  "тариф",
+  "план",
+  "подписк",
+  "биллинг",
+  "лимит",
+  "квота",
+  "оплат",
+  "стоимость",
+  "цена тариф",
+  "продл",
+  "пробный"
+];
+
+const DEFAULT_WEB_PRIORITY_TERMS = [
+  "today",
+  "latest",
+  "current",
+  "news",
+  "weather",
+  "exchange rate",
+  "stock price",
+  "score",
+  "schedule",
+  "release",
+  "сегодня",
+  "сейчас",
+  "последн",
+  "новост",
+  "погод",
+  "курс валют",
+  "котировк",
+  "афиш",
+  "расписан",
+  "релиз"
+];
+
+const DEFAULT_PERSONAL_PRIORITY_TERMS = [
+  "i ",
+  "my ",
+  "we ",
+  "our ",
+  "remember",
+  "note",
+  "what did i",
+  "last time",
+  "yesterday",
+  "что я",
+  "мой ",
+  "моя ",
+  "мне ",
+  "мы ",
+  "наш",
+  "напомн",
+  "вчера",
+  "позавчера",
+  "помнишь"
+];
 
 @Injectable()
 export class TurnRoutingService {
@@ -433,6 +521,23 @@ export class TurnRoutingService {
       DEFAULT_TOOL_TERMS,
       input.policy.precheckRuleOverrides?.toolTerms
     );
+    const productPriorityTerms = this.mergeTerms(
+      DEFAULT_PRODUCT_PRIORITY_TERMS,
+      input.policy.precheckRuleOverrides?.productPriorityTerms
+    );
+    const webPriorityTerms = this.mergeTerms(
+      DEFAULT_WEB_PRIORITY_TERMS,
+      input.policy.precheckRuleOverrides?.webPriorityTerms
+    );
+    const personalPriorityTerms = this.mergeTerms(
+      DEFAULT_PERSONAL_PRIORITY_TERMS,
+      input.policy.precheckRuleOverrides?.personalPriorityTerms
+    );
+    const ordinaryPriorityMode = this.resolveOrdinarySourcePriorityMode(lowerText, {
+      productTerms: productPriorityTerms,
+      webTerms: webPriorityTerms,
+      personalTerms: personalPriorityTerms
+    });
     const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
     const activeAutoSkill = this.resolveActiveAutoSkill(input.request, enabledSkills);
     const shouldUseClassifierForSkillRouting = this.shouldUseClassifierForAutoSkillRouting({
@@ -518,6 +623,7 @@ export class TurnRoutingService {
         retrievalPlan: this.createRetrievalPlan({
           useUserKnowledge: availableHints.has("knowledge"),
           useProductKnowledge: availableHints.has("knowledge"),
+          ordinarySourcePriorityMode: ordinaryPriorityMode,
           confidence: "high",
           reasonCode: "knowledge_retrieval"
         }),
@@ -576,6 +682,12 @@ export class TurnRoutingService {
     const shouldDeferKnowledgeToolToClassifier =
       hintedTool === "knowledge" && shouldUseClassifierForSkillRouting;
     if (hintedTool !== "none" && !shouldDeferKnowledgeToolToClassifier) {
+      const toolHintPriorityMode: OrdinarySourcePriorityMode =
+        hintedTool === "web"
+          ? "web_first"
+          : hintedTool === "knowledge"
+            ? ordinaryPriorityMode
+            : "not_applicable";
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: hintedTool === "knowledge",
@@ -588,6 +700,7 @@ export class TurnRoutingService {
           useUserKnowledge: hintedTool === "knowledge",
           useProductKnowledge: hintedTool === "knowledge",
           useWeb: hintedTool === "web",
+          ordinarySourcePriorityMode: toolHintPriorityMode,
           confidence: "high",
           reasonCode: `tool_hint_${hintedTool}`
         }),
@@ -1110,7 +1223,10 @@ export class TurnRoutingService {
       retrievalTerms: this.asStringArray(row.retrievalTerms),
       reasoningTerms: this.asStringArray(row.reasoningTerms),
       premiumTerms: this.asStringArray(row.premiumTerms),
-      toolTerms: this.asStringArray(row.toolTerms)
+      toolTerms: this.asStringArray(row.toolTerms),
+      productPriorityTerms: this.asStringArray(row.productPriorityTerms),
+      webPriorityTerms: this.asStringArray(row.webPriorityTerms),
+      personalPriorityTerms: this.asStringArray(row.personalPriorityTerms)
     };
   }
 
@@ -1156,15 +1272,20 @@ export class TurnRoutingService {
     useUserKnowledge?: boolean;
     useProductKnowledge?: boolean;
     useWeb?: boolean;
+    ordinarySourcePriorityMode?: OrdinarySourcePriorityMode;
     confidence?: RoutingRetrievalPlanConfidence;
     reasonCode: string;
   }): TurnRetrievalPlan {
+    const useSkills = input.useSkills === true;
     return {
-      useSkills: input.useSkills === true,
+      useSkills,
       selectedSkillIds: input.selectedSkillIds ?? [],
       useUserKnowledge: input.useUserKnowledge === true,
       useProductKnowledge: input.useProductKnowledge === true,
       useWeb: input.useWeb === true,
+      ordinarySourcePriorityMode: useSkills
+        ? "not_applicable"
+        : (input.ordinarySourcePriorityMode ?? "not_applicable"),
       confidence: input.confidence ?? "low",
       reasonCode: input.reasonCode
     };
@@ -1182,10 +1303,17 @@ export class TurnRoutingService {
         (skillId, index, list) => enabledSkillIds.has(skillId) && list.indexOf(skillId) === index
       )
       .slice(0, 3);
+    const useSkills = plan.useSkills && selectedSkillIds.length > 0;
+    const ordinarySourcePriorityMode: OrdinarySourcePriorityMode = useSkills
+      ? "not_applicable"
+      : plan.ordinarySourcePriorityMode === "not_applicable"
+        ? "mixed_ambiguous"
+        : plan.ordinarySourcePriorityMode;
     return {
       ...plan,
-      useSkills: plan.useSkills && selectedSkillIds.length > 0,
+      useSkills,
       selectedSkillIds,
+      ordinarySourcePriorityMode,
       reasonCode: this.asNonEmptyString(plan.reasonCode) ?? "classifier_retrieval_plan"
     };
   }
@@ -1261,6 +1389,40 @@ export class TurnRoutingService {
 
   private matchesAny(lowerText: string, patterns: string[]): boolean {
     return patterns.some((pattern) => lowerText.includes(pattern));
+  }
+
+  private countMatches(lowerText: string, patterns: string[]): number {
+    let total = 0;
+    for (const pattern of patterns) {
+      if (pattern.length > 0 && lowerText.includes(pattern)) {
+        total += 1;
+      }
+    }
+    return total;
+  }
+
+  private resolveOrdinarySourcePriorityMode(
+    lowerText: string,
+    terms: { productTerms: string[]; webTerms: string[]; personalTerms: string[] }
+  ): OrdinarySourcePriorityMode {
+    const productScore = this.countMatches(lowerText, terms.productTerms);
+    const webScore = this.countMatches(lowerText, terms.webTerms);
+    const personalScore = this.countMatches(lowerText, terms.personalTerms);
+    const max = Math.max(productScore, webScore, personalScore);
+    if (max === 0) {
+      return "personal_first";
+    }
+    const tied = [productScore, webScore, personalScore].filter((value) => value === max).length;
+    if (tied > 1) {
+      return "mixed_ambiguous";
+    }
+    if (max === productScore) {
+      return "product_first";
+    }
+    if (max === webScore) {
+      return "web_first";
+    }
+    return "personal_first";
   }
 
   private mergeTerms(defaults: string[], overrides: string[] | undefined): string[] {
@@ -1343,15 +1505,28 @@ export class TurnRoutingService {
     ) {
       return null;
     }
+    const ordinarySourcePriorityMode =
+      this.asOrdinarySourcePriorityMode(row.ordinarySourcePriorityMode) ??
+      (row.useSkills ? "not_applicable" : "personal_first");
     return {
       useSkills: row.useSkills,
       selectedSkillIds: this.asIdentifierStringArray(row.selectedSkillIds).slice(0, 3),
       useUserKnowledge: row.useUserKnowledge,
       useProductKnowledge: row.useProductKnowledge,
       useWeb: row.useWeb,
+      ordinarySourcePriorityMode: row.useSkills ? "not_applicable" : ordinarySourcePriorityMode,
       confidence,
       reasonCode
     };
+  }
+
+  private asOrdinarySourcePriorityMode(value: unknown): OrdinarySourcePriorityMode | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    return (ORDINARY_SOURCE_PRIORITY_MODES as readonly string[]).includes(value)
+      ? (value as OrdinarySourcePriorityMode)
+      : null;
   }
 
   private asNonEmptyString(value: unknown): string | null {

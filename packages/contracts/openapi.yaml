@@ -5535,7 +5535,6 @@ components:
                 - skill
                 - memory
                 - chat
-                - preset
                 - subscription
                 - web
     AdminKnowledgeRetrievalRecentSearch:
@@ -5576,7 +5575,6 @@ components:
             - skill
             - memory
             - chat
-            - preset
             - subscription
             - web
         retrievalMode:
@@ -10508,6 +10506,9 @@ components:
                 - reasoningTerms
                 - premiumTerms
                 - toolTerms
+                - productPriorityTerms
+                - webPriorityTerms
+                - personalPriorityTerms
               properties:
                 continueTerms:
                   type: array
@@ -10526,6 +10527,18 @@ components:
                   items:
                     type: string
                 toolTerms:
+                  type: array
+                  items:
+                    type: string
+                productPriorityTerms:
+                  type: array
+                  items:
+                    type: string
+                webPriorityTerms:
+                  type: array
+                  items:
+                    type: string
+                personalPriorityTerms:
                   type: array
                   items:
                     type: string
@@ -10620,6 +10633,9 @@ components:
                 - reasoningTerms
                 - premiumTerms
                 - toolTerms
+                - productPriorityTerms
+                - webPriorityTerms
+                - personalPriorityTerms
               properties:
                 continueTerms:
                   type: array
@@ -10638,6 +10654,18 @@ components:
                   items:
                     type: string
                 toolTerms:
+                  type: array
+                  items:
+                    type: string
+                productPriorityTerms:
+                  type: array
+                  items:
+                    type: string
+                webPriorityTerms:
+                  type: array
+                  items:
+                    type: string
+                personalPriorityTerms:
                   type: array
                   items:
                     type: string

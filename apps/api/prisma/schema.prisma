@@ -291,7 +291,6 @@ enum KnowledgeRetrievalEventSource {
   skill
   memory
   chat
-  preset
   subscription
   web
 }

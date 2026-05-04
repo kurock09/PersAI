@@ -19,6 +19,7 @@ import {
   PERSAI_RUNTIME_TTS_TONE_TAGS,
   PERSAI_RUNTIME_WEB_FETCH_EXTRACT_MODES,
   type ProviderGatewayToolDefinition,
+  type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeImageEditProviderId,
   type RuntimeKnowledgeAccessSourceConfig,
@@ -95,7 +96,11 @@ const REMINDER_CONTEXT_MESSAGES_MAX = 10;
 
 export function projectRuntimeNativeTools(
   bundle: AssistantRuntimeBundle,
-  options?: { allowModelToolExposure?: boolean }
+  options?: {
+    allowModelToolExposure?: boolean;
+    allowedKnowledgeSearchSources?: readonly PersaiRuntimeKnowledgeSource[];
+    allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
+  }
 ): RuntimeNativeToolProjection {
   if (options?.allowModelToolExposure === false) {
     return {
@@ -105,23 +110,13 @@ export function projectRuntimeNativeTools(
     };
   }
 
-  const projectedKnowledgeSearchSources = bundle.runtime.knowledgeAccess.sources.filter(
-    (sourceConfig) =>
-      sourceConfig.source === "document" ||
-      sourceConfig.source === "memory" ||
-      sourceConfig.source === "chat" ||
-      sourceConfig.source === "preset" ||
-      sourceConfig.source === "subscription" ||
-      sourceConfig.source === "global"
+  const projectedKnowledgeSearchSources = filterProjectedKnowledgeSources(
+    bundle.runtime.knowledgeAccess.sources,
+    options?.allowedKnowledgeSearchSources
   );
-  const projectedKnowledgeFetchSources = bundle.runtime.knowledgeAccess.sources.filter(
-    (sourceConfig) =>
-      sourceConfig.source === "document" ||
-      sourceConfig.source === "memory" ||
-      sourceConfig.source === "chat" ||
-      sourceConfig.source === "preset" ||
-      sourceConfig.source === "subscription" ||
-      sourceConfig.source === "global"
+  const projectedKnowledgeFetchSources = filterProjectedKnowledgeSources(
+    bundle.runtime.knowledgeAccess.sources,
+    options?.allowedKnowledgeFetchSources
   );
 
   const projectedTools: ProviderGatewayToolDefinition[] = [];
@@ -260,6 +255,25 @@ export function projectRuntimeNativeTools(
     knowledgeSearchSources: projectedKnowledgeSearchSources,
     knowledgeFetchSources: projectedKnowledgeFetchSources
   };
+}
+
+function filterProjectedKnowledgeSources(
+  sources: RuntimeKnowledgeAccessSourceConfig[],
+  allowedSources?: readonly PersaiRuntimeKnowledgeSource[]
+): RuntimeKnowledgeAccessSourceConfig[] {
+  const projectedSources = sources.filter(
+    (sourceConfig) =>
+      sourceConfig.source === "document" ||
+      sourceConfig.source === "memory" ||
+      sourceConfig.source === "chat" ||
+      sourceConfig.source === "subscription" ||
+      sourceConfig.source === "global"
+  );
+  if (allowedSources === undefined) {
+    return projectedSources;
+  }
+  const allowed = new Set(allowedSources);
+  return projectedSources.filter((sourceConfig) => allowed.has(sourceConfig.source));
 }
 
 function createSummarizeContextToolDefinition(
@@ -484,8 +498,6 @@ function describeKnowledgeSource(source: RuntimeKnowledgeAccessSourceConfig["sou
       return "assistant memory";
     case "chat":
       return "prior chat history";
-    case "preset":
-      return "platform prompt/preset internals";
     case "subscription":
       return "current workspace subscription and plan";
     case "global":

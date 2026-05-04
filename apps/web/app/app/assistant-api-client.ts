@@ -3098,31 +3098,13 @@ export type AdminKnowledgeRetrievalMetricSummary = {
 };
 
 export type AdminKnowledgeRetrievalSourceSummary = AdminKnowledgeRetrievalMetricSummary & {
-  source:
-    | "document"
-    | "global"
-    | "product"
-    | "skill"
-    | "memory"
-    | "chat"
-    | "preset"
-    | "subscription"
-    | "web";
+  source: "document" | "global" | "product" | "skill" | "memory" | "chat" | "subscription" | "web";
 };
 
 export type AdminKnowledgeRetrievalRecentSearch = {
   at: string;
   eventKind: "search" | "fetch";
-  source:
-    | "document"
-    | "global"
-    | "product"
-    | "skill"
-    | "memory"
-    | "chat"
-    | "preset"
-    | "subscription"
-    | "web";
+  source: "document" | "global" | "product" | "skill" | "memory" | "chat" | "subscription" | "web";
   retrievalMode: "lexical" | "hybrid";
   outcome: "success" | "empty" | "error";
   durationMs: number;

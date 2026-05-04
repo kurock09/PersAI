@@ -1,5 +1,65 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-079 ordinary source priority + preset cleanup) — non-skill turns now follow runtime-owned `personal/product/web_first` staged retrieval, prompt presets dropped from model-facing knowledge sources
+
+### What changed
+
+- Kept this session bounded to the founder-approved follow-up of the prior ADR-079 active-skill retrieval slice: the active-skill path was already runtime-owned and staged, but ordinary non-skill turns were still letting the main model freely choose `knowledge_search`/`knowledge_fetch` sources, and the obsolete `preset` knowledge source was still listed as a model-facing source even though prompt presets are not searchable knowledge. No transitional or legacy compatibility was kept.
+- Router (`apps/runtime/src/modules/turns/turn-routing.service.ts`) now emits `ordinarySourcePriorityMode` on the retrieval plan: `personal_first` (default for non-skill turns), `product_first` (product/plan/billing intent), `web_first` (fresh-news intent), `mixed_ambiguous` (tied signals), or `not_applicable` (active-skill / trivial continuation). Mode resolution uses short hardcoded code defaults plus admin-editable overrides via `Admin > Runtime > Router Policy` (`personalPriorityTerms`, `productPriorityTerms`, `webPriorityTerms`); the existing cheap classifier still handles the ambiguous precheck slice and now also returns the same mode field. No new always-on LLM call was added.
+- Runtime turn execution (`turn-execution.service.ts`) carries `ordinarySourcePriorityMode` through the existing source-policy projection; native tool projection (`native-tool-projection.ts`) drops `preset` from model-visible `knowledge_search`/`knowledge_fetch` enums.
+- API orchestration (`apps/api/src/modules/workspace-management/application/orchestrate-runtime-retrieval.service.ts`) now translates the mode into a stage-priority map (`{ skill, user, product }`) for non-skill turns, so `product_first` actually ranks Product KB above user knowledge in the merged context, `web_first` keeps user/product as later stages, `mixed_ambiguous` falls back to the personal-first order but is recorded explicitly. The orchestrator emits `policyState=ordinary_personal_first | ordinary_product_first | ordinary_web_first | ordinary_mixed_ambiguous` to retrieval observability so non-skill turns are auditable the same way active-skill turns are.
+- `preset` is removed end-to-end from the active runtime path: runtime-knowledge-access config, native-tool projection, API `read-assistant-knowledge.service` (search/fetch dispatch + helper loaders), retrieval observability tracked sources, OpenAPI admin schemas, and generated web client. A focused Prisma migration (`20260504190000_adr079_drop_preset_knowledge_source/migration.sql`) deletes any historical `preset` rows from `knowledge_retrieval_events` / `knowledge_retrieval_rollups` and rebuilds `KnowledgeRetrievalEventSource` without the value. Prompt presets themselves are unaffected; they remain authored in `Admin > Prompts` and projected into the runtime prompt as before.
+- `Admin > Runtime > Editable Precheck Triggers` now shows `Personal-first priority`, `Product-first priority`, and `Web-first priority` textareas alongside the existing trigger inputs, persisted via the existing platform runtime provider settings record.
+- Updated `apps/runtime/test/turn-routing.service.test.ts` with focused regressions for each ordinary mode plus an admin override case and an ordinary continuation case, and `apps/api/test/orchestrate-runtime-retrieval.service.test.ts` with a staged execution case that verifies `policyState=ordinary_*` and stage ordering for `product_first`, `personal_first`, and `web_first`. Existing fixtures that used `deepEqual` against `retrievalPlan` were updated to include the new field, and `preset` was removed from runtime/API/admin-UI test fixtures.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- (full lint/format/typecheck gates still to run as the closing step of this slice)
+
+### Risks / residuals
+
+- The ordinary precheck signal lists are short and intentionally conservative; if live traffic shows mode misclassification (e.g. clearly product/web intent leaking into `personal_first`), the right response is to widen the admin-overridable term lists in `Admin > Runtime`, not to add another always-on LLM call. The cheap classifier already handles ambiguity for the existing routing surface.
+- Prompt presets are no longer reachable through `knowledge_search`/`knowledge_fetch`; if any future feature genuinely needs the model to inspect prompt internals, it should be a new, explicit tool boundary rather than reintroducing `preset` as a knowledge source.
+
+### Next recommended step
+
+Run the full required verification gate (`corepack pnpm -r --if-present run lint`, `corepack pnpm run format:check`, `corepack pnpm --filter @persai/api run typecheck`, `corepack pnpm --filter @persai/web run typecheck`), apply the new Prisma migration in dev, then live-smoke a non-skill chat: a clearly product/billing question should rank Product KB above user docs in the response context, a clearly fresh-news question should rank web above the rest, an ordinary personal question should keep user-owned context first, and ordinary `knowledge_search` calls from the model must no longer accept `preset` as a source.
+
+## 2026-05-04 (ADR-079 active-skill retrieval runtime ownership) — active-skill turns now stay runtime-owned, staged, and policy-enforced
+
+### What changed
+
+- Kept this session bounded to the founder-requested ADR-079 production fix after live validation showed the active Skill was selected correctly but later retrieval inside the same active-skill chat still drifted into model-chosen `preset` and `global` sources.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts` now derives a per-turn knowledge source policy from `TurnRouteDecision`, the retrieval plan, and sticky active-skill state. On active-skill turns, the runtime reprojects model-visible knowledge tools so ordinary low-level `knowledge_search` / `knowledge_fetch` follow-up lookup is limited to assistant-owned sources (`document`, `memory`, `chat`) unless the turn explicitly carries product intent, and runtime now returns `source_blocked_by_turn_policy` when the model still attempts a blocked knowledge source.
+- `apps/api/src/modules/workspace-management/application/orchestrate-runtime-retrieval.service.ts` now treats active-skill retrieval as staged runtime policy instead of flat plan-flag execution: Skill grounding runs first, user-owned knowledge runs only when Skill coverage is insufficient, web remains an explicit later escalation, and product/subscription retrieval is only the final explicit stage. Context merge now preserves stage priority so later product/user additions cannot outrank Skill grounding by raw score alone.
+- `apps/api/src/modules/workspace-management/application/knowledge-retrieval-observability.service.ts` now preserves compact policy-state observability (`skill_only`, `escalated_to_user`, `escalated_to_web`, `escalated_to_product`) in recent retrieval events without breaking the existing sticky Skill rollup counters for `reuse_cached_refs`, `refresh_search_only`, and `refresh_with_helper`.
+- Added focused regressions for runtime per-turn knowledge source projection/blocking, active-skill stage ordering/escalation, and policy-state observability decoding.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-knowledge-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-retrieval-observability.service.test.ts`
+- `corepack pnpm --filter @persai/api test`
+- `corepack pnpm --filter @persai/runtime test`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched runtime/API files
+
+### Risks / residuals
+
+- The current insufficiency gate for escalating from Skill to user-owned knowledge is intentionally strict and conservative: a non-empty Skill grounding result keeps the turn in `skill_only` unless the router explicitly requested later web/product stages. If live quality later shows cases where weak-but-non-empty Skill grounding should still compare against user files automatically, that should be adjusted deliberately as a retrieval policy decision rather than by reopening generic fallback sources to the model.
+- Product/global escalation inside active-skill turns is now guarded by explicit route-plan intent plus runtime policy enforcement, but web search itself is still a separate low-level tool path rather than orchestrated content injection. Founder live smoke should confirm that active-skill turns no longer drift into product/global fallback while still handling truly freshness-driven cases honestly.
+
+### Next recommended step
+
+Run the full required verification/deploy path for this slice and then repeat the founder live scenario on `persai-dev`: one active-skill turn with enough Skill grounding should remain `skill_only`, one active-skill turn with empty Skill grounding should escalate only to user-owned knowledge, and blocked `preset/global` low-level calls during an ordinary active-skill turn should be rejected instead of silently drifting.
+
 ## 2026-05-04 (ADR-084 Slice 2 media-card cleanup) — old monthly-media block removed and media summary cards now stay visually aligned
 
 ### What changed

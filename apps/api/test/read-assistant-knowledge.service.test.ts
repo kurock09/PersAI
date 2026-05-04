@@ -456,7 +456,7 @@ const materializedPresetRows: MaterializedPresetRow[] = [
     layersDocument:
       "# SOUL\nAssistant should answer concisely.\n\n# TOOLS\nKnowledge search is available for product and subscription answers.",
     runtimeBundleDocument:
-      "runtime.knowledgeAccess exposes document, memory, chat, preset, subscription, and global sources.",
+      "runtime.knowledgeAccess exposes document, memory, chat, subscription, and global sources.",
     createdAt: new Date("2026-04-14T12:00:00.000Z")
   }
 ];
@@ -1463,24 +1463,6 @@ async function run(): Promise<void> {
   );
   assert.ok((chatFetched?.content ?? "").includes("Telegram owner claim flow"));
 
-  const presetHits = await service.search({
-    assistantId: "assistant-1",
-    source: "preset",
-    query: "knowledge search product answers",
-    maxResults: 3
-  });
-  assert.equal(presetHits[0]?.source, "preset");
-  assert.equal(presetHits[0]?.referenceId, "preset:current:layers");
-
-  const presetFetched = await service.fetch({
-    assistantId: "assistant-1",
-    source: "preset",
-    referenceId: "preset:current:runtime-bundle"
-  });
-  assert.equal(presetFetched?.source, "preset");
-  assert.ok((presetFetched?.content ?? "").includes("subscription"));
-  assert.ok((presetFetched?.content ?? "").includes("global sources"));
-
   const subscriptionHits = await service.search({
     assistantId: "assistant-1",
     source: "subscription",
@@ -1599,7 +1581,7 @@ async function run(): Promise<void> {
         source: "database",
         query: "quota"
       }),
-    /Only document, memory, chat, preset, subscription, and Product KB knowledge search/
+    /Only document, memory, chat, subscription, and Product KB knowledge search/
   );
   assert.throws(
     () =>
@@ -1608,7 +1590,7 @@ async function run(): Promise<void> {
         source: "database",
         referenceId: "source-1:1:1"
       }),
-    /Only document, memory, chat, preset, subscription, and Product KB knowledge fetch/
+    /Only document, memory, chat, subscription, and Product KB knowledge fetch/
   );
 }
 

@@ -60,6 +60,7 @@ import {
   type RuntimeUsageAccounting,
   type RuntimeUsageAccountingEntry,
   type RuntimeUsageSnapshot,
+  type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
   type RuntimeTrace
 } from "@persai/runtime-contract";
@@ -129,6 +130,20 @@ type PreparedTurnExecution = {
   // template (legacy bundle compiled before T1) or the channel doesn't have
   // a canonical chat row to ground the in-thread baseline.
   presenceBlock: string | null;
+};
+
+type TurnKnowledgeSourcePolicyState =
+  | "default"
+  | "skill_only"
+  | "escalated_to_user"
+  | "escalated_to_web"
+  | "escalated_to_product";
+
+type TurnKnowledgeSourcePolicy = {
+  searchSources: PersaiRuntimeKnowledgeSource[];
+  fetchSources: PersaiRuntimeKnowledgeSource[];
+  state: TurnKnowledgeSourcePolicyState;
+  activeSkillTurn: boolean;
 };
 
 type RuntimeStreamTraceCollector = {
@@ -509,31 +524,39 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle
     );
     options?.trace?.stage("prepare.presence_computed");
-    const baselineProjectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
-      allowModelToolExposure: options?.allowModelToolExposure ?? true
-    });
-    const projectedTools =
-      options?.excludedToolNames === undefined || options.excludedToolNames.size === 0
-        ? baselineProjectedTools
-        : {
-            ...baselineProjectedTools,
-            tools: baselineProjectedTools.tools.filter(
-              (tool) => !options.excludedToolNames?.has(tool.name)
-            )
-          };
+    const baselineProjectedTools = this.applyExcludedToolNames(
+      projectRuntimeNativeTools(bundleEntry.parsedBundle, {
+        allowModelToolExposure: options?.allowModelToolExposure ?? true
+      }),
+      options?.excludedToolNames
+    );
     options?.trace?.stage("prepare.tools_projected");
     const executionPlan = await this.resolveTurnExecutionPlan(
       bundleEntry.parsedBundle,
       input,
       hydratedMessages,
-      projectedTools
+      baselineProjectedTools
     );
     options?.trace?.stage("prepare.execution_plan_ready");
+    const knowledgeSourcePolicy = this.deriveTurnKnowledgeSourcePolicy(
+      executionPlan.routeDecision,
+      baselineProjectedTools
+    );
+    const projectedTools = this.applyExcludedToolNames(
+      projectRuntimeNativeTools(bundleEntry.parsedBundle, {
+        allowModelToolExposure: options?.allowModelToolExposure ?? true,
+        allowedKnowledgeSearchSources: knowledgeSourcePolicy.searchSources,
+        allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources
+      }),
+      options?.excludedToolNames
+    );
+    options?.trace?.stage("prepare.turn_policy_applied");
     const retrievedKnowledgeContext = await this.resolveRetrievedKnowledgeContext({
       bundle: bundleEntry.parsedBundle,
       input,
       routeDecision: executionPlan.routeDecision,
-      projectedTools
+      projectedTools,
+      knowledgeSourcePolicy
     });
     options?.trace?.stage("prepare.retrieval_context_ready");
     const plannedRetrievedKnowledgeContext = this.planRetrievedKnowledgeContext(
@@ -589,11 +612,72 @@ export class TurnExecutionService {
     });
   }
 
+  private applyExcludedToolNames(
+    projectedTools: RuntimeNativeToolProjection,
+    excludedToolNames?: ReadonlySet<string>
+  ): RuntimeNativeToolProjection {
+    if (excludedToolNames === undefined || excludedToolNames.size === 0) {
+      return projectedTools;
+    }
+    return {
+      ...projectedTools,
+      tools: projectedTools.tools.filter((tool) => !excludedToolNames.has(tool.name))
+    };
+  }
+
+  private deriveTurnKnowledgeSourcePolicy(
+    routeDecision: TurnRouteDecision,
+    projectedTools: RuntimeNativeToolProjection
+  ): TurnKnowledgeSourcePolicy {
+    const defaultSearchSources = projectedTools.knowledgeSearchSources.map(
+      (source) => source.source
+    );
+    const defaultFetchSources = projectedTools.knowledgeFetchSources.map((source) => source.source);
+    if (!this.isActiveSkillRetrievalTurn(routeDecision)) {
+      return {
+        searchSources: defaultSearchSources,
+        fetchSources: defaultFetchSources,
+        state: "default",
+        activeSkillTurn: false
+      };
+    }
+    const allowedSkillTurnKnowledgeSources: PersaiRuntimeKnowledgeSource[] = [
+      "document",
+      "memory",
+      "chat",
+      ...(routeDecision.retrievalPlan.useProductKnowledge
+        ? (["subscription", "global"] as const)
+        : [])
+    ];
+    const allowed = new Set(allowedSkillTurnKnowledgeSources);
+    return {
+      searchSources: defaultSearchSources.filter((source) => allowed.has(source)),
+      fetchSources: defaultFetchSources.filter((source) => allowed.has(source)),
+      state: "skill_only",
+      activeSkillTurn: true
+    };
+  }
+
+  private isActiveSkillRetrievalTurn(routeDecision: TurnRouteDecision): boolean {
+    if (
+      routeDecision.autoSkillState?.status === "active" &&
+      typeof routeDecision.autoSkillState.activeSkillId === "string" &&
+      routeDecision.autoSkillState.activeSkillId.trim().length > 0
+    ) {
+      return true;
+    }
+    return (
+      routeDecision.retrievalPlan.useSkills &&
+      routeDecision.retrievalPlan.selectedSkillIds.some((skillId) => skillId.trim().length > 0)
+    );
+  }
+
   private async resolveRetrievedKnowledgeContext(input: {
     bundle: AssistantRuntimeBundle;
     input: RuntimeTurnRequest;
     routeDecision: TurnRouteDecision;
     projectedTools: RuntimeNativeToolProjection;
+    knowledgeSourcePolicy: TurnKnowledgeSourcePolicy;
   }): Promise<RuntimeRetrievedKnowledgeContext | null> {
     if (input.routeDecision.mode !== "active") {
       return null;
@@ -615,6 +699,12 @@ export class TurnExecutionService {
         query: input.input.message.text,
         locale: input.input.message.locale ?? input.bundle.userContext.locale,
         retrievalPlan: plan,
+        sourcePolicy: {
+          mode: input.knowledgeSourcePolicy.activeSkillTurn ? "active_skill" : "default",
+          state: input.knowledgeSourcePolicy.state,
+          allowedKnowledgeSearchSources: input.knowledgeSourcePolicy.searchSources,
+          allowedKnowledgeFetchSources: input.knowledgeSourcePolicy.fetchSources
+        },
         conversation: {
           channel: input.input.conversation.channel,
           surfaceThreadKey: input.input.conversation.externalThreadKey
@@ -1529,6 +1619,10 @@ export class TurnExecutionService {
       routeDecision.retrievalPlan.useSkills
         ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. Prefer the injected Retrieved Knowledge Context when present.`
         : null,
+      this.isActiveSkillRetrievalTurn(routeDecision) &&
+      availableToolNames.includes("knowledge_search")
+        ? "Active-skill retrieval is runtime-owned for this turn. Use low-level knowledge_search/knowledge_fetch only for assistant-owned follow-up lookup that is still genuinely needed after the injected context."
+        : null,
       routeDecision.retrievalPlan.useUserKnowledge &&
       availableToolNames.includes("knowledge_search")
         ? "Retrieval plan says user-owned knowledge may be relevant."
@@ -1685,6 +1779,7 @@ export class TurnExecutionService {
         useUserKnowledge: false,
         useProductKnowledge: false,
         useWeb: false,
+        ordinarySourcePriorityMode: "not_applicable",
         confidence: "low",
         reasonCode: input.deepMode === true ? "deep_mode_default" : "default_normal"
       },
@@ -2281,7 +2376,8 @@ export class TurnExecutionService {
       .executeSearchToolCall({
         bundle: execution.bundle,
         toolCall,
-        allowedSources: execution.projectedTools.knowledgeSearchSources
+        allowedSources: execution.projectedTools.knowledgeSearchSources,
+        availableSources: execution.bundle.runtime.knowledgeAccess.sources
       })
       .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
   }
@@ -2304,7 +2400,8 @@ export class TurnExecutionService {
       .executeFetchToolCall({
         bundle: execution.bundle,
         toolCall,
-        allowedSources: execution.projectedTools.knowledgeFetchSources
+        allowedSources: execution.projectedTools.knowledgeFetchSources,
+        availableSources: execution.bundle.runtime.knowledgeAccess.sources
       })
       .then((result) => this.createToolExecutionOutcome(toolCall, result.payload, result.isError));
   }

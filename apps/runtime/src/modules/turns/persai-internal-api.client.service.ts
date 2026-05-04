@@ -176,6 +176,17 @@ export type InternalOrchestrateRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  sourcePolicy?: {
+    mode: "default" | "active_skill";
+    state:
+      | "default"
+      | "skill_only"
+      | "escalated_to_user"
+      | "escalated_to_web"
+      | "escalated_to_product";
+    allowedKnowledgeSearchSources: PersaiRuntimeKnowledgeSource[];
+    allowedKnowledgeFetchSources: PersaiRuntimeKnowledgeSource[];
+  } | null;
   conversation?: {
     channel: string;
     surfaceThreadKey: string;

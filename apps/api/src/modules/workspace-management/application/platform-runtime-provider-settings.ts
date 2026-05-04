@@ -54,6 +54,9 @@ export type PlatformRuntimeRouterPrecheckRuleOverrides = {
   reasoningTerms: string[];
   premiumTerms: string[];
   toolTerms: string[];
+  productPriorityTerms: string[];
+  webPriorityTerms: string[];
+  personalPriorityTerms: string[];
 };
 
 export type PlatformRuntimeRouterPolicy = {
@@ -609,6 +612,15 @@ function normalizeRouterPrecheckRuleOverrides(
       : [],
     toolTerms: Array.isArray(row.toolTerms)
       ? normalizeRouterOverrideList(row.toolTerms, `${path}.toolTerms`)
+      : [],
+    productPriorityTerms: Array.isArray(row.productPriorityTerms)
+      ? normalizeRouterOverrideList(row.productPriorityTerms, `${path}.productPriorityTerms`)
+      : [],
+    webPriorityTerms: Array.isArray(row.webPriorityTerms)
+      ? normalizeRouterOverrideList(row.webPriorityTerms, `${path}.webPriorityTerms`)
+      : [],
+    personalPriorityTerms: Array.isArray(row.personalPriorityTerms)
+      ? normalizeRouterOverrideList(row.personalPriorityTerms, `${path}.personalPriorityTerms`)
       : []
   };
 }

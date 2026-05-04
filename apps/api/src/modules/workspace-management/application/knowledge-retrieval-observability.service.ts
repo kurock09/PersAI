@@ -14,7 +14,6 @@ export type KnowledgeRetrievalTrackedSource =
   | "skill"
   | "memory"
   | "chat"
-  | "preset"
   | "subscription"
   | "web";
 export type KnowledgeRetrievalMode = "lexical" | "hybrid";
@@ -76,6 +75,7 @@ export type KnowledgeRetrievalRecentSearch = {
   lexicalCandidateCount: number;
   vectorCandidateCount: number;
   decisionMode: string;
+  policyState: string | null;
   cacheReuseHit: boolean;
   helperApplied: boolean;
   helperChangedOrder: boolean;
@@ -150,6 +150,24 @@ function toRoundedAverage(total: number, count: number): number {
 
 function toNumber(value: bigint | number): number {
   return typeof value === "bigint" ? Number(value) : value;
+}
+
+function encodeDecisionMode(decisionMode: string, policyState?: string | null): string {
+  const normalizedDecisionMode = decisionMode.trim();
+  const normalizedPolicyState = policyState?.trim() ?? "";
+  if (normalizedDecisionMode.length === 0 || normalizedPolicyState.length === 0) {
+    return normalizedDecisionMode;
+  }
+  const combined = `${normalizedDecisionMode}@${normalizedPolicyState}`;
+  return combined.length <= 32 ? combined : normalizedDecisionMode;
+}
+
+function decodeDecisionMode(value: string): { decisionMode: string; policyState: string | null } {
+  const [decisionMode = "", policyState] = value.split("@", 2);
+  return {
+    decisionMode,
+    policyState: policyState && policyState.length > 0 ? policyState : null
+  };
 }
 
 function toMetricSummary(summary: SummaryInput): KnowledgeRetrievalMetricSummary {
@@ -332,13 +350,15 @@ export class KnowledgeRetrievalObservabilityService {
     helperInputTokens?: number | null;
     helperOutputTokens?: number | null;
     helperTotalTokens?: number | null;
+    policyState?: string | null;
     outcome?: KnowledgeRetrievalOutcome;
     errorCode?: string | null;
   }): Promise<void> {
     const outcome =
       input.outcome ?? (input.resultCount > 0 ? "success" : ("empty" as KnowledgeRetrievalOutcome));
-    const decisionMode =
+    const decisionModeBase =
       input.source === "skill" ? (input.decisionMode ?? "refresh_search_only") : "not_applicable";
+    const decisionMode = encodeDecisionMode(decisionModeBase, input.policyState);
     await this.recordEvent({
       workspaceId: input.workspaceId,
       assistantId: input.assistantId,
@@ -485,6 +505,7 @@ export class KnowledgeRetrievalObservabilityService {
     durationMs: number;
   }): Promise<void> {
     const countsTowardSkillDecisionMode = input.eventKind === "search" && input.source === "skill";
+    const { decisionMode: baseDecisionMode } = decodeDecisionMode(input.decisionMode);
     await this.prisma.$transaction(async (tx) => {
       await tx.knowledgeRetrievalEvent.create({
         data: {
@@ -540,11 +561,11 @@ export class KnowledgeRetrievalObservabilityService {
             lexicalTotal: input.eventKind === "search" && input.retrievalMode === "lexical" ? 1 : 0,
             hybridTotal: input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0,
             reuseCachedRefsTotal:
-              countsTowardSkillDecisionMode && input.decisionMode === "reuse_cached_refs" ? 1 : 0,
+              countsTowardSkillDecisionMode && baseDecisionMode === "reuse_cached_refs" ? 1 : 0,
             refreshSearchOnlyTotal:
-              countsTowardSkillDecisionMode && input.decisionMode === "refresh_search_only" ? 1 : 0,
+              countsTowardSkillDecisionMode && baseDecisionMode === "refresh_search_only" ? 1 : 0,
             refreshWithHelperTotal:
-              countsTowardSkillDecisionMode && input.decisionMode === "refresh_with_helper" ? 1 : 0,
+              countsTowardSkillDecisionMode && baseDecisionMode === "refresh_with_helper" ? 1 : 0,
             cacheReuseTotal: input.cacheReuseHit ? 1 : 0,
             helperAppliedTotal: input.helperApplied ? 1 : 0,
             helperChangedOrderTotal: input.helperChangedOrder ? 1 : 0,
@@ -592,13 +613,13 @@ export class KnowledgeRetrievalObservabilityService {
             (input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0),
           reuseCachedRefsTotal:
             existing.reuseCachedRefsTotal +
-            (countsTowardSkillDecisionMode && input.decisionMode === "reuse_cached_refs" ? 1 : 0),
+            (countsTowardSkillDecisionMode && baseDecisionMode === "reuse_cached_refs" ? 1 : 0),
           refreshSearchOnlyTotal:
             existing.refreshSearchOnlyTotal +
-            (countsTowardSkillDecisionMode && input.decisionMode === "refresh_search_only" ? 1 : 0),
+            (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_search_only" ? 1 : 0),
           refreshWithHelperTotal:
             existing.refreshWithHelperTotal +
-            (countsTowardSkillDecisionMode && input.decisionMode === "refresh_with_helper" ? 1 : 0),
+            (countsTowardSkillDecisionMode && baseDecisionMode === "refresh_with_helper" ? 1 : 0),
           cacheReuseTotal: existing.cacheReuseTotal + (input.cacheReuseHit ? 1 : 0),
           helperAppliedTotal: existing.helperAppliedTotal + (input.helperApplied ? 1 : 0),
           helperChangedOrderTotal:
@@ -637,6 +658,7 @@ export class KnowledgeRetrievalObservabilityService {
   }
 
   private toRecentState(row: PrismaKnowledgeRetrievalEvent): KnowledgeRetrievalRecentSearch {
+    const decodedDecisionMode = decodeDecisionMode(row.decisionMode);
     return {
       at: row.createdAt.toISOString(),
       eventKind: row.eventKind,
@@ -647,7 +669,8 @@ export class KnowledgeRetrievalObservabilityService {
       resultCount: row.resultCount,
       lexicalCandidateCount: row.lexicalCandidateCount,
       vectorCandidateCount: row.vectorCandidateCount,
-      decisionMode: row.decisionMode,
+      decisionMode: decodedDecisionMode.decisionMode,
+      policyState: decodedDecisionMode.policyState,
       cacheReuseHit: row.cacheReuseHit,
       helperApplied: row.helperApplied,
       helperChangedOrder: row.helperChangedOrder,

@@ -35,6 +35,14 @@ type RuntimeRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  sourcePolicy: {
+    mode: "default" | "active_skill";
+    state: OrchestratedPolicyState;
+    allowedKnowledgeSearchSources: Array<
+      "document" | "memory" | "chat" | "subscription" | "global"
+    >;
+    allowedKnowledgeFetchSources: Array<"document" | "memory" | "chat" | "subscription" | "global">;
+  } | null;
   conversation: {
     channel: string;
     surfaceThreadKey: string;
@@ -42,6 +50,22 @@ type RuntimeRetrievalInput = {
 };
 
 type OrchestratedRetrievalTelemetrySource = "skill" | "document" | "product" | "web";
+
+type OrchestratedPolicyState =
+  | "default"
+  | "skill_only"
+  | "escalated_to_user"
+  | "escalated_to_web"
+  | "escalated_to_product"
+  | "ordinary_personal_first"
+  | "ordinary_product_first"
+  | "ordinary_web_first"
+  | "ordinary_mixed_ambiguous";
+
+type StagedContextItem = {
+  item: RuntimeRetrievedKnowledgeContextItem;
+  stagePriority: number;
+};
 
 type SkillChunkRow = {
   id: string;
@@ -125,59 +149,159 @@ export class OrchestrateRuntimeRetrievalService {
     const locale =
       row?.locale === null || row?.locale === undefined ? null : this.asNonEmptyString(row.locale);
     const retrievalPlan = this.parseRetrievalPlan(row?.retrievalPlan);
+    const sourcePolicy = this.parseSourcePolicy(row?.sourcePolicy);
     if (assistantId === null || query === null || retrievalPlan === null) {
       throw new BadRequestException("assistantId, query, and retrievalPlan are required.");
     }
     const conversation = this.parseConversation(row?.conversation);
-    return { assistantId, query, locale, retrievalPlan, conversation };
+    return { assistantId, query, locale, retrievalPlan, sourcePolicy, conversation };
   }
 
   async execute(input: RuntimeRetrievalInput): Promise<RuntimeRetrievedKnowledgeContext> {
     const workspaceId = await this.resolveAssistantWorkspaceId(input.assistantId);
-    const items: RuntimeRetrievedKnowledgeContextItem[] = [];
-    if (input.retrievalPlan.useSkills) {
-      items.push(...(await this.searchSkillReferences(input, workspaceId)));
-    }
-    if (input.retrievalPlan.useUserKnowledge) {
-      items.push(
-        ...(await this.withTelemetry({
+    const stagedItems: StagedContextItem[] = [];
+    if (this.isActiveSkillTurn(input)) {
+      let policyState: OrchestratedPolicyState = "skill_only";
+      let skillItems: RuntimeRetrievedKnowledgeContextItem[] = [];
+      let skillResult: SkillReferenceSearchResult | null = null;
+      let skillDurationMs = 0;
+      if (input.retrievalPlan.useSkills) {
+        const skillStartedAt = Date.now();
+        skillResult = await this.executeSkillReferenceSearch(input, workspaceId);
+        skillDurationMs = Date.now() - skillStartedAt;
+        skillItems = skillResult.items;
+        stagedItems.push(...skillItems.map((item) => ({ item, stagePriority: 0 })));
+      }
+      const skillCoverageInsufficient = skillItems.length === 0;
+      const shouldEscalateToUser =
+        skillCoverageInsufficient && input.retrievalPlan.useUserKnowledge;
+      if (shouldEscalateToUser) {
+        policyState = "escalated_to_user";
+        stagedItems.push(
+          ...(
+            await this.withTelemetry({
+              workspaceId,
+              assistantId: input.assistantId,
+              source: "document",
+              policyState,
+              execute: async () => [
+                ...(await this.searchKnowledgeSource(input, "document", "user_document")),
+                ...(await this.searchKnowledgeSource(input, "memory", "user_document")),
+                ...(await this.searchKnowledgeSource(input, "chat", "user_document"))
+              ]
+            })
+          ).map((item) => ({ item, stagePriority: 1 }))
+        );
+      }
+      if (input.retrievalPlan.useWeb) {
+        policyState = "escalated_to_web";
+        await this.recordTelemetry({
           workspaceId,
           assistantId: input.assistantId,
-          source: "document",
-          execute: async () => [
-            ...(await this.searchKnowledgeSource(input, "document", "user_document")),
-            ...(await this.searchKnowledgeSource(input, "memory", "user_document")),
-            ...(await this.searchKnowledgeSource(input, "chat", "user_document"))
-          ]
-        }))
-      );
-    }
-    if (input.retrievalPlan.useProductKnowledge) {
-      items.push(
-        ...(await this.withTelemetry({
+          source: "web",
+          durationMs: 0,
+          resultCount: 0,
+          outcome: "empty",
+          errorCode: "web_reference_not_executed",
+          policyState
+        });
+      }
+      if (input.retrievalPlan.useProductKnowledge) {
+        policyState = "escalated_to_product";
+        stagedItems.push(
+          ...(
+            await this.withTelemetry({
+              workspaceId,
+              assistantId: input.assistantId,
+              source: "product",
+              policyState,
+              execute: async () => [
+                ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
+                ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
+              ]
+            })
+          ).map((item) => ({ item, stagePriority: 3 }))
+        );
+      }
+      if (skillResult !== null) {
+        await this.recordSkillTelemetry({
           workspaceId,
           assistantId: input.assistantId,
-          source: "product",
-          execute: async () => [
-            ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
-            ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
-          ]
-        }))
+          result: skillResult,
+          durationMs: skillDurationMs,
+          policyState
+        });
+      }
+    } else {
+      const ordinaryPolicyState = this.resolveOrdinaryPolicyState(
+        input.retrievalPlan.ordinarySourcePriorityMode
       );
-    }
-    if (input.retrievalPlan.useWeb) {
-      await this.recordTelemetry({
-        workspaceId,
-        assistantId: input.assistantId,
-        source: "web",
-        durationMs: 0,
-        resultCount: 0,
-        outcome: "empty",
-        errorCode: "web_reference_not_executed"
-      });
+      const stagePriorities = this.resolveOrdinaryStagePriorities(
+        input.retrievalPlan.ordinarySourcePriorityMode
+      );
+      if (input.retrievalPlan.useSkills) {
+        const skillStartedAt = Date.now();
+        const skillResult = await this.executeSkillReferenceSearch(input, workspaceId);
+        const skillDurationMs = Date.now() - skillStartedAt;
+        stagedItems.push(
+          ...skillResult.items.map((item) => ({ item, stagePriority: stagePriorities.skill }))
+        );
+        await this.recordSkillTelemetry({
+          workspaceId,
+          assistantId: input.assistantId,
+          result: skillResult,
+          durationMs: skillDurationMs,
+          policyState: ordinaryPolicyState
+        });
+      }
+      if (input.retrievalPlan.useUserKnowledge) {
+        stagedItems.push(
+          ...(
+            await this.withTelemetry({
+              workspaceId,
+              assistantId: input.assistantId,
+              source: "document",
+              policyState: ordinaryPolicyState,
+              execute: async () => [
+                ...(await this.searchKnowledgeSource(input, "document", "user_document")),
+                ...(await this.searchKnowledgeSource(input, "memory", "user_document")),
+                ...(await this.searchKnowledgeSource(input, "chat", "user_document"))
+              ]
+            })
+          ).map((item) => ({ item, stagePriority: stagePriorities.user }))
+        );
+      }
+      if (input.retrievalPlan.useProductKnowledge) {
+        stagedItems.push(
+          ...(
+            await this.withTelemetry({
+              workspaceId,
+              assistantId: input.assistantId,
+              source: "product",
+              policyState: ordinaryPolicyState,
+              execute: async () => [
+                ...(await this.searchKnowledgeSource(input, "global", "product_kb")),
+                ...(await this.searchKnowledgeSource(input, "subscription", "product_kb"))
+              ]
+            })
+          ).map((item) => ({ item, stagePriority: stagePriorities.product }))
+        );
+      }
+      if (input.retrievalPlan.useWeb) {
+        await this.recordTelemetry({
+          workspaceId,
+          assistantId: input.assistantId,
+          source: "web",
+          durationMs: 0,
+          resultCount: 0,
+          outcome: "empty",
+          errorCode: "web_reference_not_executed",
+          policyState: ordinaryPolicyState
+        });
+      }
     }
 
-    const selected = this.selectContextItems(items);
+    const selected = this.selectContextItems(stagedItems);
     const renderedBlock = this.renderContextBlock(selected);
     return {
       items: selected,
@@ -187,9 +311,12 @@ export class OrchestrateRuntimeRetrievalService {
 
   private async searchKnowledgeSource(
     input: RuntimeRetrievalInput,
-    source: "document" | "memory" | "chat" | "global" | "preset" | "subscription",
+    source: "document" | "memory" | "chat" | "global" | "subscription",
     label: RuntimeRetrievedKnowledgeSourceLabel
   ): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
+    if (!this.isSearchSourceAllowedByPolicy(input, source)) {
+      throw new BadRequestException(`Knowledge source "${source}" is blocked by the turn policy.`);
+    }
     const hits = await this.readAssistantKnowledgeService.search({
       assistantId: input.assistantId,
       source,
@@ -221,6 +348,72 @@ export class OrchestrateRuntimeRetrievalService {
       });
     }
     return items;
+  }
+
+  private isSearchSourceAllowedByPolicy(
+    input: RuntimeRetrievalInput,
+    source: "document" | "memory" | "chat" | "global" | "subscription"
+  ): boolean {
+    if (input.sourcePolicy === null) {
+      return true;
+    }
+    return input.sourcePolicy.allowedKnowledgeSearchSources.includes(source);
+  }
+
+  private async recordSkillTelemetry(input: {
+    workspaceId: string | null;
+    assistantId: string;
+    result: SkillReferenceSearchResult;
+    durationMs: number;
+    policyState: OrchestratedPolicyState;
+  }): Promise<void> {
+    await this.recordTelemetry({
+      workspaceId: input.workspaceId,
+      assistantId: input.assistantId,
+      source: "skill",
+      durationMs: input.durationMs,
+      resultCount: input.result.items.length,
+      outcome: input.result.items.length > 0 ? "success" : "empty",
+      errorCode: null,
+      retrievalMode: input.result.retrievalMode,
+      lexicalCandidateCount: input.result.lexicalCandidateCount,
+      vectorCandidateCount: input.result.vectorCandidateCount,
+      decisionMode: input.result.decisionMode,
+      cacheReuseHit: input.result.cacheReuseHit,
+      helperApplied: input.result.helperApplied,
+      helperChangedOrder: input.result.helperChangedOrder,
+      embeddingModelKey: input.result.embeddingModelKey,
+      helperModelKey: input.result.helperModelKey,
+      helperProviderKey: input.result.helperProviderKey,
+      helperInputTokens: input.result.helperInputTokens,
+      helperOutputTokens: input.result.helperOutputTokens,
+      helperTotalTokens: input.result.helperTotalTokens,
+      candidateCount: input.result.candidateCount,
+      topScoreMargin: input.result.topScoreMargin,
+      querySimilarityToLastTurn: input.result.querySimilarityToLastTurn,
+      cachedReferenceCoverage: input.result.cachedReferenceCoverage,
+      candidateAmbiguity: input.result.candidateAmbiguity,
+      policyState: input.policyState
+    });
+    if (input.result.fetchedChars > 0) {
+      await this.recordFetchTelemetry({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        source: "skill",
+        retrievalMode: input.result.retrievalMode,
+        durationMs: input.durationMs,
+        fetchDepth: input.result.fetchDepth,
+        fetchedChars: input.result.fetchedChars,
+        embeddingModelKey: input.result.embeddingModelKey
+      });
+    }
+  }
+
+  private isActiveSkillTurn(input: RuntimeRetrievalInput): boolean {
+    return (
+      input.sourcePolicy?.mode === "active_skill" ||
+      (input.retrievalPlan.useSkills && input.retrievalPlan.selectedSkillIds.length > 0)
+    );
   }
 
   private async searchSkillReferences(
@@ -255,7 +448,8 @@ export class OrchestrateRuntimeRetrievalService {
         topScoreMargin: result.topScoreMargin,
         querySimilarityToLastTurn: result.querySimilarityToLastTurn,
         cachedReferenceCoverage: result.cachedReferenceCoverage,
-        candidateAmbiguity: result.candidateAmbiguity
+        candidateAmbiguity: result.candidateAmbiguity,
+        policyState: "default"
       });
       if (result.fetchedChars > 0) {
         await this.recordFetchTelemetry({
@@ -278,7 +472,8 @@ export class OrchestrateRuntimeRetrievalService {
         durationMs: Date.now() - startedAt,
         resultCount: 0,
         outcome: "error",
-        errorCode: this.resolveTelemetryErrorCode(error)
+        errorCode: this.resolveTelemetryErrorCode(error),
+        policyState: "default"
       });
       throw error;
     }
@@ -656,6 +851,7 @@ export class OrchestrateRuntimeRetrievalService {
     workspaceId: string | null;
     assistantId: string;
     source: OrchestratedRetrievalTelemetrySource;
+    policyState: OrchestratedPolicyState;
     execute: () => Promise<RuntimeRetrievedKnowledgeContextItem[]>;
   }): Promise<RuntimeRetrievedKnowledgeContextItem[]> {
     const startedAt = Date.now();
@@ -668,7 +864,8 @@ export class OrchestrateRuntimeRetrievalService {
         durationMs: Date.now() - startedAt,
         resultCount: items.length,
         outcome: items.length > 0 ? "success" : "empty",
-        errorCode: null
+        errorCode: null,
+        policyState: input.policyState
       });
       return items;
     } catch (error) {
@@ -679,7 +876,8 @@ export class OrchestrateRuntimeRetrievalService {
         durationMs: Date.now() - startedAt,
         resultCount: 0,
         outcome: "error",
-        errorCode: this.resolveTelemetryErrorCode(error)
+        errorCode: this.resolveTelemetryErrorCode(error),
+        policyState: input.policyState
       });
       throw error;
     }
@@ -711,6 +909,7 @@ export class OrchestrateRuntimeRetrievalService {
     querySimilarityToLastTurn?: number | null;
     cachedReferenceCoverage?: number | null;
     candidateAmbiguity?: number | null;
+    policyState: OrchestratedPolicyState;
   }): Promise<void> {
     if (input.workspaceId === null) {
       return;
@@ -738,6 +937,7 @@ export class OrchestrateRuntimeRetrievalService {
       querySimilarityToLastTurn: input.querySimilarityToLastTurn ?? null,
       cachedReferenceCoverage: input.cachedReferenceCoverage ?? null,
       candidateAmbiguity: input.candidateAmbiguity ?? null,
+      policyState: input.policyState,
       outcome: input.outcome,
       errorCode: input.errorCode,
       ...(input.source === "skill" && input.decisionMode !== undefined
@@ -800,13 +1000,50 @@ export class OrchestrateRuntimeRetrievalService {
     return selected.filter((skillId) => enabled.has(skillId));
   }
 
-  private selectContextItems(
-    items: RuntimeRetrievedKnowledgeContextItem[]
-  ): RuntimeRetrievedKnowledgeContextItem[] {
+  private resolveOrdinaryPolicyState(
+    mode: RuntimeRetrievalPlan["ordinarySourcePriorityMode"]
+  ): OrchestratedPolicyState {
+    switch (mode) {
+      case "personal_first":
+        return "ordinary_personal_first";
+      case "product_first":
+        return "ordinary_product_first";
+      case "web_first":
+        return "ordinary_web_first";
+      case "mixed_ambiguous":
+        return "ordinary_mixed_ambiguous";
+      default:
+        return "default";
+    }
+  }
+
+  private resolveOrdinaryStagePriorities(
+    mode: RuntimeRetrievalPlan["ordinarySourcePriorityMode"]
+  ): { skill: number; user: number; product: number } {
+    switch (mode) {
+      case "product_first":
+        return { skill: 0, user: 2, product: 1 };
+      case "web_first":
+        return { skill: 0, user: 2, product: 3 };
+      case "mixed_ambiguous":
+        return { skill: 0, user: 1, product: 2 };
+      case "personal_first":
+      case "not_applicable":
+      default:
+        return { skill: 0, user: 1, product: 2 };
+    }
+  }
+
+  private selectContextItems(items: StagedContextItem[]): RuntimeRetrievedKnowledgeContextItem[] {
     const seen = new Set<string>();
     return [...items]
-      .sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
-      .filter((item) => {
+      .sort((left, right) => {
+        if (left.stagePriority !== right.stagePriority) {
+          return left.stagePriority - right.stagePriority;
+        }
+        return (right.item.score ?? 0) - (left.item.score ?? 0);
+      })
+      .filter(({ item }) => {
         const key = `${item.label}:${item.referenceId}`;
         if (seen.has(key)) {
           return false;
@@ -814,6 +1051,7 @@ export class OrchestrateRuntimeRetrievalService {
         seen.add(key);
         return true;
       })
+      .map(({ item }) => item)
       .slice(0, MAX_CONTEXT_ITEMS);
   }
 
@@ -841,6 +1079,36 @@ export class OrchestrateRuntimeRetrievalService {
     return this.truncate(parts.join("\n"), MAX_RENDERED_BLOCK_CHARS);
   }
 
+  private parseSourcePolicy(value: unknown): RuntimeRetrievalInput["sourcePolicy"] {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    const row = this.asObject(value);
+    const mode =
+      row?.mode === "active_skill" ? "active_skill" : row?.mode === "default" ? "default" : null;
+    const state = this.asPolicyState(row?.state);
+    const allowedKnowledgeSearchSources = this.asKnowledgePolicySources(
+      row?.allowedKnowledgeSearchSources
+    );
+    const allowedKnowledgeFetchSources = this.asKnowledgePolicySources(
+      row?.allowedKnowledgeFetchSources
+    );
+    if (
+      mode === null ||
+      state === null ||
+      allowedKnowledgeSearchSources === null ||
+      allowedKnowledgeFetchSources === null
+    ) {
+      throw new BadRequestException("sourcePolicy is invalid.");
+    }
+    return {
+      mode,
+      state,
+      allowedKnowledgeSearchSources,
+      allowedKnowledgeFetchSources
+    };
+  }
+
   private parseConversation(value: unknown): {
     channel: string;
     surfaceThreadKey: string;
@@ -855,6 +1123,43 @@ export class OrchestrateRuntimeRetrievalService {
       channel,
       surfaceThreadKey
     };
+  }
+
+  private asPolicyState(value: unknown): OrchestratedPolicyState | null {
+    switch (value) {
+      case "default":
+      case "skill_only":
+      case "escalated_to_user":
+      case "escalated_to_web":
+      case "escalated_to_product":
+      case "ordinary_personal_first":
+      case "ordinary_product_first":
+      case "ordinary_web_first":
+      case "ordinary_mixed_ambiguous":
+        return value;
+      default:
+        return null;
+    }
+  }
+
+  private asKnowledgePolicySources(
+    value: unknown
+  ): Array<"document" | "memory" | "chat" | "subscription" | "global"> | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    const sources = value.filter(
+      (entry): entry is "document" | "memory" | "chat" | "subscription" | "global" =>
+        entry === "document" ||
+        entry === "memory" ||
+        entry === "chat" ||
+        entry === "subscription" ||
+        entry === "global"
+    );
+    if (sources.length !== value.length) {
+      return null;
+    }
+    return sources;
   }
 
   private async persistSkillRetrievalState(input: {
@@ -1123,6 +1428,16 @@ export class OrchestrateRuntimeRetrievalService {
     ) {
       return null;
     }
+    const ordinarySourcePriorityMode =
+      row.ordinarySourcePriorityMode === "personal_first" ||
+      row.ordinarySourcePriorityMode === "product_first" ||
+      row.ordinarySourcePriorityMode === "web_first" ||
+      row.ordinarySourcePriorityMode === "mixed_ambiguous" ||
+      row.ordinarySourcePriorityMode === "not_applicable"
+        ? row.ordinarySourcePriorityMode
+        : row.useSkills
+          ? "not_applicable"
+          : "mixed_ambiguous";
     return {
       useSkills: row.useSkills,
       selectedSkillIds: row.selectedSkillIds
@@ -1132,6 +1447,7 @@ export class OrchestrateRuntimeRetrievalService {
       useUserKnowledge: row.useUserKnowledge,
       useProductKnowledge: row.useProductKnowledge,
       useWeb: row.useWeb,
+      ordinarySourcePriorityMode: row.useSkills ? "not_applicable" : ordinarySourcePriorityMode,
       confidence: row.confidence,
       reasonCode: row.reasonCode
     };

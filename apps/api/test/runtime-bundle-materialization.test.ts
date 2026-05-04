@@ -135,13 +135,6 @@ function createInput(order: "alpha" | "beta") {
                   fetchCredentialToolCode: null
                 },
                 {
-                  source: "preset",
-                  searchAliasToolCode: null,
-                  fetchAliasToolCode: null,
-                  searchCredentialToolCode: null,
-                  fetchCredentialToolCode: null
-                },
-                {
                   source: "subscription",
                   searchAliasToolCode: null,
                   fetchAliasToolCode: null,
@@ -186,13 +179,6 @@ function createInput(order: "alpha" | "beta") {
                   fetchAliasToolCode: null,
                   searchAliasToolCode: null,
                   source: "chat"
-                },
-                {
-                  fetchCredentialToolCode: null,
-                  searchCredentialToolCode: null,
-                  fetchAliasToolCode: null,
-                  searchAliasToolCode: null,
-                  source: "preset"
                 },
                 {
                   fetchCredentialToolCode: null,
@@ -473,13 +459,6 @@ async function run(): Promise<void> {
       },
       {
         source: "chat",
-        searchAliasToolCode: null,
-        fetchAliasToolCode: null,
-        searchCredentialToolCode: null,
-        fetchCredentialToolCode: null
-      },
-      {
-        source: "preset",
         searchAliasToolCode: null,
         fetchAliasToolCode: null,
         searchCredentialToolCode: null,

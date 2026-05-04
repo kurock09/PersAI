@@ -76,34 +76,36 @@ const skillChunks = [
 class FakeReadAssistantKnowledgeService {
   searches: Array<Record<string, unknown>> = [];
   fetches: Array<Record<string, unknown>> = [];
+  documentHits: Array<Record<string, unknown>> = [
+    {
+      referenceId: "source-1:1:0",
+      source: "document",
+      title: "User Tax File",
+      locator: "p1",
+      snippet: "User project deductible expenses list.",
+      score: 9,
+      metadata: { knowledgeSourceId: "source-1" }
+    }
+  ];
+  globalHits: Array<Record<string, unknown>> = [
+    {
+      referenceId: "product-text-entry:product-text-1:1:0",
+      source: "global",
+      title: "PersAI Overview",
+      locator: null,
+      snippet: "PersAI Product KB supports source-aware retrieval.",
+      score: 7,
+      metadata: { kind: "product_text_entry" }
+    }
+  ];
 
   async search(input: Record<string, unknown>) {
     this.searches.push(input);
     if (input.source === "document") {
-      return [
-        {
-          referenceId: "source-1:1:0",
-          source: "document",
-          title: "User Tax File",
-          locator: "p1",
-          snippet: "User project deductible expenses list.",
-          score: 9,
-          metadata: { knowledgeSourceId: "source-1" }
-        }
-      ];
+      return this.documentHits;
     }
     if (input.source === "global") {
-      return [
-        {
-          referenceId: "product-text-entry:product-text-1:1:0",
-          source: "global",
-          title: "PersAI Overview",
-          locator: null,
-          snippet: "PersAI Product KB supports source-aware retrieval.",
-          score: 7,
-          metadata: { kind: "product_text_entry" }
-        }
-      ];
+      return this.globalHits;
     }
     return [];
   }
@@ -240,10 +242,16 @@ async function run(): Promise<void> {
         useSkills: true,
         selectedSkillIds: ["skill-accounting", "skill-disabled"],
         useUserKnowledge: true,
-        useProductKnowledge: true,
+        useProductKnowledge: false,
         useWeb: false,
         confidence: "high",
         reasonCode: "test_plan"
+      },
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat"]
       }
     })
   );
@@ -255,11 +263,11 @@ async function run(): Promise<void> {
   );
   assert.equal(
     context.items.some((item) => item.label === "user_document"),
-    true
+    false
   );
   assert.equal(
     context.items.some((item) => item.label === "product_kb"),
-    true
+    false
   );
   assert.equal(
     context.items.some(
@@ -295,7 +303,7 @@ async function run(): Promise<void> {
   assert.deepEqual(vectorSearches[0]?.skillIds, ["skill-accounting"]);
   assert.deepEqual(
     readKnowledge.searches.map((call) => call.source),
-    ["document", "memory", "chat", "global", "subscription"]
+    []
   );
   assert.deepEqual(observability.searches[0], {
     workspaceId: "workspace-1",
@@ -322,13 +330,63 @@ async function run(): Promise<void> {
     helperProviderKey: null,
     helperInputTokens: null,
     helperOutputTokens: null,
-    helperTotalTokens: null
+    helperTotalTokens: null,
+    policyState: "skill_only"
   });
   assert.equal(observability.fetches.length, 1);
   assert.equal(observability.fetches[0]?.source, "skill");
   assert.equal(observability.fetches[0]?.retrievalMode, "hybrid");
   assert.equal(observability.fetches[0]?.fetchDepth, 3);
   assert.ok(Number(observability.fetches[0]?.fetchedChars) > 120);
+
+  const originalSkillChunks = [...skillChunks];
+  skillChunks.splice(0, skillChunks.length);
+  readKnowledge.searches = [];
+  const escalatedContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "compare deductible expenses with my uploaded files",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: true,
+        selectedSkillIds: ["skill-accounting"],
+        useUserKnowledge: true,
+        useProductKnowledge: false,
+        useWeb: false,
+        confidence: "high",
+        reasonCode: "skill_then_user"
+      },
+      sourcePolicy: {
+        mode: "active_skill",
+        state: "skill_only",
+        allowedKnowledgeSearchSources: ["document", "memory", "chat"],
+        allowedKnowledgeFetchSources: ["document", "memory", "chat"]
+      }
+    })
+  );
+  assert.equal(
+    escalatedContext.items.some((item) => item.label === "skill_reference"),
+    false
+  );
+  assert.equal(
+    escalatedContext.items.some((item) => item.label === "user_document"),
+    true
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "memory", "chat"]
+  );
+  assert.deepEqual(
+    observability.searches.slice(-2).map((entry) => ({
+      source: entry.source,
+      policyState: entry.policyState
+    })),
+    [
+      { source: "document", policyState: "escalated_to_user" },
+      { source: "skill", policyState: "escalated_to_user" }
+    ]
+  );
+  skillChunks.splice(0, skillChunks.length, ...originalSkillChunks);
 
   await service.execute(
     service.parseInput({
@@ -427,6 +485,146 @@ async function run(): Promise<void> {
       }),
     /assistantId, query, and retrievalPlan/
   );
+
+  await runOrdinaryStagedRetrievalCases();
+}
+
+async function runOrdinaryStagedRetrievalCases(): Promise<void> {
+  const observability = new FakeKnowledgeRetrievalObservabilityService();
+  const readKnowledge = new FakeReadAssistantKnowledgeService();
+  const prisma = {
+    assistant: { findUnique: async () => ({ workspaceId: "workspace-1" }) },
+    assistantSkillAssignment: { findMany: async () => [] },
+    skillDocumentChunk: { findMany: async () => [] },
+    skillKnowledgeCardChunk: { findMany: async () => [] }
+  };
+  const service = new OrchestrateRuntimeRetrievalService(
+    prisma as never,
+    readKnowledge as never,
+    observability as never,
+    {
+      resolveAssistantRetrievalPolicy: async () => ({
+        defaultMaxResults: 5,
+        maxMaxResults: 8,
+        lexicalCandidateLimit: 60,
+        vectorCandidateLimit: 240,
+        knowledgeFetchWindowRadius: 1,
+        chatFetchWindowRadius: 2,
+        fetchMaxChars: 6000,
+        helperEnabled: false,
+        helperCandidateLimit: 6,
+        helperMaxOutputTokens: 220,
+        embeddingSearchEnabled: true
+      }),
+      resolveAdminKnowledgeEmbeddingModelKey: async () => "text-embedding-3-small",
+      resolveAdminKnowledgeRetrievalModelKey: async () => null
+    } as never,
+    { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
+    { rerankCandidates: async () => null } as never,
+    {
+      decideBeforeSearch: () => null,
+      decideAfterSearch: () => ({
+        mode: "refresh_search_only",
+        querySimilarityToLastTurn: 0,
+        cachedReferenceCoverage: 0,
+        candidateAmbiguity: 0,
+        candidateCount: 0,
+        topScoreMargin: null
+      }),
+      buildCandidateSetHash: (referenceIds: string[]) => referenceIds.join("|")
+    } as never,
+    {
+      resolveChatContext: async () => null,
+      buildQueryFingerprint: (query: string) => query.trim().toLowerCase(),
+      persistState: async () => undefined
+    } as never,
+    { searchNearest: async () => [] } as never
+  );
+
+  const productFirstContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "ordinary product-priority retrieval",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        ordinarySourcePriorityMode: "product_first",
+        confidence: "medium",
+        reasonCode: "test_ordinary_product_first"
+      }
+    })
+  );
+  assert.ok(productFirstContext.renderedBlock?.startsWith("# Retrieved Knowledge Context"));
+  const productFirstLabels = productFirstContext.items.map((item) => item.label);
+  assert.deepEqual(productFirstLabels, ["product_kb", "user_document"]);
+  assert.deepEqual(
+    observability.searches.map((entry) => ({
+      source: entry.source,
+      policyState: entry.policyState
+    })),
+    [
+      { source: "document", policyState: "ordinary_product_first" },
+      { source: "product", policyState: "ordinary_product_first" }
+    ]
+  );
+  assert.deepEqual(
+    readKnowledge.searches.map((call) => call.source),
+    ["document", "memory", "chat", "global", "subscription"]
+  );
+
+  observability.searches = [];
+  observability.fetches = [];
+  readKnowledge.searches = [];
+  const personalFirstContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "ordinary personal-priority retrieval",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: false,
+        ordinarySourcePriorityMode: "personal_first",
+        confidence: "medium",
+        reasonCode: "test_ordinary_personal_first"
+      }
+    })
+  );
+  const personalFirstLabels = personalFirstContext.items.map((item) => item.label);
+  assert.deepEqual(personalFirstLabels, ["user_document", "product_kb"]);
+  assert.equal(observability.searches[0]?.policyState, "ordinary_personal_first");
+
+  observability.searches = [];
+  observability.fetches = [];
+  const webFirstContext = await service.execute(
+    service.parseInput({
+      assistantId: "assistant-1",
+      query: "ordinary web-priority retrieval",
+      locale: "en",
+      retrievalPlan: {
+        useSkills: false,
+        selectedSkillIds: [],
+        useUserKnowledge: true,
+        useProductKnowledge: true,
+        useWeb: true,
+        ordinarySourcePriorityMode: "web_first",
+        confidence: "medium",
+        reasonCode: "test_ordinary_web_first"
+      }
+    })
+  );
+  const webFirstLabels = webFirstContext.items.map((item) => item.label);
+  assert.deepEqual(webFirstLabels, ["user_document", "product_kb"]);
+  const webEntry = observability.searches.find((entry) => entry.source === "web");
+  assert.ok(webEntry);
+  assert.equal(webEntry?.policyState, "ordinary_web_first");
+  assert.equal(webEntry?.errorCode, "web_reference_not_executed");
 }
 
 void run();

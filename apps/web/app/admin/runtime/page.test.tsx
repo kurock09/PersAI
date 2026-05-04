@@ -17,14 +17,20 @@ describe("admin runtime router policy helpers", () => {
         retrievalTermsText: "find in docs",
         reasoningTermsText: "architecture",
         premiumTermsText: "cover letter",
-        toolTermsText: "browse"
+        toolTermsText: "browse",
+        productPriorityTermsText: "тариф\nplan",
+        webPriorityTermsText: "today\nweather",
+        personalPriorityTermsText: "i\nmy"
       })
     ).toEqual({
       continueTerms: ["ok", "continue"],
       retrievalTerms: ["find in docs"],
       reasoningTerms: ["architecture"],
       premiumTerms: ["cover letter"],
-      toolTerms: ["browse"]
+      toolTerms: ["browse"],
+      productPriorityTerms: ["тариф", "plan"],
+      webPriorityTerms: ["today", "weather"],
+      personalPriorityTerms: ["i", "my"]
     });
   });
 
@@ -35,7 +41,10 @@ describe("admin runtime router policy helpers", () => {
         retrievalTermsText: "",
         reasoningTermsText: "",
         premiumTermsText: "",
-        toolTermsText: ""
+        toolTermsText: "",
+        productPriorityTermsText: "",
+        webPriorityTermsText: "",
+        personalPriorityTermsText: ""
       })
     ).toBeNull();
   });

@@ -505,6 +505,11 @@ export function AssistantSettings({
     image_edit: t("monthlyMediaImageEdit"),
     video_generate: t("monthlyMediaVideoGenerate")
   };
+  const monthlyMediaQuotaCompactLabels: Record<MonthlyMediaQuotaToolState["toolCode"], string> = {
+    image_generate: t("monthlyMediaImageGenerateCompact"),
+    image_edit: t("monthlyMediaImageEditCompact"),
+    video_generate: t("monthlyMediaVideoGenerateCompact")
+  };
   const toolLimitLabels: Record<string, string> = {
     browser: t("toolLimitBrowser"),
     exec: t("toolLimitExec"),
@@ -2425,7 +2430,16 @@ export function AssistantSettings({
                   {featuredMonthlyMediaQuotas.map((tool) => (
                     <LimitMetricCard
                       key={tool.toolCode}
-                      label={monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
+                      label={
+                        <>
+                          <span className="sm:hidden">
+                            {monthlyMediaQuotaCompactLabels[tool.toolCode] ?? tool.displayName}
+                          </span>
+                          <span className="hidden sm:inline">
+                            {monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
+                          </span>
+                        </>
+                      }
                       value={formatMonthlyMediaQuotaValue(tool)}
                       secondary={
                         toMonthlyMediaQuotaPercent(tool) === null
@@ -2631,7 +2645,7 @@ function LimitMetricCard({
   value,
   secondary
 }: {
-  label: string;
+  label: React.ReactNode;
   value: string;
   secondary?: string | null;
 }) {

@@ -373,6 +373,13 @@ For shared admin-managed KB ownership changes, also verify:
 5. admin Skill/Product/global KB uploads do not debit tenant workspace knowledge-storage quota
 6. the post-migration audit SQL fails if shared KB tables, chunks, jobs, or vectors still have tenant workspace-owned leftovers
 
+For runtime ordinary source priority changes (ADR-079 follow-up, 2026-05-04), also verify:
+
+1. `turn-routing.service.test.ts` covers `personal_first` / `product_first` / `web_first` / `mixed_ambiguous` precheck outcomes plus an admin override via `Router Policy > productPriorityTerms` and the `not_applicable` path for trivial continuation turns
+2. `orchestrate-runtime-retrieval.service.test.ts` covers staged ordinary retrieval ordering (`product_first` ranks Product KB above user KB, `personal_first` ranks user KB above Product KB, `web_first` records honest `ordinary_web_first` policy state for non-executed web grounding)
+3. retrieval observability emits `policyState=ordinary_*` for non-Skill turns and `policyState=skill_only|escalated_to_*` for active-Skill turns
+4. model-visible `knowledge_search` / `knowledge_fetch` source enums no longer include `preset` (runtime native-tool projection and API `read-assistant-knowledge.service` reject `preset` requests structurally)
+
 ## Helm / deploy truth checks
 
 Validate rendered deploy truth:

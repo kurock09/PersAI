@@ -42,13 +42,19 @@ export function buildRouterPrecheckRuleOverrides(input: {
   reasoningTermsText: string;
   premiumTermsText: string;
   toolTermsText: string;
+  productPriorityTermsText: string;
+  webPriorityTermsText: string;
+  personalPriorityTermsText: string;
 }): AdminRuntimeProviderSettingsRequest["routerPolicy"]["precheckRuleOverrides"] {
   const overrides = {
     continueTerms: parseRouterTriggerTerms(input.continueTermsText),
     retrievalTerms: parseRouterTriggerTerms(input.retrievalTermsText),
     reasoningTerms: parseRouterTriggerTerms(input.reasoningTermsText),
     premiumTerms: parseRouterTriggerTerms(input.premiumTermsText),
-    toolTerms: parseRouterTriggerTerms(input.toolTermsText)
+    toolTerms: parseRouterTriggerTerms(input.toolTermsText),
+    productPriorityTerms: parseRouterTriggerTerms(input.productPriorityTermsText),
+    webPriorityTerms: parseRouterTriggerTerms(input.webPriorityTermsText),
+    personalPriorityTerms: parseRouterTriggerTerms(input.personalPriorityTermsText)
   };
   return Object.values(overrides).some((entries) => entries.length > 0) ? overrides : null;
 }
@@ -155,6 +161,9 @@ export default function AdminRuntimePage() {
   const [routerReasoningTermsText, setRouterReasoningTermsText] = useState("");
   const [routerPremiumTermsText, setRouterPremiumTermsText] = useState("");
   const [routerToolTermsText, setRouterToolTermsText] = useState("");
+  const [routerProductPriorityTermsText, setRouterProductPriorityTermsText] = useState("");
+  const [routerWebPriorityTermsText, setRouterWebPriorityTermsText] = useState("");
+  const [routerPersonalPriorityTermsText, setRouterPersonalPriorityTermsText] = useState("");
   const [
     skillRoutingInitialCheckUserMessageIndexText,
     setSkillRoutingInitialCheckUserMessageIndexText
@@ -213,6 +222,15 @@ export default function AdminRuntimePage() {
       );
       setRouterToolTermsText(
         formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.toolTerms)
+      );
+      setRouterProductPriorityTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.productPriorityTerms)
+      );
+      setRouterWebPriorityTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.webPriorityTerms)
+      );
+      setRouterPersonalPriorityTermsText(
+        formatRouterTriggerTerms(res.routerPolicy.precheckRuleOverrides?.personalPriorityTerms)
       );
       setSkillRoutingInitialCheckUserMessageIndexText(
         String(res.skillRoutingPolicy.initialCheckUserMessageIndex)
@@ -334,7 +352,10 @@ export default function AdminRuntimePage() {
         retrievalTermsText: routerRetrievalTermsText,
         reasoningTermsText: routerReasoningTermsText,
         premiumTermsText: routerPremiumTermsText,
-        toolTermsText: routerToolTermsText
+        toolTermsText: routerToolTermsText,
+        productPriorityTermsText: routerProductPriorityTermsText,
+        webPriorityTermsText: routerWebPriorityTermsText,
+        personalPriorityTermsText: routerPersonalPriorityTermsText
       });
       const skillRoutingPolicy = buildSkillRoutingPolicyInput({
         initialCheckUserMessageIndexText: skillRoutingInitialCheckUserMessageIndexText,
@@ -392,6 +413,9 @@ export default function AdminRuntimePage() {
     routerReasoningTermsText,
     routerRetrievalTermsText,
     routerToolTermsText,
+    routerProductPriorityTermsText,
+    routerWebPriorityTermsText,
+    routerPersonalPriorityTermsText,
     skillRoutingBackgroundRecheckIntervalMessagesText,
     skillRoutingInitialCheckUserMessageIndexText,
     routingFastModelKey,
@@ -665,11 +689,32 @@ export default function AdminRuntimePage() {
                   placeholder={"browse\nlatest news\ngenerate image"}
                 />
               </div>
+              <TextareaField
+                label="Personal-first priority"
+                value={routerPersonalPriorityTermsText}
+                onChange={setRouterPersonalPriorityTermsText}
+                placeholder={"i\nmy\nour\nremember"}
+              />
+              <TextareaField
+                label="Product-first priority"
+                value={routerProductPriorityTermsText}
+                onChange={setRouterProductPriorityTermsText}
+                placeholder={"plan\ntariff\nquota\nlimit"}
+              />
+              <div className="sm:col-span-2">
+                <TextareaField
+                  label="Web-first priority"
+                  value={routerWebPriorityTermsText}
+                  onChange={setRouterWebPriorityTermsText}
+                  placeholder={"latest\ntoday\nweather\ncurrent"}
+                />
+              </div>
             </div>
             <p className="text-[10px] text-text-subtle">
               Add one phrase per line. These lists only tune the deterministic precheck layer and
-              extend the built-in router defaults without touching JSON. If you want to change the
-              LLM router prompt itself, edit it separately in{" "}
+              extend the built-in router defaults without touching JSON. The three priority lists
+              steer ordinary (non-skill) retrieval order between personal, product, and web sources.
+              If you want to change the LLM router prompt itself, edit it separately in{" "}
               <span className="font-mono">Admin &gt; Prompt Constructor</span>.
             </p>
           </Card>

@@ -68,6 +68,9 @@ function createBundle(
       reasoningTerms: string[];
       premiumTerms: string[];
       toolTerms: string[];
+      productPriorityTerms?: string[];
+      webPriorityTerms?: string[];
+      personalPriorityTerms?: string[];
     } | null;
   },
   includeSkills = true,
@@ -328,6 +331,7 @@ async function run(): Promise<void> {
     useUserKnowledge: false,
     useProductKnowledge: false,
     useWeb: false,
+    ordinarySourcePriorityMode: "not_applicable",
     confidence: "low",
     reasonCode: "continue_term"
   });
@@ -366,6 +370,7 @@ async function run(): Promise<void> {
     useUserKnowledge: true,
     useProductKnowledge: true,
     useWeb: false,
+    ordinarySourcePriorityMode: "personal_first",
     confidence: "high",
     reasonCode: "knowledge_retrieval"
   });
@@ -394,6 +399,7 @@ async function run(): Promise<void> {
     useUserKnowledge: true,
     useProductKnowledge: false,
     useWeb: false,
+    ordinarySourcePriorityMode: "not_applicable",
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
@@ -768,6 +774,7 @@ async function run(): Promise<void> {
     useUserKnowledge: true,
     useProductKnowledge: false,
     useWeb: false,
+    ordinarySourcePriorityMode: "not_applicable",
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
@@ -790,6 +797,82 @@ async function run(): Promise<void> {
     String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
     /Use accounting knowledge carefully/
   );
+
+  await runOrdinarySourcePriorityModeTests();
+}
+
+async function runOrdinarySourcePriorityModeTests(): Promise<void> {
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  const service = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+  const bundle = createBundle(undefined, false);
+
+  const productPriorityDecision = await service.decide({
+    bundle,
+    request: createRequest("найди в документах какой у меня тариф и лимит на квоту"),
+    projectedTools
+  });
+  assert.equal(productPriorityDecision.source, "precheck");
+  assert.equal(productPriorityDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(productPriorityDecision.retrievalPlan.ordinarySourcePriorityMode, "product_first");
+
+  const personalPriorityDecision = await service.decide({
+    bundle,
+    request: createRequest("найди в памяти что я говорил вчера про мою маму"),
+    projectedTools
+  });
+  assert.equal(personalPriorityDecision.source, "precheck");
+  assert.equal(personalPriorityDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(personalPriorityDecision.retrievalPlan.ordinarySourcePriorityMode, "personal_first");
+
+  const webPriorityDecision = await service.decide({
+    bundle,
+    request: createRequest("Latest news today, please browse the web"),
+    projectedTools
+  });
+  assert.equal(webPriorityDecision.source, "precheck");
+  assert.equal(webPriorityDecision.reasonCode, "tool_hint_web");
+  assert.equal(webPriorityDecision.retrievalPlan.ordinarySourcePriorityMode, "web_first");
+
+  const ambiguousMixedDecision = await service.decide({
+    bundle,
+    request: createRequest("найди в памяти про мой тариф пожалуйста"),
+    projectedTools
+  });
+  assert.equal(ambiguousMixedDecision.source, "precheck");
+  assert.equal(ambiguousMixedDecision.reasonCode, "knowledge_retrieval");
+  assert.equal(ambiguousMixedDecision.retrievalPlan.ordinarySourcePriorityMode, "mixed_ambiguous");
+
+  const adminProductOverrideDecision = await service.decide({
+    bundle: createBundle(
+      {
+        precheckRuleOverrides: {
+          continueTerms: [],
+          retrievalTerms: [],
+          reasoningTerms: [],
+          premiumTerms: [],
+          toolTerms: [],
+          productPriorityTerms: ["custom-product-keyword"]
+        }
+      },
+      false
+    ),
+    request: createRequest("найди в документах custom-product-keyword по подключению"),
+    projectedTools
+  });
+  assert.equal(
+    adminProductOverrideDecision.retrievalPlan.ordinarySourcePriorityMode,
+    "product_first"
+  );
+
+  const continueTurnPriority = await service.decide({
+    bundle,
+    request: createRequest("ok"),
+    projectedTools
+  });
+  assert.equal(continueTurnPriority.reasonCode, "continue_term");
+  assert.equal(continueTurnPriority.retrievalPlan.ordinarySourcePriorityMode, "not_applicable");
 }
 
 void run();

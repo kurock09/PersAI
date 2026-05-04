@@ -409,6 +409,11 @@ export class SendNativeWebChatTurnService {
       typeof row.useUserKnowledge === "boolean" &&
       typeof row.useProductKnowledge === "boolean" &&
       typeof row.useWeb === "boolean" &&
+      (row.ordinarySourcePriorityMode === "personal_first" ||
+        row.ordinarySourcePriorityMode === "product_first" ||
+        row.ordinarySourcePriorityMode === "web_first" ||
+        row.ordinarySourcePriorityMode === "mixed_ambiguous" ||
+        row.ordinarySourcePriorityMode === "not_applicable") &&
       (row.confidence === "low" || row.confidence === "medium" || row.confidence === "high") &&
       typeof row.reasonCode === "string"
     );

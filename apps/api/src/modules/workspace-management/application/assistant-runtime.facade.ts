@@ -100,6 +100,12 @@ export interface AssistantRuntimeTurnRoutingSnapshot {
     useUserKnowledge: boolean;
     useProductKnowledge: boolean;
     useWeb: boolean;
+    ordinarySourcePriorityMode:
+      | "personal_first"
+      | "product_first"
+      | "web_first"
+      | "mixed_ambiguous"
+      | "not_applicable";
     confidence: "low" | "medium" | "high";
     reasonCode: string;
   };

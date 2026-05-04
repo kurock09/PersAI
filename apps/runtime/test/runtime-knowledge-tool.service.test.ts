@@ -33,13 +33,6 @@ const KNOWLEDGE_ACCESS_WITH_PRIVATE_AND_SHARED_SOURCES = {
       fetchCredentialToolCode: null
     },
     {
-      source: "preset",
-      searchAliasToolCode: null,
-      fetchAliasToolCode: null,
-      searchCredentialToolCode: null,
-      fetchCredentialToolCode: null
-    },
-    {
       source: "subscription",
       searchAliasToolCode: null,
       fetchAliasToolCode: null,
@@ -289,21 +282,24 @@ async function run(): Promise<void> {
   const projection = projectRuntimeNativeTools(bundle);
   const hiddenProjection = projectRuntimeNativeTools(hiddenBundle);
 
-  assert.equal(
-    projection.tools.some((tool) => tool.name === "knowledge_search"),
-    true
-  );
-  assert.equal(
-    projection.tools.some((tool) => tool.name === "knowledge_fetch"),
-    true
-  );
-  assert.equal(
-    hiddenProjection.tools.some((tool) => tool.name === "knowledge_search"),
-    false
-  );
+  assert.ok(projection.knowledgeSearchSources.length > 0);
+  assert.ok(projection.knowledgeFetchSources.length > 0);
+  assert.equal(hiddenProjection.knowledgeSearchSources.length, 0);
   assert.deepEqual(
     projection.knowledgeSearchSources.map((source) => source.source),
-    ["memory", "chat", "preset", "subscription", "global", "document"]
+    ["memory", "chat", "subscription", "global", "document"]
+  );
+  const activeSkillProjection = projectRuntimeNativeTools(bundle, {
+    allowedKnowledgeSearchSources: ["document", "memory", "chat"],
+    allowedKnowledgeFetchSources: ["document", "memory", "chat"]
+  });
+  assert.deepEqual(
+    activeSkillProjection.knowledgeSearchSources.map((source) => source.source),
+    ["memory", "chat", "document"]
+  );
+  assert.deepEqual(
+    activeSkillProjection.knowledgeFetchSources.map((source) => source.source),
+    ["memory", "chat", "document"]
   );
 
   const internalApi = new FakePersaiInternalApiClientService();
@@ -377,6 +373,18 @@ async function run(): Promise<void> {
   });
   assert.equal(unavailableSearch.payload.reason, "source_unavailable");
   assert.equal(unavailableSearch.isError, false);
+
+  const blockedSearch = await service.executeSearchToolCall({
+    bundle,
+    toolCall: createToolCall("knowledge_search", {
+      source: "global",
+      query: "pricing"
+    }),
+    allowedSources: activeSkillProjection.knowledgeSearchSources,
+    availableSources: bundle.runtime.knowledgeAccess.sources
+  });
+  assert.equal(blockedSearch.payload.reason, "source_blocked_by_turn_policy");
+  assert.equal(blockedSearch.isError, false);
 
   internalApi.searchError = new Error("boom");
   const failedSearch = await service.executeSearchToolCall({

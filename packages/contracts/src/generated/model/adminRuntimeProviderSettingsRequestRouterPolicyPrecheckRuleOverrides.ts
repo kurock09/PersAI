@@ -14,4 +14,7 @@ export type AdminRuntimeProviderSettingsRequestRouterPolicyPrecheckRuleOverrides
   reasoningTerms: string[];
   premiumTerms: string[];
   toolTerms: string[];
+  productPriorityTerms: string[];
+  webPriorityTerms: string[];
+  personalPriorityTerms: string[];
 } | null;

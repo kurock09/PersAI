@@ -16,7 +16,6 @@ export const AdminKnowledgeRetrievalRecentSearchSource = {
   skill: "skill",
   memory: "memory",
   chat: "chat",
-  preset: "preset",
   subscription: "subscription",
   web: "web"
 } as const;

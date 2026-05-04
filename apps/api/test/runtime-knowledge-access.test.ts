@@ -33,13 +33,6 @@ async function run(): Promise<void> {
         fetchCredentialToolCode: null
       },
       {
-        source: "preset",
-        searchAliasToolCode: null,
-        fetchAliasToolCode: null,
-        searchCredentialToolCode: null,
-        fetchCredentialToolCode: null
-      },
-      {
         source: "subscription",
         searchAliasToolCode: null,
         fetchAliasToolCode: null,

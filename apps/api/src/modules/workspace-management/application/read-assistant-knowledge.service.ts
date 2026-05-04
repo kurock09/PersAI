@@ -15,7 +15,6 @@ const SUPPORTED_KNOWLEDGE_SOURCES = [
   "document",
   "memory",
   "chat",
-  "preset",
   "subscription",
   "global"
 ] as const;
@@ -113,7 +112,7 @@ type ChatMessageRow = {
 
 type ChatMessageWindowRow = Pick<ChatMessageRow, "id" | "author" | "content" | "createdAt">;
 
-type TextKnowledgeSource = "preset" | "subscription" | "global";
+type TextKnowledgeSource = "subscription" | "global";
 
 type TextKnowledgeDocumentRow = {
   referenceId: string;
@@ -133,19 +132,6 @@ type AssistantKnowledgeContextRow = {
     assistantPlanOverrideCode: string | null;
     quotaPlanCode: string | null;
   } | null;
-};
-
-type MaterializedPresetRow = {
-  publishedVersionId: string;
-  layersDocument: string;
-  runtimeBundleDocument: string | null;
-  createdAt: Date;
-};
-
-type PromptTemplateRow = {
-  id: string;
-  template: string;
-  updatedAt: Date;
 };
 
 type PlanCatalogKnowledgeRow = {
@@ -657,15 +643,6 @@ function selectRankedCandidates<Row>(
 }
 
 function resolveTextKnowledgeSourceWeight(row: TextKnowledgeDocumentRow): number {
-  if (row.source === "preset") {
-    if (row.referenceId === "preset:current:runtime-bundle") {
-      return 12;
-    }
-    if (row.referenceId === "preset:current:layers") {
-      return 11;
-    }
-    return 4;
-  }
   if (row.source === "subscription") {
     return 10;
   }
@@ -992,7 +969,7 @@ export class ReadAssistantKnowledgeService {
     const query = this.readRequiredString(row.query, "query");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, preset, subscription, and Product KB knowledge search are currently available."
+        "Only document, memory, chat, subscription, and Product KB knowledge search are currently available."
       );
     }
 
@@ -1025,7 +1002,7 @@ export class ReadAssistantKnowledgeService {
     const referenceId = this.readRequiredString(row.referenceId, "referenceId");
     if (!isSupportedKnowledgeSource(source)) {
       throw new BadRequestException(
-        "Only document, memory, chat, preset, subscription, and Product KB knowledge fetch are currently available."
+        "Only document, memory, chat, subscription, and Product KB knowledge fetch are currently available."
       );
     }
 
@@ -1051,9 +1028,6 @@ export class ReadAssistantKnowledgeService {
     if (input.source === "chat") {
       return this.searchChats(input);
     }
-    if (input.source === "preset") {
-      return this.searchPresets(input);
-    }
     if (input.source === "subscription") {
       return this.searchSubscription(input);
     }
@@ -1073,9 +1047,6 @@ export class ReadAssistantKnowledgeService {
     }
     if (input.source === "chat") {
       return this.fetchChat(input);
-    }
-    if (input.source === "preset") {
-      return this.fetchPreset(input);
     }
     if (input.source === "subscription") {
       return this.fetchSubscription(input);
@@ -1703,54 +1674,6 @@ export class ReadAssistantKnowledgeService {
     }
   }
 
-  async searchPresets(input: {
-    assistantId: string;
-    query: string;
-    maxResults: number | null;
-  }): Promise<RuntimeKnowledgeSearchHit[]> {
-    const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
-    try {
-      const documents = await this.loadPresetKnowledgeDocuments(input.assistantId);
-      const hits = searchTextKnowledgeDocuments({
-        documents,
-        query: input.query,
-        maxResults: input.maxResults,
-        defaultMaxResults: retrievalPolicy.defaultMaxResults,
-        maxMaxResults: retrievalPolicy.maxMaxResults
-      });
-      await this.recordSearchObservability({
-        assistantId: input.assistantId,
-        source: "preset",
-        retrievalMode: "lexical",
-        durationMs: Date.now() - startedAt,
-        resultCount: hits.length,
-        lexicalCandidateCount: documents.length,
-        vectorCandidateCount: 0,
-        helperApplied: false,
-        embeddingModelKey: null
-      });
-      return hits;
-    } catch (error) {
-      await this.recordSearchObservability({
-        assistantId: input.assistantId,
-        source: "preset",
-        retrievalMode: "lexical",
-        durationMs: Date.now() - startedAt,
-        resultCount: 0,
-        lexicalCandidateCount: 0,
-        vectorCandidateCount: 0,
-        helperApplied: false,
-        embeddingModelKey: null,
-        outcome: "error",
-        errorCode: resolveKnowledgeTelemetryErrorCode(error)
-      });
-      throw error;
-    }
-  }
-
   async searchSubscription(input: {
     assistantId: string;
     query: string;
@@ -2255,50 +2178,6 @@ export class ReadAssistantKnowledgeService {
       await this.recordFetchObservability({
         assistantId: input.assistantId,
         source: "chat",
-        retrievalMode: "lexical",
-        durationMs: Date.now() - startedAt,
-        fetchDepth: 0,
-        fetchedChars: 0,
-        embeddingModelKey: null,
-        outcome: "error",
-        errorCode: resolveKnowledgeTelemetryErrorCode(error)
-      });
-      throw error;
-    }
-  }
-
-  async fetchPreset(input: {
-    assistantId: string;
-    referenceId: string;
-  }): Promise<RuntimeKnowledgeDocument | null> {
-    const startedAt = Date.now();
-    const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
-      input.assistantId
-    );
-    try {
-      const referenceId = input.referenceId.trim();
-      const document = (await this.loadPresetKnowledgeDocuments(input.assistantId)).find(
-        (row) => row.referenceId === referenceId
-      );
-      const resolved =
-        document === undefined
-          ? null
-          : toTextKnowledgeDocument(document, retrievalPolicy.fetchMaxChars);
-      await this.recordFetchObservability({
-        assistantId: input.assistantId,
-        source: "preset",
-        retrievalMode: "lexical",
-        durationMs: Date.now() - startedAt,
-        fetchDepth: resolved === null ? 0 : 1,
-        fetchedChars: resolved?.content.length ?? 0,
-        embeddingModelKey: null,
-        outcome: resolved === null ? "empty" : "success"
-      });
-      return resolved;
-    } catch (error) {
-      await this.recordFetchObservability({
-        assistantId: input.assistantId,
-        source: "preset",
         retrievalMode: "lexical",
         durationMs: Date.now() - startedAt,
         fetchDepth: 0,
@@ -2941,80 +2820,6 @@ export class ReadAssistantKnowledgeService {
     };
   }
 
-  private async loadPresetKnowledgeDocuments(
-    assistantId: string
-  ): Promise<TextKnowledgeDocumentRow[]> {
-    const [assistant, promptTemplates] = await Promise.all([
-      this.resolveAssistantKnowledgeContext(assistantId),
-      this.prisma.promptTemplate.findMany({
-        orderBy: [{ id: "asc" }]
-      })
-    ]);
-    const documents: TextKnowledgeDocumentRow[] = (
-      (promptTemplates ?? []) as PromptTemplateRow[]
-    ).map((preset) => ({
-      referenceId: `preset:template:${preset.id}`,
-      source: "preset",
-      title: `Prompt Template: ${preset.id}`,
-      locator: `prompt-template:${preset.id}`,
-      content: preset.template,
-      metadata: {
-        templateId: preset.id,
-        updatedAt: preset.updatedAt.toISOString(),
-        kind: "bootstrap_template"
-      }
-    }));
-
-    if (assistant?.applyAppliedVersionId) {
-      const materializedSpec = (await this.prisma.assistantMaterializedSpec.findFirst({
-        where: {
-          assistantId,
-          publishedVersionId: assistant.applyAppliedVersionId
-        },
-        select: {
-          publishedVersionId: true,
-          layersDocument: true,
-          runtimeBundleDocument: true,
-          createdAt: true
-        }
-      })) as MaterializedPresetRow | null;
-
-      if (materializedSpec !== null) {
-        documents.unshift({
-          referenceId: "preset:current:layers",
-          source: "preset",
-          title: "Current Assistant Layers",
-          locator: `published-version:${materializedSpec.publishedVersionId}`,
-          content: materializedSpec.layersDocument,
-          metadata: {
-            kind: "layers_document",
-            publishedVersionId: materializedSpec.publishedVersionId,
-            createdAt: materializedSpec.createdAt.toISOString()
-          }
-        });
-        if (
-          materializedSpec.runtimeBundleDocument !== null &&
-          materializedSpec.runtimeBundleDocument.trim().length > 0
-        ) {
-          documents.unshift({
-            referenceId: "preset:current:runtime-bundle",
-            source: "preset",
-            title: "Current Runtime Bundle",
-            locator: `published-version:${materializedSpec.publishedVersionId}:runtime-bundle`,
-            content: materializedSpec.runtimeBundleDocument,
-            metadata: {
-              kind: "runtime_bundle_document",
-              publishedVersionId: materializedSpec.publishedVersionId,
-              createdAt: materializedSpec.createdAt.toISOString()
-            }
-          });
-        }
-      }
-    }
-
-    return documents;
-  }
-
   private async loadSubscriptionKnowledgeDocuments(
     assistantId: string
   ): Promise<TextKnowledgeDocumentRow[]> {
@@ -3260,7 +3065,7 @@ export class ReadAssistantKnowledgeService {
 
   private async recordSearchObservability(params: {
     assistantId: string;
-    source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+    source: "document" | "global" | "memory" | "chat" | "subscription";
     retrievalMode: "lexical" | "hybrid";
     durationMs: number;
     resultCount: number;
@@ -3303,7 +3108,7 @@ export class ReadAssistantKnowledgeService {
 
   private async recordFetchObservability(params: {
     assistantId: string;
-    source: "document" | "global" | "memory" | "chat" | "preset" | "subscription";
+    source: "document" | "global" | "memory" | "chat" | "subscription";
     retrievalMode: "lexical" | "hybrid";
     durationMs: number;
     fetchDepth: number;

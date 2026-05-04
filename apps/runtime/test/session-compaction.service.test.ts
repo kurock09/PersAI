@@ -53,13 +53,6 @@ const KNOWLEDGE_ACCESS_CONFIG = {
       fetchCredentialToolCode: null
     },
     {
-      source: "preset",
-      searchAliasToolCode: null,
-      fetchAliasToolCode: null,
-      searchCredentialToolCode: null,
-      fetchCredentialToolCode: null
-    },
-    {
       source: "subscription",
       searchAliasToolCode: null,
       fetchAliasToolCode: null,
