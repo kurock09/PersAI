@@ -392,9 +392,25 @@ export class SendWebChatTurnService {
         chatId: prepared.chat.id,
         turnRouting: runtimeResponse.turnRouting
       });
-      if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(skillRoutingContext)) {
+      const persistedAutoSkillState = this.autoSkillRoutingStateService.extractStateFromTurnRouting(
+        {
+          turnRouting: runtimeResponse.turnRouting
+        }
+      );
+      const postTurnSkillRoutingContext =
+        await this.autoSkillRoutingStateService.buildRuntimeContext({
+          chatId: prepared.chat.id,
+          currentUserMessageId: prepared.userMessage.id,
+          state:
+            persistedAutoSkillState === undefined
+              ? prepared.chat.autoSkillRoutingState
+              : persistedAutoSkillState
+        });
+      if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(postTurnSkillRoutingContext)) {
         const backgroundSkillRoutingContext =
-          this.autoSkillRoutingStateService.createBackgroundCheckContext(skillRoutingContext);
+          this.autoSkillRoutingStateService.createBackgroundCheckContext(
+            postTurnSkillRoutingContext
+          );
         this.autoSkillRoutingStateService.runBackgroundCheck({
           chatId: prepared.chat.id,
           execute: () =>

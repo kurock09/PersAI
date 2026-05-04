@@ -502,6 +502,15 @@ The router can still skip classifier calls for obvious cases such as:
 
 Even when a Skill is enabled, Skill documents are not searched on every turn.
 
+Follow-up production routing note, 2026-05-04:
+
+- initial auto-Skill activation for ordinary chat turns is cadence-owned background work, not an ordinary foreground lexical/high-signal classifier shortcut
+- a brand-new chat waits until the 3rd user message for the first background auto-Skill check
+- existing chats whose Skill assignments change must reset their per-chat auto-Skill state so they start from a deterministic dormant state instead of stale/null chat truth
+- once background routing establishes an active Skill, ordinary same-topic turns may reuse that persisted active state between later background drift checks
+- the background recheck window should use the freshest bounded recent conversation tail, specifically the latest 5 user turns plus the assistant replies between them
+- no-Skill assistants still keep auto-Skill routing fully off
+
 ## Orchestrated retrieval
 
 PersAI will add an orchestration layer that executes the router's retrieval plan.

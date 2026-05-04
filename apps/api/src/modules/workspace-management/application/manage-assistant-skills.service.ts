@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { createDormantAutoSkillRoutingState } from "./auto-skill-routing-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import {
   parseAssistantSkillAssignmentsInput,
@@ -153,6 +155,17 @@ export class ManageAssistantSkillsService {
           }
         });
       }
+      await tx.assistantChat.updateMany({
+        where: {
+          assistantId: assistant.id
+        },
+        data: {
+          autoSkillRoutingState:
+            selected.size === 0
+              ? Prisma.DbNull
+              : (createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue)
+        }
+      });
     });
     await this.prisma.assistant.update({
       where: { id: assistant.id },

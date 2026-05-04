@@ -7,9 +7,22 @@ import type {
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
-const MAX_RECENT_ROUTING_MESSAGES = 10;
-const INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES = new Set([1, 2, 3]);
+const MAX_RECENT_ROUTING_MESSAGES = 30;
+const MAX_RECENT_ROUTING_USER_TURNS = 5;
+const INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES = new Set([3]);
 const BACKGROUND_RECHECK_INTERVAL_MESSAGES = 5;
+
+export function createDormantAutoSkillRoutingState(): RuntimeAutoSkillRoutingState {
+  return {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: null,
+    confidence: "low",
+    checkedAtMessageIndex: 0,
+    messageCountSinceCheck: 0
+  };
+}
 
 @Injectable()
 export class AutoSkillRoutingStateService {
@@ -55,15 +68,15 @@ export class AutoSkillRoutingStateService {
     return {
       state: input.state,
       currentUserMessageIndex,
-      recentMessages: recentRows
-        .sort((left, right) => {
+      recentMessages: this.selectRecentRoutingRows(
+        recentRows.sort((left, right) => {
           const byTime = left.createdAt.getTime() - right.createdAt.getTime();
           return byTime === 0 ? left.id.localeCompare(right.id) : byTime;
         })
-        .map((row) => ({
-          role: row.author === "assistant" ? ("assistant" as const) : ("user" as const),
-          text: row.content
-        }))
+      ).map((row) => ({
+        role: row.author === "assistant" ? ("assistant" as const) : ("user" as const),
+        text: row.content
+      }))
     };
   }
 
@@ -74,12 +87,7 @@ export class AutoSkillRoutingStateService {
     }
     const state = context.state;
     if (state === null) {
-      // Bootstrap routing immediately when a chat has Skills but no persisted state yet.
-      // This keeps newly enabled Skills working for pre-existing chats as well.
-      return true;
-    }
-    if (INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES.has(currentUserMessageIndex)) {
-      return true;
+      return INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES.has(currentUserMessageIndex);
     }
     if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
       return false;
@@ -92,6 +100,17 @@ export class AutoSkillRoutingStateService {
       ...context,
       forceCheck: true
     };
+  }
+
+  extractStateFromTurnRouting(input: {
+    turnRouting:
+      | {
+          autoSkillState?: RuntimeAutoSkillRoutingState | null;
+        }
+      | null
+      | undefined;
+  }): RuntimeAutoSkillRoutingState | null | undefined {
+    return this.normalizeState(input.turnRouting?.autoSkillState);
   }
 
   runBackgroundCheck(input: {
@@ -124,7 +143,9 @@ export class AutoSkillRoutingStateService {
       | null
       | undefined;
   }): Promise<void> {
-    const state = this.normalizeState(input.turnRouting?.autoSkillState);
+    const state = this.extractStateFromTurnRouting({
+      turnRouting: input.turnRouting
+    });
     if (state === undefined) {
       return;
     }
@@ -135,6 +156,26 @@ export class AutoSkillRoutingStateService {
           state === null ? Prisma.DbNull : (state as unknown as Prisma.InputJsonValue)
       }
     });
+  }
+
+  private selectRecentRoutingRows<
+    T extends {
+      author: string;
+    }
+  >(rows: T[]): T[] {
+    let remainingUserTurns = MAX_RECENT_ROUTING_USER_TURNS;
+    let startIndex = 0;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      if (rows[index]?.author !== "user") {
+        continue;
+      }
+      remainingUserTurns -= 1;
+      startIndex = index;
+      if (remainingUserTurns === 0) {
+        break;
+      }
+    }
+    return rows.slice(startIndex);
   }
 
   private normalizeState(value: unknown): RuntimeAutoSkillRoutingState | null | undefined {

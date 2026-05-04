@@ -49,6 +49,9 @@ function createAutoSkillRoutingStateServiceMock() {
       currentUserMessageIndex: 1,
       recentMessages: []
     }),
+    extractStateFromTurnRouting: (input: {
+      turnRouting?: { autoSkillState?: unknown | null } | null;
+    }) => input.turnRouting?.autoSkillState,
     createBackgroundCheckContext: (context: Record<string, unknown>) => ({
       ...context,
       forceCheck: true
@@ -566,6 +569,9 @@ describe("StreamWebChatTurnService", () => {
           currentUserMessageIndex: 24,
           recentMessages: [{ role: "user", text: "какой тариф лучше" }]
         }),
+        extractStateFromTurnRouting: (input: {
+          turnRouting?: { autoSkillState?: unknown | null } | null;
+        }) => input.turnRouting?.autoSkillState,
         createBackgroundCheckContext: (context: Record<string, unknown>) => ({
           ...context,
           forceCheck: true

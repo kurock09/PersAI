@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-079 auto-skill routing cadence hardening) — Skill activation/rechecks now follow persisted background cadence instead of null-state foreground drift
+
+### What changed
+
+- Performed a founder-requested honest audit of the current auto-skill routing behavior and confirmed four concrete mismatches with the intended production contract: `autoSkillRoutingState:null` bootstrapped immediately instead of waiting for the 3rd message in new chats, enabling/disabling Skills did not reset per-chat routing state on existing chats, ordinary non-force turns could still foreground-trigger auto-skill routing from lexical/high-signal hints before cadence-owned background checks had established state, and API background checks reused the pre-turn routing context so they did not see the freshest persisted state plus the newest assistant reply tail.
+- `ManageAssistantSkillsService` now resets `assistantChat.autoSkillRoutingState` whenever Skill assignments change: chats are cleared when no Skills remain, and otherwise start from a deterministic dormant inactive state so existing chats do not keep stale/null routing truth after a user toggles Skills.
+- `AutoSkillRoutingStateService` now treats the first background bootstrap as a true 3rd-user-message event for chats that still have no state, trims runtime routing context to the latest 5 user turns plus the assistant replies between them, and exposes the normalized post-turn state so the API can schedule background work from the persisted latest truth instead of the stale pre-turn snapshot.
+- Sync and stream web chat paths now rebuild background-check context after the main turn is persisted, so the fire-and-forget routing check runs with the latest `autoSkillState`, current user index, and freshest chat tail.
+- Runtime ordinary turns no longer foreground-classify initial auto-skill activation from lexical/high-signal hints alone. Until a cadence-owned background pass sets active state, ordinary turns stay on the normal precheck path; once a Skill is active, sticky reuse still serves intervening same-topic turns while later background rechecks can keep, switch, or clear that state.
+- Added/updated focused regressions for API cadence gating, assignment-reset behavior, post-turn background context rebuilding, inactive-state carry-forward, and the new runtime expectation that initial auto-skill activation is background-owned rather than per-turn foreground classification.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/runtime files
+
+### Risks / residuals
+
+- I did not get strong live log evidence from the current `persai-dev` pods because the earlier pod names had already rolled and recent pod logs did not surface the routing markers I filtered for, so the behavioral proof here is code-audit + focused regression based rather than fresh live-cluster trace proof.
+- This slice intentionally changes the previously documented ADR-079 follow-up behavior for ordinary no-state turns. If product later wants a narrow exception where some explicit high-signal Skill asks should still block foreground before cadence, that should be added deliberately rather than by reintroducing the old lexical/high-signal shortcut.
+
+### Next recommended step
+
+Deploy this API/runtime slice to `persai-dev`, then live-smoke exactly the founder scenario on both a brand-new chat and an older existing chat after toggling Skills: first new-chat check should appear only on the 3rd user message, existing chats should start from dormant cadence rather than immediate activation, and background rechecks should evaluate only the freshest last-5-user-turn window.
+
+---
+
 ## 2026-05-04 (ADR-084 Slice 2 limits-plan media emphasis + pricing scroll polish) — billing cards are quieter and pricing scroll matches the app surface
 
 ### What changed

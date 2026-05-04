@@ -68,6 +68,9 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
     ["global-skill", { ...createSkill("global-skill"), workspaceId: "other-ws" }]
   ]);
   const assignments = new Map<string, MockAssignment>();
+  const chatState = {
+    autoSkillRoutingState: { stale: true } as Record<string, unknown> | null
+  };
   let nextAssignment = 1;
 
   const assignmentApi = {
@@ -132,6 +135,25 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
       }
     },
     assistantSkillAssignment: assignmentApi,
+    assistantChat: {
+      updateMany: async ({
+        data
+      }: {
+        where: { assistantId: string };
+        data: Record<string, unknown>;
+      }) => {
+        if ("autoSkillRoutingState" in data) {
+          const nextState = data.autoSkillRoutingState;
+          chatState.autoSkillRoutingState =
+            nextState !== null &&
+            typeof nextState === "object" &&
+            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
+              ? null
+              : ((nextState as Record<string, unknown> | null) ?? null);
+        }
+        return { count: 1 };
+      }
+    },
     planCatalogPlan: {
       findUnique: async () => ({
         billingProviderHints: {
@@ -145,8 +167,20 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
       })
     },
     $transaction: async (
-      callback: (tx: { assistantSkillAssignment: typeof assignmentApi }) => Promise<void>
-    ) => callback({ assistantSkillAssignment: assignmentApi })
+      callback: (tx: {
+        assistantSkillAssignment: typeof assignmentApi;
+        assistantChat: {
+          updateMany: (args: {
+            where: { assistantId: string };
+            data: Record<string, unknown>;
+          }) => Promise<{ count: number }>;
+        };
+      }) => Promise<void>
+    ) =>
+      callback({
+        assistantSkillAssignment: assignmentApi,
+        assistantChat: prisma.assistantChat
+      })
   };
 
   const service = new ManageAssistantSkillsService(
@@ -163,7 +197,7 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
     } as never
   );
 
-  return { service, assignments, assistant };
+  return { service, assignments, assistant, chatState };
 }
 
 async function run(): Promise<void> {
@@ -186,6 +220,15 @@ async function run(): Promise<void> {
   const assigned = await harness.service.replaceAssignments("user-1", ["skill-1"]);
   assert.deepEqual(assigned.assignedSkillIds, ["skill-1"]);
   assert.equal(harness.assignments.size, 1);
+  assert.deepEqual(harness.chatState.autoSkillRoutingState, {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: null,
+    confidence: "low",
+    checkedAtMessageIndex: 0,
+    messageCountSinceCheck: 0
+  });
   const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");
   assert.equal(skill2?.selectable, false);
   assert.equal(skill2?.disabledReason, "skill_limit_reached");
@@ -196,6 +239,7 @@ async function run(): Promise<void> {
   const cleared = await harness.service.replaceAssignments("user-1", []);
   assert.deepEqual(cleared.assignedSkillIds, []);
   assert.equal([...harness.assignments.values()][0]?.status, "disabled");
+  assert.equal(harness.chatState.autoSkillRoutingState, null);
   assert.ok(harness.assistant.configDirtyAt instanceof Date);
 
   const zeroLimitHarness = createHarness({ maxEnabledSkills: 0 });

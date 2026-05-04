@@ -454,7 +454,7 @@ export class TurnRoutingService {
         usage: null,
         autoSkillState: activeAutoSkill
           ? this.incrementAutoSkillState(activeAutoSkill.state, input.request)
-          : null
+          : this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -516,7 +516,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: null
+        autoSkillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -540,7 +540,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: null
+        autoSkillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -557,7 +557,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: null
+        autoSkillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -586,7 +586,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: null
+        autoSkillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -608,7 +608,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: null
+        autoSkillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -624,7 +624,7 @@ export class TurnRoutingService {
       source: "precheck",
       mode: input.policy.mode,
       usage: null,
-      autoSkillState: null
+      autoSkillState: this.carryForwardAutoSkillState(input.request)
     });
   }
 
@@ -907,21 +907,31 @@ export class TurnRoutingService {
     if (input.request.skillRoutingContext?.forceCheck === true) {
       return true;
     }
-    if (this.isHighSignalGroundingTurn(input)) {
-      return true;
-    }
     if (input.hasActiveAutoSkill) {
       return false;
     }
-    if (
-      this.hasEnabledSkillLexicalMatch(
-        this.buildSkillRoutingMatchText(input.request, input.lowerText),
-        input.enabledSkills
-      )
-    ) {
-      return true;
-    }
     return false;
+  }
+
+  private carryForwardAutoSkillState(
+    request: RuntimeTurnRequest
+  ): RuntimeAutoSkillRoutingState | null {
+    const state = request.skillRoutingContext?.state ?? null;
+    if (state === null) {
+      return null;
+    }
+    if (state.status === "active") {
+      return this.incrementAutoSkillState(
+        {
+          ...state,
+          status: "inactive",
+          activeSkillId: null,
+          activeSkillName: null
+        },
+        request
+      );
+    }
+    return this.incrementAutoSkillState(state, request);
   }
 
   private buildSkillRoutingMatchText(request: RuntimeTurnRequest, lowerText: string): string {
