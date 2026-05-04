@@ -254,8 +254,7 @@ const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
   WEB_SEARCH_TOOL_CODE,
   WEB_FETCH_TOOL_CODE,
   "knowledge_search",
-  "knowledge_fetch",
-  QUOTA_STATUS_TOOL_CODE
+  "knowledge_fetch"
 ]);
 const DELIVERY_CLAIM_PATTERNS = [
   /\b(i(?:'ve| have)?|we(?:'ve| have)?)\s+(?:already\s+|just\s+)?(?:sent|attached|uploaded)\b/i,
@@ -2225,7 +2224,9 @@ export class TurnExecutionService {
       case QUOTA_STATUS_TOOL_CODE: {
         const result = await this.runtimeQuotaStatusToolService.executeToolCall({
           bundle: execution.bundle,
-          toolCall
+          toolCall,
+          requestId: acceptedTurn.receipt.requestId,
+          currentUserText: input.message.text
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }

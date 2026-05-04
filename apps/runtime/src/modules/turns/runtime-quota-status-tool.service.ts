@@ -20,6 +20,8 @@ export class RuntimeQuotaStatusToolService {
   async executeToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    requestId: string;
+    currentUserText: string;
   }): Promise<RuntimeQuotaStatusToolExecutionResult> {
     const request = this.readArguments(params.toolCall.arguments);
     if (request instanceof Error) {
@@ -34,6 +36,38 @@ export class RuntimeQuotaStatusToolService {
     }
 
     try {
+      if (request.action === "create_checkout") {
+        const outcome = await this.persaiInternalApiClientService.createQuotaCheckout({
+          assistantId: params.bundle.metadata.assistantId,
+          requestId: params.requestId,
+          targetPlanCode: request.targetPlanCode,
+          paymentMethodClass: request.paymentMethodClass,
+          confirmed: request.confirmed,
+          userConfirmationText: params.currentUserText
+        });
+        const quotaStatus = await this.persaiInternalApiClientService.readQuotaStatus({
+          assistantId: params.bundle.metadata.assistantId,
+          toolCode: null
+        });
+        return {
+          payload: {
+            toolCode: QUOTA_STATUS_TOOL_CODE,
+            executionMode: "inline",
+            requestedToolCode: null,
+            planCode: quotaStatus.planCode,
+            currentPlan: quotaStatus.currentPlan,
+            visiblePlans: quotaStatus.visiblePlans,
+            tools: quotaStatus.tools,
+            buckets: quotaStatus.buckets,
+            monthlyMediaQuotas: quotaStatus.monthlyMediaQuotas,
+            checkout: outcome,
+            action: "checkout_created",
+            reason: null,
+            warning: null
+          },
+          isError: false
+        };
+      }
       const outcome = await this.persaiInternalApiClientService.readQuotaStatus({
         assistantId: params.bundle.metadata.assistantId,
         toolCode: request.toolCode
@@ -44,9 +78,12 @@ export class RuntimeQuotaStatusToolService {
           executionMode: "inline",
           requestedToolCode: request.toolCode,
           planCode: outcome.planCode,
+          currentPlan: outcome.currentPlan,
+          visiblePlans: outcome.visiblePlans,
           tools: outcome.tools,
           buckets: outcome.buckets,
           monthlyMediaQuotas: outcome.monthlyMediaQuotas,
+          checkout: null,
           action: "reported",
           reason: null,
           warning: null
@@ -54,25 +91,74 @@ export class RuntimeQuotaStatusToolService {
         isError: false
       };
     } catch (error) {
+      const warning = error instanceof Error ? error.message : "Quota status lookup failed.";
+      const reason =
+        request.action === "create_checkout" &&
+        warning.toLowerCase().includes("explicit user confirmation")
+          ? "confirmation_required"
+          : "quota_status_failed";
       return {
         payload: this.createSkippedPayload(
-          request.toolCode,
-          "quota_status_failed",
-          error instanceof Error ? error.message : "Quota status lookup failed."
+          request.action === "report" ? request.toolCode : null,
+          reason,
+          warning
         ),
         isError: true
       };
     }
   }
 
-  private readArguments(args: Record<string, unknown>): { toolCode: string | null } | Error {
-    const unknownKeys = Object.keys(args).filter((key) => key !== "toolCode");
+  private readArguments(args: Record<string, unknown>):
+    | {
+        action: "report";
+        toolCode: string | null;
+      }
+    | {
+        action: "create_checkout";
+        targetPlanCode: string;
+        paymentMethodClass: "card" | "sbp_qr";
+        confirmed: boolean;
+      }
+    | Error {
+    const unknownKeys = Object.keys(args).filter(
+      (key) =>
+        key !== "action" &&
+        key !== "toolCode" &&
+        key !== "targetPlanCode" &&
+        key !== "paymentMethodClass" &&
+        key !== "confirmed"
+    );
     if (unknownKeys.length > 0) {
       return new Error("Quota status arguments are invalid.");
     }
 
+    const action =
+      args.action === undefined || args.action === null
+        ? "report"
+        : typeof args.action === "string"
+          ? args.action.trim()
+          : null;
+    if (action !== "report" && action !== "create_checkout") {
+      return new Error("Quota status arguments are invalid.");
+    }
+
+    if (action === "create_checkout") {
+      if (typeof args.targetPlanCode !== "string" || args.targetPlanCode.trim().length === 0) {
+        return new Error("Quota status arguments are invalid.");
+      }
+      if (args.paymentMethodClass !== "card" && args.paymentMethodClass !== "sbp_qr") {
+        return new Error("Quota status arguments are invalid.");
+      }
+      return {
+        action,
+        targetPlanCode: args.targetPlanCode.trim().toLowerCase(),
+        paymentMethodClass: args.paymentMethodClass,
+        confirmed: args.confirmed === true
+      };
+    }
+
     if (args.toolCode === undefined || args.toolCode === null) {
-      return { toolCode: null };
+      return { action, toolCode: null };
     }
 
     if (typeof args.toolCode !== "string" || args.toolCode.trim().length === 0) {
@@ -80,6 +166,7 @@ export class RuntimeQuotaStatusToolService {
     }
 
     return {
+      action,
       toolCode: args.toolCode.trim()
     };
   }
@@ -94,9 +181,15 @@ export class RuntimeQuotaStatusToolService {
       executionMode: "inline",
       requestedToolCode,
       planCode: null,
+      currentPlan: {
+        code: null,
+        displayName: null
+      },
+      visiblePlans: [],
       tools: [],
       buckets: [],
       monthlyMediaQuotas: null,
+      checkout: null,
       action: "skipped",
       reason,
       warning

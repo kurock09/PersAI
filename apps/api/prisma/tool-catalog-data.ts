@@ -192,11 +192,11 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     code: "persai_tool_quota_status",
     displayName: "Tool Quota Status",
     description:
-      "Read live tool quota usage/caps from PersAI control plane for the current assistant.",
+      "Read live tool quota usage/caps from PersAI control plane for the current assistant, including guarded billing checkout creation after explicit confirmation.",
     modelDescription:
-      "Read live quota status for the current assistant, including non-media daily tool counters, main quota buckets, and monthly media quotas.",
+      "Read live quota status for the current assistant, including non-media daily tool counters, main quota buckets, monthly media quotas, and visible plan options. After explicit user confirmation, this tool may create a payment intent and return the checkout path.",
     modelUsageGuidance:
-      "Use this when the user asks about remaining usage, current quota pressure, or whether a quota-governed tool is available. For image/video/edit quota questions, read the monthly media quota block instead of daily counters.",
+      "Use this when the user asks about remaining usage, current quota pressure, whether a quota-governed tool is available, or which paid plan to choose. For image/video/edit quota questions, read the monthly media quota block instead of daily counters. Do not create checkout unless the user explicitly confirms they want a payment link or QR in the current conversation turn.",
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"

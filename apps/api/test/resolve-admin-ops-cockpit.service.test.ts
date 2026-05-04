@@ -209,6 +209,19 @@ async function run(): Promise<void> {
         }
       },
       workspaceSubscriptionLifecycleEvent: {
+        async findFirst() {
+          return {
+            eventCode: "payment_activated",
+            source: "admin",
+            nextPlanCode: "pro",
+            nextPeriodStartedAt: new Date("2026-05-04T12:00:00.000Z"),
+            nextPeriodEndsAt: new Date("2026-06-04T12:00:00.000Z"),
+            metadata: {
+              adminAction: "activate_paid_manually"
+            },
+            createdAt: new Date("2026-05-04T12:00:00.000Z")
+          };
+        },
         async findMany() {
           return [
             {
@@ -363,6 +376,11 @@ async function run(): Promise<void> {
     assert.equal(result.quotaUsage?.tokenBudgetPeriodSource, "subscription_period");
     assert.equal(result.billingSupport?.subscription.status, "grace_period");
     assert.equal(result.billingSupport?.quotaPeriod.startedAt, "2026-05-01T00:00:00.000Z");
+    assert.equal(result.billingSupport?.latestPaidActivation?.source, "admin");
+    assert.equal(
+      result.billingSupport?.latestPaidActivation?.adminAction,
+      "activate_paid_manually"
+    );
     assert.equal(result.billingSupport?.latestLifecycleEvents[0]?.eventCode, "grace_started");
     assert.equal(
       result.billingSupport?.latestNotificationJobs[0]?.notificationCode,

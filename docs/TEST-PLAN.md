@@ -95,6 +95,7 @@ When a change touches PersAI payment intents, provider-neutral checkout session 
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/cloudpayments-widget-billing-provider.adapter.test.ts
 corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
 corepack pnpm --filter @persai/contracts run generate
 corepack pnpm --filter @persai/contracts run typecheck
@@ -110,6 +111,7 @@ Interpretation rules:
 4. This slice may start `new_purchase` and `upgrade`, but must not silently perform downgrade/cancel policy early.
 5. The API response must stay provider-neutral and carry a normalized checkout mode (`widget`, `redirect`, `payment_link`, `qr_code`, or current `manual_test`) rather than provider-specific UI assumptions.
 6. Product/lifecycle truth must still wait for trusted server/provider confirmation; creating a payment intent or checkout session must not activate paid access by itself.
+7. For the CloudPayments widget-first contour, checkout creation must fail loudly when the encrypted API Secret or widget public terminal id is not configured; it must not silently fall back to `manual_test`.
 
 ## ADR-084 web checkout and return-flow focused checks
 
@@ -124,8 +126,101 @@ Interpretation rules:
 
 1. Logged-in pricing CTAs must create or reuse PersAI-owned payment intents through `POST /assistant/billing/payment-intents`; pricing cards must not synthesize provider checkout state client-side.
 2. The web layer may launch `card` and `sbp_qr` starts, but must not activate paid access from checkout launch or return alone.
-3. Manual/test checkout flows must return the user to chat with an explicit `success`, `failed`, or `pending` envelope so the UI can explain what happened without pretending lifecycle confirmation already landed.
-4. Failure return UX must clearly preserve the old plan and provide a retry path back to pricing.
+3. CloudPayments widget checkout must launch from persisted payment-intent payload on `/app/billing/checkout/:paymentIntentId`, not from ad hoc client-side pricing state.
+4. Manual/test and widget checkout flows must return the user to chat with an explicit `success`, `failed`, or `pending` envelope so the UI can explain what happened without pretending lifecycle confirmation already landed.
+5. Failure return UX must clearly preserve the old plan and provide a retry path back to pricing.
+
+## ADR-084 webhook-to-lifecycle focused checks
+
+When a change touches trusted billing-provider webhook ingestion, payment-intent terminal status mutation, or ADR-083 lifecycle application from provider outcomes, add focused API checks before broad verification:
+
+```bash
+corepack pnpm run prisma:generate
+corepack pnpm run contracts:generate
+corepack pnpm --filter @persai/api exec tsx test/admin-security.controller.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-billing-provider-credentials.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Trusted provider outcomes must enter PersAI through a server-side webhook/controller boundary, not through chat return params or client-declared success.
+2. Webhook verification must use the provider secret from PersAI-managed encrypted admin tools storage, not a second ad hoc config surface.
+3. The webhook path must resolve widget-originated payment intents from CloudPayments `externalId` and `metadata/data` as well as older `invoiceId` compatibility fields.
+4. The webhook path must update `workspace_payment_intents` deterministically (`pending_confirmation`, `succeeded`, `failed`, `canceled`, `reversed`) before or alongside lifecycle application, with idempotent event refs for duplicate provider delivery.
+5. Successful paid activation or renewal must flow through `ApplyWorkspaceSubscriptionBillingEventService` / ADR-083 lifecycle services, not mutate `workspace_subscriptions` directly from the controller.
+6. Refund/reversal outcomes must apply immediate paid fallback through lifecycle truth rather than leaving the old paid state active.
+
+## ADR-084 immediate activation/materialization focused checks
+
+When a change touches post-payment activation speed, assistant rematerialization after trusted success, or the billing-return truth refresh path, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/materialize-workspace-paid-activation.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/chat/page.test.tsx
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Trusted paid success must not stop at `workspace_subscriptions`; it must trigger immediate assistant rematerialization/warmup for published assistants in the workspace.
+2. The next paid-sensitive turn must not rely on a later random refresh to pick up the new plan/runtime policy after a trusted success path.
+3. Client return routing may trigger a reload of server truth, but it must not declare paid activation from client params alone.
+
+## ADR-084 admin manual payment and Ops support focused checks
+
+When a change touches `Admin > Ops` billing support actions, manual/admin paid activation, or latest paid-activation source visibility, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Manual/admin payment must require an explicit paid plan and billing period instead of copying stale provider/fallback history implicitly.
+2. The action must still write through PersAI lifecycle truth with `source=admin`, not through raw subscription row mutation or fake provider invoice state.
+3. Ops Cockpit should show manual/admin paid activation as a visible source in current support detail, so operators can distinguish it from provider-driven billing events.
+
+## ADR-084 pre-Slice-8 billing hardening focused checks
+
+When a change touches payment-intent billing truth or provider billing-event application hardening ahead of the assistant billing tool, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+```
+
+Interpretation rules:
+
+1. Trusted paid success must not fail only because `workspace_subscription` has not been initialized by an earlier read path.
+2. User payment-intent creation must ignore tester/admin plan override state and resolve billing truth from the real workspace subscription or default-registration initialization path.
+3. `Admin > Ops > Plan Control` must remain test-only and must not become billing truth indirectly through checkout logic.
+
+## ADR-084 Slice 8 assistant quota-tool billing checks
+
+When a change touches the existing assistant `quota_status` tool so it can explain plans or create checkout, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/create-internal-runtime-quota-checkout.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+```
+
+Interpretation rules:
+
+1. `quota_status` must keep reporting quota truth while also exposing enough current/public plan context for the assistant to explain upgrades from the same existing tool surface.
+2. Checkout creation must require explicit confirmation and must still go through a PersAI payment intent; the tool must not activate subscription state directly.
+3. The assistant-facing result should return the existing `/app/billing/checkout/:paymentIntentId` path (or equivalent checkout page entry), not a second billing truth surface that bypasses product checkout state.
 
 ## ADR-079 grounded Skill/user-KB routing focused checks
 

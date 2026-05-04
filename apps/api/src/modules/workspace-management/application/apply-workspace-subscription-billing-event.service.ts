@@ -84,36 +84,35 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         providerSubscriptionRef: true
       }
     });
-    if (current === null) {
-      throw new NotFoundException("Workspace subscription not found.");
-    }
-
     const billingEvent =
       existing ??
       (await this.prisma.workspaceSubscriptionBillingEvent.create({
-        data: this.toBillingEventCreateInput(input, current.id)
+        data: this.toBillingEventCreateInput(input, current?.id ?? null)
       }));
 
-    if (this.shouldIgnore(current, input)) {
-      await this.prisma.workspaceSubscriptionBillingEvent.update({
-        where: { id: billingEvent.id },
-        data: {
-          applyStatus: "ignored",
-          appliedAt: new Date(),
-          failedAt: null,
-          lastErrorCode: null,
-          lastErrorMessage: null
-        }
-      });
-      return { status: "ignored", billingEventId: billingEvent.id };
-    }
-
     try {
+      if (current !== null && this.shouldIgnore(current, input)) {
+        await this.prisma.workspaceSubscriptionBillingEvent.update({
+          where: { id: billingEvent.id },
+          data: {
+            applyStatus: "ignored",
+            appliedAt: new Date(),
+            failedAt: null,
+            lastErrorCode: null,
+            lastErrorMessage: null
+          }
+        });
+        return { status: "ignored", billingEventId: billingEvent.id };
+      }
       await this.applyToLifecycle(current, input, billingEvent.id);
+      const appliedSubscription = await this.prisma.workspaceSubscription.findUnique({
+        where: { workspaceId: input.workspaceId },
+        select: { id: true }
+      });
       await this.prisma.workspaceSubscriptionBillingEvent.update({
         where: { id: billingEvent.id },
         data: {
-          subscriptionId: current.id,
+          subscriptionId: appliedSubscription?.id ?? current?.id ?? null,
           applyStatus: "applied",
           appliedAt: new Date(),
           failedAt: null,
@@ -138,7 +137,7 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
   }
 
   private async applyToLifecycle(
-    current: CurrentSubscriptionSnapshot,
+    current: CurrentSubscriptionSnapshot | null,
     input: ApplyWorkspaceSubscriptionBillingEventInput,
     billingEventId: string
   ): Promise<void> {
@@ -154,6 +153,7 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
 
     switch (input.eventCode) {
       case "renewal_failed":
+        this.assertCurrentSubscriptionExists(current);
         await this.manageWorkspaceSubscriptionLifecycleService.startPaidGrace({
           workspaceId: input.workspaceId,
           userId: input.userId,
@@ -171,9 +171,10 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
             "currentPeriodStartedAt"
           ),
           currentPeriodEndsAt: this.requireString(input.currentPeriodEndsAt, "currentPeriodEndsAt"),
-          billingProvider: input.billingProvider ?? current.billingProvider,
-          providerCustomerRef: input.providerCustomerRef ?? current.providerCustomerRef,
-          providerSubscriptionRef: input.providerSubscriptionRef ?? current.providerSubscriptionRef,
+          billingProvider: input.billingProvider ?? current?.billingProvider ?? null,
+          providerCustomerRef: input.providerCustomerRef ?? current?.providerCustomerRef ?? null,
+          providerSubscriptionRef:
+            input.providerSubscriptionRef ?? current?.providerSubscriptionRef ?? null,
           source: input.source,
           refs
         });
@@ -189,9 +190,10 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
             "currentPeriodStartedAt"
           ),
           currentPeriodEndsAt: this.requireString(input.currentPeriodEndsAt, "currentPeriodEndsAt"),
-          billingProvider: input.billingProvider ?? current.billingProvider,
-          providerCustomerRef: input.providerCustomerRef ?? current.providerCustomerRef,
-          providerSubscriptionRef: input.providerSubscriptionRef ?? current.providerSubscriptionRef,
+          billingProvider: input.billingProvider ?? current?.billingProvider ?? null,
+          providerCustomerRef: input.providerCustomerRef ?? current?.providerCustomerRef ?? null,
+          providerSubscriptionRef:
+            input.providerSubscriptionRef ?? current?.providerSubscriptionRef ?? null,
           source: input.source,
           refs,
           eventCode: input.eventCode,
@@ -199,6 +201,7 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         });
         return;
       case "payment_reversed":
+        this.assertCurrentSubscriptionExists(current);
         await this.manageWorkspaceSubscriptionLifecycleService.applyImmediatePaidFallback({
           workspaceId: input.workspaceId,
           userId: input.userId,
@@ -247,7 +250,7 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
 
   private toBillingEventCreateInput(
     input: ApplyWorkspaceSubscriptionBillingEventInput,
-    subscriptionId: string
+    subscriptionId: string | null
   ): Prisma.WorkspaceSubscriptionBillingEventCreateInput {
     const currentPeriodStartedAt = this.toOptionalDate(input.currentPeriodStartedAt);
     const currentPeriodEndsAt = this.toOptionalDate(input.currentPeriodEndsAt);
@@ -265,8 +268,16 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
       metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
       workspace: { connect: { id: input.workspaceId } },
       ...(input.userId !== null ? { user: { connect: { id: input.userId } } } : {}),
-      subscription: { connect: { id: subscriptionId } }
+      ...(subscriptionId !== null ? { subscription: { connect: { id: subscriptionId } } } : {})
     };
+  }
+
+  private assertCurrentSubscriptionExists(
+    current: CurrentSubscriptionSnapshot | null
+  ): asserts current is CurrentSubscriptionSnapshot {
+    if (current === null) {
+      throw new NotFoundException("Workspace subscription not found.");
+    }
   }
 
   private requireString(value: string | null | undefined, field: string): string {

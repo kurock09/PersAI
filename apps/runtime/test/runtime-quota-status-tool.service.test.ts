@@ -191,8 +191,33 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 
 class FakePersaiInternalApiClientService {
   readCalls: Array<Record<string, unknown>> = [];
+  checkoutCalls: Array<Record<string, unknown>> = [];
   outcome: InternalQuotaStatusOutcome = {
     planCode: "paid",
+    currentPlan: {
+      code: "paid",
+      displayName: "Paid"
+    },
+    visiblePlans: [
+      {
+        code: "starter",
+        displayName: "Starter",
+        highlighted: false,
+        isCurrent: false,
+        amountMinor: 990,
+        currency: "RUB",
+        billingPeriod: "month"
+      },
+      {
+        code: "paid",
+        displayName: "Paid",
+        highlighted: true,
+        isCurrent: true,
+        amountMinor: 1990,
+        currency: "RUB",
+        billingPeriod: "month"
+      }
+    ],
     tools: [
       {
         toolCode: "web_search",
@@ -245,6 +270,20 @@ class FakePersaiInternalApiClientService {
     }
     return this.outcome;
   }
+
+  async createQuotaCheckout(input: Record<string, unknown>) {
+    this.checkoutCalls.push(input);
+    if (this.error !== null) {
+      throw this.error;
+    }
+    return {
+      paymentIntentId: "pi-1",
+      targetPlanCode: "paid",
+      paymentMethodClass: "card" as const,
+      checkoutMode: "widget" as const,
+      checkoutPagePath: "/app/billing/checkout/pi-1"
+    };
+  }
 }
 
 export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
@@ -269,12 +308,16 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
 
   const success = await service.executeToolCall({
     bundle,
+    requestId: "request-1",
+    currentUserText: "show my quota",
     toolCall: createToolCall({
       toolCode: "web_search"
     })
   });
   assert.equal(success.payload.action, "reported");
   assert.equal(success.payload.requestedToolCode, "web_search");
+  assert.equal(success.payload.currentPlan.displayName, "Paid");
+  assert.equal(success.payload.visiblePlans[0]?.code, "starter");
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
@@ -288,6 +331,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
 
   const allTools = await service.executeToolCall({
     bundle,
+    requestId: "request-2",
+    currentUserText: "show all quotas",
     toolCall: createToolCall({})
   });
   assert.equal(allTools.payload.action, "reported");
@@ -300,6 +345,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
 
   const invalid = await service.executeToolCall({
     bundle,
+    requestId: "request-3",
+    currentUserText: "show quota",
     toolCall: createToolCall({
       toolCode: ""
     })
@@ -311,6 +358,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   internalApi.error = new Error("internal quota error");
   const failed = await service.executeToolCall({
     bundle,
+    requestId: "request-4",
+    currentUserText: "show quota",
     toolCall: createToolCall({
       toolCode: "web_search"
     })
@@ -321,4 +370,49 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.deepEqual(failed.payload.buckets, []);
   assert.equal(failed.payload.monthlyMediaQuotas, null);
   assert.equal(failed.isError, true);
+
+  internalApi.error = null;
+  const checkout = await service.executeToolCall({
+    bundle,
+    requestId: "request-5",
+    currentUserText: "Да",
+    toolCall: createToolCall({
+      action: "create_checkout",
+      targetPlanCode: "paid",
+      paymentMethodClass: "card",
+      confirmed: true
+    })
+  });
+  assert.equal(checkout.payload.action, "checkout_created");
+  assert.equal(checkout.payload.checkout?.paymentIntentId, "pi-1");
+  assert.equal(checkout.payload.checkout?.checkoutPagePath, "/app/billing/checkout/pi-1");
+  assert.deepEqual(internalApi.checkoutCalls.at(-1), {
+    assistantId: "assistant-1",
+    requestId: "request-5",
+    targetPlanCode: "paid",
+    paymentMethodClass: "card",
+    confirmed: true,
+    userConfirmationText: "Да"
+  });
+
+  internalApi.error = new Error(
+    "Explicit user confirmation is required before creating payment checkout."
+  );
+  const confirmationRequired = await service.executeToolCall({
+    bundle,
+    requestId: "request-6",
+    currentUserText: "Расскажи про тарифы",
+    toolCall: createToolCall({
+      action: "create_checkout",
+      targetPlanCode: "paid",
+      paymentMethodClass: "card",
+      confirmed: false
+    })
+  });
+  assert.equal(confirmationRequired.payload.action, "skipped");
+  assert.equal(confirmationRequired.payload.reason, "confirmation_required");
+  assert.equal(
+    confirmationRequired.payload.warning,
+    "Explicit user confirmation is required before creating payment checkout."
+  );
 }

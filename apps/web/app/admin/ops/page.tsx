@@ -105,6 +105,15 @@ type BillingSupportData = {
     endsAt: string | null;
     source: "subscription_period" | "calendar_month_fallback" | null;
   };
+  latestPaidActivation: {
+    eventCode: string;
+    source: string;
+    adminAction: string | null;
+    planCode: string | null;
+    periodStartedAt: string | null;
+    periodEndsAt: string | null;
+    createdAt: string;
+  } | null;
   latestLifecycleEvents: Array<{
     id: string;
     eventCode: string;
@@ -129,6 +138,8 @@ type BillingSupportData = {
   }>;
 };
 
+type ManualPaidBillingPeriod = "month" | "year";
+
 export type BillingSupportAction =
   | "initialize_lifecycle_now"
   | "extend_trial"
@@ -136,7 +147,7 @@ export type BillingSupportAction =
   | "extend_grace"
   | "send_billing_reminder"
   | "apply_fallback_now"
-  | "restore_paid_manually";
+  | "activate_paid_manually";
 
 export type BillingSupportActionConfig = {
   action: BillingSupportAction;
@@ -144,6 +155,7 @@ export type BillingSupportActionConfig = {
   preview: string;
   confirmLabel: string;
   tone: "default" | "danger";
+  requiresManualPayment?: boolean;
 };
 
 type PlanControlOption = {
@@ -151,6 +163,12 @@ type PlanControlOption = {
   displayName: string;
   status: "active" | "inactive";
   selectedInactive: boolean;
+};
+
+type ManualPaidPlanOption = {
+  code: string;
+  displayName: string;
+  defaultBillingPeriod: ManualPaidBillingPeriod;
 };
 
 /* ------------------------------------------------------------------ */
@@ -455,10 +473,20 @@ export function resolveBillingSupportActions(
     confirmLabel: "Send reminder",
     tone: "default"
   };
+  const manualPaidActivation: BillingSupportActionConfig = {
+    action: "activate_paid_manually",
+    label: "Activate paid manually",
+    preview:
+      "Record a manual/admin payment with an explicit paid plan and billing period, then activate paid access through PersAI lifecycle truth.",
+    confirmLabel: "Activate paid manually",
+    tone: "danger",
+    requiresManualPayment: true
+  };
 
   switch (status) {
     case "trialing":
       return [
+        manualPaidActivation,
         {
           action: "extend_trial",
           label: "Extend trial",
@@ -480,6 +508,7 @@ export function resolveBillingSupportActions(
     case "active":
     case "past_due":
       return [
+        manualPaidActivation,
         {
           action: "grant_grace",
           label: "Grant grace",
@@ -500,6 +529,7 @@ export function resolveBillingSupportActions(
       ];
     case "grace_period":
       return [
+        manualPaidActivation,
         {
           action: "extend_grace",
           label: "Extend grace",
@@ -519,19 +549,9 @@ export function resolveBillingSupportActions(
         }
       ];
     case "expired_fallback":
-      return [
-        {
-          action: "restore_paid_manually",
-          label: "Restore paid manually",
-          preview:
-            "Restore paid access using the most recent paid plan and billing-period shape recorded in lifecycle history.",
-          confirmLabel: "Restore paid",
-          tone: "danger"
-        },
-        reminder
-      ];
+      return [manualPaidActivation, reminder];
     default:
-      return [reminder];
+      return [manualPaidActivation, reminder];
   }
 }
 
@@ -571,6 +591,46 @@ export function resolvePlanControlOptions(
       selectedInactive: true
     }
   ];
+}
+
+export function resolveManualPaidPlanOptions(
+  plans: Array<
+    Pick<AdminPlanState, "code" | "displayName" | "status" | "trialEnabled" | "presentation">
+  >
+): ManualPaidPlanOption[] {
+  return plans
+    .filter((plan) => plan.status === "active" && plan.trialEnabled !== true)
+    .map((plan) => ({
+      code: plan.code,
+      displayName: plan.displayName,
+      defaultBillingPeriod: plan.presentation.price?.billingPeriod === "year" ? "year" : "month"
+    }));
+}
+
+function formatBillingPeriodLabel(value: ManualPaidBillingPeriod): string {
+  return value === "year" ? "Year" : "Month";
+}
+
+function formatActivationSourceLabel(
+  source: string | null | undefined,
+  adminAction: string | null | undefined
+): string {
+  if (source === "admin" && adminAction === "activate_paid_manually") {
+    return "manual/admin payment";
+  }
+  if (source === "admin") {
+    return "admin";
+  }
+  if (source === "provider") {
+    return "provider";
+  }
+  if (source === "manual") {
+    return "manual";
+  }
+  if (source === "system") {
+    return "system";
+  }
+  return source ?? "unknown";
 }
 
 function notificationJobTone(status: string): string {
@@ -938,6 +998,9 @@ export default function AdminOpsPage() {
     useState<BillingSupportActionConfig | null>(null);
   const [selectedPlanCode, setSelectedPlanCode] = useState("");
   const [planSelectionDirty, setPlanSelectionDirty] = useState(false);
+  const [manualPaymentPlanCode, setManualPaymentPlanCode] = useState("");
+  const [manualPaymentBillingPeriod, setManualPaymentBillingPeriod] =
+    useState<ManualPaidBillingPeriod>("month");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUserLabel, setSelectedUserLabel] = useState<string | null>(null);
   const [usersReloadNonce, setUsersReloadNonce] = useState(0);
@@ -954,6 +1017,11 @@ export default function AdminOpsPage() {
   const selectedPlanOption = useMemo(
     () => planControlOptions.find((plan) => plan.code === selectedPlanCode) ?? null,
     [planControlOptions, selectedPlanCode]
+  );
+  const manualPaidPlanOptions = useMemo(() => resolveManualPaidPlanOptions(plans), [plans]);
+  const selectedManualPaymentPlan = useMemo(
+    () => manualPaidPlanOptions.find((plan) => plan.code === manualPaymentPlanCode) ?? null,
+    [manualPaidPlanOptions, manualPaymentPlanCode]
   );
 
   const load = useCallback(
@@ -1002,6 +1070,13 @@ export default function AdminOpsPage() {
     }
   }, [cockpit?.assistant.effectivePlan.assistantPlanOverrideCode, planSelectionDirty]);
 
+  useEffect(() => {
+    if (!selectedManualPaymentPlan) {
+      return;
+    }
+    setManualPaymentBillingPeriod(selectedManualPaymentPlan.defaultBillingPeriod);
+  }, [selectedManualPaymentPlan]);
+
   const onSelectUser = useCallback(
     (userId: string, email: string) => {
       setSelectedUserId(userId);
@@ -1009,6 +1084,8 @@ export default function AdminOpsPage() {
       setActionMessage(null);
       setPendingBillingSupportAction(null);
       setPlanSelectionDirty(false);
+      setManualPaymentPlanCode("");
+      setManualPaymentBillingPeriod("month");
       void load(userId);
     },
     [load]
@@ -1112,6 +1189,25 @@ export default function AdminOpsPage() {
     if (pendingBillingSupportAction === null) {
       return;
     }
+    const requestBody: {
+      action: BillingSupportAction;
+      manualPayment?: {
+        planCode: string;
+        billingPeriod: ManualPaidBillingPeriod;
+      };
+    } = {
+      action: pendingBillingSupportAction.action
+    };
+    if (pendingBillingSupportAction.action === "activate_paid_manually") {
+      if (!manualPaymentPlanCode) {
+        setActionMessage("Choose a paid plan first.");
+        return;
+      }
+      requestBody.manualPayment = {
+        planCode: manualPaymentPlanCode,
+        billingPeriod: manualPaymentBillingPeriod
+      };
+    }
     const token = await getToken();
     if (!token) {
       setActionMessage("Not signed in.");
@@ -1120,11 +1216,11 @@ export default function AdminOpsPage() {
     setBillingSupportBusy(pendingBillingSupportAction.action);
     setActionMessage(null);
     try {
-      const result = await postAdminOpsUserBillingSupportAction(token, selectedUserId, {
-        action: pendingBillingSupportAction.action
-      });
+      const result = await postAdminOpsUserBillingSupportAction(token, selectedUserId, requestBody);
       setActionMessage(result.summary);
       setPendingBillingSupportAction(null);
+      setManualPaymentPlanCode("");
+      setManualPaymentBillingPeriod("month");
       setUsersReloadNonce((value) => value + 1);
       await load(selectedUserId);
     } catch (e) {
@@ -1132,7 +1228,14 @@ export default function AdminOpsPage() {
     } finally {
       setBillingSupportBusy(null);
     }
-  }, [getToken, load, pendingBillingSupportAction, selectedUserId]);
+  }, [
+    getToken,
+    load,
+    manualPaymentBillingPeriod,
+    manualPaymentPlanCode,
+    pendingBillingSupportAction,
+    selectedUserId
+  ]);
 
   if (loading && cockpit === null) {
     return (
@@ -1164,6 +1267,8 @@ export default function AdminOpsPage() {
                 setActionMessage(null);
                 setPendingBillingSupportAction(null);
                 setPlanSelectionDirty(false);
+                setManualPaymentPlanCode("");
+                setManualPaymentBillingPeriod("month");
                 void load(undefined);
               }}
               className="inline-flex cursor-pointer items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] font-medium text-text-muted transition-colors hover:bg-surface-hover"
@@ -1472,6 +1577,19 @@ export default function AdminOpsPage() {
                     value={`${formatTs(billing.subscription.currentPeriodStartedAt)} → ${formatTs(billing.subscription.currentPeriodEndsAt)}`}
                   />
                   <DetailRow
+                    label="Latest paid activation"
+                    value={
+                      billing.latestPaidActivation
+                        ? `${formatActivationSourceLabel(
+                            billing.latestPaidActivation.source,
+                            billing.latestPaidActivation.adminAction
+                          )} · ${billing.latestPaidActivation.planCode ?? "—"} · ${formatTs(
+                            billing.latestPaidActivation.periodStartedAt
+                          )} → ${formatTs(billing.latestPaidActivation.periodEndsAt)}`
+                        : "—"
+                    }
+                  />
+                  <DetailRow
                     label="Quota period"
                     value={`${formatTs(billing.quotaPeriod.startedAt)} → ${formatTs(billing.quotaPeriod.endsAt)} (${billing.quotaPeriod.source ?? "unknown"})`}
                   />
@@ -1511,6 +1629,15 @@ export default function AdminOpsPage() {
                         disabled={!selectedUserId || billingSupportBusy !== null}
                         onClick={() => {
                           setActionMessage(null);
+                          if (supportAction.action === "activate_paid_manually") {
+                            const firstPlan = manualPaidPlanOptions[0] ?? null;
+                            setManualPaymentPlanCode(
+                              (currentValue) => currentValue || firstPlan?.code || ""
+                            );
+                            setManualPaymentBillingPeriod(
+                              firstPlan?.defaultBillingPeriod ?? "month"
+                            );
+                          }
                           setPendingBillingSupportAction(supportAction);
                         }}
                         className={cn(
@@ -1558,10 +1685,55 @@ export default function AdminOpsPage() {
                       <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
                         {pendingBillingSupportAction.preview}
                       </p>
+                      {pendingBillingSupportAction.requiresManualPayment && (
+                        <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                          <label className="space-y-1">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                              Paid plan
+                            </span>
+                            <select
+                              value={manualPaymentPlanCode}
+                              onChange={(event) => setManualPaymentPlanCode(event.target.value)}
+                              disabled={billingSupportBusy !== null}
+                              className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
+                            >
+                              <option value="">Choose paid plan…</option>
+                              {manualPaidPlanOptions.map((plan) => (
+                                <option key={plan.code} value={plan.code}>
+                                  {plan.displayName}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-text-subtle">
+                              Billing period
+                            </span>
+                            <select
+                              value={manualPaymentBillingPeriod}
+                              onChange={(event) =>
+                                setManualPaymentBillingPeriod(
+                                  event.target.value as ManualPaidBillingPeriod
+                                )
+                              }
+                              disabled={billingSupportBusy !== null}
+                              className="w-full rounded border border-border bg-surface px-2 py-1.5 text-[11px] text-text outline-none transition-colors focus:border-accent/40"
+                            >
+                              <option value="month">{formatBillingPeriodLabel("month")}</option>
+                              <option value="year">{formatBillingPeriodLabel("year")}</option>
+                            </select>
+                          </label>
+                        </div>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          disabled={!selectedUserId || billingSupportBusy !== null}
+                          disabled={
+                            !selectedUserId ||
+                            billingSupportBusy !== null ||
+                            (pendingBillingSupportAction.requiresManualPayment &&
+                              manualPaymentPlanCode.length === 0)
+                          }
                           onClick={() => void onRunBillingSupportAction()}
                           className={cn(
                             "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
@@ -1611,6 +1783,7 @@ export default function AdminOpsPage() {
                               </span>
                             </div>
                             <p className="mt-0.5 text-[9px] text-text-muted">
+                              {formatActivationSourceLabel(event.source, null)} ·{" "}
                               {event.previousStatus ?? "—"} → {event.nextStatus ?? "—"} ·{" "}
                               {event.previousPlanCode ?? "—"} → {event.nextPlanCode ?? "—"}
                             </p>

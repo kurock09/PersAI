@@ -6,7 +6,17 @@ import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-
 async function run(): Promise<void> {
   const lifecycleCalls: Array<{ kind: string; eventCode?: string }> = [];
   const billingEvents: Array<Record<string, unknown>> = [];
-  const currentSubscription = {
+  let currentSubscription: {
+    id: string;
+    workspaceId: string;
+    planCode: string;
+    status: "active";
+    currentPeriodStartedAt: Date | null;
+    currentPeriodEndsAt: Date | null;
+    billingProvider: string | null;
+    providerCustomerRef: string | null;
+    providerSubscriptionRef: string | null;
+  } | null = {
     id: "sub-1",
     workspaceId: "ws-1",
     planCode: "pro",
@@ -60,6 +70,17 @@ async function run(): Promise<void> {
       lifecycleCalls.push({ kind: "recoverPayment" });
     },
     async activatePaidSubscription(input: { eventCode: string }) {
+      currentSubscription = {
+        id: currentSubscription?.id ?? "sub-created-1",
+        workspaceId: "ws-1",
+        planCode: "pro",
+        status: "active",
+        currentPeriodStartedAt: new Date("2026-06-01T00:00:00.000Z"),
+        currentPeriodEndsAt: new Date("2026-07-01T00:00:00.000Z"),
+        billingProvider: "stripe",
+        providerCustomerRef: "cust-1",
+        providerSubscriptionRef: "sub-1"
+      };
       lifecycleCalls.push({ kind: "activatePaidSubscription", eventCode: input.eventCode });
     },
     async applyImmediatePaidFallback() {
@@ -131,6 +152,33 @@ async function run(): Promise<void> {
     { kind: "activatePaidSubscription", eventCode: "renewal_succeeded" }
   ]);
   assert.equal(billingEvents[2]?.applyStatus, "applied");
+  assert.equal(billingEvents[2]?.subscriptionId, "sub-1");
+
+  currentSubscription = null;
+  const firstPaidActivation = await service.apply({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    eventCode: "payment_activated",
+    eventRef: "evt-first-payment",
+    paidPlanCode: "pro",
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-1",
+    currentPeriodStartedAt: "2026-07-01T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-08-01T00:00:00.000Z"
+  });
+  assert.deepEqual(firstPaidActivation, {
+    status: "applied",
+    billingEventId: "billing-event-4"
+  });
+  assert.deepEqual(lifecycleCalls, [
+    { kind: "startPaidGrace" },
+    { kind: "activatePaidSubscription", eventCode: "renewal_succeeded" },
+    { kind: "activatePaidSubscription", eventCode: "payment_activated" }
+  ]);
+  assert.equal(billingEvents[3]?.applyStatus, "applied");
+  assert.equal(billingEvents[3]?.subscriptionId, "sub-created-1");
 }
 
 void run();

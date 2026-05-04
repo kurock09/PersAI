@@ -11,6 +11,7 @@ async function run(): Promise<void> {
   }> = [];
   const dirtyWorkspaces: string[] = [];
   const scheduledEventIds: string[][] = [];
+  const immediateActivationWorkspaces: string[] = [];
   let subscription = {
     id: "sub-1",
     workspaceId: "ws-1",
@@ -118,6 +119,16 @@ async function run(): Promise<void> {
     {
       async scheduleForLifecycleEventIds(eventIds: string[]) {
         scheduledEventIds.push(eventIds);
+      }
+    } as never,
+    {
+      async execute(workspaceId: string) {
+        immediateActivationWorkspaces.push(workspaceId);
+        return {
+          attemptedAssistants: 1,
+          refreshedAssistants: 1,
+          failedAssistants: 0
+        };
       }
     } as never
   );
@@ -276,6 +287,7 @@ async function run(): Promise<void> {
     ["event-12"],
     ["event-13"]
   ]);
+  assert.deepEqual(immediateActivationWorkspaces, ["ws-1", "ws-1"]);
 }
 
 void run();

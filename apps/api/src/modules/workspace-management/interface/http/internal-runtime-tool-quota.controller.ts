@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { CreateInternalRuntimeQuotaCheckoutService } from "../../application/create-internal-runtime-quota-checkout.service";
 import { ConsumeInternalRuntimeToolDailyLimitService } from "../../application/consume-internal-runtime-tool-daily-limit.service";
 import { MutateInternalRuntimeMonthlyMediaQuotaService } from "../../application/mutate-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "../../application/read-internal-runtime-quota-status.service";
@@ -15,7 +16,8 @@ export class InternalRuntimeToolQuotaController {
     private readonly consumeInternalRuntimeToolDailyLimitService: ConsumeInternalRuntimeToolDailyLimitService,
     private readonly reserveInternalRuntimeMonthlyMediaQuotaService: ReserveInternalRuntimeMonthlyMediaQuotaService,
     private readonly mutateInternalRuntimeMonthlyMediaQuotaService: MutateInternalRuntimeMonthlyMediaQuotaService,
-    private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService
+    private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
+    private readonly createInternalRuntimeQuotaCheckoutService: CreateInternalRuntimeQuotaCheckoutService
   ) {}
 
   @HttpCode(200)
@@ -78,6 +80,19 @@ export class InternalRuntimeToolQuotaController {
   ): Promise<{
     ok: true;
     planCode: string | null;
+    currentPlan: {
+      code: string | null;
+      displayName: string | null;
+    };
+    visiblePlans: Array<{
+      code: string;
+      displayName: string;
+      highlighted: boolean;
+      isCurrent: boolean;
+      amountMinor: number | null;
+      currency: string | null;
+      billingPeriod: "month" | "year" | null;
+    }>;
     tools: Array<{
       toolCode: string;
       activationStatus: string;
@@ -118,6 +133,24 @@ export class InternalRuntimeToolQuotaController {
     this.assertAuthorized(req);
     const input = this.readInternalRuntimeQuotaStatusService.parseInput(body);
     return this.readInternalRuntimeQuotaStatusService.execute(input);
+  }
+
+  @HttpCode(200)
+  @Post("quota-status/checkout")
+  async createQuotaStatusCheckout(
+    @Req() req: InternalRequestLike,
+    @Body() body: unknown
+  ): Promise<{
+    ok: true;
+    paymentIntentId: string;
+    targetPlanCode: string;
+    paymentMethodClass: "card" | "sbp_qr";
+    checkoutMode: "widget" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+    checkoutPagePath: string;
+  }> {
+    this.assertAuthorized(req);
+    const input = this.createInternalRuntimeQuotaCheckoutService.parseInput(body);
+    return this.createInternalRuntimeQuotaCheckoutService.execute(input);
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

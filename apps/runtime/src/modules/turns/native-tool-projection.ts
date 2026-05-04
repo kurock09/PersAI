@@ -366,16 +366,37 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "quota_status",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read live PersAI quota status for the current assistant, including non-media daily tool counters and monthly media quotas."
+      "Read live PersAI quota status for the current assistant, explain current/public plan options, and create a checkout only after the user explicitly confirms payment creation."
     ),
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
+        action: {
+          type: "string",
+          enum: ["report", "create_checkout"],
+          description:
+            "Optional action. Use 'report' (default) to inspect quota and plan status. Use 'create_checkout' only after the user explicitly confirms they want PersAI to open checkout."
+        },
         toolCode: {
           type: "string",
           description:
-            "Optional tool code to inspect one quota-governed tool. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, and monthly media quota rows."
+            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly media quota rows, and visible plan options."
+        },
+        targetPlanCode: {
+          type: "string",
+          description: "Required when action='create_checkout'. Target paid plan code to purchase."
+        },
+        paymentMethodClass: {
+          type: "string",
+          enum: ["card", "sbp_qr"],
+          description:
+            "Required when action='create_checkout'. Payment method class for the payment intent."
+        },
+        confirmed: {
+          type: "boolean",
+          description:
+            "Set true only after the user explicitly confirms they want checkout created in this conversation turn."
         }
       }
     }

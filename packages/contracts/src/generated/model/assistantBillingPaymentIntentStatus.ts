@@ -16,5 +16,6 @@ export const AssistantBillingPaymentIntentStatus = {
   succeeded: "succeeded",
   failed: "failed",
   canceled: "canceled",
+  reversed: "reversed",
   expired: "expired"
 } as const;

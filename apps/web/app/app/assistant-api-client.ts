@@ -2119,10 +2119,17 @@ export async function postAssistantBillingPaymentIntent(
     const response = await postAssistantBillingPaymentIntentContract(input, {
       headers: getAuthHeaders(token)
     });
-    if (response.status !== 200) {
+    if (!isSuccessStatus(response.status)) {
       throw new Error(
         "Unexpected non-success response for POST /assistant/billing/payment-intents."
       );
+    }
+    if (
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("paymentIntent" in response.data)
+    ) {
+      throw new Error("Unexpected response payload for POST /assistant/billing/payment-intents.");
     }
     return response.data.paymentIntent;
   } catch (error) {
@@ -2715,7 +2722,11 @@ export async function postAdminOpsUserBillingSupportAction(
       | "extend_grace"
       | "send_billing_reminder"
       | "apply_fallback_now"
-      | "restore_paid_manually";
+      | "activate_paid_manually";
+    manualPayment?: {
+      planCode: string;
+      billingPeriod: "month" | "year";
+    };
   }
 ): Promise<{ summary: string }> {
   try {
@@ -2730,9 +2741,7 @@ export async function postAdminOpsUserBillingSupportAction(
           "Content-Type": "application/json",
           "x-persai-step-up-token": stepUpToken
         },
-        body: JSON.stringify({
-          action: payload.action
-        })
+        body: JSON.stringify(payload)
       }
     );
     if (!res.ok) {

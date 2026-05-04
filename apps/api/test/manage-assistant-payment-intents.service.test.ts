@@ -48,6 +48,10 @@ async function run(): Promise<void> {
   let providerCallCount = 0;
   let nextIntentId = 1;
   const now = new Date("2026-05-04T18:00:00.000Z");
+  const resolveInputs: Array<{
+    assistantPlanOverrideCode: string | null;
+    assistantQuotaPlanCode: string | null;
+  }> = [];
 
   const service = new ManageAssistantPaymentIntentsService(
     {
@@ -87,8 +91,8 @@ async function run(): Promise<void> {
         return {
           id: "gov-1",
           assistantId: "assistant-1",
-          assistantPlanOverrideCode: null,
-          quotaPlanCode: null,
+          assistantPlanOverrideCode: "tester_override_plan",
+          quotaPlanCode: "quota_fallback_plan",
           channelCredentialRefs: null,
           memoryControl: null,
           createdAt: now,
@@ -144,7 +148,24 @@ async function run(): Promise<void> {
       }
     } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
     {
-      async execute() {
+      async execute(input: {
+        assistantPlanOverrideCode: string | null;
+        assistantQuotaPlanCode: string | null;
+      }) {
+        resolveInputs.push({
+          assistantPlanOverrideCode: input.assistantPlanOverrideCode,
+          assistantQuotaPlanCode: input.assistantQuotaPlanCode
+        });
+        assert.equal(
+          input.assistantPlanOverrideCode,
+          null,
+          "payment-intent flow must ignore tester override state"
+        );
+        assert.equal(
+          input.assistantQuotaPlanCode,
+          null,
+          "payment-intent flow must ignore quota fallback state"
+        );
         return {
           source: "workspace_subscription",
           status: "active",
@@ -403,6 +424,8 @@ async function run(): Promise<void> {
   assert.equal(created.checkout.mode, "manual_test");
   assert.equal(created.checkout.payload?.schema, "persai.billing.manualTestCheckout.v1");
   assert.equal(providerCallCount, 1);
+  assert.equal(resolveInputs[0]?.assistantPlanOverrideCode, null);
+  assert.equal(resolveInputs[0]?.assistantQuotaPlanCode, null);
 
   const repeated = await service.createPaymentIntent("user-1", parsed);
   assert.deepEqual(repeated, created);

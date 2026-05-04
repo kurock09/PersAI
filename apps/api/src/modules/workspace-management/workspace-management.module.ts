@@ -17,6 +17,7 @@ import { AdminNotificationsController } from "./interface/http/admin-notificatio
 import { AdminPlatformRolloutsController } from "./interface/http/admin-platform-rollouts.controller";
 import { AdminRuntimeProviderSettingsController } from "./interface/http/admin-runtime-provider-settings.controller";
 import { AdminDocumentProcessingSettingsController } from "./interface/http/admin-document-processing-settings.controller";
+import { AdminBillingProviderCredentialsController } from "./interface/http/admin-billing-provider-credentials.controller";
 import { AdminToolCredentialsController } from "./interface/http/admin-tool-credentials.controller";
 import { AdminPromptTemplatesController } from "./interface/http/admin-bootstrap-presets.controller";
 import { AdminPersonaArchetypesController } from "./interface/http/admin-persona-archetypes.controller";
@@ -26,6 +27,7 @@ import { AdminSkillsController } from "./interface/http/admin-skills.controller"
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
 import { AssistantSkillsController } from "./interface/http/assistant-skills.controller";
+import { CloudpaymentsWebhookController } from "./interface/http/cloudpayments-webhook.controller";
 import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
 import { InternalRuntimeProviderSecretsController } from "./interface/http/internal-runtime-provider-secrets.controller";
@@ -78,6 +80,7 @@ import { DeliverAdminSystemNotificationService } from "./application/deliver-adm
 import { ManagePlatformRolloutsService } from "./application/manage-platform-rollouts.service";
 import { ManageAdminRuntimeProviderSettingsService } from "./application/manage-admin-runtime-provider-settings.service";
 import { ManageAdminDocumentProcessingSettingsService } from "./application/manage-admin-document-processing-settings.service";
+import { ManageAdminBillingProviderCredentialsService } from "./application/manage-admin-billing-provider-credentials.service";
 import { ManageAdminToolCredentialsService } from "./application/manage-admin-tool-credentials.service";
 import { ManageAdminToolPromptMetadataService } from "./application/manage-admin-tool-prompt-metadata.service";
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
@@ -106,7 +109,9 @@ import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-ad
 import { ManageAdminOpsBillingSupportService } from "./application/manage-admin-ops-billing-support.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./application/manage-admin-billing-lifecycle-settings.service";
 import { ManageAssistantPaymentIntentsService } from "./application/manage-assistant-payment-intents.service";
+import { HandleCloudpaymentsWebhookService } from "./application/handle-cloudpayments-webhook.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
+import { MaterializeWorkspacePaidActivationService } from "./application/materialize-workspace-paid-activation.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
 import { ScheduleBillingLifecycleNotificationsService } from "./application/schedule-billing-lifecycle-notifications.service";
 import { ApplyAssistantPublishedVersionService } from "./application/apply-assistant-published-version.service";
@@ -183,6 +188,7 @@ import { ConsumeInternalRuntimeToolDailyLimitService } from "./application/consu
 import { MutateInternalRuntimeMonthlyMediaQuotaService } from "./application/mutate-internal-runtime-monthly-media-quota.service";
 import { ReserveInternalRuntimeMonthlyMediaQuotaService } from "./application/reserve-internal-runtime-monthly-media-quota.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./application/read-internal-runtime-quota-status.service";
+import { CreateInternalRuntimeQuotaCheckoutService } from "./application/create-internal-runtime-quota-checkout.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./application/resolve-assistant-inbound-runtime-context.service";
 import { ResolveAssistantRuntimeTierService } from "./application/resolve-assistant-runtime-tier.service";
 import { EnsureAssistantMaterializedSpecCurrentService } from "./application/ensure-assistant-materialized-spec-current.service";
@@ -192,7 +198,6 @@ import { SyncTelegramChatTargetService } from "./application/sync-telegram-chat-
 import { SyncTelegramGroupMembershipService } from "./application/sync-telegram-group-membership.service";
 import { TrackWorkspaceQuotaUsageService } from "./application/track-workspace-quota-usage.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./application/resolve-internal-runtime-tool-daily-policy.service";
-import { SyncWorkspaceSubscriptionService } from "./application/sync-workspace-subscription.service";
 import { UpdateAssistantDraftService } from "./application/update-assistant-draft.service";
 import { ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY } from "./domain/assistant-chat-message-attachment.repository";
 import { ASSISTANT_CHAT_REPOSITORY } from "./domain/assistant-chat.repository";
@@ -210,7 +215,7 @@ import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.r
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
-import { NullBillingProviderAdapter } from "./infrastructure/billing/null-billing-provider.adapter";
+import { CloudpaymentsWidgetBillingProviderAdapter } from "./infrastructure/billing/cloudpayments-widget-billing-provider.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
 import { PrismaToolCatalogRepository } from "./infrastructure/persistence/prisma-tool-catalog.repository";
@@ -279,6 +284,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminPlatformRolloutsController,
     AdminRuntimeProviderSettingsController,
     AdminDocumentProcessingSettingsController,
+    AdminBillingProviderCredentialsController,
     AdminToolCredentialsController,
     AdminToolMetadataController,
     AdminPromptTemplatesController,
@@ -287,6 +293,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     AdminSkillsController,
     KnowledgeIndexingJobsController,
     AssistantSkillsController,
+    CloudpaymentsWebhookController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
     InternalRuntimeConfigGenerationController,
@@ -331,6 +338,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManagePlatformRolloutsService,
     ManageAdminRuntimeProviderSettingsService,
     ManageAdminDocumentProcessingSettingsService,
+    ManageAdminBillingProviderCredentialsService,
     ManageAdminToolCredentialsService,
     ManageAdminToolPromptMetadataService,
     ManageAdminKnowledgeSourcesService,
@@ -355,7 +363,9 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminOpsBillingSupportService,
     ManageAdminBillingLifecycleSettingsService,
     ManageAssistantPaymentIntentsService,
+    HandleCloudpaymentsWebhookService,
     ManageWorkspaceSubscriptionLifecycleService,
+    MaterializeWorkspacePaidActivationService,
     ApplyWorkspaceSubscriptionBillingEventService,
     ScheduleBillingLifecycleNotificationsService,
     HandleInternalCronFireService,
@@ -377,6 +387,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     MutateInternalRuntimeMonthlyMediaQuotaService,
     ReserveInternalRuntimeMonthlyMediaQuotaService,
     ReadInternalRuntimeQuotaStatusService,
+    CreateInternalRuntimeQuotaCheckoutService,
     ResolveAssistantInboundRuntimeContextService,
     ResolveAssistantRuntimeTierService,
     EnsureAssistantMaterializedSpecCurrentService,
@@ -420,7 +431,6 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ResolvePlanVisibilityService,
     EnforceAssistantCapabilityAndQuotaService,
     TrackWorkspaceQuotaUsageService,
-    SyncWorkspaceSubscriptionService,
     CompactNativeWebChatSessionService,
     ResolveNativeWebChatSessionStateService,
     ManageWebChatListService,
@@ -492,7 +502,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     },
     {
       provide: BILLING_PROVIDER_PORT,
-      useClass: NullBillingProviderAdapter
+      useClass: CloudpaymentsWidgetBillingProviderAdapter
     },
     {
       provide: ASSISTANT_GOVERNANCE_REPOSITORY,

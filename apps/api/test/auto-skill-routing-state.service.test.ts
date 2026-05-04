@@ -3,6 +3,7 @@ import { AutoSkillRoutingStateService } from "../src/modules/workspace-managemen
 
 async function run(): Promise<void> {
   const chatUpdates: Array<Record<string, unknown>> = [];
+  const chatStateById = new Map<string, Record<string, unknown> | null>();
   const service = new AutoSkillRoutingStateService(
     {
       platformRuntimeProviderSettings: {
@@ -16,13 +17,24 @@ async function run(): Promise<void> {
         })
       },
       assistantChat: {
+        findUnique: async ({ where }: { where: { id: string } }) => ({
+          autoSkillRoutingState: chatStateById.get(where.id) ?? null
+        }),
         update: async (input: Record<string, unknown>) => {
           chatUpdates.push(input);
+          const where = input.where as { id: string };
+          const data = input.data as { autoSkillRoutingState?: Record<string, unknown> | null };
+          chatStateById.set(
+            where.id,
+            (data.autoSkillRoutingState as Record<string, unknown>) ?? null
+          );
           return null;
         }
       }
     } as never,
-    {} as never
+    {
+      clearForChatWhenSkillMismatches: async () => undefined
+    } as never
   );
 
   assert.equal(
@@ -164,6 +176,98 @@ async function run(): Promise<void> {
         backgroundCheckQueuedAtMessageIndex: 8
       }
     }
+  });
+
+  chatStateById.set("chat-3", {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: "persai landing copy",
+    confidence: "high",
+    checkedAtMessageIndex: 87,
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
+  });
+  const updatesBeforeStalePersist = chatUpdates.length;
+  await service.persistFromTurnRouting({
+    chatId: "chat-3",
+    turnRouting: {
+      autoSkillState: {
+        status: "active",
+        activeSkillId: "skill-diet",
+        activeSkillName: "Диетолог",
+        topicSummary: "nutrition",
+        confidence: "high",
+        checkedAtMessageIndex: 82,
+        messageCountSinceCheck: 5,
+        backgroundCheckQueuedAtMessageIndex: null
+      }
+    }
+  });
+  assert.equal(chatUpdates.length, updatesBeforeStalePersist);
+  assert.deepEqual(chatStateById.get("chat-3"), {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: "persai landing copy",
+    confidence: "high",
+    checkedAtMessageIndex: 87,
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
+  });
+  const updatesBeforeStaleQueue = chatUpdates.length;
+  await service.markBackgroundCheckQueued({
+    chatId: "chat-3",
+    context: {
+      state: {
+        status: "active",
+        activeSkillId: "skill-diet",
+        activeSkillName: "Диетолог",
+        topicSummary: "nutrition",
+        confidence: "high",
+        checkedAtMessageIndex: 82,
+        messageCountSinceCheck: 5
+      },
+      currentUserMessageIndex: 82,
+      recentMessages: [{ role: "user", text: "Сделай БЖУ" }]
+    }
+  });
+  assert.equal(chatUpdates.length, updatesBeforeStaleQueue);
+  assert.deepEqual(chatStateById.get("chat-3"), {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: "persai landing copy",
+    confidence: "high",
+    checkedAtMessageIndex: 87,
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
+  });
+
+  await service.persistFromTurnRouting({
+    chatId: "chat-3",
+    turnRouting: {
+      autoSkillState: {
+        status: "inactive",
+        activeSkillId: null,
+        activeSkillName: null,
+        topicSummary: "persai landing copy",
+        confidence: "high",
+        checkedAtMessageIndex: 88,
+        messageCountSinceCheck: 0,
+        backgroundCheckQueuedAtMessageIndex: null
+      }
+    }
+  });
+  assert.deepEqual(chatStateById.get("chat-3"), {
+    status: "inactive",
+    activeSkillId: null,
+    activeSkillName: null,
+    topicSummary: "persai landing copy",
+    confidence: "high",
+    checkedAtMessageIndex: 88,
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
   });
 }
 

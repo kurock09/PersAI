@@ -105,10 +105,7 @@ export function PricingPageView({
   const [submittingPlanKey, setSubmittingPlanKey] = useState<string | null>(null);
   const [planErrors, setPlanErrors] = useState<Record<string, string>>({});
 
-  const startCheckout = async (
-    plan: PublicPricingPlanState,
-    paymentMethodClass: "card" | "sbp_qr"
-  ): Promise<void> => {
+  const startCheckout = async (plan: PublicPricingPlanState): Promise<void> => {
     if (!signedIn) return;
     const token = await getToken();
     if (!token) {
@@ -118,7 +115,7 @@ export function PricingPageView({
       }));
       return;
     }
-    const requestKey = `${plan.code}:${paymentMethodClass}`;
+    const requestKey = plan.code;
     setSubmittingPlanKey(requestKey);
     setPlanErrors((prev) => {
       const next = { ...prev };
@@ -128,8 +125,8 @@ export function PricingPageView({
     try {
       const paymentIntent = await postAssistantBillingPaymentIntent(token, {
         planCode: plan.code,
-        paymentMethodClass,
-        idempotencyKey: `pricing:${plan.code}:${paymentMethodClass}:${Date.now()}`,
+        paymentMethodClass: "card",
+        idempotencyKey: `pricing:${plan.code}:card:${Date.now()}`,
         returnUrl: "/app/chat"
       });
       router.push(`/app/billing/checkout/${paymentIntent.id}` as Route);
@@ -194,15 +191,12 @@ export function PricingPageView({
                 const badge = pickLocalizedText(locale, plan.presentation.badge);
                 const ctaLabel =
                   pickLocalizedText(locale, plan.presentation.ctaLabel) ??
-                  (signedIn ? t("payByCard") : t("signUp"));
+                  (signedIn ? t("connect") : t("signUp"));
                 const highlights = pickLocalizedList(locale, plan.presentation.highlightItems);
                 const facts = derivePlanFacts(plan, t);
                 const isCurrent = currentPlanCode === plan.code;
                 const signUpHref = "/sign-up" as const;
-                const cardRequestKey = `${plan.code}:card`;
-                const sbpRequestKey = `${plan.code}:sbp_qr`;
-                const isCardSubmitting = submittingPlanKey === cardRequestKey;
-                const isSbpSubmitting = submittingPlanKey === sbpRequestKey;
+                const isSubmitting = submittingPlanKey === plan.code;
                 const planError = planErrors[plan.code] ?? null;
 
                 return (
@@ -300,26 +294,11 @@ export function PricingPageView({
                           <button
                             type="button"
                             disabled={submittingPlanKey !== null}
-                            onClick={() => void startCheckout(plan, "card")}
+                            onClick={() => void startCheckout(plan)}
                             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:cursor-wait disabled:opacity-70"
                           >
-                            {isCardSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                            {isCardSubmitting ? t("startingCheckout") : ctaLabel}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={submittingPlanKey !== null}
-                            onClick={() => void startCheckout(plan, "sbp_qr")}
-                            className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-wait disabled:opacity-70"
-                          >
-                            {isSbpSubmitting ? (
-                              <span className="inline-flex items-center gap-2">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                {t("startingCheckout")}
-                              </span>
-                            ) : (
-                              t("payBySbpQr")
-                            )}
+                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            {isSubmitting ? t("startingCheckout") : ctaLabel}
                           </button>
                           {planError ? (
                             <p className="text-xs leading-5 text-danger">{planError}</p>

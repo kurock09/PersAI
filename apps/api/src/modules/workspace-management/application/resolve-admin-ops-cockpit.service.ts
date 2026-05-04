@@ -288,59 +288,97 @@ export class ResolveAdminOpsCockpitService {
     workspaceId: string,
     quotaUsage: AdminOpsCockpitQuotaUsage | null
   ): Promise<AdminOpsCockpitBillingSupport> {
-    const [subscription, latestLifecycleEvents, latestNotificationJobs] = await Promise.all([
-      this.prisma.workspaceSubscription.findUnique({
-        where: { workspaceId },
-        select: {
-          id: true,
-          planCode: true,
-          status: true,
-          trialStartedAt: true,
-          trialEndsAt: true,
-          graceStartedAt: true,
-          graceEndsAt: true,
-          currentPeriodStartedAt: true,
-          currentPeriodEndsAt: true,
-          cancelAtPeriodEnd: true,
-          providerCustomerRef: true,
-          providerSubscriptionRef: true
-        }
-      }),
-      this.prisma.workspaceSubscriptionLifecycleEvent.findMany({
-        where: { workspaceId },
-        orderBy: { createdAt: "desc" },
-        take: 8,
-        select: {
-          id: true,
-          eventCode: true,
-          source: true,
-          previousStatus: true,
-          nextStatus: true,
-          previousPlanCode: true,
-          nextPlanCode: true,
-          nextPeriodStartedAt: true,
-          nextPeriodEndsAt: true,
-          createdAt: true
-        }
-      }),
-      this.prisma.billingLifecycleNotificationJob.findMany({
-        where: { workspaceId },
-        orderBy: { createdAt: "desc" },
-        take: 8,
-        select: {
-          id: true,
-          notificationCode: true,
-          channel: true,
-          status: true,
-          scheduledFor: true,
-          recipientEmail: true,
-          lastErrorCode: true,
-          createdAt: true
-        }
-      })
-    ]);
+    const [subscription, latestPaidActivation, latestLifecycleEvents, latestNotificationJobs] =
+      await Promise.all([
+        this.prisma.workspaceSubscription.findUnique({
+          where: { workspaceId },
+          select: {
+            id: true,
+            planCode: true,
+            status: true,
+            trialStartedAt: true,
+            trialEndsAt: true,
+            graceStartedAt: true,
+            graceEndsAt: true,
+            currentPeriodStartedAt: true,
+            currentPeriodEndsAt: true,
+            cancelAtPeriodEnd: true,
+            providerCustomerRef: true,
+            providerSubscriptionRef: true
+          }
+        }),
+        this.prisma.workspaceSubscriptionLifecycleEvent.findFirst({
+          where: {
+            workspaceId,
+            nextStatus: "active",
+            nextPlanCode: { not: null }
+          },
+          orderBy: { createdAt: "desc" },
+          select: {
+            eventCode: true,
+            source: true,
+            nextPlanCode: true,
+            nextPeriodStartedAt: true,
+            nextPeriodEndsAt: true,
+            metadata: true,
+            createdAt: true
+          }
+        }),
+        this.prisma.workspaceSubscriptionLifecycleEvent.findMany({
+          where: { workspaceId },
+          orderBy: { createdAt: "desc" },
+          take: 8,
+          select: {
+            id: true,
+            eventCode: true,
+            source: true,
+            previousStatus: true,
+            nextStatus: true,
+            previousPlanCode: true,
+            nextPlanCode: true,
+            nextPeriodStartedAt: true,
+            nextPeriodEndsAt: true,
+            createdAt: true
+          }
+        }),
+        this.prisma.billingLifecycleNotificationJob.findMany({
+          where: { workspaceId },
+          orderBy: { createdAt: "desc" },
+          take: 8,
+          select: {
+            id: true,
+            notificationCode: true,
+            channel: true,
+            status: true,
+            scheduledFor: true,
+            recipientEmail: true,
+            lastErrorCode: true,
+            createdAt: true
+          }
+        })
+      ]);
 
     return {
+      ...(() => {
+        const latestPaidActivationMetadata = asObject(latestPaidActivation?.metadata);
+        return {
+          latestPaidActivation:
+            latestPaidActivation === null
+              ? null
+              : {
+                  eventCode: latestPaidActivation.eventCode,
+                  source: latestPaidActivation.source,
+                  adminAction:
+                    typeof latestPaidActivationMetadata?.adminAction === "string"
+                      ? latestPaidActivationMetadata.adminAction
+                      : null,
+                  planCode: latestPaidActivation.nextPlanCode,
+                  periodStartedAt: asIso(latestPaidActivation.nextPeriodStartedAt),
+                  periodEndsAt: asIso(latestPaidActivation.nextPeriodEndsAt),
+                  createdAt: latestPaidActivation.createdAt.toISOString()
+                }
+        };
+      })(),
       subscription: {
         id: subscription?.id ?? null,
         planCode: subscription?.planCode ?? null,

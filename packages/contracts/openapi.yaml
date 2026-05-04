@@ -3411,6 +3411,116 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/billing:
+    get:
+      operationId: getAdminBillingProviderCredentials
+      summary: Read billing-provider credential status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Billing-provider credential settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminBillingProviderCredentialsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminBillingProviderCredentials
+      summary: Update billing-provider credentials
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: header
+          name: x-persai-step-up-token
+          required: true
+          schema:
+            type: string
+          description: Step-up token issued by POST /admin/step-up/challenge for action admin.billing_provider_credentials.update.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminBillingProviderCredentialsRequest"
+      responses:
+        "200":
+          description: Updated billing-provider credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminBillingProviderCredentialsResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /public/billing/cloudpayments/webhooks/{notificationType}:
+    post:
+      operationId: postCloudpaymentsWebhook
+      summary: Receive one CloudPayments billing webhook notification
+      parameters:
+        - in: path
+          name: notificationType
+          required: true
+          schema:
+            $ref: "#/components/schemas/CloudpaymentsWebhookNotificationType"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: CloudPayments webhook acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudpaymentsWebhookAck"
+        "400":
+          description: Webhook rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CloudpaymentsWebhookAck"
   /admin/plans/visibility:
     get:
       operationId: getAdminPlanVisibility
@@ -6626,6 +6736,133 @@ components:
       properties:
         providerKey:
           $ref: "#/components/schemas/DocumentProcessingProviderKey"
+    AdminBillingProviderCredentialStatus:
+      type: object
+      required:
+        - providerKey
+        - displayName
+        - apiSecret
+        - publicTerminalId
+        - description
+      properties:
+        providerKey:
+          type: string
+          enum:
+            - cloudpayments
+        displayName:
+          type: string
+        apiSecret:
+          type: object
+          required:
+            - configured
+            - lastFour
+            - updatedAt
+          properties:
+            configured:
+              type: boolean
+            lastFour:
+              type: string
+              nullable: true
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
+        publicTerminalId:
+          type: object
+          required:
+            - configured
+            - lastFour
+            - updatedAt
+          properties:
+            configured:
+              type: boolean
+            lastFour:
+              type: string
+              nullable: true
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
+        description:
+          type: string
+    AdminBillingProviderCredentialsState:
+      type: object
+      required:
+        - schema
+        - providers
+        - notes
+      properties:
+        schema:
+          type: string
+          enum:
+            - persai.adminBillingProviderCredentials.v1
+        providers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminBillingProviderCredentialStatus"
+        notes:
+          type: array
+          items:
+            type: string
+    AdminBillingProviderCredentialsRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - providers
+      properties:
+        providers:
+          type: object
+          additionalProperties: false
+          properties:
+            cloudpayments:
+              type: object
+              additionalProperties: false
+              properties:
+                apiSecret:
+                  type: string
+                publicTerminalId:
+                  type: string
+    GetAdminBillingProviderCredentialsResponse:
+      type: object
+      required:
+        - requestId
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminBillingProviderCredentialsState"
+    PutAdminBillingProviderCredentialsResponse:
+      type: object
+      required:
+        - requestId
+        - settings
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        settings:
+          $ref: "#/components/schemas/AdminBillingProviderCredentialsState"
+    CloudpaymentsWebhookNotificationType:
+      type: string
+      enum:
+        - check
+        - pay
+        - fail
+        - confirm
+        - refund
+        - cancel
+        - recurrent
+    CloudpaymentsWebhookAck:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
     DocumentProcessingTestConnectionState:
       type: object
       required:
@@ -6858,6 +7095,7 @@ components:
         - succeeded
         - failed
         - canceled
+        - reversed
         - expired
     AssistantBillingPaymentIntentBillingPeriod:
       type: string
@@ -9690,6 +9928,7 @@ components:
       required:
         - subscription
         - quotaPeriod
+        - latestPaidActivation
         - latestLifecycleEvents
         - latestNotificationJobs
       properties:
@@ -9772,6 +10011,8 @@ components:
               enum:
                 - subscription_period
                 - calendar_month_fallback
+        latestPaidActivation:
+          $ref: "#/components/schemas/AdminOpsCockpitPaidActivation"
         latestLifecycleEvents:
           type: array
           items:
@@ -9780,6 +10021,39 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminOpsCockpitBillingNotificationJob"
+    AdminOpsCockpitPaidActivation:
+      nullable: true
+      type: object
+      required:
+        - eventCode
+        - source
+        - adminAction
+        - planCode
+        - periodStartedAt
+        - periodEndsAt
+        - createdAt
+      properties:
+        eventCode:
+          type: string
+        source:
+          type: string
+        adminAction:
+          type: string
+          nullable: true
+        planCode:
+          type: string
+          nullable: true
+        periodStartedAt:
+          type: string
+          format: date-time
+          nullable: true
+        periodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
     AdminOpsCockpitBillingLifecycleEvent:
       type: object
       required:
@@ -10159,12 +10433,26 @@ components:
     AdminOpsBillingSupportAction:
       type: string
       enum:
+        - initialize_lifecycle_now
         - extend_trial
         - grant_grace
         - extend_grace
         - send_billing_reminder
         - apply_fallback_now
-        - restore_paid_manually
+        - activate_paid_manually
+    AdminOpsManualPaidActivation:
+      type: object
+      required:
+        - planCode
+        - billingPeriod
+      properties:
+        planCode:
+          type: string
+        billingPeriod:
+          type: string
+          enum:
+            - month
+            - year
     PostAdminOpsUserBillingSupportActionRequest:
       type: object
       required:
@@ -10172,6 +10460,8 @@ components:
       properties:
         action:
           $ref: "#/components/schemas/AdminOpsBillingSupportAction"
+        manualPayment:
+          $ref: "#/components/schemas/AdminOpsManualPaidActivation"
     PostAdminOpsUserBillingSupportActionResponse:
       type: object
       required:

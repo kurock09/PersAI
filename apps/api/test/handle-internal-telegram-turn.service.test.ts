@@ -8,7 +8,13 @@ type ClaimState = {
   telegramActiveUpdateClaimedAt?: string;
 };
 
-function createBindingRepository(initialState: ClaimState = {}) {
+function createBindingRepository(
+  initialState: ClaimState = {},
+  options?: {
+    completeThrows?: Error;
+    releaseHook?: (updateId: number) => void;
+  }
+) {
   const state: ClaimState = { ...initialState };
   return {
     state,
@@ -66,6 +72,9 @@ function createBindingRepository(initialState: ClaimState = {}) {
       updateId: number,
       completedAt: Date
     ) {
+      if (options?.completeThrows) {
+        throw options.completeThrows;
+      }
       state.telegramLastHandledUpdateId = updateId;
       state.telegramLastHandledUpdateAt = completedAt.toISOString();
       if (state.telegramActiveUpdateId === updateId) {
@@ -79,6 +88,7 @@ function createBindingRepository(initialState: ClaimState = {}) {
       _surfaceType: string,
       updateId: number
     ) {
+      options?.releaseHook?.(updateId);
       if (state.telegramActiveUpdateId === updateId) {
         delete state.telegramActiveUpdateId;
         delete state.telegramActiveUpdateClaimedAt;
@@ -148,6 +158,19 @@ function createChatRepositoryMock() {
         author: input.author,
         content: input.content
       };
+    }
+  };
+}
+
+function createAssistantMessageFailureChatRepository() {
+  const base = createChatRepositoryMock();
+  return {
+    ...base,
+    async createMessage(input: { author: string; content: string }) {
+      if (input.author === "assistant") {
+        throw new Error("assistant message insert failed");
+      }
+      return base.createMessage(input);
     }
   };
 }
@@ -391,6 +414,211 @@ async function run(): Promise<void> {
     updateId: 99
   });
   assert.deepEqual(rewrittenMedia.media, runtimeMedia);
+
+  const persistenceFailureBindingRepository = createBindingRepository();
+  let persistenceFailureUsageCalls = 0;
+  const persistenceFailureService = new HandleInternalTelegramTurnService(
+    createAssistantMessageFailureChatRepository() as never,
+    persistenceFailureBindingRepository as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        persistenceFailureUsageCalls += 1;
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        throw new Error("attachments not expected");
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "Completed despite persistence failure",
+          respondedAt: "2026-04-06T00:00:03.000Z",
+          media: runtimeMedia
+        };
+      }
+    } as never
+  );
+
+  const recoveredAfterAssistantSaveFailure = await persistenceFailureService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "show me another image",
+    updateId: 111
+  });
+  assert.equal(
+    recoveredAfterAssistantSaveFailure.assistantMessage,
+    "Completed despite persistence failure"
+  );
+  assert.equal(recoveredAfterAssistantSaveFailure.assistantMessageId, "");
+  assert.deepEqual(recoveredAfterAssistantSaveFailure.media, []);
+  assert.equal(persistenceFailureUsageCalls, 0);
+  assert.equal(persistenceFailureBindingRepository.state.telegramLastHandledUpdateId, 111);
+  assert.equal(persistenceFailureBindingRepository.state.telegramActiveUpdateId, undefined);
+
+  const quotaFailureBindingRepository = createBindingRepository();
+  const quotaFailureChatRepository = createChatRepositoryMock();
+  let quotaFailureUsageCalls = 0;
+  const quotaFailureService = new HandleInternalTelegramTurnService(
+    quotaFailureChatRepository as never,
+    quotaFailureBindingRepository as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        quotaFailureUsageCalls += 1;
+        throw new Error("quota persistence failed");
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        throw new Error("attachments not expected");
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "Completed despite quota failure",
+          respondedAt: "2026-04-06T00:00:04.000Z",
+          media: []
+        };
+      }
+    } as never
+  );
+
+  const recoveredAfterQuotaFailure = await quotaFailureService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "plain text",
+    updateId: 112
+  });
+  assert.equal(recoveredAfterQuotaFailure.assistantMessage, "Completed despite quota failure");
+  assert.equal(recoveredAfterQuotaFailure.assistantMessageId, "message-2");
+  assert.equal(quotaFailureUsageCalls, 1);
+  assert.equal(quotaFailureBindingRepository.state.telegramLastHandledUpdateId, 112);
+  assert.equal(quotaFailureBindingRepository.state.telegramActiveUpdateId, undefined);
+
+  let releasedUpdateId: number | null = null;
+  const completionFailureBindingRepository = createBindingRepository(
+    {},
+    {
+      completeThrows: new Error("binding completion failed"),
+      releaseHook(updateId) {
+        releasedUpdateId = updateId;
+      }
+    }
+  );
+  const completionFailureService = new HandleInternalTelegramTurnService(
+    createChatRepositoryMock() as never,
+    completionFailureBindingRepository as never,
+    {
+      async enforceInboundTurn() {
+        return { mode: "allow" };
+      }
+    } as never,
+    {
+      async enforceAndRegisterAttempt() {
+        return undefined;
+      }
+    } as never,
+    {
+      async resolveByAssistantId() {
+        return createResolvedAssistant();
+      }
+    } as never,
+    {
+      async recordInboundTurnUsage() {
+        return undefined;
+      }
+    } as never,
+    {
+      workspace: {
+        async findUnique() {
+          return { timezone: "UTC" };
+        }
+      }
+    } as never,
+    {
+      async resolve() {
+        throw new Error("attachments not expected");
+      }
+    } as never,
+    traceService as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "Completed despite completion failure",
+          respondedAt: "2026-04-06T00:00:05.000Z",
+          media: []
+        };
+      }
+    } as never
+  );
+
+  const recoveredAfterCompletionFailure = await completionFailureService.execute({
+    assistantId: "assistant-1",
+    threadId: "chat-1",
+    conversationMode: "direct",
+    externalUserKey: "telegram-user-1",
+    message: "finish update anyway",
+    updateId: 113
+  });
+  assert.equal(
+    recoveredAfterCompletionFailure.assistantMessage,
+    "Completed despite completion failure"
+  );
+  assert.equal(releasedUpdateId, 113);
+  assert.equal(completionFailureBindingRepository.state.telegramLastHandledUpdateId, undefined);
+  assert.equal(completionFailureBindingRepository.state.telegramActiveUpdateId, undefined);
 }
 
 void run();

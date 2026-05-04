@@ -173,6 +173,8 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/plans/:code", method: RequestMethod.DELETE },
       { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.GET },
       { path: "api/v1/admin/runtime/tool-credentials", method: RequestMethod.PUT },
+      { path: "api/v1/admin/tools/billing", method: RequestMethod.GET },
+      { path: "api/v1/admin/tools/billing", method: RequestMethod.PUT },
       { path: "api/v1/admin/tools/metadata", method: RequestMethod.GET },
       { path: "api/v1/admin/tools/metadata/:toolCode", method: RequestMethod.PATCH },
       { path: "api/v1/admin/prompt-templates", method: RequestMethod.GET },

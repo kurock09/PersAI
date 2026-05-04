@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -11,13 +11,107 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { getAssistantBillingPaymentIntent } from "../../../assistant-api-client";
 import { PageBackButton } from "../../../../_components/page-back-button";
 
+type CloudpaymentsWidgetPayload = {
+  schema: "persai.billing.cloudpaymentsWidgetCheckout.v1";
+  publicTerminalId: string;
+  amount: number;
+  currency: string;
+  culture?: string;
+  description?: string;
+  externalId: string;
+  paymentSchema: "Single" | "Dual";
+  accountId?: string;
+  emailBehavior?: "Required" | "Hidden" | "Optional";
+  retryPayment?: boolean;
+  autoClose?: number;
+  restrictedPaymentMethods?: string[];
+  metadata?: Record<string, unknown>;
+  expiresAt?: string;
+};
+
+type CloudpaymentsWidgetResult = {
+  type?: "cancel" | "payment" | "installment" | "error";
+  status?: "success" | "fail" | "appointment" | "reject" | "cancel";
+};
+
+declare global {
+  interface Window {
+    cp?: {
+      CloudPayments: new () => {
+        oncomplete?: (result: CloudpaymentsWidgetResult) => void;
+        start: (params: CloudpaymentsWidgetPayload) => Promise<unknown>;
+      };
+    };
+  }
+}
+
+const CLOUDPAYMENTS_WIDGET_SCRIPT_SRC = "https://widget.cloudpayments.ru/bundles/cloudpayments.js";
+
+let cloudpaymentsWidgetScriptPromise: Promise<void> | null = null;
+
+function isCloudpaymentsWidgetPayload(value: unknown): value is CloudpaymentsWidgetPayload {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    row.schema === "persai.billing.cloudpaymentsWidgetCheckout.v1" &&
+    typeof row.publicTerminalId === "string" &&
+    typeof row.amount === "number" &&
+    Number.isFinite(row.amount) &&
+    typeof row.currency === "string" &&
+    typeof row.externalId === "string" &&
+    (row.paymentSchema === "Single" || row.paymentSchema === "Dual")
+  );
+}
+
+function loadCloudpaymentsWidgetScript(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("CloudPayments widget can only load in the browser."));
+  }
+  if (window.cp?.CloudPayments) {
+    return Promise.resolve();
+  }
+  if (cloudpaymentsWidgetScriptPromise !== null) {
+    return cloudpaymentsWidgetScriptPromise;
+  }
+  cloudpaymentsWidgetScriptPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-persai-cloudpayments-widget="true"]'
+    );
+    if (existing !== null) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("CloudPayments widget script failed to load.")),
+        { once: true }
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = CLOUDPAYMENTS_WIDGET_SCRIPT_SRC;
+    script.async = true;
+    script.dataset.persaiCloudpaymentsWidget = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("CloudPayments widget script failed to load."));
+    document.head.appendChild(script);
+  }).finally(() => {
+    if (!window.cp?.CloudPayments) {
+      cloudpaymentsWidgetScriptPromise = null;
+    }
+  });
+  return cloudpaymentsWidgetScriptPromise;
+}
+
 function buildChatReturnHref(
   paymentIntent: AssistantBillingPaymentIntentState,
   result: "success" | "failed" | "pending"
 ): Route {
   const params = new URLSearchParams({
     billingReturn: result,
-    billingPlan: paymentIntent.targetPlanCode
+    billingPlan: paymentIntent.targetPlanCode,
+    billingPaymentIntentId: paymentIntent.id
   });
   return `/app/chat?${params.toString()}` as Route;
 }
@@ -31,6 +125,8 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [launchingWidget, setLaunchingWidget] = useState(false);
+  const widgetCompletionHandledRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +189,50 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
     typeof paymentIntent.checkout.payload.url === "string"
       ? paymentIntent.checkout.payload.url
       : null;
+  const widgetPayload = isCloudpaymentsWidgetPayload(paymentIntent?.checkout.payload)
+    ? paymentIntent?.checkout.payload
+    : null;
+
+  async function launchCloudpaymentsWidget(): Promise<void> {
+    if (paymentIntent === null || widgetPayload === null || launchingWidget) {
+      return;
+    }
+    widgetCompletionHandledRef.current = false;
+    setLaunchingWidget(true);
+    setError(null);
+    try {
+      await loadCloudpaymentsWidgetScript();
+      const CloudPayments = window.cp?.CloudPayments;
+      if (!CloudPayments) {
+        throw new Error(t("widgetUnavailable"));
+      }
+      const widget = new CloudPayments();
+      widget.oncomplete = (result) => {
+        if (widgetCompletionHandledRef.current) {
+          return;
+        }
+        widgetCompletionHandledRef.current = true;
+        const outcome =
+          result.status === "success"
+            ? "success"
+            : result.type === "cancel" || result.status === "cancel"
+              ? "failed"
+              : result.status === "fail" || result.status === "reject" || result.type === "error"
+                ? "failed"
+                : "pending";
+        router.replace(buildChatReturnHref(paymentIntent, outcome));
+      };
+      await widget.start(widgetPayload);
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error && nextError.message.trim().length > 0
+          ? nextError.message
+          : t("widgetStartFailed")
+      );
+    } finally {
+      setLaunchingWidget(false);
+    }
+  }
 
   return (
     <div className="min-h-dvh bg-chrome text-text">
@@ -177,6 +317,24 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
                       className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
                     >
                       {t("returnFailed")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => router.replace(buildChatReturnHref(paymentIntent, "pending"))}
+                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                    >
+                      {t("returnPending")}
+                    </button>
+                  </div>
+                ) : paymentIntent.checkout.mode === "widget" && widgetPayload ? (
+                  <div className="mt-6 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => void launchCloudpaymentsWidget()}
+                      disabled={launchingWidget}
+                      className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:opacity-60"
+                    >
+                      {launchingWidget ? t("startingWidget") : t("openProviderCheckout")}
                     </button>
                     <button
                       type="button"

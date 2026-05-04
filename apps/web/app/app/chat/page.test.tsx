@@ -25,11 +25,16 @@ const appDataMocks = vi.hoisted(() => ({
     chat: { id: string; surfaceThreadKey: string; title: string | null; deepModeEnabled: boolean };
   }>,
   assistant: null,
+  reload: vi.fn(),
   reloadChats: vi.fn()
 }));
 
 const chatAreaMocks = vi.hoisted(() => ({
   lastProps: null as Record<string, unknown> | null
+}));
+
+const assistantApiClientMocks = vi.hoisted(() => ({
+  getAssistantBillingPaymentIntent: vi.fn()
 }));
 
 vi.mock("next/navigation", () => ({
@@ -45,7 +50,8 @@ vi.mock("next-intl", () => ({
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
-    userId: "user-1"
+    userId: "user-1",
+    getToken: vi.fn().mockResolvedValue("token-1")
   })
 }));
 
@@ -67,6 +73,11 @@ vi.mock("../_components/chat-area", () => ({
   }
 }));
 
+vi.mock("../assistant-api-client", () => ({
+  WELCOME_THREAD_KEY: "welcome",
+  getAssistantBillingPaymentIntent: assistantApiClientMocks.getAssistantBillingPaymentIntent
+}));
+
 describe("ChatPage", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -74,6 +85,8 @@ describe("ChatPage", () => {
     chatHookMocks.isStreaming = false;
     chatHookMocks.threadKeys = [];
     chatAreaMocks.lastProps = null;
+    assistantApiClientMocks.getAssistantBillingPaymentIntent.mockReset();
+    appDataMocks.reload.mockReset();
   });
 
   it("does not auto-create a welcome chat just because the chat list is empty", async () => {
@@ -188,5 +201,28 @@ describe("ChatPage", () => {
     });
     expect(chatAreaMocks.lastProps?.billingReturnKind).toBe("success");
     expect(chatAreaMocks.lastProps?.billingPlanCode).toBe("pro_plus");
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
+  });
+
+  it("reloads app data after authoritative succeeded payment intent confirmation", async () => {
+    navigationMocks.searchParams = new URLSearchParams(
+      "billingReturn=success&billingPlan=pro_plus&billingPaymentIntentId=intent-1"
+    );
+    appDataMocks.chats = [];
+    chatHookMocks.markHistoryEmpty.mockReset();
+    assistantApiClientMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "intent-1",
+      status: "succeeded"
+    });
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(assistantApiClientMocks.getAssistantBillingPaymentIntent).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(appDataMocks.reload).toHaveBeenCalled();
+    });
+    expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
   });
 });

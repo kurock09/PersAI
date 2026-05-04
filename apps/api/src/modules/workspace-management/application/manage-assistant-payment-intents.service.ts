@@ -26,6 +26,7 @@ export type AssistantPaymentIntentStatus =
   | "succeeded"
   | "failed"
   | "canceled"
+  | "reversed"
   | "expired";
 export type AssistantPaymentIntentBillingPeriod = "month" | "year";
 export type AssistantPaymentCheckoutMode =
@@ -395,8 +396,12 @@ export class ManageAssistantPaymentIntentsService {
       userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,
-      assistantPlanOverrideCode: governance.assistantPlanOverrideCode,
-      assistantQuotaPlanCode: governance.quotaPlanCode
+      // Billing truth for user checkout must ignore tester/admin plan overrides
+      // and quota fallbacks. Payment-intent decisions should follow the
+      // workspace subscription row (or lazily initialize it from the default
+      // registration path), not Plan Control state.
+      assistantPlanOverrideCode: null,
+      assistantQuotaPlanCode: null
     });
     const currentPlan =
       subscription.planCode === null

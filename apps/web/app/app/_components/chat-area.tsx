@@ -46,6 +46,16 @@ interface ChatAreaProps {
   billingPlanCode?: string | undefined;
 }
 
+function formatBillingPlanLabel(planCode: string | undefined): string {
+  if (!planCode) {
+    return "?";
+  }
+  return planCode
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export function ChatArea({
   chat,
   title,
@@ -552,7 +562,9 @@ export function ChatArea({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-text">
               {billingReturnKind === "success"
-                ? t("billingReturnSuccessTitle", { plan: billingPlanCode ?? "?" })
+                ? t("billingReturnSuccessTitle", {
+                    plan: formatBillingPlanLabel(billingPlanCode)
+                  })
                 : billingReturnKind === "failed"
                   ? t("billingReturnFailedTitle")
                   : t("billingReturnPendingTitle")}

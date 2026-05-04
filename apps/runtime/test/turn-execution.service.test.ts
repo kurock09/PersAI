@@ -1209,6 +1209,21 @@ class FakePersaiInternalApiClientService {
   };
   quotaStatusOutcome: InternalQuotaStatusOutcome = {
     planCode: "paid",
+    currentPlan: {
+      code: "paid",
+      displayName: "Paid"
+    },
+    visiblePlans: [
+      {
+        code: "paid",
+        displayName: "Paid",
+        highlighted: true,
+        isCurrent: true,
+        amountMinor: 1990,
+        currency: "RUB",
+        billingPeriod: "month"
+      }
+    ],
     tools: [
       {
         toolCode: "web_search",
@@ -1278,6 +1293,20 @@ class FakePersaiInternalApiClientService {
       throw this.quotaStatusError;
     }
     return this.quotaStatusOutcome;
+  }
+
+  async createQuotaCheckout(input: Record<string, unknown>) {
+    this.quotaStatusCalls.push({ kind: "checkout", ...input });
+    if (this.quotaStatusError !== null) {
+      throw this.quotaStatusError;
+    }
+    return {
+      paymentIntentId: "pi-1",
+      targetPlanCode: "paid",
+      paymentMethodClass: "card" as const,
+      checkoutMode: "widget" as const,
+      checkoutPagePath: "/app/billing/checkout/pi-1"
+    };
   }
 
   async listScheduledActions(assistantId: string) {

@@ -38,6 +38,16 @@ export type AdminOpsCockpitBillingNotificationJob = {
   createdAt: string;
 };
 
+export type AdminOpsCockpitPaidActivation = {
+  eventCode: string;
+  source: string;
+  adminAction: string | null;
+  planCode: string | null;
+  periodStartedAt: string | null;
+  periodEndsAt: string | null;
+  createdAt: string;
+} | null;
+
 export type AdminOpsCockpitBillingSupport = {
   subscription: {
     id: string | null;
@@ -58,6 +68,7 @@ export type AdminOpsCockpitBillingSupport = {
     endsAt: string | null;
     source: "subscription_period" | "calendar_month_fallback" | null;
   };
+  latestPaidActivation: AdminOpsCockpitPaidActivation;
   latestLifecycleEvents: AdminOpsCockpitBillingLifecycleEvent[];
   latestNotificationJobs: AdminOpsCockpitBillingNotificationJob[];
 };

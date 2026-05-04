@@ -10,6 +10,7 @@ export type DangerousAdminActionCode =
   | "admin.plan.update"
   | "admin.plan.delete"
   | "admin.billing_lifecycle_settings.update"
+  | "admin.billing_provider_credentials.update"
   | "admin.runtime_provider_settings.update"
   | "admin.document_processing_settings.update"
   | "admin.tool_credentials.update"
@@ -59,6 +60,7 @@ function requiredRolesForDangerousAction(action: DangerousAdminActionCode): Supp
     return ["ops_admin", "super_admin"];
   }
   if (
+    action === "admin.billing_provider_credentials.update" ||
     action === "admin.runtime_provider_settings.update" ||
     action === "admin.billing_lifecycle_settings.update" ||
     action === "admin.document_processing_settings.update"

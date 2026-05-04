@@ -1,5 +1,263 @@
 # SESSION-HANDOFF
 
+## 2026-05-05 (ADR-084 widget-first audit cleanup) — dead provider-pull seams and stale pre-Slice-9 billing assumptions were removed
+
+### What changed
+
+- Kept this session bounded to an independent ADR-084 cleanup/audit pass after the CloudPayments widget-first slice. The goal was not to add a new billing feature, but to remove leftover legacy seams, stale wording, and hidden pre-widget behavior that no longer matched repo truth.
+- Deleted the dead `SyncWorkspaceSubscriptionService` path and the orphaned `NullBillingProviderAdapter`. The active billing path is now explicit: PersAI payment intents plus trusted webhook/admin lifecycle truth, without a second fake provider-pull sync seam sitting beside it.
+- Cleaned the billing provider port/runtime copy so it no longer describes CloudPayments as a future slice or tells the assistant to create “payment link or QR” as the primary checkout contour when the real contour is now widget-first checkout.
+- Removed one hidden legacy behavior in the CloudPayments widget adapter: the old `paymentMethodClass` branch no longer silently constrains widget methods. The widget can now present its own provider-side method choice instead of PersAI pretending to be a second payment router.
+- Cleaned the web billing UX: `/app/chat` now strips one-shot billing return params after consuming them, the checkout/chat copy no longer talks about “future webhook slices”, and the billing return banner now shows a humanized plan label instead of raw plan-code formatting.
+- Updated `CHANGELOG`, `SESSION-HANDOFF`, ADR-083, and ADR-084 so the audit findings and the cleanup are reflected in repo truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-widget-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/chat/page.test.tsx` could not finish in this environment because the `vitest` worker ran out of memory repeatedly, even with a larger heap. The changed chat-page path is covered by typecheck and narrow file review, but not by a passing local test run in this session.
+- Workspace-wide `format:check` still fails because of existing repo-wide/generated Prettier drift unrelated to this cleanup slice.
+- The public API still carries `paymentMethodClass` for compatibility with the existing payment-intent/request shape. This cleanup only removed the hidden widget-side restriction logic; it did not redesign the public billing contract.
+
+### Next recommended step
+
+Run one live CloudPayments end-to-end smoke with real credentials, then do a separate repo-wide generated-format cleanup only if the founder wants that broad churn.
+
+## 2026-05-05 (ADR-084 Slice 9 CloudPayments widget-first wiring) — persisted payment intents now launch real CloudPayments checkout, but live credential validation still remains
+
+Historical ADR-084 entries below this section are timeline notes. Older Slice 3-8 blocks may still describe the pre-widget `manual_test` contour and should not be read as latest repo truth.
+
+### What changed
+
+- Kept this session bounded to ADR-084 Slice 9 in the user-approved `widget-first` contour. No new billing tool, no direct SBP QR API contour, and no second billing truth surface were introduced.
+- The default billing-provider adapter is now a concrete CloudPayments widget adapter. Payment-intent creation still starts from PersAI-owned `workspace_payment_intents`, but instead of returning `manual_test` it now returns a persisted `checkout.mode=widget` payload built from the configured CloudPayments widget public terminal id plus payment-intent data.
+- `Admin > Tools > Billing Providers` now stores both CloudPayments API Secret and CloudPayments widget public terminal id inside the same PersAI-managed billing config surface, so production checkout and webhook verification read one place instead of drifting into ad hoc env-only config.
+- `/app/billing/checkout/:paymentIntentId` now launches `cloudpayments.js` from the persisted payment-intent payload and returns the user to chat with the same `success` / `failed` / `pending` envelope. Plan activation still waits for trusted server confirmation; the checkout page does not promote client widget completion into billing truth.
+- CloudPayments webhook parsing now resolves widget-originated payments from `externalId` and `metadata/data` in addition to the older `invoiceId` path, so widget-first checkout can reconcile back to the correct PersAI payment intent before ADR-083 lifecycle apply.
+- Updated `ADR-084`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth reflects the new widget-first wiring while still recording that live provider smoke remains pending.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-billing-provider-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-widget-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Real CloudPayments live smoke has not been run in this session because no real production credentials/terminal validation was available through chat. The code path is wired, but production closure still needs one real payment + webhook verification pass.
+- Workspace-wide `format:check` and broader generated contract drift remain subject to unrelated repo-wide Prettier noise; this slice intentionally changed only the touched billing/doc surfaces.
+- The product still carries `paymentMethodClass` as a PersAI request field even though the widget can present multiple methods internally. This slice keeps the existing API shape and only uses that field as widget configuration input/hint, not as a second payment-truth source.
+
+### Next recommended step
+
+Configure the real CloudPayments widget public terminal id and API Secret in `Admin > Tools`, then run one live end-to-end payment + webhook smoke and close the remaining Slice 9 operational validation gap.
+
+## 2026-05-05 (Telegram completed-turn safety hardening) — post-runtime tail failures no longer discard a completed Telegram reply
+
+### What changed
+
+- Kept this session bounded to the founder-requested Telegram safety fix only: no new routing or webhook architecture was introduced, and no new async delay was added before user replies.
+- `HandleInternalTelegramTurnService` now distinguishes runtime failure from post-runtime tail failure. Once `sendNativeTelegramTurnService` returns a completed turn, later failures in `assistant_message_saved`, `quota_recorded`, or `update_completed` no longer force the generic "Assistant is temporarily unavailable" fallback.
+- If assistant-message persistence fails after runtime already completed, the service now still returns the completed text reply to Telegram as a recovery path. Because media delivery needs a persisted assistant message anchor, runtime media is dropped only in that narrow degraded case.
+- Quota-accounting failure is now logged as non-blocking, and Telegram update-finalization failure is now best-effort: the user reply still completes and the update claim is released if finalization itself fails, preventing stale in-flight metadata from keeping the update stuck.
+- Added focused regression coverage for all three post-runtime recovery paths so future Telegram changes cannot silently reintroduce completed-turn loss.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- `corepack pnpm run format:check` still fails because the repo already has broad unrelated/generated Prettier drift; this slice did not rewrite those unrelated files.
+- If runtime completed with media but assistant-message persistence fails, this safety fix intentionally prefers delivering the finished text over attempting unsafe media delivery without a canonical assistant message row.
+
+### Next recommended step
+
+Deploy this API slice, validate the Telegram recovery path against the live repro assistant, and then remove the temporary live monkeypatch diagnostics once production behavior is confirmed stable.
+
+## 2026-05-05 (ADR-084 Slice 8 assistant quota-tool checkout) — existing `quota_status` can now explain plans and create guarded checkout without becoming billing truth
+
+### What changed
+
+- Kept this session bounded to ADR-084 Slice 8 in the user-requested form: no new assistant billing tool was introduced. Instead, the existing `quota_status` tool was extended so the assistant can explain current/public plan options from the same quota/governance surface it already uses for limits.
+- `ReadInternalRuntimeQuotaStatusService` now returns `currentPlan` plus `visiblePlans` alongside quota buckets/media quotas, and runtime `quota_status` forwards that richer payload to the model so upgrade questions can be answered without inventing prices or reading a second billing surface.
+- Added a guarded internal runtime checkout path for `quota_status`. After explicit confirmation, runtime calls a new internal API endpoint that creates a normal PersAI payment intent through `ManageAssistantPaymentIntentsService` and returns the existing `/app/billing/checkout/:paymentIntentId` page path. The tool still cannot activate subscription state directly; paid access remains webhook / trusted server lifecycle truth only.
+- Removed `quota_status` from the runtime safe-parallel set because the same existing tool can now perform a guarded payment-intent mutation in addition to read-only quota reporting.
+- Updated `ADR-084`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth now reflects the completed Slice 8 shape.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/create-internal-runtime-quota-checkout.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- `format:check` still fails because the repo already contains broad unrelated/generated Prettier drift; this slice formatted only the touched files and did not rewrite hundreds of unrelated generated contract files.
+- Checkout creation still lands on the existing `manual_test` / provider-neutral payment-intent path until Slice 9 wires a real provider adapter. The assistant can now open checkout safely, but real provider checkout/session transport is still the next step.
+
+### Next recommended step
+
+Implement ADR-084 Slice 9: wire the concrete provider adapter so the now-guarded assistant/runtime checkout path and the pricing page both produce real provider checkout/session payloads while keeping payment-intent and webhook lifecycle truth unchanged.
+
+## 2026-05-04 (ADR-084 pre-Slice-8 billing hardening) — first paid success no longer depends on prior subscription init, and user checkout ignores tester override truth
+
+### What changed
+
+- Kept this session bounded to the remaining prep risks directly blocking a clean ADR-084 Slice 8 start. No assistant billing tool was added yet; this slice only hardened the existing billing base so the next tool slice does not inherit hidden billing-truth gaps.
+- `ApplyWorkspaceSubscriptionBillingEventService` now records the incoming billing event before lifecycle application and no longer hard-fails trusted first paid activation just because `workspace_subscription` has not been initialized by an earlier read path. For paid activation/recovery success, the existing lifecycle service is allowed to create the missing subscription row and the billing event is linked back to that row after apply.
+- `ManageAssistantPaymentIntentsService` now resolves billing truth for user checkout from the real workspace subscription / default-registration initialization path and explicitly ignores `assistantPlanOverrideCode` plus quota fallback state. `Admin > Ops > Plan Control` therefore stays tester-only and cannot leak into user payment-intent decisions.
+- Updated `ADR-084`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth now reflects the hardening completed before Slice 8.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+
+### Risks / residuals
+
+- Email lifecycle notifications are still only persisted / observable jobs in the current repo path; this prep slice intentionally did not add a real outbound email delivery channel.
+- `Plan Control` still exists for testers/admins by design. This slice only ensures user checkout ignores it; any future user-facing billing tool still needs to keep that same separation.
+
+### Next recommended step
+
+Implement ADR-084 Slice 8: add the assistant billing tool on top of this hardened base, with explicit confirmation before creating payment links / QR and with all subscription activation still flowing through trusted server-side billing truth.
+
+## 2026-05-04 (ADR-084 Slice 7 admin manual payment and Ops support) — Ops now records explicit manual/admin paid activation instead of implicit paid restore
+
+### What changed
+
+- Kept this session bounded to ADR-084 Slice 7 only: production admin/manual payment support in `Admin > Ops`. Concrete CloudPayments checkout/session wiring, assistant billing-tool UX, and provider-specific recurring/cancel management stayed out of scope.
+- Replaced the old fallback-only `restore_paid_manually` behavior with an explicit `activate_paid_manually` support action. `POST /api/v1/admin/ops/users/:userId/billing-support-action` now accepts `manualPayment.planCode` plus `manualPayment.billingPeriod`, validates that the target is an active non-trial paid plan, and activates paid access through `ManageWorkspaceSubscriptionLifecycleService` with `source=admin` instead of pretending a provider invoice/session exists.
+- `Admin > Ops` now lets the operator choose the paid plan and billing period before confirming the action, and the selected cockpit detail shows the latest paid activation source directly so manual/admin payment remains visible product truth rather than being confused with provider billing.
+- Updated `ADR-084`, `API-BOUNDARY`, `TEST-PLAN`, `CHANGELOG`, generated contracts, and this handoff so repo truth now says Slice 7 is completed and Slice 8 assistant billing-tool work is the next ADR-084 item. While doing that, also reconciled an existing contract drift: `initialize_lifecycle_now` was already implemented in code/UI but had been missing from the OpenAPI billing-support action enum.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/ops/page.test.tsx`
+- `ReadLints` on touched API/web files
+
+### Risks / residuals
+
+- Manual/admin activation currently defines the new paid period as `now + selected billing period` (`month` or `year`). That is explicit and production-safe for support/offline recovery, but it is still not a raw arbitrary custom date-range editor.
+- The current source visibility is intentionally lifecycle-truth centric: Ops shows the latest paid-activation source and recent lifecycle events, but there is still no separate provider invoice ledger inside PersAI. That remains correct for this slice because provider invoice truth should stay provider-owned until/unless a later finance/reporting ADR introduces a PersAI-owned accounting surface.
+
+### Next recommended step
+
+Implement ADR-084 Slice 8: add the assistant billing tool so the assistant can explain plans and create payment link / QR flows only after explicit confirmation, while still keeping payment/subscription truth server-owned.
+
+## 2026-05-04 (ADR-079 active-skill state overwrite hardening) — newer background routing results can no longer be overwritten by stale older turn state
+
+### What changed
+
+- Kept this follow-up bounded to the live founder regression on `persai-dev`: background skill-routing check #2 was already deciding `useSkills=false`, but the chat could still stay on the old active Skill until a later routing cycle. The issue was not cadence or missing background checks. The issue was state consistency: a newer background `inactive` result could be overwritten later by an older ordinary turn that still carried stale `active` state.
+- `apps/api/src/modules/workspace-management/application/auto-skill-routing-state.service.ts` now guards both `persistFromTurnRouting()` and `markBackgroundCheckQueued()` with current-state comparison against the already persisted chat state. A write is rejected when it would move `autoSkillRoutingState` backwards, for example when an older `checkedAtMessageIndex=82 active` payload tries to overwrite a newer `checkedAtMessageIndex=87 inactive` payload, or when an equal-index `active` payload tries to overwrite an already persisted `inactive` state.
+- This keeps the existing product behavior intact: user turns still answer at normal speed, background routing still runs in the background, and the system does not add a synchronous classifier call on every 5th message. The fix is purely about making the more recent background routing truth “win” permanently instead of being reverted by stale later writes.
+- Added focused API regressions in `apps/api/test/auto-skill-routing-state.service.test.ts` for both stale `persistFromTurnRouting()` and stale `markBackgroundCheckQueued()` writes, while `apps/runtime/test/turn-routing.service.test.ts` was restored away from the earlier wrong foreground-threshold experiment.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `ReadLints` on touched runtime/API files
+
+### Risks / residuals
+
+- This fix assumes `checkedAtMessageIndex` is the correct monotonic ordering key for routing truth, which matches the current runtime contract and the live `persai-dev` evidence. If future flows start writing cross-chat or out-of-band routing states, the comparison key may need to include an explicit persisted timestamp/version instead of only the message index.
+- Off-topic shifts still rely on background routing cadence rather than a synchronous per-turn drift classifier. That is intentional for latency, but it means “turn N itself” can still answer through the old active Skill if the newer background decision has not completed yet. The bug fixed here is narrower: once the newer background decision _has_ landed, older active state can no longer resurrect the Skill.
+
+### Next recommended step
+
+Re-live-smoke the same `persai-dev` chat shape and focus on persistence rather than threshold latency: once a background routing response writes `useSkills=false` / `autoSkillState.status=inactive`, later turns must not revert back to the old active Skill unless a newer routing cycle explicitly reactivates it with a higher `checkedAtMessageIndex`.
+
+## 2026-05-04 (ADR-084 Slice 6 immediate activation/materialization) — trusted paid success now rematerializes assistants right away and chat reloads authoritative billing truth on return
+
+### What changed
+
+- Kept this session bounded to ADR-084 Slice 6 only: immediate activation/materialization after trusted paid success. Concrete CloudPayments checkout/session creation, assistant billing-tool UX, admin manual payment operations, and provider-specific recurring/cancel management stayed out of scope.
+- Added `MaterializeWorkspacePaidActivationService` and wired it into the paid-success lifecycle path (`payment_activated`, `renewal_succeeded`, `payment_recovered`). After `WorkspaceSubscription` is updated and assistants are marked dirty, published assistants in the workspace now rematerialize immediately and warm both the native runtime bundle and provider-gateway model inventory instead of waiting for a later incidental refresh.
+- Kept the transition order honest: payment success still enters through trusted billing/lifecycle truth first, and only then triggers the immediate materialization/warmup step. Client return state still does not activate paid access by itself.
+- The web billing return path now carries `billingPaymentIntentId`, and `/app/chat` reloads authoritative server truth on successful return by checking the persisted payment intent and then refreshing app bootstrap state. That lets the user pick up the new plan/limits quickly when trusted success has already landed, without inventing a second client-owned billing truth.
+- Updated `ADR-084`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth now says Slice 6 is completed and Slice 7 admin manual payment/Ops support is the next billing item.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/materialize-workspace-paid-activation.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/chat/page.test.tsx`
+- `ReadLints` on touched API/web files
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Trusted success is now followed by immediate rematerialization/warmup, but the current checkout contour is still `manual_test`; this slice does not wire real CloudPayments widget/session start.
+- The chat return reload helps the signed-in web shell observe the new paid state sooner, but it still depends on authoritative server success having landed; client return params alone remain intentionally non-authoritative.
+- Admin manual paid activation, assistant payment-link/QR tooling, and provider-specific recurring/cancel lifecycle behavior remain later ADR-084 slices.
+
+### Next recommended step
+
+Implement ADR-084 Slice 7: add admin manual payment and Ops support actions that can activate paid periods explicitly through PersAI lifecycle truth without pretending those actions are provider invoice truth.
+
+## 2026-05-04 (ADR-084 Slice 5 webhook-to-lifecycle integration) — trusted CloudPayments webhook outcomes now update PersAI payment-intent and subscription lifecycle truth
+
+### What changed
+
+- Kept this session bounded to ADR-084 Slice 5 only: trusted provider outcome ingestion into PersAI lifecycle truth. Real CloudPayments checkout/session creation, widget launch, SBP QR rendering from the concrete provider adapter, immediate post-payment materialization guarantees, assistant billing-tool UX, and admin manual payment operations stayed out of scope.
+- Added a dedicated billing credential surface under `Admin > Tools` via `GET/PUT /api/v1/admin/tools/billing`. The CloudPayments API Secret now lives in the same PersAI-managed encrypted secret store as other platform credentials, with step-up auth and no new env-only / hardcoded secret path.
+- Enabled raw request body access in `apps/api` and added trusted webhook ingress under `POST /api/v1/public/billing/cloudpayments/webhooks/:notificationType`. The handler verifies `X-Content-HMAC` / `Content-HMAC` against the encrypted CloudPayments API Secret, accepts bounded notification types (`check`, `pay`, `fail`, `confirm`, `refund`, `cancel`, `recurrent`), and rejects unverifiable requests before they touch billing state.
+- CloudPayments webhook processing now resolves the PersAI payment intent / subscription subject, updates `workspace_payment_intents` deterministically, and routes paid activation / renewal success / renewal failure / payment recovery / payment reversal through `ApplyWorkspaceSubscriptionBillingEventService`. A new first-class `reversed` payment-intent status now captures refund/reversal truth explicitly instead of hiding it only in metadata.
+- Updated `ADR-084`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`, `CHANGELOG`, generated contracts, and this handoff so repo truth now says Slice 5 is completed and Slice 6 immediate activation/materialization is the next billing item.
+
+### Verification
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/admin-security.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-billing-provider-credentials.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `ReadLints` on touched API/web files
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+
+### Risks / residuals
+
+- The live checkout start is still `manual_test`; Slice 5 makes webhook/lifecycle ingestion real, but the product still cannot create a real CloudPayments payment session until the later concrete provider adapter slice lands.
+- `cancel` and `recurrent` webhook notifications are accepted and verified but currently do not mutate lifecycle truth; they are intentionally held until the later slices that formalize provider-driven cancellation scheduling / recurring subscription management.
+- The public webhook controller currently returns a generic rejected envelope on failure. That keeps the ingress bounded and safe, but future live rollout may still want tighter provider-specific retry/error observability.
+
+### Next recommended step
+
+Implement ADR-084 Slice 6: ensure trusted payment success updates the effective plan and materializes runtime/apply state immediately enough that the user reaches paid-sensitive surfaces without waiting for a later background refresh.
+
 ## 2026-05-04 (ADR-084 Slice 4 checkout + return flow) — logged-in pricing now starts PersAI payment intents and returns to chat with explicit billing state
 
 ### What changed

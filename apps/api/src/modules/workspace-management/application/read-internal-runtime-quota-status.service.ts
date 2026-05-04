@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { ManageAdminPlansService } from "./manage-admin-plans.service";
 import type {
   AssistantMonthlyMediaQuotaSnapshot,
   AssistantQuotaBucketSnapshot
@@ -25,7 +26,8 @@ export type ToolDailyQuotaStatusRow = {
 export class ReadInternalRuntimeQuotaStatusService {
   constructor(
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly manageAdminPlansService: ManageAdminPlansService
   ) {}
 
   parseInput(payload: unknown): ReadInternalRuntimeQuotaStatusRequest {
@@ -48,6 +50,19 @@ export class ReadInternalRuntimeQuotaStatusService {
   async execute(input: ReadInternalRuntimeQuotaStatusRequest): Promise<{
     ok: true;
     planCode: string | null;
+    currentPlan: {
+      code: string | null;
+      displayName: string | null;
+    };
+    visiblePlans: Array<{
+      code: string;
+      displayName: string;
+      highlighted: boolean;
+      isCurrent: boolean;
+      amountMinor: number | null;
+      currency: string | null;
+      billingPeriod: "month" | "year" | null;
+    }>;
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
     monthlyMediaQuotas: AssistantMonthlyMediaQuotaSnapshot;
@@ -103,10 +118,25 @@ export class ReadInternalRuntimeQuotaStatusService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
         resolved.assistant
       );
+    const visiblePlans = await this.manageAdminPlansService.listPublicPricingPlans();
+    const currentVisiblePlan = visiblePlans.find((plan) => plan.code === resolved.planCode) ?? null;
 
     return {
       ok: true,
       planCode: resolved.planCode,
+      currentPlan: {
+        code: resolved.planCode,
+        displayName: currentVisiblePlan?.displayName ?? null
+      },
+      visiblePlans: visiblePlans.map((plan) => ({
+        code: plan.code,
+        displayName: plan.displayName,
+        highlighted: plan.presentation.highlighted,
+        isCurrent: plan.code === resolved.planCode,
+        amountMinor: plan.presentation.price.amount,
+        currency: plan.presentation.price.currency,
+        billingPeriod: plan.presentation.price.billingPeriod
+      })),
       tools,
       buckets: snapshot.buckets,
       monthlyMediaQuotas

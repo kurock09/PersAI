@@ -808,15 +808,41 @@ export interface RuntimeMonthlyMediaQuotaStatus {
   tools: RuntimeMonthlyMediaQuotaStatusToolRow[];
 }
 
+export interface RuntimeQuotaStatusCurrentPlan {
+  code: string | null;
+  displayName: string | null;
+}
+
+export interface RuntimeQuotaStatusVisiblePlan {
+  code: string;
+  displayName: string;
+  highlighted: boolean;
+  isCurrent: boolean;
+  amountMinor: number | null;
+  currency: string | null;
+  billingPeriod: "month" | "year" | null;
+}
+
+export interface RuntimeQuotaStatusCheckout {
+  paymentIntentId: string;
+  targetPlanCode: string;
+  paymentMethodClass: "card" | "sbp_qr";
+  checkoutMode: "widget" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+  checkoutPagePath: string;
+}
+
 export interface RuntimeQuotaStatusToolResult {
   toolCode: "quota_status";
   executionMode: "inline";
   requestedToolCode: string | null;
   planCode: string | null;
+  currentPlan: RuntimeQuotaStatusCurrentPlan;
+  visiblePlans: RuntimeQuotaStatusVisiblePlan[];
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
-  action: "reported" | "skipped";
+  checkout: RuntimeQuotaStatusCheckout | null;
+  action: "reported" | "checkout_created" | "skipped";
   reason: string | null;
   warning: string | null;
 }

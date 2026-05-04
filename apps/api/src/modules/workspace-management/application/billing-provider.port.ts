@@ -51,14 +51,12 @@ export type BillingProviderCheckoutSession = {
 };
 
 /**
- * Provider-agnostic billing boundary.
- * Concrete CloudPayments wiring remains a later ADR-084 slice.
+ * Provider-agnostic billing boundary for PersAI-owned payment intents.
+ * Current production checkout uses a concrete CloudPayments widget adapter,
+ * while lifecycle truth still remains webhook/admin driven inside PersAI.
  */
 export interface BillingProviderPort {
   createCheckoutSession(
     input: BillingProviderCheckoutSessionRequest
   ): Promise<BillingProviderCheckoutSession>;
-  pullWorkspaceSubscription(
-    workspaceId: string
-  ): Promise<BillingProviderSubscriptionSnapshot | null>;
 }

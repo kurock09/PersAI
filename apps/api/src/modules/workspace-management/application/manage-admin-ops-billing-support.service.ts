@@ -12,11 +12,21 @@ export type AdminOpsBillingSupportAction =
   | "extend_grace"
   | "send_billing_reminder"
   | "apply_fallback_now"
-  | "restore_paid_manually";
+  | "activate_paid_manually";
 
-export type AdminOpsBillingSupportActionInput = {
-  action: AdminOpsBillingSupportAction;
+export type AdminOpsManualPaidActivationInput = {
+  planCode: string;
+  billingPeriod: "month" | "year";
 };
+
+export type AdminOpsBillingSupportActionInput =
+  | {
+      action: Exclude<AdminOpsBillingSupportAction, "activate_paid_manually">;
+    }
+  | {
+      action: "activate_paid_manually";
+      manualPayment: AdminOpsManualPaidActivationInput;
+    };
 
 type SubscriptionState = {
   id: string;
@@ -34,6 +44,16 @@ type SubscriptionState = {
   providerSubscriptionRef: string | null;
   metadata: unknown;
 };
+
+function addBillingPeriod(startAt: Date, billingPeriod: "month" | "year"): Date {
+  const next = new Date(startAt);
+  if (billingPeriod === "year") {
+    next.setUTCFullYear(next.getUTCFullYear() + 1);
+  } else {
+    next.setUTCMonth(next.getUTCMonth() + 1);
+  }
+  return next;
+}
 
 @Injectable()
 export class ManageAdminOpsBillingSupportService {
@@ -53,6 +73,12 @@ export class ManageAdminOpsBillingSupportService {
     const action = (body as Record<string, unknown>).action;
     if (!this.isBillingSupportAction(action)) {
       throw new BadRequestException("Unsupported billing support action.");
+    }
+    if (action === "activate_paid_manually") {
+      return {
+        action,
+        manualPayment: this.parseManualPaidActivationInput(body)
+      };
     }
     return { action };
   }
@@ -92,7 +118,7 @@ export class ManageAdminOpsBillingSupportService {
       targetUserId,
       current,
       governance,
-      input.action
+      input
     );
     return {
       ok: true,
@@ -112,8 +138,9 @@ export class ManageAdminOpsBillingSupportService {
       assistantPlanOverrideCode: string | null;
       quotaPlanCode: string | null;
     } | null,
-    action: AdminOpsBillingSupportAction
+    input: AdminOpsBillingSupportActionInput
   ): Promise<string> {
+    const action = input.action;
     switch (action) {
       case "initialize_lifecycle_now": {
         if (current !== null) {
@@ -223,32 +250,69 @@ export class ManageAdminOpsBillingSupportService {
         });
         return "Workspace moved to the configured fallback plan.";
       }
-      case "restore_paid_manually": {
+      case "activate_paid_manually": {
         this.assertCurrentSubscription(current);
-        const recovered = await this.resolveManualRestoreContext(workspaceId, current);
+        const manualPayment = input.manualPayment;
+        const validatedPlanCode = await this.requireManualPaidPlanCode(manualPayment.planCode);
+        const periodStartedAt = new Date();
+        const periodEndsAt = addBillingPeriod(periodStartedAt, manualPayment.billingPeriod);
         await this.manageWorkspaceSubscriptionLifecycleService.activatePaidSubscription({
           workspaceId,
           userId,
-          paidPlanCode: recovered.planCode,
-          currentPeriodStartedAt: recovered.periodStartedAt.toISOString(),
-          currentPeriodEndsAt: recovered.periodEndsAt.toISOString(),
-          billingProvider: current.billingProvider,
-          providerCustomerRef: current.providerCustomerRef,
-          providerSubscriptionRef: current.providerSubscriptionRef,
+          paidPlanCode: validatedPlanCode,
+          currentPeriodStartedAt: periodStartedAt.toISOString(),
+          currentPeriodEndsAt: periodEndsAt.toISOString(),
+          billingProvider: current.billingProvider ?? null,
+          providerCustomerRef: current.providerCustomerRef ?? null,
+          providerSubscriptionRef: current.providerSubscriptionRef ?? null,
           source: "admin",
           refs: {
             metadata: {
               adminAction: action,
-              restoredFromStatus: current.status,
-              restoredFromPlanCode: current.planCode
+              manualPayment: {
+                planCode: validatedPlanCode,
+                billingPeriod: manualPayment.billingPeriod
+              },
+              previousStatus: current.status,
+              previousPlanCode: current.planCode
             }
           },
           eventCode: "payment_activated",
           lifecycleReason: "payment_activated"
         });
-        return `Paid access restored on ${recovered.planCode} until ${recovered.periodEndsAt.toISOString()}.`;
+        return `Manual/admin paid activation applied on ${validatedPlanCode} until ${periodEndsAt.toISOString()}.`;
       }
     }
+  }
+
+  private parseManualPaidActivationInput(body: unknown): AdminOpsManualPaidActivationInput {
+    const manualPayment =
+      body !== null && typeof body === "object" && !Array.isArray(body)
+        ? (body as Record<string, unknown>).manualPayment
+        : null;
+    if (
+      manualPayment === null ||
+      typeof manualPayment !== "object" ||
+      Array.isArray(manualPayment)
+    ) {
+      throw new BadRequestException(
+        "manualPayment with planCode and billingPeriod is required for manual paid activation."
+      );
+    }
+    const manualPaymentRecord = manualPayment as Record<string, unknown>;
+    const planCode =
+      typeof manualPaymentRecord.planCode === "string" ? manualPaymentRecord.planCode.trim() : "";
+    if (planCode.length === 0) {
+      throw new BadRequestException("manualPayment.planCode is required.");
+    }
+    const billingPeriod = manualPaymentRecord.billingPeriod;
+    if (billingPeriod !== "month" && billingPeriod !== "year") {
+      throw new BadRequestException("manualPayment.billingPeriod must be one of: month, year.");
+    }
+    return {
+      planCode,
+      billingPeriod
+    };
   }
 
   private async requireAssistantByUserId(targetUserId: string) {
@@ -326,55 +390,21 @@ export class ManageAdminOpsBillingSupportService {
     return new Date(base.getTime() + currentDurationMs);
   }
 
-  private async resolveManualRestoreContext(
-    workspaceId: string,
-    current: SubscriptionState
-  ): Promise<{ planCode: string; periodStartedAt: Date; periodEndsAt: Date }> {
-    if (current.status !== "expired_fallback") {
-      throw new BadRequestException(
-        "Manual paid restore is only available after the workspace moved to fallback."
-      );
-    }
-
-    const latestPaidPeriod = await this.prisma.workspaceSubscriptionLifecycleEvent.findFirst({
-      where: {
-        workspaceId,
-        nextStatus: "active",
-        nextPlanCode: { not: null },
-        nextPeriodStartedAt: { not: null },
-        nextPeriodEndsAt: { not: null }
-      },
-      orderBy: { createdAt: "desc" },
+  private async requireManualPaidPlanCode(planCode: string): Promise<string> {
+    const plan = await this.prisma.planCatalogPlan.findUnique({
+      where: { code: planCode },
       select: {
-        nextPlanCode: true,
-        nextPeriodStartedAt: true,
-        nextPeriodEndsAt: true
+        status: true,
+        isTrialPlan: true
       }
     });
-    if (
-      latestPaidPeriod === null ||
-      latestPaidPeriod.nextPlanCode === null ||
-      latestPaidPeriod.nextPeriodStartedAt === null ||
-      latestPaidPeriod.nextPeriodEndsAt === null
-    ) {
-      throw new BadRequestException(
-        "Manual paid restore needs a previous paid lifecycle period to copy."
-      );
+    if (plan === null || plan.status !== "active") {
+      throw new BadRequestException("Manual paid activation requires an active paid plan.");
     }
-
-    const durationMs =
-      latestPaidPeriod.nextPeriodEndsAt.getTime() - latestPaidPeriod.nextPeriodStartedAt.getTime();
-    if (!Number.isFinite(durationMs) || durationMs <= 0) {
-      throw new BadRequestException("Previous paid lifecycle period is invalid.");
+    if (plan.isTrialPlan) {
+      throw new BadRequestException("Manual paid activation cannot target a trial plan.");
     }
-
-    const periodStartedAt = new Date();
-    const periodEndsAt = new Date(periodStartedAt.getTime() + durationMs);
-    return {
-      planCode: latestPaidPeriod.nextPlanCode,
-      periodStartedAt,
-      periodEndsAt
-    };
+    return planCode;
   }
 
   private isBillingSupportAction(value: unknown): value is AdminOpsBillingSupportAction {
@@ -385,7 +415,7 @@ export class ManageAdminOpsBillingSupportService {
       value === "extend_grace" ||
       value === "send_billing_reminder" ||
       value === "apply_fallback_now" ||
-      value === "restore_paid_manually"
+      value === "activate_paid_manually"
     );
   }
 }

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import type { Prisma, WorkspaceSubscriptionStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./manage-admin-billing-lifecycle-settings.service";
+import { MaterializeWorkspacePaidActivationService } from "./materialize-workspace-paid-activation.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
 import { ScheduleBillingLifecycleNotificationsService } from "./schedule-billing-lifecycle-notifications.service";
 
@@ -36,7 +37,8 @@ export class ManageWorkspaceSubscriptionLifecycleService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly billingLifecycleSettingsService: ManageAdminBillingLifecycleSettingsService,
-    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService
+    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    private readonly materializeWorkspacePaidActivationService: MaterializeWorkspacePaidActivationService
   ) {}
 
   async startPaidGrace(input: {
@@ -712,6 +714,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
 
     await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.materializeWorkspacePaidActivationService.execute(input.workspaceId);
     await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
       lifecycleEventIds
     );

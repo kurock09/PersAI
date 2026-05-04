@@ -60,7 +60,7 @@ async function bootstrap(): Promise<void> {
   const config = loadApiConfig(process.env);
   process.env.LOG_LEVEL = config.LOG_LEVEL;
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(AppLoggerService));
   app.useGlobalFilters(new ApiExceptionFilter());
 

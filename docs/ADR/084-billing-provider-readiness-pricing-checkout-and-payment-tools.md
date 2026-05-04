@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted; implementation completed through Slice 4.
+Accepted; implementation completed through Slice 8, with Slice 9 CloudPayments widget-first wiring landed pending live credential validation.
 
 Current continuation state:
 
 - **Purpose:** finish the PersAI-owned billing/provider boundary so only concrete provider adapter wiring remains for YooKassa, CloudPayments, Stripe, or another provider.
-- **Completed through:** Slice 4 — checkout and payment return flow.
-- **Next active item:** Slice 5 — webhook to lifecycle integration.
+- **Completed through:** Slice 8 — assistant billing capability through the existing `quota_status` tool.
+- **Next active item:** Slice 9 — live credential validation and final hardening of the concrete provider adapter.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -291,6 +291,35 @@ If materialization is still running:
 - API should force or await safe apply before the next paid-sensitive turn when possible
 - the user should not need to wait minutes or refresh manually
 
+Slice 6 implementation note, 2026-05-04:
+
+- trusted paid-success transitions now trigger immediate assistant rematerialization and runtime/provider warmup for published assistants in the workspace instead of only setting `configDirtyAt`
+- the chat return path now reloads server truth from the persisted payment intent / bootstrap boundary so a post-checkout navigation can pick up the newly activated plan without depending on a later random refresh
+
+Slice 7 implementation note, 2026-05-04:
+
+- `Admin > Ops` manual payment support now uses an explicit manual/admin paid activation path with selected paid plan plus selected billing period instead of copying the last paid period implicitly from fallback history
+- the action still writes through PersAI lifecycle truth (`source=admin`, `eventCode=payment_activated`) and stores manual-payment context in lifecycle metadata rather than pretending a provider invoice/session exists
+- Ops Cockpit now surfaces the latest paid activation source directly, so manual/admin paid activation remains visible as product truth rather than being confused with provider billing
+
+Pre-Slice 8 hardening note, 2026-05-04:
+
+- trusted provider payment activation now tolerates a missing `workspace_subscription` row on first paid success by letting the lifecycle activation path create the row instead of failing early in billing-event apply
+- user payment-intent creation now resolves billing truth from the real workspace subscription / default-registration initialization path and explicitly ignores `Admin > Ops > Plan Control` override state so tester overrides do not leak into user billing decisions
+
+Slice 8 implementation note, 2026-05-05:
+
+- PersAI did not add a separate new billing tool; the existing `quota_status` tool now exposes current/public pricing-plan context so the assistant can explain upgrades from the same quota/governance surface it already used for limits
+- `quota_status` may now create checkout only after explicit confirmation, and the guarded runtime/API path creates a normal PersAI payment intent plus returns the existing `/app/billing/checkout/:paymentIntentId` path instead of bypassing product checkout state
+- the tool still cannot activate subscriptions directly; paid access remains webhook/trusted-server lifecycle truth only
+
+Slice 9 implementation note, 2026-05-05:
+
+- the default billing-provider adapter is now a real `CloudPayments widget-first` adapter: it reads the encrypted API Secret plus widget public terminal id from `Admin > Tools`, returns `checkout.mode=widget`, and builds the widget payload from the persisted PersAI payment intent instead of a temporary `manual_test` session
+- `/app/billing/checkout/:paymentIntentId` now launches `cloudpayments.js` from the persisted payment-intent payload and returns the user back to chat with the same `success` / `failed` / `pending` envelope while still waiting for trusted server confirmation before activating paid access
+- CloudPayments webhook resolution now accepts widget-style `externalId` plus `metadata/data` in addition to the older `invoiceId` path so widget-originated payments reconcile back to the correct PersAI payment intent
+- live provider smoke is still required before this slice can be treated as fully closed in production operations
+
 ## Customer UX
 
 ### Settings / Plan and Limits
@@ -321,7 +350,7 @@ If payment fails, return with assistant-readable state so the assistant can expl
 
 ## Assistant billing tool
 
-An assistant-facing PersAI billing tool can be added after the provider-ready APIs exist.
+An assistant-facing PersAI billing capability should reuse the existing `quota_status` tool rather than creating a second parallel billing tool surface.
 
 Allowed behavior:
 
@@ -361,17 +390,17 @@ Provider secrets remain PersAI-managed secrets, not plan fields.
 
 Implement in production-grade slices.
 
-| Slice                                   | Status    | Purpose                                                                      | Main affected areas                                                                      | Completion criteria                                                                                                                           |
-| --------------------------------------- | --------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. ADR and provider-readiness policy    | Completed | Lock product/payment boundary decisions.                                     | `docs/ADR/084-*`, handoff, changelog                                                     | ADR accepted with pricing page, checkout, provider port, webhook, Plan Control separation, assistant tool, and activation decisions.          |
-| 2. Pricing cards from Admin Plans       | Completed | Generate public/logged-in tariff page from selected plans.                   | `Admin > Plans`, pricing API, pricing page, Settings link                                | Admin selects visible pricing plans/order; universal pricing page renders current plan and correct CTA states.                                |
-| 3. Payment intent and provider port     | Completed | Add PersAI-owned payment intent and provider-neutral adapter boundary.       | Prisma/data model, API services, billing provider port, test/manual adapter              | PersAI can create/audit payment intents and provider sessions without concrete provider lock-in.                                              |
-| 4. Checkout and payment return flow     | Completed | Let logged-in users buy/upgrade from pricing page.                           | Web pricing page, checkout endpoints, chat return banner                                 | Card/SBP-capable flow can be simulated through test/manual adapter; success returns to chat and failure returns with retry/explanation state. |
-| 5. Webhook to lifecycle integration     | Pending   | Route provider outcomes into ADR-083 lifecycle.                              | Webhook controller, lifecycle service, idempotency, audit events                         | Payment success/failure/refund/chargeback update PersAI payment intent and subscription lifecycle deterministically.                          |
-| 6. Immediate activation/materialization | Pending   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Successful upgrade updates effective plan and materializes before or by the next paid-sensitive turn.                                         |
-| 7. Admin manual payment and Ops support | Pending   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                 |
-| 8. Assistant billing tool               | Pending   | Let assistant explain plans and create payment link/QR after confirmation.   | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant can create payment link/QR only after explicit confirmation and cannot mutate subscription directly.                                |
-| 9. Concrete provider adapter            | Pending   | Wire real provider.                                                          | YooKassa/CloudPayments/Stripe adapter, secrets, webhook verification, live smoke         | Real card/SBP payment succeeds, webhook activates plan, refund/chargeback fallback works, live smoke passes.                                  |
+| Slice                                   | Status      | Purpose                                                                      | Main affected areas                                                                      | Completion criteria                                                                                                                                                                   |
+| --------------------------------------- | ----------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. ADR and provider-readiness policy    | Completed   | Lock product/payment boundary decisions.                                     | `docs/ADR/084-*`, handoff, changelog                                                     | ADR accepted with pricing page, checkout, provider port, webhook, Plan Control separation, assistant tool, and activation decisions.                                                  |
+| 2. Pricing cards from Admin Plans       | Completed   | Generate public/logged-in tariff page from selected plans.                   | `Admin > Plans`, pricing API, pricing page, Settings link                                | Admin selects visible pricing plans/order; universal pricing page renders current plan and correct CTA states.                                                                        |
+| 3. Payment intent and provider port     | Completed   | Add PersAI-owned payment intent and provider-neutral adapter boundary.       | Prisma/data model, API services, billing provider port, test/manual adapter              | PersAI can create/audit payment intents and provider sessions without concrete provider lock-in.                                                                                      |
+| 4. Checkout and payment return flow     | Completed   | Let logged-in users buy/upgrade from pricing page.                           | Web pricing page, checkout endpoints, chat return banner                                 | Card/SBP-capable flow can be simulated through test/manual adapter; success returns to chat and failure returns with retry/explanation state.                                         |
+| 5. Webhook to lifecycle integration     | Completed   | Route provider outcomes into ADR-083 lifecycle.                              | Webhook controller, lifecycle service, idempotency, audit events                         | Payment success/failure/refund/chargeback update PersAI payment intent and subscription lifecycle deterministically.                                                                  |
+| 6. Immediate activation/materialization | Completed   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Trusted paid success now rematerializes/warms published assistants immediately enough that chat/bootstrap can pick up the activated plan without waiting for a later random refresh.  |
+| 7. Admin manual payment and Ops support | Completed   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                                                         |
+| 8. Assistant billing tool               | Completed   | Let assistant explain plans and create payment link/QR after confirmation.   | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant can create payment link/QR only after explicit confirmation and cannot mutate subscription directly.                                                                        |
+| 9. Concrete provider adapter            | In progress | Wire real provider.                                                          | CloudPayments widget adapter, admin billing secrets, webhook verification, live smoke    | Widget payload is now created from persisted PersAI payment intents and trusted webhooks can reconcile widget-originated payments; live smoke and credential validation still remain. |
 
 ### Execution rules
 
@@ -465,8 +494,8 @@ Focused checks should prove:
 
 Current implementation observations that this ADR intentionally changes or formalizes:
 
-- A provider port exists conceptually, but the current null billing adapter is not a production provider boundary.
+- A provider port exists and now backs the real CloudPayments widget-first checkout path, but subscription lifecycle truth still must remain webhook/admin driven inside PersAI rather than coming from provider-side pull sync.
 - Admin plan catalog already carries rich plan limits and can become the source for pricing cards.
 - Ops Plan Control already exists for tester/manual override; ADR-084 keeps it separate from billing/payment truth.
 - ADR-083 lifecycle state should own trial/paid/grace/fallback outcomes; ADR-084 provider events should update that state rather than creating a parallel source of truth.
-- Existing assistant notification/tool governance can be reused for a future assistant billing tool, but payment creation must be guarded by explicit confirmation and PersAI payment intents.
+- Existing assistant notification/tool governance is now reused by the existing `quota_status` billing path, and payment creation remains guarded by explicit confirmation plus PersAI payment intents.

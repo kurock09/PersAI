@@ -207,6 +207,7 @@ enum WorkspacePaymentIntentStatus {
   succeeded
   failed
   canceled
+  reversed
   expired
 }
 

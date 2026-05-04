@@ -9,6 +9,7 @@ import type {
   AdminAssistantOwnershipRecoveryRequest,
   AdminAssistantOwnershipTransferRequest,
   AdminBillingLifecycleSettingsRequest,
+  AdminBillingProviderCredentialsRequest,
   AdminDocumentProcessingSettingsRequest,
   AdminDocumentProcessingTestConnectionRequest,
   AdminPlanCreateRequest,
@@ -27,6 +28,8 @@ import type {
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
+  CloudpaymentsWebhookAck,
+  CloudpaymentsWebhookNotificationType,
   DeleteAdminKnowledgeSourceResponse,
   DeleteAdminSkillDocumentResponse,
   DeleteAdminSkillKnowledgeCardResponse,
@@ -36,6 +39,7 @@ import type {
   DeleteProductKnowledgeTextEntryResponse,
   ErrorEnvelope,
   GetAdminBillingLifecycleSettingsResponse,
+  GetAdminBillingProviderCredentialsResponse,
   GetAdminBusinessCockpitResponse,
   GetAdminDocumentProcessingSettingsResponse,
   GetAdminIdleReengagementNotificationPolicyResponse,
@@ -120,9 +124,11 @@ import type {
   PostAssistantTaskItemDisableResponse,
   PostAssistantTaskItemEnableResponse,
   PostAssistantWebChatCompactResponse,
+  PostCloudpaymentsWebhookBody,
   PostProductKnowledgeTextEntryResponse,
   ProductKnowledgeTextEntryInput,
   PutAdminBillingLifecycleSettingsResponse,
+  PutAdminBillingProviderCredentialsResponse,
   PutAdminDocumentProcessingSettingsResponse,
   PutAdminRuntimeProviderSettingsResponse,
   PutAssistantSkillAssignmentsRequest,
@@ -5011,6 +5017,171 @@ export const postAdminDocumentProcessingTestConnection = async (
       method: "POST",
       headers: { "Content-Type": "application/json", ...options?.headers },
       body: JSON.stringify(adminDocumentProcessingTestConnectionRequest)
+    }
+  );
+};
+
+/**
+ * @summary Read billing-provider credential status
+ */
+export type getAdminBillingProviderCredentialsResponse200 = {
+  data: GetAdminBillingProviderCredentialsResponse;
+  status: 200;
+};
+
+export type getAdminBillingProviderCredentialsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminBillingProviderCredentialsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminBillingProviderCredentialsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminBillingProviderCredentialsResponseSuccess =
+  getAdminBillingProviderCredentialsResponse200 & {
+    headers: Headers;
+  };
+export type getAdminBillingProviderCredentialsResponseError = (
+  | getAdminBillingProviderCredentialsResponse401
+  | getAdminBillingProviderCredentialsResponse403
+  | getAdminBillingProviderCredentialsResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminBillingProviderCredentialsResponse =
+  | getAdminBillingProviderCredentialsResponseSuccess
+  | getAdminBillingProviderCredentialsResponseError;
+
+export const getGetAdminBillingProviderCredentialsUrl = () => {
+  return `/admin/tools/billing`;
+};
+
+export const getAdminBillingProviderCredentials = async (
+  options?: RequestInit
+): Promise<getAdminBillingProviderCredentialsResponse> => {
+  return customFetch<getAdminBillingProviderCredentialsResponse>(
+    getGetAdminBillingProviderCredentialsUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update billing-provider credentials
+ */
+export type putAdminBillingProviderCredentialsResponse200 = {
+  data: PutAdminBillingProviderCredentialsResponse;
+  status: 200;
+};
+
+export type putAdminBillingProviderCredentialsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminBillingProviderCredentialsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminBillingProviderCredentialsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminBillingProviderCredentialsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminBillingProviderCredentialsResponseSuccess =
+  putAdminBillingProviderCredentialsResponse200 & {
+    headers: Headers;
+  };
+export type putAdminBillingProviderCredentialsResponseError = (
+  | putAdminBillingProviderCredentialsResponse400
+  | putAdminBillingProviderCredentialsResponse401
+  | putAdminBillingProviderCredentialsResponse403
+  | putAdminBillingProviderCredentialsResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminBillingProviderCredentialsResponse =
+  | putAdminBillingProviderCredentialsResponseSuccess
+  | putAdminBillingProviderCredentialsResponseError;
+
+export const getPutAdminBillingProviderCredentialsUrl = () => {
+  return `/admin/tools/billing`;
+};
+
+export const putAdminBillingProviderCredentials = async (
+  adminBillingProviderCredentialsRequest: AdminBillingProviderCredentialsRequest,
+  options?: RequestInit
+): Promise<putAdminBillingProviderCredentialsResponse> => {
+  return customFetch<putAdminBillingProviderCredentialsResponse>(
+    getPutAdminBillingProviderCredentialsUrl(),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminBillingProviderCredentialsRequest)
+    }
+  );
+};
+
+/**
+ * @summary Receive one CloudPayments billing webhook notification
+ */
+export type postCloudpaymentsWebhookResponse200 = {
+  data: CloudpaymentsWebhookAck;
+  status: 200;
+};
+
+export type postCloudpaymentsWebhookResponse400 = {
+  data: CloudpaymentsWebhookAck;
+  status: 400;
+};
+
+export type postCloudpaymentsWebhookResponseSuccess = postCloudpaymentsWebhookResponse200 & {
+  headers: Headers;
+};
+export type postCloudpaymentsWebhookResponseError = postCloudpaymentsWebhookResponse400 & {
+  headers: Headers;
+};
+
+export type postCloudpaymentsWebhookResponse =
+  | postCloudpaymentsWebhookResponseSuccess
+  | postCloudpaymentsWebhookResponseError;
+
+export const getPostCloudpaymentsWebhookUrl = (
+  notificationType: CloudpaymentsWebhookNotificationType
+) => {
+  return `/public/billing/cloudpayments/webhooks/${notificationType}`;
+};
+
+export const postCloudpaymentsWebhook = async (
+  notificationType: CloudpaymentsWebhookNotificationType,
+  postCloudpaymentsWebhookBody: PostCloudpaymentsWebhookBody,
+  options?: RequestInit
+): Promise<postCloudpaymentsWebhookResponse> => {
+  return customFetch<postCloudpaymentsWebhookResponse>(
+    getPostCloudpaymentsWebhookUrl(notificationType),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postCloudpaymentsWebhookBody)
     }
   );
 };

@@ -18,7 +18,9 @@ import type {
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
   RuntimeMonthlyMediaQuotaStatus,
+  RuntimeQuotaStatusCheckout,
   RuntimeQuotaStatusBucket,
+  RuntimeQuotaStatusCurrentPlan,
   RuntimeQuotaStatusToolRow
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
@@ -68,10 +70,22 @@ export type ReserveMonthlyMediaQuotaOutcome =
 
 export type InternalQuotaStatusOutcome = {
   planCode: string | null;
+  currentPlan: RuntimeQuotaStatusCurrentPlan;
+  visiblePlans: Array<{
+    code: string;
+    displayName: string;
+    highlighted: boolean;
+    isCurrent: boolean;
+    amountMinor: number | null;
+    currency: string | null;
+    billingPeriod: "month" | "year" | null;
+  }>;
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
 };
+
+export type InternalQuotaCheckoutOutcome = RuntimeQuotaStatusCheckout;
 
 export type InternalScheduledActionItem = {
   id: string;
@@ -607,9 +621,13 @@ export class PersaiInternalApiClientService {
       const tools = payload?.tools;
       const buckets = payload?.buckets;
       const monthlyMediaQuotas = payload?.monthlyMediaQuotas;
+      const visiblePlans = payload?.visiblePlans;
       if (
         payload?.ok === true &&
         (payload.planCode === null || typeof payload.planCode === "string") &&
+        this.isQuotaStatusCurrentPlan(payload.currentPlan) &&
+        Array.isArray(visiblePlans) &&
+        visiblePlans.every((plan) => this.isQuotaStatusVisiblePlan(plan)) &&
         Array.isArray(tools) &&
         tools.every((tool) => this.isQuotaStatusToolRow(tool)) &&
         Array.isArray(buckets) &&
@@ -618,6 +636,8 @@ export class PersaiInternalApiClientService {
       ) {
         return {
           planCode: (payload.planCode as string | null) ?? null,
+          currentPlan: payload.currentPlan as RuntimeQuotaStatusCurrentPlan,
+          visiblePlans: visiblePlans as InternalQuotaStatusOutcome["visiblePlans"],
           tools: tools as RuntimeQuotaStatusToolRow[],
           buckets: buckets as RuntimeQuotaStatusBucket[],
           monthlyMediaQuotas: (monthlyMediaQuotas as RuntimeMonthlyMediaQuotaStatus | null) ?? null
@@ -637,6 +657,54 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the quota-status request."
+    );
+  }
+
+  async createQuotaCheckout(input: {
+    assistantId: string;
+    requestId: string;
+    targetPlanCode: string;
+    paymentMethodClass: "card" | "sbp_qr";
+    confirmed: boolean;
+    userConfirmationText: string;
+  }): Promise<InternalQuotaCheckoutOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/tools/quota-status/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true && this.isQuotaStatusCheckout(payload)) {
+        return {
+          paymentIntentId: payload.paymentIntentId,
+          targetPlanCode: payload.targetPlanCode,
+          paymentMethodClass: payload.paymentMethodClass,
+          checkoutMode: payload.checkoutMode,
+          checkoutPagePath: payload.checkoutPagePath
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid quota checkout response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API quota checkout request failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the quota checkout request."
     );
   }
 
@@ -1550,6 +1618,31 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  private isQuotaStatusCurrentPlan(value: unknown): value is RuntimeQuotaStatusCurrentPlan {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      (row.code === null || typeof row.code === "string") &&
+      (row.displayName === null || typeof row.displayName === "string")
+    );
+  }
+
+  private isQuotaStatusVisiblePlan(
+    value: unknown
+  ): value is InternalQuotaStatusOutcome["visiblePlans"][number] {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.code === "string" &&
+      typeof row.displayName === "string" &&
+      typeof row.highlighted === "boolean" &&
+      typeof row.isCurrent === "boolean" &&
+      (row.amountMinor === null || this.isNonNegativeInteger(row.amountMinor)) &&
+      (row.currency === null || typeof row.currency === "string") &&
+      (row.billingPeriod === null || row.billingPeriod === "month" || row.billingPeriod === "year")
+    );
+  }
+
   private isMonthlyMediaQuotaStatus(value: unknown): value is RuntimeMonthlyMediaQuotaStatus {
     const row = this.asObject(value);
     return (
@@ -1583,6 +1676,23 @@ export class PersaiInternalApiClientService {
       (row.remainingUnits === null || this.isNonNegativeInteger(row.remainingUnits)) &&
       typeof row.usageAvailable === "boolean" &&
       (row.status === "ok" || row.status === "limit_reached" || row.status === "usage_unavailable")
+    );
+  }
+
+  private isQuotaStatusCheckout(value: unknown): value is InternalQuotaCheckoutOutcome {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.paymentIntentId === "string" &&
+      typeof row.targetPlanCode === "string" &&
+      (row.paymentMethodClass === "card" || row.paymentMethodClass === "sbp_qr") &&
+      (row.checkoutMode === null ||
+        row.checkoutMode === "widget" ||
+        row.checkoutMode === "redirect" ||
+        row.checkoutMode === "payment_link" ||
+        row.checkoutMode === "qr_code" ||
+        row.checkoutMode === "manual_test") &&
+      typeof row.checkoutPagePath === "string"
     );
   }
 

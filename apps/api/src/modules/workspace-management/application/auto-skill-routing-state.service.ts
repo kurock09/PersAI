@@ -148,6 +148,14 @@ export class AutoSkillRoutingStateService {
               input.context.state.backgroundCheckQueuedAtMessageIndex ?? 0
             )
           };
+    const currentChat = await this.prisma.assistantChat.findUnique({
+      where: { id: input.chatId },
+      select: { autoSkillRoutingState: true }
+    });
+    const currentState = this.normalizeState(currentChat?.autoSkillRoutingState);
+    if (!this.shouldPersistAutoSkillRoutingState(currentState, nextState)) {
+      return;
+    }
     await this.prisma.assistantChat.update({
       where: { id: input.chatId },
       data: {
@@ -203,6 +211,14 @@ export class AutoSkillRoutingStateService {
     if (state === undefined) {
       return;
     }
+    const currentChat = await this.prisma.assistantChat.findUnique({
+      where: { id: input.chatId },
+      select: { autoSkillRoutingState: true }
+    });
+    const currentState = this.normalizeState(currentChat?.autoSkillRoutingState);
+    if (!this.shouldPersistAutoSkillRoutingState(currentState, state)) {
+      return;
+    }
     await this.prisma.assistantChat.update({
       where: { id: input.chatId },
       data: {
@@ -219,6 +235,31 @@ export class AutoSkillRoutingStateService {
       chatId: input.chatId,
       activeSkillId: state?.status === "active" ? state.activeSkillId : null
     });
+  }
+
+  private shouldPersistAutoSkillRoutingState(
+    currentState: RuntimeAutoSkillRoutingState | null | undefined,
+    nextState: RuntimeAutoSkillRoutingState | null
+  ): boolean {
+    if (currentState === undefined || currentState === null) {
+      return true;
+    }
+    if (nextState === null) {
+      return false;
+    }
+    if (nextState.checkedAtMessageIndex > currentState.checkedAtMessageIndex) {
+      return true;
+    }
+    if (nextState.checkedAtMessageIndex < currentState.checkedAtMessageIndex) {
+      return false;
+    }
+    if (currentState.status === "inactive" && nextState.status === "active") {
+      return false;
+    }
+    if (currentState.status === "active" && nextState.status === "inactive") {
+      return true;
+    }
+    return true;
   }
 
   private selectRecentRoutingRows<

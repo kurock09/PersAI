@@ -26,6 +26,7 @@ function actionCodesForStatus(status: string | null): BillingSupportAction[] {
       endsAt: null,
       source: null
     },
+    latestPaidActivation: null,
     latestLifecycleEvents: [],
     latestNotificationJobs: []
   }).map((action) => action.action);
@@ -34,6 +35,7 @@ function actionCodesForStatus(status: string | null): BillingSupportAction[] {
 describe("admin ops billing support actions", () => {
   it("shows trial support actions for trialing workspaces", () => {
     expect(actionCodesForStatus("trialing")).toEqual([
+      "activate_paid_manually",
       "extend_trial",
       "send_billing_reminder",
       "apply_fallback_now"
@@ -42,15 +44,16 @@ describe("admin ops billing support actions", () => {
 
   it("shows grace actions for grace-period workspaces", () => {
     expect(actionCodesForStatus("grace_period")).toEqual([
+      "activate_paid_manually",
       "extend_grace",
       "send_billing_reminder",
       "apply_fallback_now"
     ]);
   });
 
-  it("shows manual paid restore only after fallback", () => {
+  it("shows manual paid activation after fallback", () => {
     expect(actionCodesForStatus("expired_fallback")).toEqual([
-      "restore_paid_manually",
+      "activate_paid_manually",
       "send_billing_reminder"
     ]);
   });
@@ -78,6 +81,7 @@ describe("admin ops billing support actions", () => {
             endsAt: null,
             source: null
           },
+          latestPaidActivation: null,
           latestLifecycleEvents: [],
           latestNotificationJobs: []
         },

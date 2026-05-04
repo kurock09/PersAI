@@ -90,12 +90,50 @@ async function run(): Promise<void> {
           ]
         };
       }
+    } as never,
+    {
+      async listPublicPricingPlans() {
+        return [
+          {
+            code: "starter",
+            displayName: "Starter",
+            presentation: {
+              highlighted: false,
+              price: {
+                amount: 990,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              }
+            }
+          },
+          {
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              highlighted: true,
+              price: {
+                amount: 1990,
+                currency: "RUB",
+                billingPeriod: "month" as const
+              }
+            }
+          }
+        ];
+      }
     } as never
   );
 
   const result = await service.execute({ assistantId: "assistant-1" });
 
   assert.equal(result.planCode, "pro");
+  assert.deepEqual(result.currentPlan, {
+    code: "pro",
+    displayName: "Pro"
+  });
+  assert.equal(result.visiblePlans.length, 2);
+  assert.equal(result.visiblePlans[1]?.code, "pro");
+  assert.equal(result.visiblePlans[1]?.isCurrent, true);
+  assert.equal(result.visiblePlans[1]?.amountMinor, 1990);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
     result.tools.some((tool) => tool.toolCode === "image_generate"),

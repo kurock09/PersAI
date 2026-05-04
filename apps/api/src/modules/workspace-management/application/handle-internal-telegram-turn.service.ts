@@ -255,33 +255,72 @@ export class HandleInternalTelegramTurnService {
           ? `${mediaSystemNotices.join("\n")}\n\n${runtimeResponse.assistantMessage}`
           : runtimeResponse.assistantMessage;
 
-      const assistantChatMessage = await this.chatRepository.createMessage({
-        chatId: chat.id,
-        assistantId: resolved.assistantId,
-        author: "assistant",
-        content: assistantMessage
-      });
-      trace.stage("assistant_message_saved");
-
-      await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
-        assistant: resolved.assistant,
-        userContent: enrichedMessage,
-        assistantContent: assistantMessage,
-        ...(runtimeResponse.usageAccounting === undefined
-          ? {}
-          : { usageAccounting: runtimeResponse.usageAccounting }),
-        source: "telegram_turn_sync"
-      });
-      trace.stage("quota_recorded");
-      if (claimedUpdateId !== null) {
-        await this.bindingRepository.completeTelegramUpdateProcessing(
-          resolved.assistantId,
-          "telegram",
-          "telegram_bot",
-          claimedUpdateId,
-          new Date()
+      let assistantMessageId = "";
+      let deliveredMedia = runtimeResponse.media;
+      try {
+        const assistantChatMessage = await this.chatRepository.createMessage({
+          chatId: chat.id,
+          assistantId: resolved.assistantId,
+          author: "assistant",
+          content: assistantMessage
+        });
+        assistantMessageId = assistantChatMessage.id;
+        trace.stage("assistant_message_saved");
+      } catch (error) {
+        this.logger.error(
+          `[telegram-turn] Completed runtime turn could not persist assistant message for ${resolved.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          error instanceof Error ? error.stack : undefined
         );
-        trace.stage("update_completed");
+        if (runtimeResponse.media.length > 0) {
+          this.logger.warn(
+            `[telegram-turn] Dropping ${runtimeResponse.media.length} media artifact(s) for completed turn because assistant message persistence failed for ${resolved.assistantId}.`
+          );
+          deliveredMedia = [];
+        }
+        await this.completeTelegramUpdateBestEffort(resolved.assistantId, claimedUpdateId);
+        trace.finish({
+          status: "completed",
+          outputPreview: assistantMessage
+        });
+        return {
+          ...runtimeResponse,
+          assistantMessage,
+          media: deliveredMedia,
+          assistantMessageId,
+          chatId: chat.id,
+          workspaceId: resolved.workspaceId
+        };
+      }
+
+      try {
+        await this.trackWorkspaceQuotaUsageService.recordInboundTurnUsage({
+          assistant: resolved.assistant,
+          userContent: enrichedMessage,
+          assistantContent: assistantMessage,
+          ...(runtimeResponse.usageAccounting === undefined
+            ? {}
+            : { usageAccounting: runtimeResponse.usageAccounting }),
+          source: "telegram_turn_sync"
+        });
+        trace.stage("quota_recorded");
+      } catch (error) {
+        this.logger.error(
+          `[telegram-turn] Non-blocking quota accounting failure after completed runtime turn for ${resolved.assistantId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          error instanceof Error ? error.stack : undefined
+        );
+      }
+      if (claimedUpdateId !== null) {
+        const completedUpdate = await this.completeTelegramUpdateBestEffort(
+          resolved.assistantId,
+          claimedUpdateId
+        );
+        if (completedUpdate) {
+          trace.stage("update_completed");
+        }
       }
 
       trace.finish({
@@ -291,8 +330,8 @@ export class HandleInternalTelegramTurnService {
       return {
         ...runtimeResponse,
         assistantMessage,
-        media: runtimeResponse.media,
-        assistantMessageId: assistantChatMessage.id,
+        media: deliveredMedia,
+        assistantMessageId,
         chatId: chat.id,
         workspaceId: resolved.workspaceId
       };
@@ -358,6 +397,33 @@ export class HandleInternalTelegramTurnService {
           error instanceof Error ? error.message : String(error)
         }`
       );
+    }
+  }
+
+  private async completeTelegramUpdateBestEffort(
+    assistantId: string,
+    updateId: number | null
+  ): Promise<boolean> {
+    if (updateId === null) {
+      return false;
+    }
+    try {
+      await this.bindingRepository.completeTelegramUpdateProcessing(
+        assistantId,
+        "telegram",
+        "telegram_bot",
+        updateId,
+        new Date()
+      );
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `[telegram-turn] Non-fatal: failed to finalize Telegram update ${updateId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      await this.releaseTelegramUpdateClaimBestEffort(assistantId, updateId);
+      return false;
     }
   }
 }

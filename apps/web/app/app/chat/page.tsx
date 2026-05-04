@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,7 +8,7 @@ import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
 import { useAppDataContext } from "../_components/app-shell";
-import { WELCOME_THREAD_KEY } from "../assistant-api-client";
+import { getAssistantBillingPaymentIntent, WELCOME_THREAD_KEY } from "../assistant-api-client";
 
 const DRAFT_THREAD_STORAGE_KEY = "persai.draft-chat-thread.v1";
 
@@ -36,6 +36,44 @@ function clearDraftThreadKey(threadKey: string): void {
   }
 }
 
+type BillingReturnBannerState = {
+  kind: "success" | "failed" | "pending" | undefined;
+  planCode: string | undefined;
+  paymentIntentId: string | undefined;
+};
+
+function readBillingReturnBannerState(
+  searchParams: URLSearchParams | ReadonlyURLSearchParamsLike
+): BillingReturnBannerState {
+  const billingReturn =
+    searchParams.get("billingReturn") === "success" ||
+    searchParams.get("billingReturn") === "failed" ||
+    searchParams.get("billingReturn") === "pending"
+      ? (searchParams.get("billingReturn") as "success" | "failed" | "pending")
+      : undefined;
+  return {
+    kind: billingReturn,
+    planCode: searchParams.get("billingPlan") ?? undefined,
+    paymentIntentId: searchParams.get("billingPaymentIntentId") ?? undefined
+  };
+}
+
+type ReadonlyURLSearchParamsLike = {
+  get(name: string): string | null;
+  toString(): string;
+};
+
+function buildChatHrefWithoutBillingParams(
+  searchParams: URLSearchParams | ReadonlyURLSearchParamsLike
+): Route {
+  const next = new URLSearchParams(searchParams.toString());
+  next.delete("billingReturn");
+  next.delete("billingPlan");
+  next.delete("billingPaymentIntentId");
+  const query = next.toString();
+  return (query.length > 0 ? `/app/chat?${query}` : "/app/chat") as Route;
+}
+
 export default function ChatPage() {
   return (
     <Suspense>
@@ -45,18 +83,14 @@ export default function ChatPage() {
 }
 
 function ChatPageInner() {
-  const { userId } = useAuth();
+  const { userId, getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
   const welcomeFromUrl = searchParams.get("welcome") === "1";
-  const billingReturn =
-    searchParams.get("billingReturn") === "success" ||
-    searchParams.get("billingReturn") === "failed" ||
-    searchParams.get("billingReturn") === "pending"
-      ? (searchParams.get("billingReturn") as "success" | "failed" | "pending")
-      : undefined;
-  const billingPlanCode = searchParams.get("billingPlan") ?? undefined;
+  const [billingBanner, setBillingBanner] = useState<BillingReturnBannerState>(() =>
+    readBillingReturnBannerState(searchParams)
+  );
 
   const threadKey = useMemo(() => threadFromUrl ?? readDraftThreadKey(), [threadFromUrl]);
 
@@ -100,6 +134,7 @@ function ChatPageInner() {
 
   // Welcome chat: trigger only when setup/recreate explicitly requests it.
   const welcomeTriggeredRef = useRef(false);
+  const billingTruthRefreshKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (welcomeTriggeredRef.current) return;
     if (appData.isLoading) return;
@@ -133,6 +168,77 @@ function ChatPageInner() {
     welcomeFromUrl
   ]);
 
+  useEffect(() => {
+    const next = readBillingReturnBannerState(searchParams);
+    if (next.kind === undefined) {
+      return;
+    }
+    setBillingBanner(next);
+    router.replace(buildChatHrefWithoutBillingParams(searchParams));
+  }, [router, searchParams]);
+
+  useEffect(() => {
+    if (billingBanner.kind !== "success") {
+      billingTruthRefreshKeyRef.current = null;
+      return;
+    }
+
+    const refreshKey = billingBanner.paymentIntentId ?? "no-payment-intent-id";
+    if (billingTruthRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+    billingTruthRefreshKeyRef.current = refreshKey;
+
+    let cancelled = false;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    void (async () => {
+      if (!billingBanner.paymentIntentId) {
+        await appData.reload();
+        return;
+      }
+
+      const token = await getToken();
+      if (!token) {
+        await appData.reload();
+        return;
+      }
+
+      const deadline = Date.now() + 20_000;
+      while (!cancelled) {
+        try {
+          const paymentIntent = await getAssistantBillingPaymentIntent(
+            token,
+            billingBanner.paymentIntentId
+          );
+          if (
+            paymentIntent.status === "succeeded" ||
+            paymentIntent.status === "failed" ||
+            paymentIntent.status === "canceled" ||
+            paymentIntent.status === "reversed" ||
+            paymentIntent.status === "expired"
+          ) {
+            await appData.reload();
+            return;
+          }
+        } catch {
+          await appData.reload();
+          return;
+        }
+
+        if (Date.now() >= deadline) {
+          await appData.reload();
+          return;
+        }
+        await sleep(1_500);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appData.reload, billingBanner.kind, billingBanner.paymentIntentId, getToken]);
+
   return (
     <ChatArea
       chat={chat}
@@ -145,8 +251,8 @@ function ChatPageInner() {
       assistantReady={appData.assistantStatus !== "none"}
       showShadowRoutingBadge={canSeeShadowRoutingBadge}
       onTitleChanged={appData.reloadChats}
-      billingReturnKind={billingReturn}
-      billingPlanCode={billingPlanCode}
+      billingReturnKind={billingBanner.kind}
+      billingPlanCode={billingBanner.planCode}
     />
   );
 }

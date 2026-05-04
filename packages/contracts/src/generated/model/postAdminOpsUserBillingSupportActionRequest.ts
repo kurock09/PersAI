@@ -5,7 +5,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AdminOpsBillingSupportAction } from "./adminOpsBillingSupportAction";
+import type { AdminOpsManualPaidActivation } from "./adminOpsManualPaidActivation";
 
 export interface PostAdminOpsUserBillingSupportActionRequest {
   action: AdminOpsBillingSupportAction;
+  manualPayment?: AdminOpsManualPaidActivation;
 }

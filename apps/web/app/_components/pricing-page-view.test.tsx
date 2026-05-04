@@ -134,6 +134,28 @@ describe("PricingPageView", () => {
       );
     });
     expect(navigationMocks.push).toHaveBeenCalledWith("/app/billing/checkout/pi-1");
+    expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
+  });
+
+  it("uses Connect as the signed-in fallback CTA when plan copy is missing", () => {
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "team",
+            displayName: "Team",
+            presentation: {
+              ...makePlan().presentation,
+              ctaLabel: { ru: null, en: null }
+            }
+          })
+        ]}
+        signedIn
+        backHref="/app"
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
   });
 
   it("derives quiet fact chips from real plan limits", () => {

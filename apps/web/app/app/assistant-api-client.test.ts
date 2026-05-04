@@ -6,6 +6,7 @@ import {
   getAssistantFiles,
   getChatCompactionState,
   getAdminRuntimeProviderSettings,
+  postAssistantBillingPaymentIntent,
   postAdminPlatformRollout,
   postAdminPlatformRolloutRollback,
   postAssistantMemoryItemCloseOpenLoop,
@@ -22,6 +23,7 @@ const contractMocks = vi.hoisted(() => {
     postAdminStepUpChallenge: vi.fn(),
     getAdminRuntimeProviderSettings: vi.fn(),
     getAssistantWebChatCompaction: vi.fn(),
+    postAssistantBillingPaymentIntent: vi.fn(),
     postAdminPlatformRollout: vi.fn(),
     postAdminPlatformRolloutRollback: vi.fn(),
     postAssistantMemoryItemCloseOpenLoop: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock("@persai/contracts", async () => {
     postAdminStepUpChallenge: contractMocks.postAdminStepUpChallenge,
     getAdminRuntimeProviderSettings: contractMocks.getAdminRuntimeProviderSettings,
     getAssistantWebChatCompaction: contractMocks.getAssistantWebChatCompaction,
+    postAssistantBillingPaymentIntent: contractMocks.postAssistantBillingPaymentIntent,
     postAdminPlatformRollout: contractMocks.postAdminPlatformRollout,
     postAdminPlatformRolloutRollback: contractMocks.postAdminPlatformRolloutRollback,
     postAssistantMemoryItemCloseOpenLoop: contractMocks.postAssistantMemoryItemCloseOpenLoop,
@@ -75,6 +78,28 @@ afterEach(() => {
 });
 
 describe("admin rollout client", () => {
+  it("accepts 201 when creating a billing payment intent", async () => {
+    contractMocks.postAssistantBillingPaymentIntent.mockResolvedValue({
+      status: 201,
+      data: {
+        paymentIntent: {
+          id: "pi-1"
+        }
+      }
+    });
+
+    await expect(
+      postAssistantBillingPaymentIntent("token-1", {
+        planCode: "pro",
+        paymentMethodClass: "card",
+        idempotencyKey: "pricing:pro:card:1",
+        returnUrl: "/app/chat"
+      })
+    ).resolves.toMatchObject({
+      id: "pi-1"
+    });
+  });
+
   it("loads global runtime provider settings", async () => {
     contractMocks.getAdminRuntimeProviderSettings.mockResolvedValue({
       status: 200,

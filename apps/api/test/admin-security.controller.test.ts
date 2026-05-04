@@ -49,6 +49,16 @@ async function run(): Promise<void> {
     documentProcessingResponse.challenge.action,
     "admin.document_processing_settings.update"
   );
+
+  const billingCredentialsResponse = await controller.createStepUpChallenge(req, {
+    action: "admin.billing_provider_credentials.update"
+  });
+
+  assert.equal(issuedActions[2], "admin.billing_provider_credentials.update");
+  assert.equal(
+    billingCredentialsResponse.challenge.action,
+    "admin.billing_provider_credentials.update"
+  );
 }
 
 run().catch((error) => {

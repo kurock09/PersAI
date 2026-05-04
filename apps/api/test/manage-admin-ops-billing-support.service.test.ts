@@ -108,20 +108,15 @@ async function run(): Promise<void> {
       planCatalogPlan: {
         async findUnique(args: { where: { code: string } }) {
           if (args.where.code === "starter_trial") {
-            return { trialDurationDays: 7, isTrialPlan: true };
+            return { trialDurationDays: 7, isTrialPlan: true, status: "active" };
+          }
+          if (args.where.code === "pro") {
+            return { trialDurationDays: null, isTrialPlan: false, status: "active" };
           }
           return null;
         }
       },
-      workspaceSubscriptionLifecycleEvent: {
-        async findFirst() {
-          return {
-            nextPlanCode: "pro",
-            nextPeriodStartedAt: new Date("2026-04-01T00:00:00.000Z"),
-            nextPeriodEndsAt: new Date("2026-05-01T00:00:00.000Z")
-          };
-        }
-      }
+      workspaceSubscriptionLifecycleEvent: {}
     } as Pick<
       WorkspaceManagementPrismaService,
       | "workspaceSubscription"
@@ -186,6 +181,20 @@ async function run(): Promise<void> {
 
   const parsed = service.parseActionInput({ action: "extend_trial" });
   assert.equal(parsed.action, "extend_trial");
+  const parsedManual = service.parseActionInput({
+    action: "activate_paid_manually",
+    manualPayment: {
+      planCode: "pro",
+      billingPeriod: "month"
+    }
+  });
+  assert.deepEqual(parsedManual, {
+    action: "activate_paid_manually",
+    manualPayment: {
+      planCode: "pro",
+      billingPeriod: "month"
+    }
+  });
 
   currentSubscription = null;
   const initialized = await service.execute(
@@ -276,13 +285,20 @@ async function run(): Promise<void> {
   const restored = await service.execute(
     "admin-1",
     "user-1",
-    { action: "restore_paid_manually" },
+    {
+      action: "activate_paid_manually",
+      manualPayment: {
+        planCode: "pro",
+        billingPeriod: "month"
+      }
+    },
     "step-up-6"
   );
-  assert.match(restored.summary, /Paid access restored on pro until/);
+  assert.match(restored.summary, /Manual\/admin paid activation applied on pro until/);
   assert.equal(lifecycleCalls[5]?.method, "activatePaidSubscription");
   assert.equal(lifecycleCalls[5]?.payload.paidPlanCode, "pro");
   assert.equal(lifecycleCalls[5]?.payload.eventCode, "payment_activated");
+  assert.equal(lifecycleCalls[5]?.payload.refs?.metadata?.manualPayment?.billingPeriod, "month");
 
   assert.deepEqual(authCalls, [
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-0" },
