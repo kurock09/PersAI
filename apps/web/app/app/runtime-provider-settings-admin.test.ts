@@ -8,7 +8,7 @@ import {
 describe("runtime-provider-settings-admin", () => {
   it("hydrates global settings into the simplified admin form", () => {
     const state = resolveRuntimeProviderSettingsAdminFormState({
-      schema: "persai.adminRuntimeProviderSettings.v1",
+      schema: "persai.adminRuntimeProviderSettings.v2",
       mode: "global_settings",
       primary: {
         provider: "openai",
@@ -25,6 +25,10 @@ describe("runtime-provider-settings-admin", () => {
         classifierFailureFallbackMode: "normal",
         clarifyOnMissingContext: true,
         precheckRuleOverrides: null
+      },
+      skillRoutingPolicy: {
+        initialCheckUserMessageIndex: 3,
+        backgroundRecheckIntervalMessages: 5
       },
       availableModelsByProvider: {
         openai: ["gpt-5.4", "gpt-4.1"],

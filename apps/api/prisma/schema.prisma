@@ -1462,6 +1462,7 @@ model AssistantChat {
   title                       String?
   deepModeEnabled             Boolean                          @default(false) @map("deep_mode_enabled")
   autoSkillRoutingState       Json?                             @map("auto_skill_routing_state") @db.JsonB
+  skillRetrievalState         Json?                             @map("skill_retrieval_state") @db.JsonB
   archivedAt                  DateTime?                        @map("archived_at") @db.Timestamptz(6)
   lastMessageAt               DateTime?                        @map("last_message_at") @db.Timestamptz(6)
   lastCrossSessionCarryOverAt DateTime?                        @map("last_cross_session_carry_over_at") @db.Timestamptz(6)
@@ -2192,7 +2193,15 @@ model KnowledgeRetrievalEvent {
   resultCount           Int                           @default(0) @map("result_count")
   lexicalCandidateCount Int                           @default(0) @map("lexical_candidate_count")
   vectorCandidateCount  Int                           @default(0) @map("vector_candidate_count")
+  decisionMode          String                        @default("refresh_search_only") @map("decision_mode") @db.VarChar(32)
+  cacheReuseHit         Boolean                       @default(false) @map("cache_reuse_hit")
   helperApplied         Boolean                       @default(false) @map("helper_applied")
+  helperChangedOrder    Boolean                       @default(false) @map("helper_changed_order")
+  candidateCount        Int                           @default(0) @map("candidate_count")
+  topScoreMargin        Float?                        @map("top_score_margin") @db.DoublePrecision
+  querySimilarity       Float?                        @map("query_similarity") @db.DoublePrecision
+  cachedReferenceCoverage Float?                      @map("cached_reference_coverage") @db.DoublePrecision
+  candidateAmbiguity    Float?                        @map("candidate_ambiguity") @db.DoublePrecision
   fetchDepth            Int                           @default(0) @map("fetch_depth")
   fetchedChars          Int                           @default(0) @map("fetched_chars")
   embeddingModelKey     String?                       @map("embedding_model_key") @db.VarChar(255)
@@ -2224,13 +2233,23 @@ model KnowledgeRetrievalRollup {
   errorTotal              Int                           @default(0) @map("error_total")
   lexicalTotal            Int                           @default(0) @map("lexical_total")
   hybridTotal             Int                           @default(0) @map("hybrid_total")
+  reuseCachedRefsTotal    Int                           @default(0) @map("reuse_cached_refs_total")
+  refreshSearchOnlyTotal  Int                           @default(0) @map("refresh_search_only_total")
+  refreshWithHelperTotal  Int                           @default(0) @map("refresh_with_helper_total")
+  cacheReuseTotal         Int                           @default(0) @map("cache_reuse_total")
   helperAppliedTotal      Int                           @default(0) @map("helper_applied_total")
+  helperChangedOrderTotal Int                           @default(0) @map("helper_changed_order_total")
   embeddingQueryTotal     Int                           @default(0) @map("embedding_query_total")
   durationMsTotal         BigInt                        @default(0) @map("duration_ms_total")
   maxDurationMs           Int                           @default(0) @map("max_duration_ms")
   resultCountTotal        Int                           @default(0) @map("result_count_total")
+  candidateCountTotal     Int                           @default(0) @map("candidate_count_total")
   lexicalCandidatesTotal  Int                           @default(0) @map("lexical_candidates_total")
   vectorCandidatesTotal   Int                           @default(0) @map("vector_candidates_total")
+  topScoreMarginTotal     Float                         @default(0) @map("top_score_margin_total") @db.DoublePrecision
+  querySimilarityTotal    Float                         @default(0) @map("query_similarity_total") @db.DoublePrecision
+  cachedReferenceCoverageTotal Float                    @default(0) @map("cached_reference_coverage_total") @db.DoublePrecision
+  candidateAmbiguityTotal Float                         @default(0) @map("candidate_ambiguity_total") @db.DoublePrecision
   fetchDepthTotal         Int                           @default(0) @map("fetch_depth_total")
   maxFetchDepth           Int                           @default(0) @map("max_fetch_depth")
   fetchedCharsTotal       BigInt                        @default(0) @map("fetched_chars_total")

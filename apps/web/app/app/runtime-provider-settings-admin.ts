@@ -313,6 +313,10 @@ export function buildRuntimeProviderSettingsRequest(params: {
       classifierFailureFallbackMode: "normal",
       clarifyOnMissingContext: true,
       precheckRuleOverrides: null
+    },
+    skillRoutingPolicy: {
+      initialCheckUserMessageIndex: 3,
+      backgroundRecheckIntervalMessages: 5
     }
   };
   if (Object.keys(providerKeys).length > 0) {

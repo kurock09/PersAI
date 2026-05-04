@@ -528,14 +528,9 @@ export function AssistantSettings({
         bucket.bucketCode
       )
     ) ?? [];
-  const enabledToolCodes = new Set(
-    (data.plan?.limits.toolDailyLimits ?? [])
-      .filter((tool) => tool.active)
-      .map((tool) => tool.toolCode)
-  );
   const visibleMonthlyMediaQuotas =
     data.plan?.limits.monthlyMediaQuotas.tools.filter(
-      (tool) => tool.limitUnits !== null && enabledToolCodes.has(tool.toolCode)
+      (tool) => tool.limitUnits !== null && tool.limitUnits > 0
     ) ?? [];
   const featuredMonthlyMediaQuotas = visibleMonthlyMediaQuotas
     .filter(
@@ -2387,7 +2382,7 @@ export function AssistantSettings({
                 <button
                   type="button"
                   onClick={() => onOpenPricingPage?.()}
-                  className="inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 bg-surface/70 px-3 text-[11px] font-medium text-text-muted transition-all hover:border-accent/25 hover:bg-surface hover:text-text"
+                  className="inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
                 >
                   {t("changePlan")}
                 </button>

@@ -176,6 +176,10 @@ export type InternalOrchestrateRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  conversation?: {
+    channel: string;
+    surfaceThreadKey: string;
+  } | null;
 };
 
 export type InternalMemoryWriteInput = {

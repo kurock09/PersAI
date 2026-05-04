@@ -2,10 +2,24 @@ import assert from "node:assert/strict";
 import { AutoSkillRoutingStateService } from "../src/modules/workspace-management/application/auto-skill-routing-state.service";
 
 async function run(): Promise<void> {
-  const service = new AutoSkillRoutingStateService({} as never);
+  const service = new AutoSkillRoutingStateService(
+    {
+      platformRuntimeProviderSettings: {
+        findUnique: async () => ({
+          routerPolicy: {
+            skillRoutingPolicy: {
+              initialCheckUserMessageIndex: 3,
+              backgroundRecheckIntervalMessages: 5
+            }
+          }
+        })
+      }
+    } as never,
+    {} as never
+  );
 
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: null,
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет" }]
@@ -13,7 +27,7 @@ async function run(): Promise<void> {
     false
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: null,
       currentUserMessageIndex: 2,
       recentMessages: [
@@ -25,7 +39,7 @@ async function run(): Promise<void> {
     false
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: null,
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Белка 120" }]
@@ -33,15 +47,15 @@ async function run(): Promise<void> {
     true
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: null,
       currentUserMessageIndex: 4,
       recentMessages: [{ role: "user", text: "Unrelated" }]
     }),
-    false
+    true
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: {
         status: "active",
         activeSkillId: "skill-diet",
@@ -57,7 +71,7 @@ async function run(): Promise<void> {
     true
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: {
         status: "inactive",
         activeSkillId: null,
@@ -73,7 +87,7 @@ async function run(): Promise<void> {
     true
   );
   assert.equal(
-    service.shouldRunBackgroundCheck({
+    await service.shouldRunBackgroundCheck({
       state: {
         status: "inactive",
         activeSkillId: null,

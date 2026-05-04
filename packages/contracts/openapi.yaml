@@ -10454,6 +10454,7 @@ components:
         - fallback
         - routingFastModelKey
         - routerPolicy
+        - skillRoutingPolicy
         - availableModelsByProvider
         - availableModelCatalogByProvider
         - providerKeys
@@ -10528,6 +10529,20 @@ components:
                   type: array
                   items:
                     type: string
+        skillRoutingPolicy:
+          type: object
+          required:
+            - initialCheckUserMessageIndex
+            - backgroundRecheckIntervalMessages
+          properties:
+            initialCheckUserMessageIndex:
+              type: integer
+              minimum: 1
+              maximum: 20
+            backgroundRecheckIntervalMessages:
+              type: integer
+              minimum: 1
+              maximum: 50
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         availableModelCatalogByProvider:
@@ -10559,6 +10574,7 @@ components:
         - primary
         - routingFastModelKey
         - routerPolicy
+        - skillRoutingPolicy
         - availableModelsByProvider
         - availableModelCatalogByProvider
       properties:
@@ -10625,6 +10641,20 @@ components:
                   type: array
                   items:
                     type: string
+        skillRoutingPolicy:
+          type: object
+          required:
+            - initialCheckUserMessageIndex
+            - backgroundRecheckIntervalMessages
+          properties:
+            initialCheckUserMessageIndex:
+              type: integer
+              minimum: 1
+              maximum: 20
+            backgroundRecheckIntervalMessages:
+              type: integer
+              minimum: 1
+              maximum: 50
         availableModelsByProvider:
           $ref: "#/components/schemas/RuntimeProviderAvailableModelsByProviderState"
         availableModelCatalogByProvider:

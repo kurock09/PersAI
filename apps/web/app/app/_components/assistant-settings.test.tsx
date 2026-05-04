@@ -841,8 +841,8 @@ describe("AssistantSettings limits", () => {
                   settledUnits: 1,
                   releasedUnits: 0,
                   reconciliationRequiredUnits: 0,
-                  limitUnits: 10,
-                  remainingUnits: 9,
+                  limitUnits: null,
+                  remainingUnits: null,
                   usageAvailable: true,
                   status: "ok"
                 },
@@ -865,13 +865,6 @@ describe("AssistantSettings limits", () => {
               {
                 toolCode: "exec",
                 displayName: "Exec",
-                dailyCallLimit: null,
-                dailyCallsUsed: 0,
-                active: true
-              },
-              {
-                toolCode: "image_generate",
-                displayName: "Image generation",
                 dailyCallLimit: null,
                 dailyCallsUsed: 0,
                 active: true

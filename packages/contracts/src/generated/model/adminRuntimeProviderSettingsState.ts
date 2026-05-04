@@ -8,6 +8,7 @@ import type { AdminRuntimeProviderSettingsMode } from "./adminRuntimeProviderSet
 import type { AdminRuntimeProviderSettingsStatePrimary } from "./adminRuntimeProviderSettingsStatePrimary";
 import type { AdminRuntimeProviderSettingsStateFallback } from "./adminRuntimeProviderSettingsStateFallback";
 import type { AdminRuntimeProviderSettingsStateRouterPolicy } from "./adminRuntimeProviderSettingsStateRouterPolicy";
+import type { AdminRuntimeProviderSettingsStateSkillRoutingPolicy } from "./adminRuntimeProviderSettingsStateSkillRoutingPolicy";
 import type { RuntimeProviderAvailableModelsByProviderState } from "./runtimeProviderAvailableModelsByProviderState";
 import type { RuntimeProviderModelCatalogByProviderState } from "./runtimeProviderModelCatalogByProviderState";
 import type { AdminRuntimeProviderSettingsStateProviderKeys } from "./adminRuntimeProviderSettingsStateProviderKeys";
@@ -22,6 +23,7 @@ export interface AdminRuntimeProviderSettingsState {
   /** @nullable */
   routingFastModelKey: string | null;
   routerPolicy: AdminRuntimeProviderSettingsStateRouterPolicy;
+  skillRoutingPolicy: AdminRuntimeProviderSettingsStateSkillRoutingPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProviderState;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProviderState;
   providerKeys: AdminRuntimeProviderSettingsStateProviderKeys;

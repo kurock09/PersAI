@@ -265,6 +265,7 @@ export class TurnRoutingService {
     projectedTools: RuntimeNativeToolProjection;
   }): Promise<TurnRouteDecision> {
     const policy = this.readRouterPolicy(input.bundle);
+    const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
     const fallbackMode = this.coerceExecutionMode(
       policy.classifierFailureFallbackMode,
       input.request.deepMode === true
@@ -281,9 +282,11 @@ export class TurnRoutingService {
       source: "default",
       mode: policy.mode,
       usage: null,
-      autoSkillState: null
+      autoSkillState: input.request.skillRoutingContext?.state ?? null
     });
-    if (!policy.enabled) {
+    const allowStandaloneSkillRouting =
+      enabledSkills.length > 0 && input.request.skillRoutingContext !== undefined;
+    if (!policy.enabled && !allowStandaloneSkillRouting) {
       return defaultDecision;
     }
 
@@ -295,6 +298,11 @@ export class TurnRoutingService {
       fallbackMode
     });
     if (precheck.confidence === "high") {
+      return this.applyGroundedSkillPremiumFloor(precheck, input.request);
+    }
+    const allowClassifier =
+      policy.enabled || precheck.reasonCode === "skill_routing_classifier_candidate";
+    if (!allowClassifier) {
       return this.applyGroundedSkillPremiumFloor(precheck, input.request);
     }
 

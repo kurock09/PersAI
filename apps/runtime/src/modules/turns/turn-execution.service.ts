@@ -614,7 +614,11 @@ export class TurnExecutionService {
         assistantId: input.bundle.metadata.assistantId,
         query: input.input.message.text,
         locale: input.input.message.locale ?? input.bundle.userContext.locale,
-        retrievalPlan: plan
+        retrievalPlan: plan,
+        conversation: {
+          channel: input.conversation.channel,
+          surfaceThreadKey: input.conversation.externalThreadKey
+        }
       });
       return context.renderedBlock === null || context.items.length === 0 ? null : context;
     } catch (error) {

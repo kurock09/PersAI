@@ -69,7 +69,8 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
   ]);
   const assignments = new Map<string, MockAssignment>();
   const chatState = {
-    autoSkillRoutingState: { stale: true } as Record<string, unknown> | null
+    autoSkillRoutingState: { stale: true } as Record<string, unknown> | null,
+    skillRetrievalState: { stale: true } as Record<string, unknown> | null
   };
   let nextAssignment = 1;
 
@@ -145,6 +146,15 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
         if ("autoSkillRoutingState" in data) {
           const nextState = data.autoSkillRoutingState;
           chatState.autoSkillRoutingState =
+            nextState !== null &&
+            typeof nextState === "object" &&
+            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
+              ? null
+              : ((nextState as Record<string, unknown> | null) ?? null);
+        }
+        if ("skillRetrievalState" in data) {
+          const nextState = data.skillRetrievalState;
+          chatState.skillRetrievalState =
             nextState !== null &&
             typeof nextState === "object" &&
             Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
@@ -229,6 +239,7 @@ async function run(): Promise<void> {
     checkedAtMessageIndex: 0,
     messageCountSinceCheck: 0
   });
+  assert.equal(harness.chatState.skillRetrievalState, null);
   const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");
   assert.equal(skill2?.selectable, false);
   assert.equal(skill2?.disabledReason, "skill_limit_reached");
@@ -240,6 +251,7 @@ async function run(): Promise<void> {
   assert.deepEqual(cleared.assignedSkillIds, []);
   assert.equal([...harness.assignments.values()][0]?.status, "disabled");
   assert.equal(harness.chatState.autoSkillRoutingState, null);
+  assert.equal(harness.chatState.skillRetrievalState, null);
   assert.ok(harness.assistant.configDirtyAt instanceof Date);
 
   const zeroLimitHarness = createHarness({ maxEnabledSkills: 0 });

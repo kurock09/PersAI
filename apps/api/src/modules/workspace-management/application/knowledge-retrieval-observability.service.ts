@@ -29,13 +29,23 @@ export type KnowledgeRetrievalMetricSummary = {
   errorTotal: number;
   lexicalTotal: number;
   hybridTotal: number;
+  reuseCachedRefsTotal: number;
+  refreshSearchOnlyTotal: number;
+  refreshWithHelperTotal: number;
+  cacheReuseTotal: number;
   helperAppliedTotal: number;
+  helperChangedOrderTotal: number;
   embeddingQueryTotal: number;
   avgDurationMs: number;
   maxDurationMs: number;
   avgResultCount: number;
+  avgCandidateCount: number;
   avgLexicalCandidates: number;
   avgVectorCandidates: number;
+  avgTopScoreMargin: number;
+  avgQuerySimilarity: number;
+  avgCachedReferenceCoverage: number;
+  avgCandidateAmbiguity: number;
   avgFetchDepth: number;
   maxFetchDepth: number;
   avgFetchedChars: number;
@@ -47,6 +57,8 @@ export type KnowledgeRetrievalMetricSummary = {
   errorRate: number;
   hybridRate: number;
   helperAppliedRate: number;
+  helperChangedOrderRate: number;
+  cacheReuseRate: number;
 };
 
 export type KnowledgeRetrievalMetricSourceSummary = KnowledgeRetrievalMetricSummary & {
@@ -63,7 +75,15 @@ export type KnowledgeRetrievalRecentSearch = {
   resultCount: number;
   lexicalCandidateCount: number;
   vectorCandidateCount: number;
+  decisionMode: string;
+  cacheReuseHit: boolean;
   helperApplied: boolean;
+  helperChangedOrder: boolean;
+  candidateCount: number;
+  topScoreMargin: number | null;
+  querySimilarity: number | null;
+  cachedReferenceCoverage: number | null;
+  candidateAmbiguity: number | null;
   fetchDepth: number;
   fetchedChars: number;
   embeddingModelKey: string | null;
@@ -88,13 +108,23 @@ type SummaryInput = {
   errorTotal: number;
   lexicalTotal: number;
   hybridTotal: number;
+  reuseCachedRefsTotal: number;
+  refreshSearchOnlyTotal: number;
+  refreshWithHelperTotal: number;
+  cacheReuseTotal: number;
   helperAppliedTotal: number;
+  helperChangedOrderTotal: number;
   embeddingQueryTotal: number;
   durationMsTotal: number;
   maxDurationMs: number;
   resultCountTotal: number;
+  candidateCountTotal: number;
   lexicalCandidatesTotal: number;
   vectorCandidatesTotal: number;
+  topScoreMarginTotal: number;
+  querySimilarityTotal: number;
+  cachedReferenceCoverageTotal: number;
+  candidateAmbiguityTotal: number;
   fetchDepthTotal: number;
   maxFetchDepth: number;
   fetchedCharsTotal: number;
@@ -131,13 +161,26 @@ function toMetricSummary(summary: SummaryInput): KnowledgeRetrievalMetricSummary
     errorTotal: summary.errorTotal,
     lexicalTotal: summary.lexicalTotal,
     hybridTotal: summary.hybridTotal,
+    reuseCachedRefsTotal: summary.reuseCachedRefsTotal,
+    refreshSearchOnlyTotal: summary.refreshSearchOnlyTotal,
+    refreshWithHelperTotal: summary.refreshWithHelperTotal,
+    cacheReuseTotal: summary.cacheReuseTotal,
     helperAppliedTotal: summary.helperAppliedTotal,
+    helperChangedOrderTotal: summary.helperChangedOrderTotal,
     embeddingQueryTotal: summary.embeddingQueryTotal,
     avgDurationMs: toRoundedAverage(summary.durationMsTotal, summary.searchesTotal),
     maxDurationMs: summary.maxDurationMs,
     avgResultCount: toRoundedAverage(summary.resultCountTotal, summary.searchesTotal),
+    avgCandidateCount: toRoundedAverage(summary.candidateCountTotal, summary.searchesTotal),
     avgLexicalCandidates: toRoundedAverage(summary.lexicalCandidatesTotal, summary.searchesTotal),
     avgVectorCandidates: toRoundedAverage(summary.vectorCandidatesTotal, summary.searchesTotal),
+    avgTopScoreMargin: toRoundedAverage(summary.topScoreMarginTotal, summary.searchesTotal),
+    avgQuerySimilarity: toRoundedAverage(summary.querySimilarityTotal, summary.searchesTotal),
+    avgCachedReferenceCoverage: toRoundedAverage(
+      summary.cachedReferenceCoverageTotal,
+      summary.searchesTotal
+    ),
+    avgCandidateAmbiguity: toRoundedAverage(summary.candidateAmbiguityTotal, summary.searchesTotal),
     avgFetchDepth: toRoundedAverage(summary.fetchDepthTotal, summary.fetchesTotal),
     maxFetchDepth: summary.maxFetchDepth,
     avgFetchedChars: toRoundedAverage(summary.fetchedCharsTotal, summary.fetchesTotal),
@@ -148,7 +191,9 @@ function toMetricSummary(summary: SummaryInput): KnowledgeRetrievalMetricSummary
     emptyRate: toRate(summary.emptyTotal, summary.searchesTotal),
     errorRate: toRate(summary.errorTotal, summary.searchesTotal),
     hybridRate: toRate(summary.hybridTotal, summary.searchesTotal),
-    helperAppliedRate: toRate(summary.helperAppliedTotal, summary.searchesTotal)
+    helperAppliedRate: toRate(summary.helperAppliedTotal, summary.searchesTotal),
+    helperChangedOrderRate: toRate(summary.helperChangedOrderTotal, summary.searchesTotal),
+    cacheReuseRate: toRate(summary.cacheReuseTotal, summary.searchesTotal)
   };
 }
 
@@ -161,13 +206,23 @@ function buildEmptySummary(): SummaryInput {
     errorTotal: 0,
     lexicalTotal: 0,
     hybridTotal: 0,
+    reuseCachedRefsTotal: 0,
+    refreshSearchOnlyTotal: 0,
+    refreshWithHelperTotal: 0,
+    cacheReuseTotal: 0,
     helperAppliedTotal: 0,
+    helperChangedOrderTotal: 0,
     embeddingQueryTotal: 0,
     durationMsTotal: 0,
     maxDurationMs: 0,
     resultCountTotal: 0,
+    candidateCountTotal: 0,
     lexicalCandidatesTotal: 0,
     vectorCandidatesTotal: 0,
+    topScoreMarginTotal: 0,
+    querySimilarityTotal: 0,
+    cachedReferenceCoverageTotal: 0,
+    candidateAmbiguityTotal: 0,
     fetchDepthTotal: 0,
     maxFetchDepth: 0,
     fetchedCharsTotal: 0,
@@ -189,13 +244,23 @@ function mergeRollup(
     | "errorTotal"
     | "lexicalTotal"
     | "hybridTotal"
+    | "reuseCachedRefsTotal"
+    | "refreshSearchOnlyTotal"
+    | "refreshWithHelperTotal"
+    | "cacheReuseTotal"
     | "helperAppliedTotal"
+    | "helperChangedOrderTotal"
     | "embeddingQueryTotal"
     | "durationMsTotal"
     | "maxDurationMs"
     | "resultCountTotal"
+    | "candidateCountTotal"
     | "lexicalCandidatesTotal"
     | "vectorCandidatesTotal"
+    | "topScoreMarginTotal"
+    | "querySimilarityTotal"
+    | "cachedReferenceCoverageTotal"
+    | "candidateAmbiguityTotal"
     | "fetchDepthTotal"
     | "maxFetchDepth"
     | "fetchedCharsTotal"
@@ -212,13 +277,23 @@ function mergeRollup(
   target.errorTotal += rollup.errorTotal;
   target.lexicalTotal += rollup.lexicalTotal;
   target.hybridTotal += rollup.hybridTotal;
+  target.reuseCachedRefsTotal += rollup.reuseCachedRefsTotal;
+  target.refreshSearchOnlyTotal += rollup.refreshSearchOnlyTotal;
+  target.refreshWithHelperTotal += rollup.refreshWithHelperTotal;
+  target.cacheReuseTotal += rollup.cacheReuseTotal;
   target.helperAppliedTotal += rollup.helperAppliedTotal;
+  target.helperChangedOrderTotal += rollup.helperChangedOrderTotal;
   target.embeddingQueryTotal += rollup.embeddingQueryTotal;
   target.durationMsTotal += toNumber(rollup.durationMsTotal);
   target.maxDurationMs = Math.max(target.maxDurationMs, rollup.maxDurationMs);
   target.resultCountTotal += rollup.resultCountTotal;
+  target.candidateCountTotal += rollup.candidateCountTotal;
   target.lexicalCandidatesTotal += rollup.lexicalCandidatesTotal;
   target.vectorCandidatesTotal += rollup.vectorCandidatesTotal;
+  target.topScoreMarginTotal += rollup.topScoreMarginTotal;
+  target.querySimilarityTotal += rollup.querySimilarityTotal;
+  target.cachedReferenceCoverageTotal += rollup.cachedReferenceCoverageTotal;
+  target.candidateAmbiguityTotal += rollup.candidateAmbiguityTotal;
   target.fetchDepthTotal += rollup.fetchDepthTotal;
   target.maxFetchDepth = Math.max(target.maxFetchDepth, rollup.maxFetchDepth);
   target.fetchedCharsTotal += toNumber(rollup.fetchedCharsTotal);
@@ -242,7 +317,15 @@ export class KnowledgeRetrievalObservabilityService {
     resultCount: number;
     lexicalCandidateCount: number;
     vectorCandidateCount: number;
+    decisionMode?: string;
+    cacheReuseHit?: boolean;
     helperApplied: boolean;
+    helperChangedOrder?: boolean;
+    candidateCount?: number;
+    topScoreMargin?: number | null;
+    querySimilarityToLastTurn?: number | null;
+    cachedReferenceCoverage?: number | null;
+    candidateAmbiguity?: number | null;
     embeddingModelKey: string | null;
     helperModelKey?: string | null;
     helperProviderKey?: string | null;
@@ -254,6 +337,8 @@ export class KnowledgeRetrievalObservabilityService {
   }): Promise<void> {
     const outcome =
       input.outcome ?? (input.resultCount > 0 ? "success" : ("empty" as KnowledgeRetrievalOutcome));
+    const decisionMode =
+      input.source === "skill" ? (input.decisionMode ?? "refresh_search_only") : "not_applicable";
     await this.recordEvent({
       workspaceId: input.workspaceId,
       assistantId: input.assistantId,
@@ -264,7 +349,15 @@ export class KnowledgeRetrievalObservabilityService {
       resultCount: input.resultCount,
       lexicalCandidateCount: input.lexicalCandidateCount,
       vectorCandidateCount: input.vectorCandidateCount,
+      decisionMode,
+      cacheReuseHit: input.cacheReuseHit ?? false,
       helperApplied: input.helperApplied,
+      helperChangedOrder: input.helperChangedOrder ?? false,
+      candidateCount: input.candidateCount ?? input.resultCount,
+      topScoreMargin: input.topScoreMargin ?? null,
+      querySimilarity: input.querySimilarityToLastTurn ?? null,
+      cachedReferenceCoverage: input.cachedReferenceCoverage ?? null,
+      candidateAmbiguity: input.candidateAmbiguity ?? null,
       fetchDepth: 0,
       fetchedChars: 0,
       embeddingModelKey: input.embeddingModelKey,
@@ -303,7 +396,15 @@ export class KnowledgeRetrievalObservabilityService {
       resultCount: outcome === "success" ? 1 : 0,
       lexicalCandidateCount: 0,
       vectorCandidateCount: 0,
+      decisionMode: "not_applicable",
+      cacheReuseHit: false,
       helperApplied: false,
+      helperChangedOrder: false,
+      candidateCount: 0,
+      topScoreMargin: null,
+      querySimilarity: null,
+      cachedReferenceCoverage: null,
+      candidateAmbiguity: null,
       fetchDepth: input.fetchDepth,
       fetchedChars: input.fetchedChars,
       embeddingModelKey: input.embeddingModelKey,
@@ -363,7 +464,15 @@ export class KnowledgeRetrievalObservabilityService {
     resultCount: number;
     lexicalCandidateCount: number;
     vectorCandidateCount: number;
+    decisionMode: string;
+    cacheReuseHit: boolean;
     helperApplied: boolean;
+    helperChangedOrder: boolean;
+    candidateCount: number;
+    topScoreMargin: number | null;
+    querySimilarity: number | null;
+    cachedReferenceCoverage: number | null;
+    candidateAmbiguity: number | null;
     fetchDepth: number;
     fetchedChars: number;
     embeddingModelKey: string | null;
@@ -375,6 +484,7 @@ export class KnowledgeRetrievalObservabilityService {
     errorCode: string | null;
     durationMs: number;
   }): Promise<void> {
+    const countsTowardSkillDecisionMode = input.eventKind === "search" && input.source === "skill";
     await this.prisma.$transaction(async (tx) => {
       await tx.knowledgeRetrievalEvent.create({
         data: {
@@ -387,7 +497,15 @@ export class KnowledgeRetrievalObservabilityService {
           resultCount: Math.max(0, input.resultCount),
           lexicalCandidateCount: Math.max(0, input.lexicalCandidateCount),
           vectorCandidateCount: Math.max(0, input.vectorCandidateCount),
+          decisionMode: input.decisionMode,
+          cacheReuseHit: input.cacheReuseHit,
           helperApplied: input.helperApplied,
+          helperChangedOrder: input.helperChangedOrder,
+          candidateCount: Math.max(0, input.candidateCount),
+          topScoreMargin: input.topScoreMargin,
+          querySimilarity: input.querySimilarity,
+          cachedReferenceCoverage: input.cachedReferenceCoverage,
+          candidateAmbiguity: input.candidateAmbiguity,
           fetchDepth: Math.max(0, input.fetchDepth),
           fetchedChars: Math.max(0, input.fetchedChars),
           embeddingModelKey: input.embeddingModelKey,
@@ -421,13 +539,26 @@ export class KnowledgeRetrievalObservabilityService {
             errorTotal: input.outcome === "error" ? 1 : 0,
             lexicalTotal: input.eventKind === "search" && input.retrievalMode === "lexical" ? 1 : 0,
             hybridTotal: input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0,
+            reuseCachedRefsTotal:
+              countsTowardSkillDecisionMode && input.decisionMode === "reuse_cached_refs" ? 1 : 0,
+            refreshSearchOnlyTotal:
+              countsTowardSkillDecisionMode && input.decisionMode === "refresh_search_only" ? 1 : 0,
+            refreshWithHelperTotal:
+              countsTowardSkillDecisionMode && input.decisionMode === "refresh_with_helper" ? 1 : 0,
+            cacheReuseTotal: input.cacheReuseHit ? 1 : 0,
             helperAppliedTotal: input.helperApplied ? 1 : 0,
+            helperChangedOrderTotal: input.helperChangedOrder ? 1 : 0,
             embeddingQueryTotal: input.embeddingModelKey !== null ? 1 : 0,
             durationMsTotal: BigInt(Math.max(0, input.durationMs)),
             maxDurationMs: Math.max(0, input.durationMs),
             resultCountTotal: Math.max(0, input.resultCount),
+            candidateCountTotal: Math.max(0, input.candidateCount),
             lexicalCandidatesTotal: Math.max(0, input.lexicalCandidateCount),
             vectorCandidatesTotal: Math.max(0, input.vectorCandidateCount),
+            topScoreMarginTotal: Math.max(0, input.topScoreMargin ?? 0),
+            querySimilarityTotal: Math.max(0, input.querySimilarity ?? 0),
+            cachedReferenceCoverageTotal: Math.max(0, input.cachedReferenceCoverage ?? 0),
+            candidateAmbiguityTotal: Math.max(0, input.candidateAmbiguity ?? 0),
             fetchDepthTotal: Math.max(0, input.fetchDepth),
             maxFetchDepth: Math.max(0, input.fetchDepth),
             fetchedCharsTotal: BigInt(Math.max(0, input.fetchedChars)),
@@ -459,16 +590,37 @@ export class KnowledgeRetrievalObservabilityService {
           hybridTotal:
             existing.hybridTotal +
             (input.eventKind === "search" && input.retrievalMode === "hybrid" ? 1 : 0),
+          reuseCachedRefsTotal:
+            existing.reuseCachedRefsTotal +
+            (countsTowardSkillDecisionMode && input.decisionMode === "reuse_cached_refs" ? 1 : 0),
+          refreshSearchOnlyTotal:
+            existing.refreshSearchOnlyTotal +
+            (countsTowardSkillDecisionMode && input.decisionMode === "refresh_search_only" ? 1 : 0),
+          refreshWithHelperTotal:
+            existing.refreshWithHelperTotal +
+            (countsTowardSkillDecisionMode && input.decisionMode === "refresh_with_helper" ? 1 : 0),
+          cacheReuseTotal: existing.cacheReuseTotal + (input.cacheReuseHit ? 1 : 0),
           helperAppliedTotal: existing.helperAppliedTotal + (input.helperApplied ? 1 : 0),
+          helperChangedOrderTotal:
+            existing.helperChangedOrderTotal + (input.helperChangedOrder ? 1 : 0),
           embeddingQueryTotal:
             existing.embeddingQueryTotal + (input.embeddingModelKey !== null ? 1 : 0),
           durationMsTotal: existing.durationMsTotal + BigInt(Math.max(0, input.durationMs)),
           maxDurationMs: Math.max(existing.maxDurationMs, Math.max(0, input.durationMs)),
           resultCountTotal: existing.resultCountTotal + Math.max(0, input.resultCount),
+          candidateCountTotal: existing.candidateCountTotal + Math.max(0, input.candidateCount),
           lexicalCandidatesTotal:
             existing.lexicalCandidatesTotal + Math.max(0, input.lexicalCandidateCount),
           vectorCandidatesTotal:
             existing.vectorCandidatesTotal + Math.max(0, input.vectorCandidateCount),
+          topScoreMarginTotal:
+            existing.topScoreMarginTotal + Math.max(0, input.topScoreMargin ?? 0),
+          querySimilarityTotal:
+            existing.querySimilarityTotal + Math.max(0, input.querySimilarity ?? 0),
+          cachedReferenceCoverageTotal:
+            existing.cachedReferenceCoverageTotal + Math.max(0, input.cachedReferenceCoverage ?? 0),
+          candidateAmbiguityTotal:
+            existing.candidateAmbiguityTotal + Math.max(0, input.candidateAmbiguity ?? 0),
           fetchDepthTotal: existing.fetchDepthTotal + Math.max(0, input.fetchDepth),
           maxFetchDepth: Math.max(existing.maxFetchDepth, Math.max(0, input.fetchDepth)),
           fetchedCharsTotal: existing.fetchedCharsTotal + BigInt(Math.max(0, input.fetchedChars)),
@@ -495,7 +647,15 @@ export class KnowledgeRetrievalObservabilityService {
       resultCount: row.resultCount,
       lexicalCandidateCount: row.lexicalCandidateCount,
       vectorCandidateCount: row.vectorCandidateCount,
+      decisionMode: row.decisionMode,
+      cacheReuseHit: row.cacheReuseHit,
       helperApplied: row.helperApplied,
+      helperChangedOrder: row.helperChangedOrder,
+      candidateCount: row.candidateCount,
+      topScoreMargin: row.topScoreMargin,
+      querySimilarity: row.querySimilarity,
+      cachedReferenceCoverage: row.cachedReferenceCoverage,
+      candidateAmbiguity: row.candidateAmbiguity,
       fetchDepth: row.fetchDepth,
       fetchedChars: row.fetchedChars,
       embeddingModelKey: row.embeddingModelKey,

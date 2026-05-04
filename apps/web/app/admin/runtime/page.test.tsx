@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildRouterPrecheckRuleOverrides, parseRouterTriggerTerms } from "./page";
+import {
+  buildRouterPrecheckRuleOverrides,
+  buildSkillRoutingPolicyInput,
+  parseRouterTriggerTerms
+} from "./page";
 
 describe("admin runtime router policy helpers", () => {
   it("parses one trigger phrase per line", () => {
@@ -34,5 +38,26 @@ describe("admin runtime router policy helpers", () => {
         toolTermsText: ""
       })
     ).toBeNull();
+  });
+
+  it("parses bounded skill routing cadence inputs", () => {
+    expect(
+      buildSkillRoutingPolicyInput({
+        initialCheckUserMessageIndexText: "3",
+        backgroundRecheckIntervalMessagesText: "5"
+      })
+    ).toEqual({
+      initialCheckUserMessageIndex: 3,
+      backgroundRecheckIntervalMessages: 5
+    });
+  });
+
+  it("rejects invalid skill routing cadence inputs", () => {
+    expect(() =>
+      buildSkillRoutingPolicyInput({
+        initialCheckUserMessageIndexText: "0",
+        backgroundRecheckIntervalMessagesText: "x"
+      })
+    ).toThrow(/Initial background skill check must be between 1 and 20/);
   });
 });

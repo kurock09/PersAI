@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
+import { createDormantAutoSkillRoutingState } from "./auto-skill-routing-state.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import {
@@ -174,6 +175,7 @@ export class ManageAdminSkillsService {
       await this.disableAssignmentsForArchivedSkill(existing.id);
     }
     await this.markAssignedAssistantsDirty(existing.id);
+    await this.resetAssignedChatState(existing.id, "routing_and_retrieval");
     return toAdminSkillState(skill);
   }
 
@@ -195,6 +197,7 @@ export class ManageAdminSkillsService {
     });
     await this.disableAssignmentsForArchivedSkill(existing.id);
     await this.markAssignedAssistantsDirty(existing.id);
+    await this.resetAssignedChatState(existing.id, "routing_and_retrieval");
   }
 
   async uploadDocument(params: {
@@ -233,6 +236,8 @@ export class ManageAdminSkillsService {
     });
 
     let documentId: string | null = null;
+    let createdDocument: SkillDocumentState | null = null;
+    let createdIndexingJob: KnowledgeIndexingJobState | null = null;
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         const document = await tx.skillDocument.create({
@@ -265,11 +270,8 @@ export class ManageAdminSkillsService {
         });
         return { document, indexingJob };
       });
-
-      return {
-        document: toSkillDocumentState(result.document),
-        indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
-      };
+      createdDocument = toSkillDocumentState(result.document);
+      createdIndexingJob = toKnowledgeIndexingJobState(result.indexingJob);
     } catch (error) {
       if (documentId !== null) {
         await this.prisma.knowledgeIndexingJob
@@ -282,6 +284,11 @@ export class ManageAdminSkillsService {
       await this.knowledgeObjectStorage.deleteObject(stored.objectKey).catch(() => undefined);
       throw error;
     }
+    await this.resetAssignedChatState(skill.id, "retrieval_only");
+    return {
+      document: createdDocument as SkillDocumentState,
+      indexingJob: createdIndexingJob as KnowledgeIndexingJobState
+    };
   }
 
   async deleteDocument(userId: string, skillId: string, documentId: string): Promise<void> {
@@ -305,6 +312,7 @@ export class ManageAdminSkillsService {
       await tx.skillDocument.delete({ where: { id: document.id } });
     });
     await this.knowledgeObjectStorage.deleteObject(document.storagePath);
+    await this.resetAssignedChatState(skillId, "retrieval_only");
   }
 
   async reindexDocument(
@@ -349,6 +357,7 @@ export class ManageAdminSkillsService {
       });
       return { document: updatedDocument, indexingJob };
     });
+    await this.resetAssignedChatState(skillId, "retrieval_only");
     return {
       document: toSkillDocumentState(result.document),
       indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
@@ -402,6 +411,7 @@ export class ManageAdminSkillsService {
           : null;
       return { card, indexingJob };
     });
+    await this.resetAssignedChatState(skill.id, "retrieval_only");
     return {
       card: toSkillKnowledgeCardState(result.card),
       indexingJob:
@@ -474,6 +484,7 @@ export class ManageAdminSkillsService {
         : null;
       return { card, indexingJob };
     });
+    await this.resetAssignedChatState(skillId, "routing_and_retrieval");
     return {
       card: toSkillKnowledgeCardState(result.card),
       indexingJob:
@@ -502,6 +513,7 @@ export class ManageAdminSkillsService {
         }
       });
     });
+    await this.resetAssignedChatState(skillId, "routing_and_retrieval");
   }
 
   async reindexKnowledgeCard(
@@ -547,6 +559,7 @@ export class ManageAdminSkillsService {
       });
       return { card, indexingJob };
     });
+    await this.resetAssignedChatState(skillId, "retrieval_only");
     return {
       card: toSkillKnowledgeCardState(result.card),
       indexingJob: toKnowledgeIndexingJobState(result.indexingJob)
@@ -612,6 +625,66 @@ export class ManageAdminSkillsService {
       },
       data: { configDirtyAt: new Date() }
     });
+  }
+
+  private async resetAssignedChatState(
+    skillId: string,
+    scope: "routing_and_retrieval" | "retrieval_only"
+  ): Promise<void> {
+    const assignments = await this.prisma.assistantSkillAssignment.findMany({
+      where: { skillId },
+      select: { assistantId: true }
+    });
+    const assistantIds = [...new Set(assignments.map((assignment) => assignment.assistantId))];
+    if (assistantIds.length === 0) {
+      return;
+    }
+    if (scope === "retrieval_only") {
+      await this.prisma.assistantChat.updateMany({
+        where: { assistantId: { in: assistantIds } },
+        data: { skillRetrievalState: Prisma.DbNull }
+      });
+      return;
+    }
+    const activeAssignmentCounts = await this.prisma.assistantSkillAssignment.groupBy({
+      by: ["assistantId"],
+      where: {
+        assistantId: { in: assistantIds },
+        status: "active",
+        skill: {
+          status: "active",
+          archivedAt: null
+        }
+      },
+      _count: { assistantId: true }
+    });
+    const assistantsWithActiveSkills = new Set(
+      activeAssignmentCounts
+        .filter((row) => row._count.assistantId > 0)
+        .map((row) => row.assistantId)
+    );
+    const assistantsWithoutActiveSkills = assistantIds.filter(
+      (assistantId) => !assistantsWithActiveSkills.has(assistantId)
+    );
+    if (assistantsWithActiveSkills.size > 0) {
+      await this.prisma.assistantChat.updateMany({
+        where: { assistantId: { in: [...assistantsWithActiveSkills] } },
+        data: {
+          autoSkillRoutingState:
+            createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue,
+          skillRetrievalState: Prisma.DbNull
+        }
+      });
+    }
+    if (assistantsWithoutActiveSkills.length > 0) {
+      await this.prisma.assistantChat.updateMany({
+        where: { assistantId: { in: assistantsWithoutActiveSkills } },
+        data: {
+          autoSkillRoutingState: Prisma.DbNull,
+          skillRetrievalState: Prisma.DbNull
+        }
+      });
+    }
   }
 
   private isSkillDocumentMime(mimeType: string): boolean {

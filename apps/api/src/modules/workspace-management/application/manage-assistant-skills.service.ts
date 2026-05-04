@@ -163,7 +163,8 @@ export class ManageAssistantSkillsService {
           autoSkillRoutingState:
             selected.size === 0
               ? Prisma.DbNull
-              : (createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue)
+              : (createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue),
+          skillRetrievalState: Prisma.DbNull
         }
       });
     });

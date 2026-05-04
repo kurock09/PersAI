@@ -14,8 +14,10 @@ import {
 import { normalizeModelKey, toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 
 export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID = "global";
-export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA = "persai.adminRuntimeProviderSettings.v1";
+export const PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA = "persai.adminRuntimeProviderSettings.v2";
 export const PERSAI_RUNTIME_SECRET_PROVIDER_ALIAS = "persai-runtime";
+export const DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX = 3;
+export const DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES = 5;
 
 export const PERSAI_RUNTIME_PROVIDER_SECRET_IDS: Record<ManagedRuntimeProvider, string> = {
   openai: "openai/api-key",
@@ -62,6 +64,11 @@ export type PlatformRuntimeRouterPolicy = {
   precheckRuleOverrides: PlatformRuntimeRouterPrecheckRuleOverrides | null;
 };
 
+export type PlatformRuntimeSkillRoutingPolicy = {
+  initialCheckUserMessageIndex: number;
+  backgroundRecheckIntervalMessages: number;
+};
+
 export function createDefaultPlatformRuntimeRouterPolicy(): PlatformRuntimeRouterPolicy {
   return {
     enabled: false,
@@ -79,6 +86,7 @@ export type PlatformRuntimeProviderSettingsState = {
   fallback: PlatformRuntimeProviderSelection | null;
   routingFastModelKey: string | null;
   routerPolicy: PlatformRuntimeRouterPolicy;
+  skillRoutingPolicy: PlatformRuntimeSkillRoutingPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Record<ManagedRuntimeProvider, PlatformRuntimeProviderKeyMetadata>;
@@ -101,6 +109,7 @@ export type UpdatePlatformRuntimeProviderSettingsInput = {
   fallback: PlatformRuntimeProviderSelection | null;
   routingFastModelKey: string | null;
   routerPolicy: PlatformRuntimeRouterPolicy;
+  skillRoutingPolicy: PlatformRuntimeSkillRoutingPolicy;
   availableModelsByProvider: RuntimeProviderAvailableModelsByProvider;
   availableModelCatalogByProvider: RuntimeProviderModelCatalogByProvider;
   providerKeys: Partial<Record<ManagedRuntimeProvider, string>>;
@@ -209,6 +218,50 @@ function normalizeAvailableModelList(value: unknown, path: string): string[] {
     }
   }
   return Array.from(deduped);
+}
+
+function normalizePositiveIntegerInRange(
+  value: unknown,
+  path: string,
+  bounds: { min: number; max: number }
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`${path} must be an integer.`);
+  }
+  if (value < bounds.min || value > bounds.max) {
+    throw new Error(`${path} must be between ${String(bounds.min)} and ${String(bounds.max)}.`);
+  }
+  return value;
+}
+
+function createDefaultPlatformRuntimeSkillRoutingPolicy(): PlatformRuntimeSkillRoutingPolicy {
+  return {
+    initialCheckUserMessageIndex: DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX,
+    backgroundRecheckIntervalMessages: DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES
+  };
+}
+
+function normalizeSkillRoutingPolicy(
+  value: unknown,
+  path = "skillRoutingPolicy"
+): PlatformRuntimeSkillRoutingPolicy {
+  const row = asObject(value);
+  if (row === null) {
+    return createDefaultPlatformRuntimeSkillRoutingPolicy();
+  }
+  return {
+    initialCheckUserMessageIndex: normalizePositiveIntegerInRange(
+      row.initialCheckUserMessageIndex ?? DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX,
+      `${path}.initialCheckUserMessageIndex`,
+      { min: 1, max: 20 }
+    ),
+    backgroundRecheckIntervalMessages: normalizePositiveIntegerInRange(
+      row.backgroundRecheckIntervalMessages ??
+        DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES,
+      `${path}.backgroundRecheckIntervalMessages`,
+      { min: 1, max: 50 }
+    )
+  };
 }
 
 export function normalizeAvailableModelsByProvider(
@@ -648,6 +701,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     path: "routingFastModelKey"
   });
   const routerPolicy = normalizeRouterPolicy(row.routerPolicy);
+  const skillRoutingPolicy = normalizeSkillRoutingPolicy(row.skillRoutingPolicy);
   if (routerPolicy.enabled && routingFastModelKey === null) {
     throw new Error("routingFastModelKey is required when routerPolicy.enabled is true.");
   }
@@ -669,6 +723,7 @@ export function parseUpdatePlatformRuntimeProviderSettingsInput(
     fallback,
     routingFastModelKey,
     routerPolicy,
+    skillRoutingPolicy,
     availableModelsByProvider,
     availableModelCatalogByProvider,
     providerKeys
@@ -687,13 +742,19 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       fallback: null,
       routingFastModelKey: null,
       routerPolicy: createDefaultPlatformRuntimeRouterPolicy(),
+      skillRoutingPolicy: createDefaultPlatformRuntimeSkillRoutingPolicy(),
       availableModelsByProvider: createEmptyAvailableModelsByProvider(),
       availableModelCatalogByProvider: createEmptyAvailableModelCatalogByProvider(),
       providerKeys: params.providerKeys,
       notes: [
         "Global runtime provider settings are not configured yet.",
         "The active runtime keeps its existing configured default model path until global settings are saved.",
-        "Early smart routing stays disabled until global runtime settings are configured."
+        "Early smart routing stays disabled until global runtime settings are configured.",
+        `Skill routing cadence defaults to first check after ${String(
+          DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX
+        )} user messages, then every ${String(
+          DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES
+        )} user messages.`
       ]
     };
   }
@@ -724,6 +785,10 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     "routingFastModelKey"
   );
   const routerPolicy = normalizeRouterPolicy(params.settings.routerPolicy);
+  const routerPolicyRow = asObject(params.settings.routerPolicy);
+  const skillRoutingPolicy = normalizeSkillRoutingPolicy(
+    routerPolicyRow?.skillRoutingPolicy ?? null
+  );
 
   return {
     schema: PLATFORM_RUNTIME_PROVIDER_SETTINGS_SCHEMA,
@@ -732,6 +797,7 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
     fallback,
     routingFastModelKey,
     routerPolicy,
+    skillRoutingPolicy,
     availableModelsByProvider,
     availableModelCatalogByProvider,
     providerKeys: params.providerKeys,
@@ -741,6 +807,11 @@ export function buildPlatformRuntimeProviderSettingsState(params: {
       routerPolicy.enabled
         ? `Early smart routing is enabled in ${routerPolicy.mode} mode.`
         : "Early smart routing is currently disabled.",
+      `Skill routing first checks after ${String(
+        skillRoutingPolicy.initialCheckUserMessageIndex
+      )} user messages, then rechecks every ${String(
+        skillRoutingPolicy.backgroundRecheckIntervalMessages
+      )} user messages.`,
       routingFastModelKey === null
         ? "No dedicated fast routing model is configured yet."
         : `Fast routing model: ${routingFastModelKey}.`

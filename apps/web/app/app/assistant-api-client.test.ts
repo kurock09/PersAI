@@ -80,7 +80,7 @@ describe("admin rollout client", () => {
       status: 200,
       data: {
         settings: {
-          schema: "persai.adminRuntimeProviderSettings.v1",
+          schema: "persai.adminRuntimeProviderSettings.v2",
           mode: "global_settings",
           primary: {
             provider: "openai",
@@ -89,6 +89,18 @@ describe("admin rollout client", () => {
           fallback: {
             provider: "anthropic",
             model: "claude-sonnet-4-5"
+          },
+          routingFastModelKey: "gpt-5.4-mini",
+          routerPolicy: {
+            enabled: true,
+            mode: "shadow",
+            classifierFailureFallbackMode: "normal",
+            clarifyOnMissingContext: true,
+            precheckRuleOverrides: null
+          },
+          skillRoutingPolicy: {
+            initialCheckUserMessageIndex: 3,
+            backgroundRecheckIntervalMessages: 5
           },
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
@@ -137,7 +149,7 @@ describe("admin rollout client", () => {
       status: 200,
       data: {
         settings: {
-          schema: "persai.adminRuntimeProviderSettings.v1",
+          schema: "persai.adminRuntimeProviderSettings.v2",
           mode: "global_settings",
           primary: {
             provider: "openai",
@@ -151,6 +163,10 @@ describe("admin rollout client", () => {
             classifierFailureFallbackMode: "normal",
             clarifyOnMissingContext: true,
             precheckRuleOverrides: null
+          },
+          skillRoutingPolicy: {
+            initialCheckUserMessageIndex: 3,
+            backgroundRecheckIntervalMessages: 5
           },
           availableModelsByProvider: {
             openai: ["gpt-5.4"],
@@ -192,6 +208,10 @@ describe("admin rollout client", () => {
           classifierFailureFallbackMode: "normal",
           clarifyOnMissingContext: true,
           precheckRuleOverrides: null
+        },
+        skillRoutingPolicy: {
+          initialCheckUserMessageIndex: 3,
+          backgroundRecheckIntervalMessages: 5
         },
         availableModelsByProvider: {
           openai: ["gpt-5.4"],

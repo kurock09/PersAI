@@ -10,6 +10,12 @@ import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
 import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
+import { SkillRetrievalPolicyService } from "./skill-retrieval-policy.service";
+import {
+  SkillRetrievalStateService,
+  type SkillRetrievalDecisionMode,
+  type SkillRetrievalState
+} from "./skill-retrieval-state.service";
 import {
   KNOWLEDGE_VECTOR_INDEX,
   type KnowledgeVectorIndex,
@@ -29,6 +35,10 @@ type RuntimeRetrievalInput = {
   query: string;
   locale: string | null;
   retrievalPlan: RuntimeRetrievalPlan;
+  conversation: {
+    channel: string;
+    surfaceThreadKey: string;
+  } | null;
 };
 
 type OrchestratedRetrievalTelemetrySource = "skill" | "document" | "product" | "web";
@@ -64,7 +74,10 @@ type SkillReferenceSearchResult = {
   items: RuntimeRetrievedKnowledgeContextItem[];
   lexicalCandidateCount: number;
   vectorCandidateCount: number;
+  decisionMode: SkillRetrievalDecisionMode;
+  cacheReuseHit: boolean;
   helperApplied: boolean;
+  helperChangedOrder: boolean;
   embeddingModelKey: string | null;
   helperModelKey: string | null;
   helperProviderKey: string | null;
@@ -72,6 +85,11 @@ type SkillReferenceSearchResult = {
   helperOutputTokens: number | null;
   helperTotalTokens: number | null;
   retrievalMode: "lexical" | "hybrid";
+  candidateCount: number;
+  topScoreMargin: number | null;
+  querySimilarityToLastTurn: number | null;
+  cachedReferenceCoverage: number | null;
+  candidateAmbiguity: number | null;
   fetchDepth: number;
   fetchedChars: number;
 };
@@ -94,6 +112,8 @@ export class OrchestrateRuntimeRetrievalService {
     private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
     private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService,
     private readonly knowledgeRetrievalHelperService: KnowledgeRetrievalHelperService,
+    private readonly skillRetrievalPolicyService: SkillRetrievalPolicyService,
+    private readonly skillRetrievalStateService: SkillRetrievalStateService,
     @Inject(KNOWLEDGE_VECTOR_INDEX)
     private readonly knowledgeVectorIndex: KnowledgeVectorIndex
   ) {}
@@ -108,7 +128,8 @@ export class OrchestrateRuntimeRetrievalService {
     if (assistantId === null || query === null || retrievalPlan === null) {
       throw new BadRequestException("assistantId, query, and retrievalPlan are required.");
     }
-    return { assistantId, query, locale, retrievalPlan };
+    const conversation = this.parseConversation(row?.conversation);
+    return { assistantId, query, locale, retrievalPlan, conversation };
   }
 
   async execute(input: RuntimeRetrievalInput): Promise<RuntimeRetrievedKnowledgeContext> {
@@ -220,13 +241,21 @@ export class OrchestrateRuntimeRetrievalService {
         retrievalMode: result.retrievalMode,
         lexicalCandidateCount: result.lexicalCandidateCount,
         vectorCandidateCount: result.vectorCandidateCount,
+        decisionMode: result.decisionMode,
+        cacheReuseHit: result.cacheReuseHit,
         helperApplied: result.helperApplied,
+        helperChangedOrder: result.helperChangedOrder,
         embeddingModelKey: result.embeddingModelKey,
         helperModelKey: result.helperModelKey,
         helperProviderKey: result.helperProviderKey,
         helperInputTokens: result.helperInputTokens,
         helperOutputTokens: result.helperOutputTokens,
-        helperTotalTokens: result.helperTotalTokens
+        helperTotalTokens: result.helperTotalTokens,
+        candidateCount: result.candidateCount,
+        topScoreMargin: result.topScoreMargin,
+        querySimilarityToLastTurn: result.querySimilarityToLastTurn,
+        cachedReferenceCoverage: result.cachedReferenceCoverage,
+        candidateAmbiguity: result.candidateAmbiguity
       });
       if (result.fetchedChars > 0) {
         await this.recordFetchTelemetry({
@@ -262,6 +291,58 @@ export class OrchestrateRuntimeRetrievalService {
     const enabledSkillIds = await this.resolveEnabledSkillIds(input);
     if (enabledSkillIds.length === 0) {
       return this.emptySkillReferenceSearchResult();
+    }
+    const activeSkillId = enabledSkillIds.length === 1 ? enabledSkillIds[0]! : null;
+    const retrievalChatContext = await this.skillRetrievalStateService.resolveChatContext({
+      assistantId: input.assistantId,
+      conversation: input.conversation
+    });
+    const queryFingerprint = this.skillRetrievalStateService.buildQueryFingerprint(input.query);
+    const reuseDecision = this.skillRetrievalPolicyService.decideBeforeSearch({
+      activeSkillId,
+      currentUserMessageId: retrievalChatContext?.currentUserMessageId ?? null,
+      queryFingerprint,
+      state: retrievalChatContext?.state ?? null
+    });
+    if (
+      activeSkillId !== null &&
+      retrievalChatContext !== null &&
+      retrievalChatContext.state !== null &&
+      reuseDecision?.mode === "reuse_cached_refs"
+    ) {
+      const reused = await this.reuseSkillReferenceState({
+        activeSkillId,
+        locale: input.locale,
+        retrievalPolicy: await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
+          input.assistantId
+        ),
+        state: retrievalChatContext.state
+      });
+      if (reused !== null) {
+        await this.persistSkillRetrievalState({
+          chatId: retrievalChatContext.chatId,
+          currentUserMessageId: retrievalChatContext.currentUserMessageId,
+          currentUserMessageIndex: retrievalChatContext.currentUserMessageIndex,
+          activeSkillId,
+          queryFingerprint,
+          items: reused.items,
+          candidateReferenceIds: retrievalChatContext.state.lastTopReferenceIds,
+          decisionMode: reuseDecision.mode,
+          helperApplied: false,
+          helperChangedOrder: false,
+          previousState: retrievalChatContext.state
+        });
+        return {
+          ...reused,
+          decisionMode: reuseDecision.mode,
+          cacheReuseHit: true,
+          candidateCount: reuseDecision.candidateCount,
+          topScoreMargin: reuseDecision.topScoreMargin,
+          querySimilarityToLastTurn: reuseDecision.querySimilarityToLastTurn,
+          cachedReferenceCoverage: reuseDecision.cachedReferenceCoverage,
+          candidateAmbiguity: reuseDecision.candidateAmbiguity
+        };
+      }
     }
     const retrievalPolicy = await this.knowledgeModelPolicyService.resolveAssistantRetrievalPolicy(
       input.assistantId
@@ -446,19 +527,33 @@ export class OrchestrateRuntimeRetrievalService {
         .sort((left, right) => right.score - left.score),
       helperCandidateLimit
     );
-    const helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
-      assistantId: input.assistantId,
-      query: input.query,
-      retrievalModelKey,
+    const retrievalDecision = this.skillRetrievalPolicyService.decideAfterSearch({
+      activeSkillId,
+      queryFingerprint,
+      state: retrievalChatContext?.state ?? null,
       candidates: selected.map((candidate) => ({
         referenceId: candidate.referenceId,
-        title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
-          candidate.row.sourceTitle
-        }`,
-        locator: candidate.row.locator,
-        snippet: this.buildSnippet(candidate.row.content, terms)
+        score: candidate.score
       }))
     });
+    let helperRanking = null;
+    let helperChangedOrder = false;
+    const selectedBeforeHelper = selected.map((candidate) => candidate.referenceId);
+    if (retrievalDecision.mode === "refresh_with_helper") {
+      helperRanking = await this.knowledgeRetrievalHelperService.rerankCandidates({
+        assistantId: input.assistantId,
+        query: input.query,
+        retrievalModelKey,
+        candidates: selected.map((candidate) => ({
+          referenceId: candidate.referenceId,
+          title: `${this.localize(candidate.row.skill.name, input.locale)} / ${
+            candidate.row.sourceTitle
+          }`,
+          locator: candidate.row.locator,
+          snippet: this.buildSnippet(candidate.row.content, terms)
+        }))
+      });
+    }
     if (helperRanking !== null) {
       const helperRankIndex = new Map(
         helperRanking.rankedReferenceIds.map((referenceId, index) => [referenceId, index])
@@ -477,6 +572,9 @@ export class OrchestrateRuntimeRetrievalService {
         }
         return right.score - left.score;
       });
+      helperChangedOrder = selected.some(
+        (candidate, index) => candidate.referenceId !== selectedBeforeHelper[index]
+      );
     }
 
     const fetchedCandidates = await Promise.all(
@@ -514,11 +612,29 @@ export class OrchestrateRuntimeRetrievalService {
         embeddingModelKey: fetched.embeddingModelKey
       }
     }));
+    if (retrievalChatContext !== null && activeSkillId !== null) {
+      await this.persistSkillRetrievalState({
+        chatId: retrievalChatContext.chatId,
+        currentUserMessageId: retrievalChatContext.currentUserMessageId,
+        currentUserMessageIndex: retrievalChatContext.currentUserMessageIndex,
+        activeSkillId,
+        queryFingerprint,
+        items,
+        candidateReferenceIds: selected.map((candidate) => candidate.referenceId),
+        decisionMode: retrievalDecision.mode,
+        helperApplied: helperRanking !== null,
+        helperChangedOrder,
+        previousState: retrievalChatContext.state
+      });
+    }
     return {
       items,
       lexicalCandidateCount: rows.length,
       vectorCandidateCount,
+      decisionMode: retrievalDecision.mode,
+      cacheReuseHit: false,
       helperApplied: helperRanking !== null,
+      helperChangedOrder,
       embeddingModelKey,
       helperModelKey: helperRanking?.modelKey ?? null,
       helperProviderKey: helperRanking?.providerKey ?? null,
@@ -526,6 +642,11 @@ export class OrchestrateRuntimeRetrievalService {
       helperOutputTokens: helperRanking?.usage?.outputTokens ?? null,
       helperTotalTokens: helperRanking?.usage?.totalTokens ?? null,
       retrievalMode,
+      candidateCount: selected.length,
+      topScoreMargin: retrievalDecision.topScoreMargin,
+      querySimilarityToLastTurn: retrievalDecision.querySimilarityToLastTurn,
+      cachedReferenceCoverage: retrievalDecision.cachedReferenceCoverage,
+      candidateAmbiguity: retrievalDecision.candidateAmbiguity,
       fetchDepth: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchDepth, 0),
       fetchedChars: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchedChars, 0)
     };
@@ -575,13 +696,21 @@ export class OrchestrateRuntimeRetrievalService {
     retrievalMode?: "lexical" | "hybrid";
     lexicalCandidateCount?: number;
     vectorCandidateCount?: number;
+    decisionMode?: SkillRetrievalDecisionMode;
+    cacheReuseHit?: boolean;
     helperApplied?: boolean;
+    helperChangedOrder?: boolean;
     embeddingModelKey?: string | null;
     helperModelKey?: string | null;
     helperProviderKey?: string | null;
     helperInputTokens?: number | null;
     helperOutputTokens?: number | null;
     helperTotalTokens?: number | null;
+    candidateCount?: number;
+    topScoreMargin?: number | null;
+    querySimilarityToLastTurn?: number | null;
+    cachedReferenceCoverage?: number | null;
+    candidateAmbiguity?: number | null;
   }): Promise<void> {
     if (input.workspaceId === null) {
       return;
@@ -595,15 +724,25 @@ export class OrchestrateRuntimeRetrievalService {
       resultCount: input.resultCount,
       lexicalCandidateCount: input.lexicalCandidateCount ?? input.resultCount,
       vectorCandidateCount: input.vectorCandidateCount ?? 0,
+      cacheReuseHit: input.cacheReuseHit ?? false,
       helperApplied: input.helperApplied ?? false,
+      helperChangedOrder: input.helperChangedOrder ?? false,
       embeddingModelKey: input.embeddingModelKey ?? null,
       helperModelKey: input.helperModelKey ?? null,
       helperProviderKey: input.helperProviderKey ?? null,
       helperInputTokens: input.helperInputTokens ?? null,
       helperOutputTokens: input.helperOutputTokens ?? null,
       helperTotalTokens: input.helperTotalTokens ?? null,
+      candidateCount: input.candidateCount ?? input.resultCount,
+      topScoreMargin: input.topScoreMargin ?? null,
+      querySimilarityToLastTurn: input.querySimilarityToLastTurn ?? null,
+      cachedReferenceCoverage: input.cachedReferenceCoverage ?? null,
+      candidateAmbiguity: input.candidateAmbiguity ?? null,
       outcome: input.outcome,
-      errorCode: input.errorCode
+      errorCode: input.errorCode,
+      ...(input.source === "skill" && input.decisionMode !== undefined
+        ? { decisionMode: input.decisionMode }
+        : {})
     });
   }
 
@@ -702,6 +841,274 @@ export class OrchestrateRuntimeRetrievalService {
     return this.truncate(parts.join("\n"), MAX_RENDERED_BLOCK_CHARS);
   }
 
+  private parseConversation(value: unknown): {
+    channel: string;
+    surfaceThreadKey: string;
+  } | null {
+    const row = this.asObject(value);
+    const channel = this.asNonEmptyString(row?.channel);
+    const surfaceThreadKey = this.asNonEmptyString(row?.surfaceThreadKey);
+    if (channel === null || surfaceThreadKey === null) {
+      return null;
+    }
+    return {
+      channel,
+      surfaceThreadKey
+    };
+  }
+
+  private async persistSkillRetrievalState(input: {
+    chatId: string;
+    currentUserMessageId: string;
+    currentUserMessageIndex: number;
+    activeSkillId: string;
+    queryFingerprint: string;
+    items: RuntimeRetrievedKnowledgeContextItem[];
+    candidateReferenceIds: string[];
+    decisionMode: SkillRetrievalDecisionMode;
+    helperApplied: boolean;
+    helperChangedOrder: boolean;
+    previousState: SkillRetrievalState | null;
+  }): Promise<void> {
+    const topItems = input.items
+      .filter((item) => item.label === "skill_reference")
+      .slice(0, MAX_PER_SOURCE_RESULTS);
+    await this.skillRetrievalStateService.persistState(input.chatId, {
+      activeSkillId: input.activeSkillId,
+      lastUserMessageId: input.currentUserMessageId,
+      lastUserQueryFingerprint: input.queryFingerprint,
+      lastTopReferenceIds: topItems.map((item) => item.referenceId),
+      lastTopReferenceScores: topItems.map((item) => item.score ?? 0),
+      lastRetrievedAtMessageIndex: input.currentUserMessageIndex,
+      lastMode: input.decisionMode,
+      lastHelperApplied: input.helperApplied,
+      lastHelperChangedOrder: input.helperChangedOrder,
+      reuseStreak:
+        input.decisionMode === "reuse_cached_refs"
+          ? (input.previousState?.reuseStreak ?? 0) + 1
+          : 0,
+      lastCandidateSetHash: this.skillRetrievalPolicyService.buildCandidateSetHash(
+        input.candidateReferenceIds
+      )
+    });
+  }
+
+  private async reuseSkillReferenceState(input: {
+    activeSkillId: string;
+    locale: string | null;
+    retrievalPolicy: {
+      fetchMaxChars: number;
+      knowledgeFetchWindowRadius: number;
+    };
+    state: SkillRetrievalState;
+  }): Promise<Omit<
+    SkillReferenceSearchResult,
+    | "decisionMode"
+    | "cacheReuseHit"
+    | "candidateCount"
+    | "topScoreMargin"
+    | "querySimilarityToLastTurn"
+    | "cachedReferenceCoverage"
+    | "candidateAmbiguity"
+  > | null> {
+    const selected: RankedSkillCandidate[] = [];
+    for (const [index, referenceId] of input.state.lastTopReferenceIds.entries()) {
+      const row = await this.loadSkillChunkRowByReferenceId(referenceId);
+      if (row === null || row.skillId !== input.activeSkillId) {
+        continue;
+      }
+      selected.push({
+        row,
+        score: input.state.lastTopReferenceScores[index] ?? Math.max(0, 1 - index * 0.01),
+        lexicalScore: input.state.lastTopReferenceScores[index] ?? 0,
+        vectorScore: null,
+        referenceId
+      });
+      if (selected.length >= MAX_PER_SOURCE_RESULTS) {
+        break;
+      }
+    }
+    if (selected.length === 0) {
+      return null;
+    }
+    const fetchedCandidates = await Promise.all(
+      selected.map(async (candidate) => ({
+        candidate,
+        fetched: await this.fetchSkillCandidateWindow(candidate, {
+          fetchMaxChars: input.retrievalPolicy.fetchMaxChars,
+          windowRadius: input.retrievalPolicy.knowledgeFetchWindowRadius
+        })
+      }))
+    );
+    const items = fetchedCandidates.map(({ candidate, fetched }) => ({
+      label: "skill_reference" as const,
+      referenceId: candidate.referenceId,
+      title: `${this.localize(candidate.row.skill.name, input.locale)} / ${candidate.row.sourceTitle}`,
+      locator: candidate.row.locator,
+      content: this.truncate(fetched.content, MAX_SKILL_FETCHED_ITEM_CHARS),
+      score: candidate.score,
+      metadata: {
+        skillId: candidate.row.skillId,
+        skillCategory: candidate.row.skill.category,
+        skillSourceType: candidate.row.sourceKind,
+        skillSourceId: candidate.row.sourceId,
+        sourceVersion: candidate.row.sourceVersion,
+        chunkIndex: candidate.row.chunkIndex,
+        windowStartChunkIndex: fetched.windowStartChunkIndex,
+        windowEndChunkIndex: fetched.windowEndChunkIndex,
+        windowChunkCount: fetched.fetchDepth,
+        mimeType: candidate.row.mimeType,
+        retrievalMode: "lexical",
+        semanticGroundingRequired: false,
+        vectorScore: null,
+        embeddingModelKey: fetched.embeddingModelKey,
+        stickyRetrievalReuse: true
+      }
+    }));
+    return {
+      items,
+      lexicalCandidateCount: 0,
+      vectorCandidateCount: 0,
+      helperApplied: false,
+      helperChangedOrder: false,
+      embeddingModelKey: null,
+      helperModelKey: null,
+      helperProviderKey: null,
+      helperInputTokens: null,
+      helperOutputTokens: null,
+      helperTotalTokens: null,
+      retrievalMode: "lexical",
+      fetchDepth: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchDepth, 0),
+      fetchedChars: fetchedCandidates.reduce((total, item) => total + item.fetched.fetchedChars, 0)
+    };
+  }
+
+  private async loadSkillChunkRowByReferenceId(referenceId: string): Promise<SkillChunkRow | null> {
+    const parsed = this.parseSkillReferenceId(referenceId);
+    if (parsed === null) {
+      return null;
+    }
+    if (parsed.sourceKind === "skill_document") {
+      const row = await this.prisma.skillDocumentChunk.findFirst({
+        where: {
+          skillId: parsed.skillId,
+          skillDocumentId: parsed.sourceId,
+          sourceVersion: parsed.sourceVersion,
+          chunkIndex: parsed.chunkIndex,
+          skillDocument: { status: "ready" },
+          skill: { status: "active", archivedAt: null }
+        },
+        include: {
+          skillDocument: {
+            select: {
+              displayName: true,
+              originalFilename: true,
+              mimeType: true
+            }
+          },
+          skill: {
+            select: {
+              id: true,
+              name: true,
+              category: true
+            }
+          }
+        }
+      });
+      if (row === null) {
+        return null;
+      }
+      return {
+        id: row.id,
+        sourceKind: "skill_document",
+        sourceId: row.skillDocumentId,
+        skillId: row.skillId,
+        sourceVersion: row.sourceVersion,
+        chunkIndex: row.chunkIndex,
+        locator: row.locator,
+        content: row.content,
+        embeddingModelKey: row.embeddingModelKey,
+        sourceTitle: row.skillDocument.displayName ?? row.skillDocument.originalFilename,
+        mimeType: row.skillDocument.mimeType,
+        skill: row.skill
+      };
+    }
+    const row = await this.prisma.skillKnowledgeCardChunk.findFirst({
+      where: {
+        skillId: parsed.skillId,
+        skillKnowledgeCardId: parsed.sourceId,
+        sourceVersion: parsed.sourceVersion,
+        chunkIndex: parsed.chunkIndex,
+        knowledgeCard: { status: "ready", lifecycleStatus: "active" },
+        skill: { status: "active", archivedAt: null }
+      },
+      include: {
+        knowledgeCard: {
+          select: {
+            title: true
+          }
+        },
+        skill: {
+          select: {
+            id: true,
+            name: true,
+            category: true
+          }
+        }
+      }
+    });
+    if (row === null) {
+      return null;
+    }
+    return {
+      id: row.id,
+      sourceKind: "skill_knowledge_card",
+      sourceId: row.skillKnowledgeCardId,
+      skillId: row.skillId,
+      sourceVersion: row.sourceVersion,
+      chunkIndex: row.chunkIndex,
+      locator: row.locator,
+      content: row.content,
+      embeddingModelKey: row.embeddingModelKey,
+      sourceTitle: row.knowledgeCard.title,
+      mimeType: "text/markdown",
+      skill: row.skill
+    };
+  }
+
+  private parseSkillReferenceId(referenceId: string): {
+    skillId: string;
+    sourceKind: "skill_document" | "skill_knowledge_card";
+    sourceId: string;
+    sourceVersion: number;
+    chunkIndex: number;
+  } | null {
+    const parts = referenceId.split(":");
+    if (parts.length !== 6 || parts[0] !== "skill") {
+      return null;
+    }
+    const sourceKind =
+      parts[2] === "skill_document" || parts[2] === "skill_knowledge_card" ? parts[2] : null;
+    const sourceVersion = Number.parseInt(parts[4] ?? "", 10);
+    const chunkIndex = Number.parseInt(parts[5] ?? "", 10);
+    if (
+      sourceKind === null ||
+      !Number.isInteger(sourceVersion) ||
+      !Number.isInteger(chunkIndex) ||
+      !parts[1] ||
+      !parts[3]
+    ) {
+      return null;
+    }
+    return {
+      skillId: parts[1],
+      sourceKind,
+      sourceId: parts[3],
+      sourceVersion,
+      chunkIndex
+    };
+  }
+
   private parseRetrievalPlan(value: unknown): RuntimeRetrievalPlan | null {
     const row = this.asObject(value);
     if (
@@ -750,7 +1157,10 @@ export class OrchestrateRuntimeRetrievalService {
       items: [],
       lexicalCandidateCount: 0,
       vectorCandidateCount: 0,
+      decisionMode: "refresh_search_only",
+      cacheReuseHit: false,
       helperApplied: false,
+      helperChangedOrder: false,
       embeddingModelKey: null,
       helperModelKey: null,
       helperProviderKey: null,
@@ -758,6 +1168,11 @@ export class OrchestrateRuntimeRetrievalService {
       helperOutputTokens: null,
       helperTotalTokens: null,
       retrievalMode: "lexical",
+      candidateCount: 0,
+      topScoreMargin: null,
+      querySimilarityToLastTurn: null,
+      cachedReferenceCoverage: null,
+      candidateAmbiguity: null,
       fetchDepth: 0,
       fetchedChars: 0
     };

@@ -115,6 +115,10 @@ async function run(): Promise<void> {
         toolTerms: ["browse"]
       }
     },
+    skillRoutingPolicy: {
+      initialCheckUserMessageIndex: 4,
+      backgroundRecheckIntervalMessages: 6
+    },
     providerKeys: {
       openai: " sk-openai-new ",
       anthropic: "sk-anthropic-new"
@@ -129,6 +133,8 @@ async function run(): Promise<void> {
   assert.equal(parsed.routerPolicy.mode, "shadow");
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.continueTerms, ["ok", "continue"]);
   assert.deepEqual(parsed.routerPolicy.precheckRuleOverrides?.premiumTerms, ["rewrite"]);
+  assert.equal(parsed.skillRoutingPolicy.initialCheckUserMessageIndex, 4);
+  assert.equal(parsed.skillRoutingPolicy.backgroundRecheckIntervalMessages, 6);
   assert.deepEqual(parsed.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(parsed.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(
@@ -214,7 +220,11 @@ async function run(): Promise<void> {
         mode: "active",
         classifierFailureFallbackMode: "premium",
         clarifyOnMissingContext: false,
-        precheckRuleOverrides: null
+        precheckRuleOverrides: null,
+        skillRoutingPolicy: {
+          initialCheckUserMessageIndex: 2,
+          backgroundRecheckIntervalMessages: 7
+        }
       },
       availableModelsByProvider: {
         openai: ["gpt‑5.4", "gpt‑5.4-mini"],
@@ -288,6 +298,8 @@ async function run(): Promise<void> {
   assert.equal(settings.routingFastModelKey, "gpt-5.4-mini");
   assert.equal(settings.routerPolicy.mode, "active");
   assert.equal(settings.routerPolicy.classifierFailureFallbackMode, "premium");
+  assert.equal(settings.skillRoutingPolicy.initialCheckUserMessageIndex, 2);
+  assert.equal(settings.skillRoutingPolicy.backgroundRecheckIntervalMessages, 7);
   assert.deepEqual(settings.availableModelsByProvider.anthropic, ["claude-sonnet-4-5"]);
   assert.deepEqual(settings.availableModelsByProvider.openai, ["gpt-5.4", "gpt-5.4-mini"]);
   assert.deepEqual(

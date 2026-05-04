@@ -192,6 +192,23 @@ async function run(): Promise<void> {
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
     {
+      decideBeforeSearch: () => null,
+      decideAfterSearch: () => ({
+        mode: "refresh_search_only",
+        querySimilarityToLastTurn: 0,
+        cachedReferenceCoverage: 0,
+        candidateAmbiguity: 0.08,
+        candidateCount: 1,
+        topScoreMargin: 0.92
+      }),
+      buildCandidateSetHash: (referenceIds: string[]) => referenceIds.join("|")
+    } as never,
+    {
+      resolveChatContext: async () => null,
+      buildQueryFingerprint: (query: string) => query.trim().toLowerCase(),
+      persistState: async () => undefined
+    } as never,
+    {
       searchNearest: async (input: Record<string, unknown>) => {
         vectorSearches.push(input);
         return [
@@ -291,7 +308,15 @@ async function run(): Promise<void> {
     retrievalMode: "hybrid",
     lexicalCandidateCount: 3,
     vectorCandidateCount: 1,
+    decisionMode: "refresh_search_only",
+    cacheReuseHit: false,
     helperApplied: false,
+    helperChangedOrder: false,
+    candidateCount: 1,
+    topScoreMargin: 0.92,
+    querySimilarityToLastTurn: 0,
+    cachedReferenceCoverage: 0,
+    candidateAmbiguity: 0.08,
     embeddingModelKey: "text-embedding-3-small",
     helperModelKey: null,
     helperProviderKey: null,
@@ -349,6 +374,23 @@ async function run(): Promise<void> {
     } as never,
     { generateEmbeddings: async () => [[0.1, 0.2]] } as never,
     { rerankCandidates: async () => null } as never,
+    {
+      decideBeforeSearch: () => null,
+      decideAfterSearch: () => ({
+        mode: "refresh_search_only",
+        querySimilarityToLastTurn: 0,
+        cachedReferenceCoverage: 0,
+        candidateAmbiguity: 0,
+        candidateCount: 0,
+        topScoreMargin: null
+      }),
+      buildCandidateSetHash: (referenceIds: string[]) => referenceIds.join("|")
+    } as never,
+    {
+      resolveChatContext: async () => null,
+      buildQueryFingerprint: (query: string) => query.trim().toLowerCase(),
+      persistState: async () => undefined
+    } as never,
     { searchNearest: async () => [] } as never
   );
   const lexicalOnlyContext = await lexicalOnlyService.execute(

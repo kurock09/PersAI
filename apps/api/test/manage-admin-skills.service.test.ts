@@ -16,7 +16,18 @@ function createHarness() {
   const documents = new Map<string, MockRow>();
   const cards = new Map<string, MockRow>();
   const jobs = new Map<string, MockRow>();
+  const assignments: Array<{
+    assistantId: string;
+    skillId: string;
+    status: string;
+    archivedAt: Date | null;
+    skillStatus: string;
+  }> = [];
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
+  const assistantChatUpdates: Array<{
+    where: Record<string, unknown>;
+    data: Record<string, unknown>;
+  }> = [];
   const deletedObjects: string[] = [];
   let nextSkill = 1;
   let nextDocument = 1;
@@ -178,10 +189,67 @@ function createHarness() {
       deleteMany: tx.knowledgeIndexingJob.deleteMany
     },
     assistantSkillAssignment: {
-      updateMany: async () => ({ count: 0 })
+      updateMany: async ({
+        where,
+        data
+      }: {
+        where: { skillId?: string; status?: string };
+        data: Record<string, unknown>;
+      }) => {
+        let count = 0;
+        for (const assignment of assignments) {
+          if (
+            (where.skillId === undefined || assignment.skillId === where.skillId) &&
+            (where.status === undefined || assignment.status === where.status)
+          ) {
+            Object.assign(assignment, data);
+            count += 1;
+          }
+        }
+        return { count };
+      },
+      findMany: async ({ where }: { where: { skillId: string } }) =>
+        assignments
+          .filter((assignment) => assignment.skillId === where.skillId)
+          .map((assignment) => ({ assistantId: assignment.assistantId })),
+      groupBy: async ({
+        where
+      }: {
+        where: {
+          assistantId: { in: string[] };
+          status: string;
+          skill: { status: string; archivedAt: null };
+        };
+      }) =>
+        where.assistantId.in
+          .map((assistantId) => ({
+            assistantId,
+            _count: {
+              assistantId: assignments.filter(
+                (assignment) =>
+                  assignment.assistantId === assistantId &&
+                  assignment.status === where.status &&
+                  assignment.skillStatus === where.skill.status &&
+                  assignment.archivedAt === where.skill.archivedAt
+              ).length
+            }
+          }))
+          .filter((row) => row._count.assistantId > 0)
     },
     assistant: {
       updateMany: async () => ({ count: 0 })
+    },
+    assistantChat: {
+      updateMany: async ({
+        where,
+        data
+      }: {
+        where: Record<string, unknown>;
+        data: Record<string, unknown>;
+      }) => {
+        assistantChatUpdates.push({ where, data });
+        return { count: 1 };
+      }
     },
     $transaction: async <T>(callback: (transaction: typeof tx) => Promise<T>) => callback(tx)
   };
@@ -224,6 +292,8 @@ function createHarness() {
     documents,
     cards,
     jobs,
+    assignments,
+    assistantChatUpdates,
     deletedObjects,
     vectorDeletes
   };
@@ -251,6 +321,13 @@ async function run(): Promise<void> {
   const created = await harness.service.create("admin-1", skillInput);
   assert.equal(created.status, "active");
   assert.equal(created.name.en, "Accountant");
+  harness.assignments.push({
+    assistantId: "assistant-1",
+    skillId: created.id,
+    status: "active",
+    archivedAt: null,
+    skillStatus: "active"
+  });
 
   const upload = await harness.service.uploadDocument({
     userId: "admin-1",
@@ -267,6 +344,13 @@ async function run(): Promise<void> {
   assert.equal(upload.indexingJob.sourceId, upload.document.id);
   assert.equal(upload.indexingJob.status, "pending");
   assert.equal(harness.jobs.get(upload.indexingJob.id)?.workspaceId, null);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.assistantChatUpdates.at(-1)?.data ?? {},
+      "skillRetrievalState"
+    ),
+    true
+  );
 
   const reindexed = await harness.service.reindexDocument(
     "admin-1",
@@ -305,6 +389,20 @@ async function run(): Promise<void> {
   assert.equal(activeCard.card.lifecycleStatus, "active");
   assert.equal(activeCard.indexingJob?.sourceType, "skill_knowledge_card");
   assert.equal(harness.jobs.get(activeCard.indexingJob?.id ?? "")?.workspaceId, null);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.assistantChatUpdates.at(-1)?.data ?? {},
+      "autoSkillRoutingState"
+    ),
+    true
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      harness.assistantChatUpdates.at(-1)?.data ?? {},
+      "skillRetrievalState"
+    ),
+    true
+  );
 
   await harness.service.archiveKnowledgeCard("admin-1", created.id, draftCard.card.id);
   assert.equal(harness.cards.get(draftCard.card.id)?.lifecycleStatus, "archived");

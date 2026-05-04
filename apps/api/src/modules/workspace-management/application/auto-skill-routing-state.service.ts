@@ -5,12 +5,17 @@ import type {
   RuntimeSkillRoutingCheckResult,
   RuntimeSkillRoutingContext
 } from "@persai/runtime-contract";
+import {
+  DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES,
+  DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX,
+  PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID
+} from "./platform-runtime-provider-settings";
+import { SkillRetrievalStateService } from "./skill-retrieval-state.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const MAX_RECENT_ROUTING_MESSAGES = 30;
 const MAX_RECENT_ROUTING_USER_TURNS = 5;
-const INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES = new Set([3]);
-const BACKGROUND_RECHECK_INTERVAL_MESSAGES = 5;
+const SKILL_ROUTING_POLICY_CACHE_TTL_MS = 10_000;
 
 export function createDormantAutoSkillRoutingState(): RuntimeAutoSkillRoutingState {
   return {
@@ -27,8 +32,16 @@ export function createDormantAutoSkillRoutingState(): RuntimeAutoSkillRoutingSta
 @Injectable()
 export class AutoSkillRoutingStateService {
   private readonly logger = new Logger(AutoSkillRoutingStateService.name);
+  private skillRoutingPolicyCache: {
+    expiresAt: number;
+    initialCheckUserMessageIndex: number;
+    backgroundRecheckIntervalMessages: number;
+  } | null = null;
 
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly skillRetrievalStateService: SkillRetrievalStateService
+  ) {}
 
   async buildRuntimeContext(input: {
     chatId: string;
@@ -80,19 +93,20 @@ export class AutoSkillRoutingStateService {
     };
   }
 
-  shouldRunBackgroundCheck(context: RuntimeSkillRoutingContext): boolean {
+  async shouldRunBackgroundCheck(context: RuntimeSkillRoutingContext): Promise<boolean> {
     const currentUserMessageIndex = context.currentUserMessageIndex;
     if (currentUserMessageIndex <= 0) {
       return false;
     }
+    const policy = await this.readSkillRoutingPolicy();
     const state = context.state;
     if (state === null) {
-      return INITIAL_BACKGROUND_CHECK_MESSAGE_INDEXES.has(currentUserMessageIndex);
+      return currentUserMessageIndex >= policy.initialCheckUserMessageIndex;
     }
     if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
       return false;
     }
-    return state.messageCountSinceCheck >= BACKGROUND_RECHECK_INTERVAL_MESSAGES;
+    return state.messageCountSinceCheck >= policy.backgroundRecheckIntervalMessages;
   }
 
   createBackgroundCheckContext(context: RuntimeSkillRoutingContext): RuntimeSkillRoutingContext {
@@ -156,6 +170,10 @@ export class AutoSkillRoutingStateService {
           state === null ? Prisma.DbNull : (state as unknown as Prisma.InputJsonValue)
       }
     });
+    await this.skillRetrievalStateService.clearForChatWhenSkillMismatches({
+      chatId: input.chatId,
+      activeSkillId: state?.status === "active" ? state.activeSkillId : null
+    });
   }
 
   private selectRecentRoutingRows<
@@ -218,5 +236,48 @@ export class AutoSkillRoutingStateService {
       checkedAtMessageIndex,
       messageCountSinceCheck
     };
+  }
+
+  private async readSkillRoutingPolicy(): Promise<{
+    initialCheckUserMessageIndex: number;
+    backgroundRecheckIntervalMessages: number;
+  }> {
+    const now = Date.now();
+    if (this.skillRoutingPolicyCache !== null && this.skillRoutingPolicyCache.expiresAt > now) {
+      return this.skillRoutingPolicyCache;
+    }
+    const row = await this.prisma.platformRuntimeProviderSettings.findUnique({
+      where: { id: PLATFORM_RUNTIME_PROVIDER_SETTINGS_ID },
+      select: { routerPolicy: true }
+    });
+    const routerPolicy =
+      row?.routerPolicy !== null &&
+      row?.routerPolicy !== undefined &&
+      typeof row.routerPolicy === "object" &&
+      !Array.isArray(row.routerPolicy)
+        ? (row.routerPolicy as Record<string, unknown>)
+        : null;
+    const skillRoutingPolicy =
+      routerPolicy?.skillRoutingPolicy !== null &&
+      routerPolicy?.skillRoutingPolicy !== undefined &&
+      typeof routerPolicy.skillRoutingPolicy === "object" &&
+      !Array.isArray(routerPolicy.skillRoutingPolicy)
+        ? (routerPolicy.skillRoutingPolicy as Record<string, unknown>)
+        : null;
+    const policy = {
+      expiresAt: now + SKILL_ROUTING_POLICY_CACHE_TTL_MS,
+      initialCheckUserMessageIndex:
+        typeof skillRoutingPolicy?.initialCheckUserMessageIndex === "number" &&
+        Number.isInteger(skillRoutingPolicy.initialCheckUserMessageIndex)
+          ? skillRoutingPolicy.initialCheckUserMessageIndex
+          : DEFAULT_SKILL_ROUTING_INITIAL_CHECK_USER_MESSAGE_INDEX,
+      backgroundRecheckIntervalMessages:
+        typeof skillRoutingPolicy?.backgroundRecheckIntervalMessages === "number" &&
+        Number.isInteger(skillRoutingPolicy.backgroundRecheckIntervalMessages)
+          ? skillRoutingPolicy.backgroundRecheckIntervalMessages
+          : DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES
+    };
+    this.skillRoutingPolicyCache = policy;
+    return policy;
   }
 }

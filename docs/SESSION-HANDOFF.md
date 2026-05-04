@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-079 smart skill routing + sticky retrieval) — cadence is admin-owned and active-skill retrieval no longer always pays full search/helper cost
+
+### What changed
+
+- Kept this session bounded to the founder-approved ADR-079 follow-through slice: productionize auto-skill cadence as global admin runtime policy and make retrieval inside an already-active Skill sticky/adaptive instead of repeatedly doing full search plus helper rerank on near-identical turns.
+- `Admin > Runtime` now owns two global cadence knobs: `skillRoutingInitialCheckUserMessageIndex` and `skillRoutingBackgroundRecheckIntervalMessages`. They are parsed/validated in the runtime-provider settings API, exposed through OpenAPI/contracts, rendered in the admin runtime UI, and persisted in global runtime settings instead of living only as code constants.
+- `AutoSkillRoutingStateService` now reads those admin-owned cadence settings for new-chat bootstrap and later background rechecks, with a short cache so ordinary turns do not hit runtime settings storage on every check.
+- Added a separate persisted `skillRetrievalState` JSON cell on `assistant_chats` plus a dedicated `SkillRetrievalStateService`; this state is distinct from `autoSkillRoutingState` and only answers how to reuse or refresh retrieval inside the current active Skill.
+- Runtime orchestrated retrieval now receives conversation identity, resolves the current chat thread, and uses `SkillRetrievalPolicyService` to choose among `reuse_cached_refs`, `refresh_search_only`, and `refresh_with_helper`. Close same-topic follow-ups can reuse cached Skill refs without full search/helper work, clear same-skill turns can refresh raw search without helper, and ambiguous/larger shifts still allow helper rerank.
+- Retrieval state is reset when Skill assignments change and when persisted auto-skill state switches/clears active Skill, so sticky retrieval does not survive topic drift or Skill toggles with stale refs.
+- Knowledge retrieval observability now records decision mode, cache-reuse hits, helper reorder behavior, candidate counts/margins, and similarity/coverage signals so admin telemetry can prove that sticky retrieval is actually saving helper/search work rather than only claiming to do so.
+- Added/updated focused API/web/runtime tests for cadence parsing, admin runtime request shaping, assignment reset behavior, orchestrated retrieval behavior, and runtime turn execution/routing compatibility.
+- Follow-up production review hardening closed four medium-risk tails before handoff: runtime now still permits cadence-owned Skill routing checks even when the early router toggle is off, admin Skill mutations now proactively invalidate persisted chat routing/retrieval state, retrieval mode counters no longer treat non-Skill searches/fetches as `refresh_search_only`, and the adaptive retrieval policy now only trusts a prior no-op helper result when the candidate set hash is still stable.
+- Added focused regressions for the router-disabled Skill-routing path, admin-side invalidation behavior, retrieval observability normalization, and candidate-set drift behavior in the retrieval policy itself.
+
+### Verification
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/platform-runtime-provider-settings.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/runtime/page.test.tsx app/app/runtime-provider-settings-admin.test.ts app/app/assistant-api-client.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/skill-retrieval-policy.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/knowledge-retrieval-observability.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched API/web/runtime files
+
+### Risks / residuals
+
+- Sticky retrieval now avoids repeated helper/search work for close follow-ups, but the current heuristics are still intentionally conservative. If live quality shows over-reuse on ambiguous turns, the first knob to retune is the adaptive policy thresholds rather than reintroducing always-helper behavior.
+- Non-Skill retrieval events now store `decisionMode=not_applicable` and no longer pollute sticky-mode counters, but any downstream admin UI that assumed every recent event mode was one of the three Skill values should be smoke-checked after deploy.
+
+### Next recommended step
+
+Deploy this API/runtime/web slice to `persai-dev`, then live-smoke one founder scenario with an active Skill and one with router toggle off: first background activation should still respect the admin cadence, close follow-up turns inside the same Skill should stop emitting helper rerank every time, admin Skill edits/reindex should clear stale chat state immediately, and topic drift should still switch/clear the active Skill plus its retrieval cache cleanly.
+
+---
+
 ## 2026-05-04 (ADR-079 auto-skill routing cadence hardening) — Skill activation/rechecks now follow persisted background cadence instead of null-state foreground drift
 
 ### What changed

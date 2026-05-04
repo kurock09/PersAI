@@ -406,7 +406,11 @@ export class SendWebChatTurnService {
               ? prepared.chat.autoSkillRoutingState
               : persistedAutoSkillState
         });
-      if (this.autoSkillRoutingStateService.shouldRunBackgroundCheck(postTurnSkillRoutingContext)) {
+      if (
+        await this.autoSkillRoutingStateService.shouldRunBackgroundCheck(
+          postTurnSkillRoutingContext
+        )
+      ) {
         const backgroundSkillRoutingContext =
           this.autoSkillRoutingStateService.createBackgroundCheckContext(
             postTurnSkillRoutingContext
