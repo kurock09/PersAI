@@ -346,6 +346,7 @@ export interface RuntimeAutoSkillRoutingState {
   confidence: RuntimeAutoSkillRoutingConfidence;
   checkedAtMessageIndex: number;
   messageCountSinceCheck: number;
+  backgroundCheckQueuedAtMessageIndex?: number | null;
 }
 
 export interface RuntimeSkillRoutingRecentMessage {

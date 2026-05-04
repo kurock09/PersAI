@@ -17,6 +17,7 @@ export interface AssistantWebChatState {
     confidence: "low" | "medium" | "high";
     checkedAtMessageIndex: number;
     messageCountSinceCheck: number;
+    backgroundCheckQueuedAtMessageIndex?: number | null;
   } | null;
   archivedAt: string | null;
   lastMessageAt: string | null;

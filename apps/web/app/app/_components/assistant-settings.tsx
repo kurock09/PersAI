@@ -2437,25 +2437,6 @@ export function AssistantSettings({
                 </div>
               ) : null}
             </div>
-            {visibleMonthlyMediaQuotas.length > 0 && (
-              <div className="rounded-lg border border-border/80 bg-surface-raised/40 p-3">
-                <p className="mb-2 text-xs font-medium text-text">{t("monthlyMediaQuotas")}</p>
-                <div className="space-y-2">
-                  {visibleMonthlyMediaQuotas.map((tool) => (
-                    <LimitBar
-                      key={tool.toolCode}
-                      label={monthlyMediaQuotaLabels[tool.toolCode] ?? tool.displayName}
-                      pct={toMonthlyMediaQuotaPercent(tool)}
-                      valueLabel={formatMonthlyMediaQuotaValue(tool)}
-                      unavailable={!tool.usageAvailable}
-                    />
-                  ))}
-                </div>
-                <p className="mt-2 text-[10px] text-text-subtle">
-                  {t("monthlyMediaQuotaSettlementHint")}
-                </p>
-              </div>
-            )}
             <div className="rounded-lg border border-border/80 bg-surface-raised/40">
               <button
                 type="button"
@@ -2655,12 +2636,14 @@ function LimitMetricCard({
   secondary?: string | null;
 }) {
   return (
-    <div className="rounded-xl border border-border/80 bg-surface/70 p-2.5">
-      <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-text-subtle">
+    <div className="flex h-full flex-col rounded-xl border border-border/80 bg-surface/70 p-2.5">
+      <p className="min-h-[2.4rem] text-[10px] font-medium leading-4 uppercase tracking-[0.12em] text-text-subtle">
         {label}
       </p>
-      <p className="mt-1 text-xs font-semibold text-text">{value}</p>
-      {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
+      <div className="mt-2">
+        <p className="text-xs font-semibold tabular-nums text-text">{value}</p>
+        {secondary ? <p className="mt-1 text-[10px] text-text-subtle">{secondary}</p> : null}
+      </div>
     </div>
   );
 }

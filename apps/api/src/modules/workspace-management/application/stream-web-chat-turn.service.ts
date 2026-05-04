@@ -622,6 +622,10 @@ export class StreamWebChatTurnService {
           this.autoSkillRoutingStateService.createBackgroundCheckContext(
             postTurnSkillRoutingContext
           );
+        await this.autoSkillRoutingStateService.markBackgroundCheckQueued({
+          chatId: prepared.chat.id,
+          context: postTurnSkillRoutingContext
+        });
         this.autoSkillRoutingStateService.runBackgroundCheck({
           chatId: prepared.chat.id,
           execute: () =>

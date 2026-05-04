@@ -508,7 +508,12 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       topicSummary,
       confidence,
       checkedAtMessageIndex,
-      messageCountSinceCheck
+      messageCountSinceCheck,
+      backgroundCheckQueuedAtMessageIndex:
+        typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
+        Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
+          ? row.backgroundCheckQueuedAtMessageIndex
+          : null
     };
   }
 

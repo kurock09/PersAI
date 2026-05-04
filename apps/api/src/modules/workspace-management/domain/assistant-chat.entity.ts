@@ -8,6 +8,7 @@ export type AssistantChatAutoSkillRoutingState = {
   confidence: "low" | "medium" | "high";
   checkedAtMessageIndex: number;
   messageCountSinceCheck: number;
+  backgroundCheckQueuedAtMessageIndex?: number | null;
 };
 
 export type AssistantChat = {

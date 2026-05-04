@@ -111,6 +111,7 @@ export interface AssistantRuntimeTurnRoutingSnapshot {
     confidence: "low" | "medium" | "high";
     checkedAtMessageIndex: number;
     messageCountSinceCheck: number;
+    backgroundCheckQueuedAtMessageIndex?: number | null;
   } | null;
 }
 

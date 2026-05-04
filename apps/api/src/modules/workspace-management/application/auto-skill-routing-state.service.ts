@@ -25,7 +25,8 @@ export function createDormantAutoSkillRoutingState(): RuntimeAutoSkillRoutingSta
     topicSummary: null,
     confidence: "low",
     checkedAtMessageIndex: 0,
-    messageCountSinceCheck: 0
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
   };
 }
 
@@ -106,6 +107,12 @@ export class AutoSkillRoutingStateService {
     if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
       return false;
     }
+    if (
+      typeof state.backgroundCheckQueuedAtMessageIndex === "number" &&
+      state.backgroundCheckQueuedAtMessageIndex > state.checkedAtMessageIndex
+    ) {
+      return false;
+    }
     return state.messageCountSinceCheck >= policy.backgroundRecheckIntervalMessages;
   }
 
@@ -114,6 +121,33 @@ export class AutoSkillRoutingStateService {
       ...context,
       forceCheck: true
     };
+  }
+
+  async markBackgroundCheckQueued(input: {
+    chatId: string;
+    context: RuntimeSkillRoutingContext;
+  }): Promise<void> {
+    const queuedAtMessageIndex = input.context.currentUserMessageIndex;
+    const nextState =
+      input.context.state === null
+        ? {
+            ...createDormantAutoSkillRoutingState(),
+            messageCountSinceCheck: Math.max(0, queuedAtMessageIndex),
+            backgroundCheckQueuedAtMessageIndex: queuedAtMessageIndex
+          }
+        : {
+            ...input.context.state,
+            backgroundCheckQueuedAtMessageIndex: Math.max(
+              queuedAtMessageIndex,
+              input.context.state.backgroundCheckQueuedAtMessageIndex ?? 0
+            )
+          };
+    await this.prisma.assistantChat.update({
+      where: { id: input.chatId },
+      data: {
+        autoSkillRoutingState: nextState as unknown as Prisma.InputJsonValue
+      }
+    });
   }
 
   extractStateFromTurnRouting(input: {
@@ -167,7 +201,12 @@ export class AutoSkillRoutingStateService {
       where: { id: input.chatId },
       data: {
         autoSkillRoutingState:
-          state === null ? Prisma.DbNull : (state as unknown as Prisma.InputJsonValue)
+          state === null
+            ? Prisma.DbNull
+            : ({
+                ...state,
+                backgroundCheckQueuedAtMessageIndex: null
+              } as unknown as Prisma.InputJsonValue)
       }
     });
     await this.skillRetrievalStateService.clearForChatWhenSkillMismatches({
@@ -234,7 +273,12 @@ export class AutoSkillRoutingStateService {
       topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
       confidence,
       checkedAtMessageIndex,
-      messageCountSinceCheck
+      messageCountSinceCheck,
+      backgroundCheckQueuedAtMessageIndex:
+        typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
+        Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
+          ? row.backgroundCheckQueuedAtMessageIndex
+          : null
     };
   }
 

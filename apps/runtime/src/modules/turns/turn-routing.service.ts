@@ -144,7 +144,7 @@ const ROUTER_OUTPUT_SCHEMA = {
   }
 } as const;
 
-const ROUTER_MAX_OUTPUT_TOKENS = 360;
+const ROUTER_MAX_OUTPUT_TOKENS = 700;
 const DEFAULT_CONTINUE_TERMS = [
   "ok",
   "okay",
@@ -865,7 +865,7 @@ export class TurnRoutingService {
     return messages
       .slice(-10)
       .map((message, index) => {
-        const text = this.normalizeMessageText(message.text).slice(0, 500);
+        const text = this.normalizeMessageText(message.text).slice(0, 220);
         return `${index + 1}. ${message.role}: ${text}`;
       })
       .join("\n");
@@ -1023,6 +1023,7 @@ export class TurnRoutingService {
     return {
       ...state,
       messageCountSinceCheck: Math.max(0, state.messageCountSinceCheck + 1),
+      backgroundCheckQueuedAtMessageIndex: state.backgroundCheckQueuedAtMessageIndex ?? null,
       checkedAtMessageIndex: Math.max(
         0,
         Math.min(
@@ -1047,7 +1048,8 @@ export class TurnRoutingService {
         topicSummary: this.buildTopicSummary(input.request),
         confidence: input.plan.confidence,
         checkedAtMessageIndex: currentUserMessageIndex,
-        messageCountSinceCheck: 0
+        messageCountSinceCheck: 0,
+        backgroundCheckQueuedAtMessageIndex: null
       };
     }
     const skillId = input.plan.selectedSkillIds[0] ?? null;
@@ -1062,7 +1064,8 @@ export class TurnRoutingService {
       topicSummary: this.buildTopicSummary(input.request),
       confidence: input.plan.confidence,
       checkedAtMessageIndex: currentUserMessageIndex,
-      messageCountSinceCheck: 0
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null
     };
   }
 

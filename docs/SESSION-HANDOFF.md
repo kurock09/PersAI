@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-084 Slice 2 media-card cleanup) — old monthly-media block removed and media summary cards now stay visually aligned
+
+### What changed
+
+- Kept this follow-up bounded to the existing ADR-084 Slice 2 billing-UI polish tail in `apps/web`, specifically the `Assistant Settings -> Limits & Plan` presentation only. Checkout, plan data, lifecycle behavior, and pricing-route logic stayed out of scope.
+- Removed the old `Monthly media` block completely from `apps/web/app/app/_components/assistant-settings.tsx` because it had become duplicate UI after the new top media summary cards landed.
+- Kept only the top three media summary cards under the token budget and adjusted `LimitMetricCard` so long localized headings no longer push usage values like `3/5` to different vertical positions on wide screens.
+- The media cards now reserve a consistent title area and keep the numeric values aligned lower in the card, which makes the whole desktop row read as one clean premium strip even when one title wraps to a second line.
+- Updated the focused `AssistantSettings` regression to match the removal of the old duplicated monthly-media block.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- The card layout now intentionally reserves extra vertical space for all three media titles so wrapped and unwrapped cards stay visually aligned. That is the desired desktop trade-off, but if the founder later wants an even denser mobile presentation, the next tweak should be per-breakpoint spacing rather than reintroducing the old duplicate monthly-media block.
+
+### Next recommended step
+
+Live-smoke the updated `Limits & Plan` block on a narrow mobile viewport and on a wide desktop viewport to confirm the founder likes the new card rhythm with real RU labels and near-limit values such as `9/10` or `3/5`.
+
+---
+
 ## 2026-05-04 (ADR-079 smart skill routing + sticky retrieval) — cadence is admin-owned and active-skill retrieval no longer always pays full search/helper cost
 
 ### What changed

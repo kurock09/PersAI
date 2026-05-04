@@ -72,7 +72,12 @@ function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRouti
     topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
     confidence,
     checkedAtMessageIndex,
-    messageCountSinceCheck
+    messageCountSinceCheck,
+    backgroundCheckQueuedAtMessageIndex:
+      typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
+      Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
+        ? row.backgroundCheckQueuedAtMessageIndex
+        : null
   };
 }
 

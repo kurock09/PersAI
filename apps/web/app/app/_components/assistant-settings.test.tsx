@@ -889,8 +889,8 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Pro")).toBeInTheDocument();
     expect(screen.getByText("Token budget")).toBeInTheDocument();
     expect(screen.getByText("2,100/10,000")).toBeInTheDocument();
-    expect(screen.getAllByText("Image generations")).toHaveLength(2);
-    expect(screen.getAllByText("2/20")).toHaveLength(2);
+    expect(screen.getByText("Image generations")).toBeInTheDocument();
+    expect(screen.getByText("2/20")).toBeInTheDocument();
     expect(screen.queryByText("Image edits")).toBeNull();
     expect(screen.queryByText("Code execution")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Change plan" }));

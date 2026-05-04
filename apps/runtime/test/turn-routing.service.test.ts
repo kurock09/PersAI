@@ -580,7 +580,45 @@ async function run(): Promise<void> {
   assert.equal(assistantContextSkillMatchDecision.reasonCode, "simple_turn");
   assert.equal(assistantContextSkillMatchDecision.retrievalPlan.useSkills, false);
   assert.equal(providerGatewayClient.calls.length, 2);
-  providerGatewayClient.result = skillClassifierResult;
+
+  const longTail = "tail-segment ".repeat(40);
+  const assembledClassifierRequest = (
+    service as unknown as {
+      buildClassifierRequest: (input: {
+        bundle: ReturnType<typeof createBundle>;
+        request: RuntimeTurnRequest;
+        projectedTools: RuntimeNativeToolProjection;
+        provider: "openai" | "anthropic";
+        model: string;
+        prompt: string;
+        fallbackMode: "normal" | "premium" | "reasoning";
+      }) => ProviderGatewayTextGenerateRequest;
+    }
+  ).buildClassifierRequest({
+    bundle: createBundle(),
+    request: withSkillRoutingContext(createRequest("Нужен роутинг по теме"), {
+      state: null,
+      currentUserMessageIndex: 5,
+      recentMessages: [
+        { role: "user", text: "Собери рацион на неделю" },
+        { role: "assistant", text: `Очень длинный ответ ${longTail}` },
+        { role: "user", text: "Сделай список покупок" }
+      ],
+      forceCheck: true
+    }),
+    projectedTools,
+    provider: "openai",
+    model: "gpt-4.1",
+    prompt: "Router prompt",
+    fallbackMode: "normal"
+  });
+  assert.equal(assembledClassifierRequest.maxOutputTokens, 700);
+  const assembledContent = String(assembledClassifierRequest.messages[0]?.content ?? "");
+  assert.match(assembledContent, /Очень длинный ответ/);
+  assert.doesNotMatch(
+    assembledContent,
+    /tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment/
+  );
 
   const stickySkillDecision = await service.decide({
     bundle: createBundle(),
