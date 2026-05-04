@@ -237,7 +237,8 @@ async function run(): Promise<void> {
     topicSummary: null,
     confidence: "low",
     checkedAtMessageIndex: 0,
-    messageCountSinceCheck: 0
+    messageCountSinceCheck: 0,
+    backgroundCheckQueuedAtMessageIndex: null
   });
   assert.equal(harness.chatState.skillRetrievalState, null);
   const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");

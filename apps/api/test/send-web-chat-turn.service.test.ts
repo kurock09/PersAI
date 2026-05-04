@@ -47,6 +47,7 @@ function createAutoSkillRoutingStateServiceMock() {
       forceCheck: true
     }),
     persistFromTurnRouting: async () => undefined,
+    markBackgroundCheckQueued: async () => undefined,
     shouldRunBackgroundCheck: () => false,
     runBackgroundCheck: () => undefined
   };
@@ -363,6 +364,7 @@ describe("SendWebChatTurnService", () => {
           forceCheck: true
         }),
         persistFromTurnRouting: async () => undefined,
+        markBackgroundCheckQueued: async () => undefined,
         shouldRunBackgroundCheck: () => true,
         runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
           backgroundCheckPromise = input.execute();
