@@ -89,6 +89,44 @@ Interpretation rules:
 15. Ops Cockpit selected detail must expose PersAI-owned subscription truth, lifecycle events, notification jobs, quota period, and support identifiers without reading billing-provider state directly at request time.
 16. Ops Cockpit support actions must run through lifecycle/subscription services rather than raw admin row mutation: extend trial updates trial windows, grant/extend grace preserves paid access logic, fallback now moves deterministically to configured fallback truth, manual reminder creates durable notification work, and the selected detail refreshes to the new lifecycle state after each action.
 
+## ADR-084 payment-intent and provider-port focused checks
+
+When a change touches PersAI payment intents, provider-neutral checkout session creation, or the authenticated billing-intent API, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `POST /assistant/billing/payment-intents` must create PersAI-owned intent state before any provider checkout/session call.
+2. Payment-intent creation must be idempotent per workspace and caller-supplied `idempotencyKey`; the same key with different plan/method/return-url shape must fail loudly.
+3. Only active visible paid plans from the pricing source of truth may be purchased through this boundary.
+4. This slice may start `new_purchase` and `upgrade`, but must not silently perform downgrade/cancel policy early.
+5. The API response must stay provider-neutral and carry a normalized checkout mode (`widget`, `redirect`, `payment_link`, `qr_code`, or current `manual_test`) rather than provider-specific UI assumptions.
+6. Product/lifecycle truth must still wait for trusted server/provider confirmation; creating a payment intent or checkout session must not activate paid access by itself.
+
+## ADR-084 web checkout and return-flow focused checks
+
+When a change touches logged-in pricing checkout launch, manual/provider checkout handoff UI, or chat return-state banners, add focused web checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/chat/page.test.tsx
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Logged-in pricing CTAs must create or reuse PersAI-owned payment intents through `POST /assistant/billing/payment-intents`; pricing cards must not synthesize provider checkout state client-side.
+2. The web layer may launch `card` and `sbp_qr` starts, but must not activate paid access from checkout launch or return alone.
+3. Manual/test checkout flows must return the user to chat with an explicit `success`, `failed`, or `pending` envelope so the UI can explain what happened without pretending lifecycle confirmation already landed.
+4. Failure return UX must clearly preserve the old plan and provide a retry path back to pricing.
+
 ## ADR-079 grounded Skill/user-KB routing focused checks
 
 When a change touches Skill routing, orchestrated retrieval context injection, model-role selection, or provider context-window failure mapping, add focused checks that prove:

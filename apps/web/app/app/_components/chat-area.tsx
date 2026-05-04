@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import type { Route } from "next";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -40,6 +42,8 @@ interface ChatAreaProps {
   assistantCreatedAt?: string | undefined;
   showShadowRoutingBadge?: boolean | undefined;
   onTitleChanged?: (() => void) | undefined;
+  billingReturnKind?: "success" | "failed" | "pending" | undefined;
+  billingPlanCode?: string | undefined;
 }
 
 export function ChatArea({
@@ -52,7 +56,9 @@ export function ChatArea({
   assistantAvatarEmoji,
   assistantCreatedAt,
   showShadowRoutingBadge = false,
-  onTitleChanged
+  onTitleChanged,
+  billingReturnKind,
+  billingPlanCode
 }: ChatAreaProps) {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -67,6 +73,7 @@ export function ChatArea({
   const [forgottenIds, setForgottenIds] = useState<Set<string>>(new Set());
   const [compactionBannerSnoozedUntilCount, setCompactionBannerSnoozedUntilCount] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [dismissedBillingReturnKind, setDismissedBillingReturnKind] = useState<string | null>(null);
 
   // Restore the cancelled draft into the composer when the user picks
   // "Cancel" on a failed pending-send bubble (text only — media/voice
@@ -107,6 +114,10 @@ export function ChatArea({
     },
     [handleDoNotRemember]
   );
+
+  useEffect(() => {
+    setDismissedBillingReturnKind(null);
+  }, [billingReturnKind, billingPlanCode]);
 
   const isInitialLoad = useRef(true);
   const prevMessageCount = useRef(0);
@@ -264,6 +275,20 @@ export function ChatArea({
     : "border-destructive/20 bg-destructive/5";
   const issueIconClass = issueIsWarning ? "text-amber-600" : "text-destructive";
   const issueTextClass = issueIsWarning ? "text-amber-900" : "text-destructive";
+  const showBillingReturnBanner =
+    billingReturnKind !== undefined && dismissedBillingReturnKind !== billingReturnKind;
+  const billingBannerTone =
+    billingReturnKind === "failed"
+      ? "border-destructive/20 bg-destructive/5"
+      : billingReturnKind === "success"
+        ? "border-success/25 bg-success/10"
+        : "border-amber-200 bg-amber-50";
+  const billingBannerIconTone =
+    billingReturnKind === "failed"
+      ? "text-destructive"
+      : billingReturnKind === "success"
+        ? "text-success"
+        : "text-amber-600";
   const compactionTokensLabel =
     typeof chat.compaction?.currentTokens === "number"
       ? t("compactionTokensValue", { count: chat.compaction.currentTokens })
@@ -518,6 +543,45 @@ export function ChatArea({
           <span className="hidden sm:inline">{t("scrollToBottom")}</span>
         </button>
       )}
+
+      {showBillingReturnBanner ? (
+        <div
+          className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${billingBannerTone}`}
+        >
+          <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${billingBannerIconTone}`} />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-text">
+              {billingReturnKind === "success"
+                ? t("billingReturnSuccessTitle", { plan: billingPlanCode ?? "?" })
+                : billingReturnKind === "failed"
+                  ? t("billingReturnFailedTitle")
+                  : t("billingReturnPendingTitle")}
+            </p>
+            <p className="mt-0.5 text-xs text-text-muted">
+              {billingReturnKind === "success"
+                ? t("billingReturnSuccessBody")
+                : billingReturnKind === "failed"
+                  ? t("billingReturnFailedBody")
+                  : t("billingReturnPendingBody")}
+            </p>
+            {billingReturnKind === "failed" ? (
+              <Link
+                href={"/app/pricing" as Route}
+                className="mt-3 inline-flex min-h-9 items-center justify-center rounded-xl border border-border/70 bg-bg/70 px-3 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
+              >
+                {t("billingReturnRetry")}
+              </Link>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setDismissedBillingReturnKind(billingReturnKind ?? null)}
+            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
 
       {/* Issue banner */}
       {chat.issue && (

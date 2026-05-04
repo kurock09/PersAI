@@ -102,7 +102,7 @@ export class AutoSkillRoutingStateService {
     const policy = await this.readSkillRoutingPolicy();
     const state = context.state;
     if (state === null) {
-      return currentUserMessageIndex >= policy.initialCheckUserMessageIndex;
+      return currentUserMessageIndex === policy.initialCheckUserMessageIndex;
     }
     if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
       return false;
@@ -132,11 +132,17 @@ export class AutoSkillRoutingStateService {
       input.context.state === null
         ? {
             ...createDormantAutoSkillRoutingState(),
-            messageCountSinceCheck: Math.max(0, queuedAtMessageIndex),
+            checkedAtMessageIndex: Math.max(0, queuedAtMessageIndex),
+            messageCountSinceCheck: 0,
             backgroundCheckQueuedAtMessageIndex: queuedAtMessageIndex
           }
         : {
             ...input.context.state,
+            checkedAtMessageIndex: Math.max(
+              queuedAtMessageIndex,
+              input.context.state.checkedAtMessageIndex
+            ),
+            messageCountSinceCheck: 0,
             backgroundCheckQueuedAtMessageIndex: Math.max(
               queuedAtMessageIndex,
               input.context.state.backgroundCheckQueuedAtMessageIndex ?? 0

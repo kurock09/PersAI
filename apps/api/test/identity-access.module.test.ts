@@ -169,6 +169,11 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     },
     { path: "api/v1/assistant/skills", method: RequestMethod.GET },
     { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
+    { path: "api/v1/assistant/billing/payment-intents", method: RequestMethod.POST },
+    {
+      path: "api/v1/assistant/billing/payment-intents/:paymentIntentId",
+      method: RequestMethod.GET
+    },
     { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
     { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
     { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },

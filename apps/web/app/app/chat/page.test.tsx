@@ -28,6 +28,10 @@ const appDataMocks = vi.hoisted(() => ({
   reloadChats: vi.fn()
 }));
 
+const chatAreaMocks = vi.hoisted(() => ({
+  lastProps: null as Record<string, unknown> | null
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: navigationMocks.replace
@@ -57,7 +61,10 @@ vi.mock("../_components/app-shell", () => ({
 }));
 
 vi.mock("../_components/chat-area", () => ({
-  ChatArea: () => <div>chat-area</div>
+  ChatArea: (props: Record<string, unknown>) => {
+    chatAreaMocks.lastProps = props;
+    return <div>chat-area</div>;
+  }
 }));
 
 describe("ChatPage", () => {
@@ -66,6 +73,7 @@ describe("ChatPage", () => {
     chatHookMocks.chatId = null;
     chatHookMocks.isStreaming = false;
     chatHookMocks.threadKeys = [];
+    chatAreaMocks.lastProps = null;
   });
 
   it("does not auto-create a welcome chat just because the chat list is empty", async () => {
@@ -164,5 +172,21 @@ describe("ChatPage", () => {
       expect(navigationMocks.replace).toHaveBeenCalled();
     });
     expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1")).toBeNull();
+  });
+
+  it("passes billing return params through to the chat area banner props", async () => {
+    navigationMocks.searchParams = new URLSearchParams(
+      "billingReturn=success&billingPlan=pro_plus"
+    );
+    appDataMocks.chats = [];
+    chatHookMocks.markHistoryEmpty.mockReset();
+
+    render(<ChatPage />);
+
+    await waitFor(() => {
+      expect(chatAreaMocks.lastProps).not.toBeNull();
+    });
+    expect(chatAreaMocks.lastProps?.billingReturnKind).toBe("success");
+    expect(chatAreaMocks.lastProps?.billingPlanCode).toBe("pro_plus");
   });
 });

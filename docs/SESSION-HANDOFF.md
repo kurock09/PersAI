@@ -1,5 +1,86 @@
 # SESSION-HANDOFF
 
+## 2026-05-04 (ADR-084 Slice 4 checkout + return flow) — logged-in pricing now starts PersAI payment intents and returns to chat with explicit billing state
+
+### What changed
+
+- Kept this session bounded to the next honest ADR-084 item after Slice 3: web checkout launch and return flow only. Concrete CloudPayments wiring, provider webhooks, lifecycle mutation, immediate paid activation/materialization, assistant billing tool UX, and admin manual payment operations stayed out of scope.
+- `apps/web/app/_components/pricing-page-view.tsx` now turns signed-in pricing CTAs into real checkout starts through `POST /assistant/billing/payment-intents` instead of the old support-mailto fallback. The shared pricing UI can start either `card` or `sbp_qr` payment intents and routes the user into a billing handoff screen once PersAI returns the persisted payment intent id.
+- Added `/app/billing/checkout/[paymentIntentId]` as the bounded web checkout handoff surface for the current provider-neutral foundation. It reads the persisted payment intent back through `GET /assistant/billing/payment-intents/:paymentIntentId`, shows the selected plan/method/mode, and for the current `manual_test` adapter returns the user to chat with a normalized `success`, `failed`, or `pending` envelope instead of pretending a real provider activation already happened.
+- `/app/chat` now reads billing-return query params and shows a quiet banner explaining success/pending/failure semantics. Success explicitly says checkout returned but paid activation still waits for trusted confirmation, pending keeps the old plan active, and failure links the user back to pricing for retry. This keeps Slice 4 honest about product state while still delivering a real end-to-end user journey.
+- Updated `ADR-084`, `TEST-PLAN`, `CHANGELOG`, and this handoff so repo truth now says Slice 4 is completed and Slice 5 webhook-to-lifecycle integration is the next active billing item.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `ReadLints` on touched web files
+
+### Risks / residuals
+
+- The checkout handoff still uses the development `manual_test` adapter, not CloudPayments. Slice 4 proves the PersAI-owned UX path only; it is not real provider money movement yet.
+- Return-to-chat success is intentionally not activation. Until Slice 5 lands, the banner is informational and the effective paid plan must remain unchanged.
+- The web layer currently handles `manual_test` natively and keeps a generic fallback for other checkout modes; a real CloudPayments widget/redirect/SBP QR launch contour still belongs to the later provider-specific slice.
+
+### Next recommended step
+
+Implement ADR-084 Slice 5: ingest trusted provider outcomes (starting with CloudPayments webhook/session confirmation), update `workspace_payment_intents` deterministically, and apply ADR-083 lifecycle changes from that trusted server-side signal rather than from client return state.
+
+## 2026-05-04 (ADR-079 auto-skill routing bootstrap + prompt compaction hardening) — bootstrap now runs once at `3`, later rechecks stay on `5`, and routing prompt no longer bloats with long chat/skill state
+
+### What changed
+
+- Kept this follow-up bounded to the founder-reported production regression after the previous ADR-079 routing slice shipped: the cluster policy in `Admin > Runtime` correctly stored `initialCheckUserMessageIndex=3` and `backgroundRecheckIntervalMessages=5`, but the implementation still retriggered background Skill routing on every turn after message `3` while `autoSkillRoutingState` remained `null`, and the skill-routing classifier prompt had grown large enough to hit invalid/truncated JSON on OpenAI when recent chat plus Skill metadata got verbose.
+- `apps/api/src/modules/workspace-management/application/auto-skill-routing-state.service.ts` now treats `state === null` bootstrap as an exact first-check trigger (`currentUserMessageIndex === initialCheckUserMessageIndex`) instead of `>=`. `markBackgroundCheckQueued()` now advances `checkedAtMessageIndex` to the queued message and resets `messageCountSinceCheck` to `0` for both null and existing states, so a queued or failed background check no longer leaves the chat in a bad pseudo-bootstrap loop.
+- `apps/runtime/src/modules/turns/turn-routing.service.ts` now hardens classifier-failure handling for forced Skill-routing checks: if the classifier returns invalid JSON or throws during a background/bootstrap recheck, runtime now returns a dormant inactive `autoSkillState` with the current message index instead of preserving `null`. That makes the system fall back to the normal `every 5 messages` cadence instead of repeatedly retrying each turn after bootstrap failure.
+- The skill-routing classifier prompt is now explicitly compacted for scale and overflow safety: enabled Skills are limited to a short 5-line summary (`id`, short `name`, `category`, short `tags`) with a `+N more enabled skills` tail instead of full descriptions/routingExamples; recent routing context is limited to the last 6 messages at 120 chars each; `Current auto Skill state` no longer includes the long `topicSummary`; and the router system prompt now explicitly demands compact JSON with a brief snake_case `reasonCode`. This keeps the routing check bounded even when a user has multiple active Skills and a noisy recent chat.
+- Added focused regressions in `apps/api/test/auto-skill-routing-state.service.test.ts` for exact bootstrap-at-3 and queued-state reset behavior, plus `apps/runtime/test/turn-routing.service.test.ts` coverage for invalid classifier output on a forced Skill-routing check and for compact prompt shaping with 6 enabled Skills / long recent chat.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `ReadLints` on touched runtime/API files
+
+### Risks / residuals
+
+- The routing prompt is now much smaller, but this is still a schema-guided LLM classification step rather than a deterministic parser. If a provider/model starts violating the JSON contract again, the correct next move is tighter provider-side structured output enforcement or even shorter input sections, not raising `ROUTER_MAX_OUTPUT_TOKENS`.
+- The forced-check fallback now intentionally records an inactive checked state when the classifier fails, which prevents per-turn bootstrap thrash. That is the desired reliability trade-off, but it also means one bad classifier turn delays the next auto-Skill recheck until the normal 5-message interval instead of retrying immediately.
+
+### Next recommended step
+
+Live-smoke the exact founder scenario on `persai-dev`: start a fresh chat with Skills enabled, confirm no Skill-routing background check runs on messages 1/2, confirm exactly one bootstrap check runs on message 3, then confirm no further background check happens until message 8 unless the active Skill state itself changes. In the OpenAI trace, confirm the routing request no longer carries long `topicSummary` / full Skill descriptions and that the classifier response stays comfortably below the previous 700-token failure pattern.
+
+## 2026-05-04 (ADR-084 Slice 3 payment-intent + provider-port foundation) — PersAI now owns checkout intent state before provider checkout/session creation
+
+### What changed
+
+- Kept this session bounded to the next honest ADR-084 item after the completed pricing/UI work: PersAI-owned payment-intent and provider-neutral checkout-session foundation only. Checkout UI, return banners, webhook lifecycle application, manual admin payment UX, assistant billing tool, and concrete CloudPayments wiring stayed out of scope.
+- Added `workspace_payment_intents` in Prisma as the new pre-provider billing truth. Each row now stores the target paid plan, normalized action/status, payment method class (`card` / `sbp_qr`), amount/currency/billing-period snapshot, idempotency key, return URL, provider refs, normalized checkout mode, checkout payload JSON, expiration, and last error state.
+- Added authenticated user billing APIs under `POST /api/v1/assistant/billing/payment-intents` and `GET /api/v1/assistant/billing/payment-intents/:paymentIntentId`. The create path now resolves the current assistant/workspace subscription, allows only visible paid pricing plans, classifies `new_purchase` vs `upgrade`, rejects downgrade/lateral paid changes for this slice, persists the intent before any provider call, and then attaches a provider-neutral checkout-session payload.
+- Extended the existing billing-provider port from subscription-sync-only shape into a real checkout foundation seam. The current adapter remains explicitly non-production: it returns a bounded `manual_test` checkout session so the API/contract/data-model path is real without pretending CloudPayments is already wired.
+- Updated active docs (`ADR-084`, `ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `TEST-PLAN`) so repo truth now consistently says Slice 2 and Slice 3 are completed and Slice 4 checkout/return flow is the next active billing step.
+
+### Verification
+
+- `corepack pnpm run prisma:generate`
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+
+### Risks / residuals
+
+- The current billing provider adapter is intentionally `manual_test`, not CloudPayments. It exists only to prove the PersAI-owned intent/session boundary and to keep Slice 3 provider-neutral.
+- Product users still cannot complete a real purchase from the pricing page in this slice because web checkout launch/return handling is still Slice 4 and trusted webhook/lifecycle activation is still Slice 5.
+- Payment success still does not mutate `WorkspaceSubscription` from this path; that remains correct for now because the ADR explicitly forbids activation from client-side checkout creation/return alone.
+
+### Next recommended step
+
+Implement ADR-084 Slice 4: wire the logged-in pricing page to `POST /assistant/billing/payment-intents`, launch the returned checkout mode (`manual_test` for now), carry the user back into chat/settings with a clear pending/success/failure return envelope, and keep final paid activation deferred to the later trusted server/provider confirmation slice.
+
 ## 2026-05-04 (ADR-079 ordinary source priority + preset cleanup) — non-skill turns now follow runtime-owned `personal/product/web_first` staged retrieval, prompt presets dropped from model-facing knowledge sources
 
 ### What changed

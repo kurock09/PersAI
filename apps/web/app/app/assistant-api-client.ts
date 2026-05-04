@@ -49,6 +49,8 @@ import {
   type AssistantMemoryDoNotRememberRequest,
   type AssistantMemoryRegistryItemState,
   type AssistantTaskRegistryItemState,
+  type AssistantBillingPaymentIntentState,
+  type PostAssistantBillingPaymentIntentRequest,
   ContractsApiError,
   type AssistantLifecycleState,
   type UserPlanVisibilityState,
@@ -73,6 +75,7 @@ import {
   postAdminPlanCreate as postAdminPlanCreateContract,
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
+  postAssistantBillingPaymentIntent as postAssistantBillingPaymentIntentContract,
   postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
   postAssistantMemoryItemCloseOpenLoop as postAssistantMemoryItemCloseOpenLoopContract,
   postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
@@ -89,6 +92,7 @@ import {
   getAdminPlanVisibility as getAdminPlanVisibilityContract,
   getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
   getAdminBillingLifecycleSettings as getAdminBillingLifecycleSettingsContract,
+  getAssistantBillingPaymentIntent as getAssistantBillingPaymentIntentContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
@@ -2102,6 +2106,44 @@ export async function getAssistantPlanVisibility(token: string): Promise<UserPla
       throw new Error("Unexpected non-success response for GET /assistant/plan-visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantBillingPaymentIntent(
+  token: string,
+  input: PostAssistantBillingPaymentIntentRequest
+): Promise<AssistantBillingPaymentIntentState> {
+  try {
+    const response = await postAssistantBillingPaymentIntentContract(input, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/billing/payment-intents."
+      );
+    }
+    return response.data.paymentIntent;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantBillingPaymentIntent(
+  token: string,
+  paymentIntentId: string
+): Promise<AssistantBillingPaymentIntentState> {
+  try {
+    const response = await getAssistantBillingPaymentIntentContract(paymentIntentId, {
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error(
+        "Unexpected non-success response for GET /assistant/billing/payment-intents/:paymentIntentId."
+      );
+    }
+    return response.data.paymentIntent;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

@@ -60,6 +60,7 @@ import type {
   GetAdminSkillsResponse,
   GetAdminToolPromptMetadataResponse,
   GetAppBootstrapResponse,
+  GetAssistantBillingPaymentIntentResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
@@ -108,6 +109,8 @@ import type {
   PostAdminSkillDocumentUploadResponse,
   PostAdminSkillKnowledgeCardResponse,
   PostAdminStepUpChallengeResponse,
+  PostAssistantBillingPaymentIntentRequest,
+  PostAssistantBillingPaymentIntentResponse,
   PostAssistantKnowledgeSourceUploadBody,
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemCloseOpenLoopResponse,
@@ -4576,6 +4579,132 @@ export const putAssistantSkillAssignments = async (
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(putAssistantSkillAssignmentsRequest)
   });
+};
+
+/**
+ * @summary Create or reuse a PersAI-owned billing payment intent for the current user
+ */
+export type postAssistantBillingPaymentIntentResponse200 = {
+  data: PostAssistantBillingPaymentIntentResponse;
+  status: 200;
+};
+
+export type postAssistantBillingPaymentIntentResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantBillingPaymentIntentResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantBillingPaymentIntentResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantBillingPaymentIntentResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantBillingPaymentIntentResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantBillingPaymentIntentResponseSuccess =
+  postAssistantBillingPaymentIntentResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantBillingPaymentIntentResponseError = (
+  | postAssistantBillingPaymentIntentResponse400
+  | postAssistantBillingPaymentIntentResponse401
+  | postAssistantBillingPaymentIntentResponse404
+  | postAssistantBillingPaymentIntentResponse409
+  | postAssistantBillingPaymentIntentResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantBillingPaymentIntentResponse =
+  | postAssistantBillingPaymentIntentResponseSuccess
+  | postAssistantBillingPaymentIntentResponseError;
+
+export const getPostAssistantBillingPaymentIntentUrl = () => {
+  return `/assistant/billing/payment-intents`;
+};
+
+export const postAssistantBillingPaymentIntent = async (
+  postAssistantBillingPaymentIntentRequest: PostAssistantBillingPaymentIntentRequest,
+  options?: RequestInit
+): Promise<postAssistantBillingPaymentIntentResponse> => {
+  return customFetch<postAssistantBillingPaymentIntentResponse>(
+    getPostAssistantBillingPaymentIntentUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postAssistantBillingPaymentIntentRequest)
+    }
+  );
+};
+
+/**
+ * @summary Read a previously created PersAI-owned billing payment intent
+ */
+export type getAssistantBillingPaymentIntentResponse200 = {
+  data: GetAssistantBillingPaymentIntentResponse;
+  status: 200;
+};
+
+export type getAssistantBillingPaymentIntentResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantBillingPaymentIntentResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantBillingPaymentIntentResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantBillingPaymentIntentResponseSuccess =
+  getAssistantBillingPaymentIntentResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantBillingPaymentIntentResponseError = (
+  | getAssistantBillingPaymentIntentResponse401
+  | getAssistantBillingPaymentIntentResponse404
+  | getAssistantBillingPaymentIntentResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantBillingPaymentIntentResponse =
+  | getAssistantBillingPaymentIntentResponseSuccess
+  | getAssistantBillingPaymentIntentResponseError;
+
+export const getGetAssistantBillingPaymentIntentUrl = (paymentIntentId: string) => {
+  return `/assistant/billing/payment-intents/${paymentIntentId}`;
+};
+
+export const getAssistantBillingPaymentIntent = async (
+  paymentIntentId: string,
+  options?: RequestInit
+): Promise<getAssistantBillingPaymentIntentResponse> => {
+  return customFetch<getAssistantBillingPaymentIntentResponse>(
+    getGetAssistantBillingPaymentIntentUrl(paymentIntentId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
 };
 
 /**

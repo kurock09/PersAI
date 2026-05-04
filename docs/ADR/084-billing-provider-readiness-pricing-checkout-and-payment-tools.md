@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; implementation completed through Slice 4.
 
 Current continuation state:
 
 - **Purpose:** finish the PersAI-owned billing/provider boundary so only concrete provider adapter wiring remains for YooKassa, CloudPayments, Stripe, or another provider.
-- **Completed through:** Slice 2 — pricing cards from Admin Plans, including guest and in-app pricing pages.
-- **Next active item:** Slice 3 — payment intent, checkout session, and provider port wiring.
+- **Completed through:** Slice 4 — checkout and payment return flow.
+- **Next active item:** Slice 5 — webhook to lifecycle integration.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -364,9 +364,9 @@ Implement in production-grade slices.
 | Slice                                   | Status    | Purpose                                                                      | Main affected areas                                                                      | Completion criteria                                                                                                                           |
 | --------------------------------------- | --------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. ADR and provider-readiness policy    | Completed | Lock product/payment boundary decisions.                                     | `docs/ADR/084-*`, handoff, changelog                                                     | ADR accepted with pricing page, checkout, provider port, webhook, Plan Control separation, assistant tool, and activation decisions.          |
-| 2. Pricing cards from Admin Plans       | Pending   | Generate public/logged-in tariff page from selected plans.                   | `Admin > Plans`, pricing API, pricing page, Settings link                                | Admin selects visible pricing plans/order; universal pricing page renders current plan and correct CTA states.                                |
-| 3. Payment intent and provider port     | Pending   | Add PersAI-owned payment intent and provider-neutral adapter boundary.       | Prisma/data model, API services, billing provider port, test/manual adapter              | PersAI can create/audit payment intents and provider sessions without concrete provider lock-in.                                              |
-| 4. Checkout and payment return flow     | Pending   | Let logged-in users buy/upgrade from pricing page.                           | Web pricing page, checkout endpoints, chat return banner                                 | Card/SBP-capable flow can be simulated through test/manual adapter; success returns to chat and failure returns with retry/explanation state. |
+| 2. Pricing cards from Admin Plans       | Completed | Generate public/logged-in tariff page from selected plans.                   | `Admin > Plans`, pricing API, pricing page, Settings link                                | Admin selects visible pricing plans/order; universal pricing page renders current plan and correct CTA states.                                |
+| 3. Payment intent and provider port     | Completed | Add PersAI-owned payment intent and provider-neutral adapter boundary.       | Prisma/data model, API services, billing provider port, test/manual adapter              | PersAI can create/audit payment intents and provider sessions without concrete provider lock-in.                                              |
+| 4. Checkout and payment return flow     | Completed | Let logged-in users buy/upgrade from pricing page.                           | Web pricing page, checkout endpoints, chat return banner                                 | Card/SBP-capable flow can be simulated through test/manual adapter; success returns to chat and failure returns with retry/explanation state. |
 | 5. Webhook to lifecycle integration     | Pending   | Route provider outcomes into ADR-083 lifecycle.                              | Webhook controller, lifecycle service, idempotency, audit events                         | Payment success/failure/refund/chargeback update PersAI payment intent and subscription lifecycle deterministically.                          |
 | 6. Immediate activation/materialization | Pending   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Successful upgrade updates effective plan and materializes before or by the next paid-sensitive turn.                                         |
 | 7. Admin manual payment and Ops support | Pending   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                 |

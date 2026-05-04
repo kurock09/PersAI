@@ -24,6 +24,7 @@ import { AdminToolMetadataController } from "./interface/http/admin-tool-metadat
 import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledge-sources.controller";
 import { AdminSkillsController } from "./interface/http/admin-skills.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
+import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
 import { AssistantSkillsController } from "./interface/http/assistant-skills.controller";
 import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
@@ -104,6 +105,7 @@ import { ManageAdminAssistantPlanOverrideService } from "./application/manage-ad
 import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-admin-workspace-subscription.service";
 import { ManageAdminOpsBillingSupportService } from "./application/manage-admin-ops-billing-support.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./application/manage-admin-billing-lifecycle-settings.service";
+import { ManageAssistantPaymentIntentsService } from "./application/manage-assistant-payment-intents.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
 import { ApplyWorkspaceSubscriptionBillingEventService } from "./application/apply-workspace-subscription-billing-event.service";
 import { ScheduleBillingLifecycleNotificationsService } from "./application/schedule-billing-lifecycle-notifications.service";
@@ -262,6 +264,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
   controllers: [
     AppBootstrapController,
     AssistantController,
+    AssistantBillingController,
     AssistantKnowledgeSourcesController,
     AdminPlansController,
     PublicPricingPlansController,
@@ -351,6 +354,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     ManageAdminWorkspaceSubscriptionService,
     ManageAdminOpsBillingSupportService,
     ManageAdminBillingLifecycleSettingsService,
+    ManageAssistantPaymentIntentsService,
     ManageWorkspaceSubscriptionLifecycleService,
     ApplyWorkspaceSubscriptionBillingEventService,
     ScheduleBillingLifecycleNotificationsService,

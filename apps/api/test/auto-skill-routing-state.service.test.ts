@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AutoSkillRoutingStateService } from "../src/modules/workspace-management/application/auto-skill-routing-state.service";
 
 async function run(): Promise<void> {
+  const chatUpdates: Array<Record<string, unknown>> = [];
   const service = new AutoSkillRoutingStateService(
     {
       platformRuntimeProviderSettings: {
@@ -13,6 +14,12 @@ async function run(): Promise<void> {
             }
           }
         })
+      },
+      assistantChat: {
+        update: async (input: Record<string, unknown>) => {
+          chatUpdates.push(input);
+          return null;
+        }
       }
     } as never,
     {} as never
@@ -52,7 +59,7 @@ async function run(): Promise<void> {
       currentUserMessageIndex: 4,
       recentMessages: [{ role: "user", text: "Unrelated" }]
     }),
-    true
+    false
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
@@ -102,6 +109,62 @@ async function run(): Promise<void> {
     }),
     false
   );
+
+  await service.markBackgroundCheckQueued({
+    chatId: "chat-1",
+    context: {
+      state: null,
+      currentUserMessageIndex: 3,
+      recentMessages: [{ role: "user", text: "Белка 120" }]
+    }
+  });
+  assert.deepEqual(chatUpdates[0], {
+    where: { id: "chat-1" },
+    data: {
+      autoSkillRoutingState: {
+        status: "inactive",
+        activeSkillId: null,
+        activeSkillName: null,
+        topicSummary: null,
+        confidence: "low",
+        checkedAtMessageIndex: 3,
+        messageCountSinceCheck: 0,
+        backgroundCheckQueuedAtMessageIndex: 3
+      }
+    }
+  });
+
+  await service.markBackgroundCheckQueued({
+    chatId: "chat-2",
+    context: {
+      state: {
+        status: "active",
+        activeSkillId: "skill-diet",
+        activeSkillName: "Диетолог",
+        topicSummary: "nutrition",
+        confidence: "high",
+        checkedAtMessageIndex: 3,
+        messageCountSinceCheck: 5
+      },
+      currentUserMessageIndex: 8,
+      recentMessages: [{ role: "user", text: "А если добавить кардио?" }]
+    }
+  });
+  assert.deepEqual(chatUpdates[1], {
+    where: { id: "chat-2" },
+    data: {
+      autoSkillRoutingState: {
+        status: "active",
+        activeSkillId: "skill-diet",
+        activeSkillName: "Диетолог",
+        topicSummary: "nutrition",
+        confidence: "high",
+        checkedAtMessageIndex: 8,
+        messageCountSinceCheck: 0,
+        backgroundCheckQueuedAtMessageIndex: 8
+      }
+    }
+  });
 }
 
 void run();

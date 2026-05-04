@@ -3129,6 +3129,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/payment-intents:
+    post:
+      operationId: postAssistantBillingPaymentIntent
+      summary: Create or reuse a PersAI-owned billing payment intent for the current user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssistantBillingPaymentIntentRequest"
+      responses:
+        "200":
+          description: Payment intent with a provider-neutral checkout session payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantBillingPaymentIntentResponse"
+        "400":
+          description: Validation error or unsupported plan change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or plan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Idempotency key conflicts with a different request shape
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/payment-intents/{paymentIntentId}:
+    get:
+      operationId: getAssistantBillingPaymentIntent
+      summary: Read a previously created PersAI-owned billing payment intent
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: paymentIntentId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Payment intent state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantBillingPaymentIntentResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Payment intent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/knowledge-indexing/jobs:
     get:
       operationId: getAdminKnowledgeIndexingJobs
@@ -6751,6 +6837,161 @@ components:
           items:
             type: string
             format: uuid
+    AssistantBillingPaymentMethodClass:
+      type: string
+      enum:
+        - card
+        - sbp_qr
+    AssistantBillingPaymentIntentAction:
+      type: string
+      enum:
+        - new_purchase
+        - upgrade
+        - renewal
+        - manual_admin
+    AssistantBillingPaymentIntentStatus:
+      type: string
+      enum:
+        - created
+        - checkout_ready
+        - pending_confirmation
+        - succeeded
+        - failed
+        - canceled
+        - expired
+    AssistantBillingPaymentIntentBillingPeriod:
+      type: string
+      enum:
+        - month
+        - year
+    AssistantBillingCheckoutMode:
+      type: string
+      enum:
+        - widget
+        - redirect
+        - payment_link
+        - qr_code
+        - manual_test
+    AssistantBillingCheckoutState:
+      type: object
+      required:
+        - mode
+        - expiresAt
+        - payload
+      properties:
+        mode:
+          allOf:
+            - $ref: "#/components/schemas/AssistantBillingCheckoutMode"
+          nullable: true
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+          nullable: true
+    AssistantBillingPaymentIntentState:
+      type: object
+      required:
+        - id
+        - targetPlanCode
+        - action
+        - status
+        - paymentMethodClass
+        - amountMinor
+        - currency
+        - billingPeriod
+        - returnUrl
+        - billingProvider
+        - providerSessionRef
+        - providerPaymentRef
+        - checkout
+        - lastErrorCode
+        - lastErrorMessage
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        targetPlanCode:
+          type: string
+        action:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentAction"
+        status:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentStatus"
+        paymentMethodClass:
+          $ref: "#/components/schemas/AssistantBillingPaymentMethodClass"
+        amountMinor:
+          type: integer
+        currency:
+          type: string
+        billingPeriod:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentBillingPeriod"
+        returnUrl:
+          type: string
+        billingProvider:
+          type: string
+          nullable: true
+        providerSessionRef:
+          type: string
+          nullable: true
+        providerPaymentRef:
+          type: string
+          nullable: true
+        checkout:
+          $ref: "#/components/schemas/AssistantBillingCheckoutState"
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    PostAssistantBillingPaymentIntentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - planCode
+        - paymentMethodClass
+        - idempotencyKey
+        - returnUrl
+      properties:
+        planCode:
+          type: string
+        paymentMethodClass:
+          $ref: "#/components/schemas/AssistantBillingPaymentMethodClass"
+        idempotencyKey:
+          type: string
+        returnUrl:
+          type: string
+    PostAssistantBillingPaymentIntentResponse:
+      type: object
+      required:
+        - requestId
+        - paymentIntent
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        paymentIntent:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentState"
+    GetAssistantBillingPaymentIntentResponse:
+      type: object
+      required:
+        - requestId
+        - paymentIntent
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        paymentIntent:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentState"
     GetKnowledgeIndexingJobsResponse:
       type: object
       required:

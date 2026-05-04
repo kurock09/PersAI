@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicPricingPlanState } from "@persai/contracts";
@@ -11,12 +11,33 @@ const navigationMocks = vi.hoisted(() => ({
   push: vi.fn()
 }));
 
+const authMocks = vi.hoisted(() => ({
+  getToken: vi.fn(async () => "token-1")
+}));
+
+const billingMocks = vi.hoisted(() => ({
+  postAssistantBillingPaymentIntent: vi.fn()
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => navigationMocks
 }));
 
+vi.mock("@clerk/nextjs", () => ({
+  useAuth: () => ({
+    getToken: authMocks.getToken
+  })
+}));
+
+vi.mock("../app/assistant-api-client", () => ({
+  postAssistantBillingPaymentIntent: billingMocks.postAssistantBillingPaymentIntent
+}));
+
 afterEach(() => {
   cleanup();
+  navigationMocks.push.mockReset();
+  authMocks.getToken.mockClear();
+  billingMocks.postAssistantBillingPaymentIntent.mockReset();
 });
 
 function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricingPlanState {
@@ -87,7 +108,10 @@ describe("PricingPageView", () => {
     expect(screen.getByRole("link", { name: "Choose" })).toHaveAttribute("href", "/sign-up");
   });
 
-  it("marks the current plan and routes other plans through support for signed-in users", () => {
+  it("marks the current plan and lets signed-in users start checkout", async () => {
+    billingMocks.postAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "pi-1"
+    });
     renderView(
       <PricingPageView
         plans={[makePlan(), makePlan({ code: "team", displayName: "Team" })]}
@@ -98,10 +122,18 @@ describe("PricingPageView", () => {
     );
 
     expect(screen.getByText("Already active")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Choose" })).toHaveAttribute(
-      "href",
-      expect.stringContaining("mailto:support@persai.app")
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    await waitFor(() => {
+      expect(billingMocks.postAssistantBillingPaymentIntent).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          planCode: "team",
+          paymentMethodClass: "card",
+          returnUrl: "/app/chat"
+        })
+      );
+    });
+    expect(navigationMocks.push).toHaveBeenCalledWith("/app/billing/checkout/pi-1");
   });
 
   it("derives quiet fact chips from real plan limits", () => {

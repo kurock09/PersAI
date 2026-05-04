@@ -163,6 +163,11 @@ const ROUTER_OUTPUT_SCHEMA = {
 } as const;
 
 const ROUTER_MAX_OUTPUT_TOKENS = 700;
+const ROUTER_MAX_ENABLED_SKILLS_IN_PROMPT = 5;
+const ROUTER_MAX_ENABLED_SKILL_LINE_CHARS = 120;
+const ROUTER_MAX_RECENT_ROUTING_MESSAGES_IN_PROMPT = 6;
+const ROUTER_MAX_RECENT_ROUTING_MESSAGE_CHARS = 120;
+const ROUTER_MAX_AUTO_SKILL_NAME_CHARS = 48;
 const DEFAULT_CONTINUE_TERMS = [
   "ok",
   "okay",
@@ -434,7 +439,7 @@ export class TurnRoutingService {
           source: "fallback",
           mode: policy.mode,
           usage: result.usage,
-          autoSkillState: input.request.skillRoutingContext?.state ?? null
+          autoSkillState: this.createAutoSkillStateOnClassifierFailure(input.request)
         });
       }
       const sanitizedRetrievalPlan = this.sanitizeClassifierRetrievalPlan(
@@ -484,7 +489,8 @@ export class TurnRoutingService {
           source: "fallback",
           mode: policy.mode,
           usage: null,
-          autoSkillState: precheck.autoSkillState
+          autoSkillState:
+            precheck.autoSkillState ?? this.createAutoSkillStateOnClassifierFailure(input.request)
         }),
         input.request
       );
@@ -761,31 +767,11 @@ export class TurnRoutingService {
     return {
       provider: input.provider,
       model: input.model,
-      systemPrompt: `${input.prompt.trim()}\n\nReturn only JSON matching the provided schema.`,
+      systemPrompt: `${input.prompt.trim()}\n\nReturn only compact JSON matching the provided schema. Keep every string short. reasonCode must be brief snake_case, not a sentence or explanation.`,
       messages: [
         {
           role: "user",
-          content: [
-            `Channel: ${input.request.conversation.channel}`,
-            `Conversation mode: ${input.request.conversation.mode}`,
-            `Deep mode: ${input.request.deepMode === true ? "enabled" : "disabled"}`,
-            `Locale: ${input.request.message.locale ?? input.bundle.userContext.locale}`,
-            `Attachment summary: ${this.summarizeAttachments(input.request)}`,
-            `Projected tool hints available: ${
-              Array.from(this.resolveAvailableToolHints(input.projectedTools)).join(", ") || "none"
-            }`,
-            `Enabled Skills summary: ${this.summarizeEnabledSkills(input.bundle)}`,
-            `Recent chat window: ${this.summarizeRecentSkillRoutingMessages(input.request)}`,
-            `Current auto Skill state: ${this.summarizeAutoSkillState(input.request)}`,
-            `Available knowledge state: ${this.summarizeKnowledgeState({
-              bundle: input.bundle,
-              projectedTools: input.projectedTools
-            })}`,
-            `Fallback mode: ${input.fallbackMode}`,
-            "",
-            "Current user message:",
-            input.request.message.text.trim()
-          ].join("\n")
+          content: this.buildClassifierContextBlock(input)
         }
       ],
       maxOutputTokens: ROUTER_MAX_OUTPUT_TOKENS,
@@ -926,21 +912,24 @@ export class TurnRoutingService {
       return "none";
     }
     return skills
+      .slice(0, ROUTER_MAX_ENABLED_SKILLS_IN_PROMPT)
       .map((skill) => {
         const tags = skill.tags.slice(0, 2).join(", ");
-        return [
+        const compact = [
           `id=${skill.id}`,
-          `name=${skill.name}`,
-          skill.description === null ? null : `description=${skill.description}`,
-          `category=${skill.category}`,
-          tags.length === 0 ? null : `tags=${tags}`,
-          skill.routingExamples.length === 0
-            ? null
-            : `routingExamples=${skill.routingExamples.slice(0, 2).join(" | ")}`
+          `name=${this.normalizeMessageText(skill.name).slice(0, 40)}`,
+          `category=${this.normalizeMessageText(skill.category).slice(0, 24)}`,
+          tags.length === 0 ? null : `tags=${this.normalizeMessageText(tags).slice(0, 32)}`
         ]
           .filter((part): part is string => part !== null)
           .join("; ");
+        return compact.slice(0, ROUTER_MAX_ENABLED_SKILL_LINE_CHARS);
       })
+      .concat(
+        skills.length > ROUTER_MAX_ENABLED_SKILLS_IN_PROMPT
+          ? [`+${skills.length - ROUTER_MAX_ENABLED_SKILLS_IN_PROMPT} more enabled skills`]
+          : []
+      )
       .join("\n");
   }
 
@@ -976,9 +965,12 @@ export class TurnRoutingService {
       return "none";
     }
     return messages
-      .slice(-10)
+      .slice(-ROUTER_MAX_RECENT_ROUTING_MESSAGES_IN_PROMPT)
       .map((message, index) => {
-        const text = this.normalizeMessageText(message.text).slice(0, 220);
+        const text = this.normalizeMessageText(message.text).slice(
+          0,
+          ROUTER_MAX_RECENT_ROUTING_MESSAGE_CHARS
+        );
         return `${index + 1}. ${message.role}: ${text}`;
       })
       .join("\n");
@@ -992,12 +984,40 @@ export class TurnRoutingService {
     return [
       `status=${state.status}`,
       `activeSkillId=${state.activeSkillId ?? "none"}`,
-      `activeSkillName=${state.activeSkillName ?? "none"}`,
-      `topicSummary=${state.topicSummary ?? "none"}`,
+      `activeSkillName=${this.normalizeMessageText(state.activeSkillName ?? "none").slice(0, ROUTER_MAX_AUTO_SKILL_NAME_CHARS)}`,
       `confidence=${state.confidence}`,
       `checkedAtMessageIndex=${state.checkedAtMessageIndex}`,
       `messageCountSinceCheck=${state.messageCountSinceCheck}`
     ].join("; ");
+  }
+
+  private buildClassifierContextBlock(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeTurnRequest;
+    projectedTools: RuntimeNativeToolProjection;
+    fallbackMode: RoutingExecutionMode;
+  }): string {
+    return [
+      `Channel: ${input.request.conversation.channel}`,
+      `Conversation mode: ${input.request.conversation.mode}`,
+      `Deep mode: ${input.request.deepMode === true ? "enabled" : "disabled"}`,
+      `Locale: ${input.request.message.locale ?? input.bundle.userContext.locale}`,
+      `Attachment summary: ${this.summarizeAttachments(input.request)}`,
+      `Projected tool hints available: ${
+        Array.from(this.resolveAvailableToolHints(input.projectedTools)).join(", ") || "none"
+      }`,
+      `Enabled Skills summary: ${this.summarizeEnabledSkills(input.bundle)}`,
+      `Recent chat window: ${this.summarizeRecentSkillRoutingMessages(input.request)}`,
+      `Current auto Skill state: ${this.summarizeAutoSkillState(input.request)}`,
+      `Available knowledge state: ${this.summarizeKnowledgeState({
+        bundle: input.bundle,
+        projectedTools: input.projectedTools
+      })}`,
+      `Fallback mode: ${input.fallbackMode}`,
+      "",
+      "Current user message:",
+      input.request.message.text.trim()
+    ].join("\n");
   }
 
   private resolveActiveAutoSkill(
@@ -1176,6 +1196,25 @@ export class TurnRoutingService {
       activeSkillName: skill.name,
       topicSummary: this.buildTopicSummary(input.request),
       confidence: input.plan.confidence,
+      checkedAtMessageIndex: currentUserMessageIndex,
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null
+    };
+  }
+
+  private createAutoSkillStateOnClassifierFailure(
+    request: RuntimeTurnRequest
+  ): RuntimeAutoSkillRoutingState | null {
+    if (request.skillRoutingContext?.forceCheck !== true) {
+      return request.skillRoutingContext?.state ?? null;
+    }
+    const currentUserMessageIndex = request.skillRoutingContext?.currentUserMessageIndex ?? 0;
+    return {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: this.buildTopicSummary(request),
+      confidence: "low",
       checkedAtMessageIndex: currentUserMessageIndex,
       messageCountSinceCheck: 0,
       backgroundCheckQueuedAtMessageIndex: null

@@ -19,11 +19,45 @@ export type BillingProviderSubscriptionSnapshot = {
   metadata: Record<string, unknown> | null;
 };
 
+export type BillingProviderCheckoutMode =
+  | "widget"
+  | "redirect"
+  | "payment_link"
+  | "qr_code"
+  | "manual_test";
+
+export type BillingProviderCheckoutSessionRequest = {
+  paymentIntentId: string;
+  workspaceId: string;
+  userId: string;
+  planCode: string;
+  action: "new_purchase" | "upgrade" | "renewal" | "manual_admin";
+  amountMinor: number;
+  currency: string;
+  billingPeriod: "month" | "year";
+  paymentMethodClass: "card" | "sbp_qr";
+  returnUrl: string;
+  providerCustomerRef: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type BillingProviderCheckoutSession = {
+  providerKey: string;
+  providerSessionRef: string | null;
+  providerPaymentRef: string | null;
+  mode: BillingProviderCheckoutMode;
+  expiresAt: string | null;
+  payload: Record<string, unknown>;
+};
+
 /**
- * Provider-agnostic billing boundary for future subscription sync.
- * P3 introduces this port only; concrete provider integrations remain out of scope.
+ * Provider-agnostic billing boundary.
+ * Concrete CloudPayments wiring remains a later ADR-084 slice.
  */
 export interface BillingProviderPort {
+  createCheckoutSession(
+    input: BillingProviderCheckoutSessionRequest
+  ): Promise<BillingProviderCheckoutSession>;
   pullWorkspaceSubscription(
     workspaceId: string
   ): Promise<BillingProviderSubscriptionSnapshot | null>;

@@ -50,6 +50,13 @@ function ChatPageInner() {
   const searchParams = useSearchParams();
   const threadFromUrl = searchParams.get("thread");
   const welcomeFromUrl = searchParams.get("welcome") === "1";
+  const billingReturn =
+    searchParams.get("billingReturn") === "success" ||
+    searchParams.get("billingReturn") === "failed" ||
+    searchParams.get("billingReturn") === "pending"
+      ? (searchParams.get("billingReturn") as "success" | "failed" | "pending")
+      : undefined;
+  const billingPlanCode = searchParams.get("billingPlan") ?? undefined;
 
   const threadKey = useMemo(() => threadFromUrl ?? readDraftThreadKey(), [threadFromUrl]);
 
@@ -138,6 +145,8 @@ function ChatPageInner() {
       assistantReady={appData.assistantStatus !== "none"}
       showShadowRoutingBadge={canSeeShadowRoutingBadge}
       onTitleChanged={appData.reloadChats}
+      billingReturnKind={billingReturn}
+      billingPlanCode={billingPlanCode}
     />
   );
 }

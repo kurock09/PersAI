@@ -193,6 +193,41 @@ enum WorkspaceSubscriptionBillingEventApplyStatus {
   failed
 }
 
+enum WorkspacePaymentIntentAction {
+  new_purchase
+  upgrade
+  renewal
+  manual_admin
+}
+
+enum WorkspacePaymentIntentStatus {
+  created
+  checkout_ready
+  pending_confirmation
+  succeeded
+  failed
+  canceled
+  expired
+}
+
+enum WorkspacePaymentMethodClass {
+  card
+  sbp_qr
+}
+
+enum WorkspacePaymentIntentBillingPeriod {
+  month
+  year
+}
+
+enum WorkspacePaymentCheckoutMode {
+  widget
+  redirect
+  payment_link
+  qr_code
+  manual_test
+}
+
 enum WorkspaceQuotaDimension {
   token_budget
   cost_or_token_driving_tool_class
@@ -467,6 +502,7 @@ model AppUser {
   updatedBillingLifecycleSettings        BillingLifecycleSettings[]          @relation("BillingLifecycleSettingsUpdatedByUser")
   workspaceSubscriptionLifecycleEvents   WorkspaceSubscriptionLifecycleEvent[]
   workspaceSubscriptionBillingEvents     WorkspaceSubscriptionBillingEvent[]
+  workspacePaymentIntents                WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs       BillingLifecycleNotificationJob[]
 
   @@map("app_users")
@@ -517,6 +553,7 @@ model Workspace {
   notificationPolicies              WorkspaceNotificationPolicy[]
   subscriptionLifecycleEvents       WorkspaceSubscriptionLifecycleEvent[]
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
+  paymentIntents                    WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
 
   @@map("workspaces")
@@ -1141,6 +1178,41 @@ model WorkspaceSubscriptionBillingEvent {
   @@index([subscriptionId, createdAt(sort: Desc)])
   @@index([applyStatus, createdAt(sort: Desc)])
   @@map("workspace_subscription_billing_events")
+}
+
+model WorkspacePaymentIntent {
+  id                  String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String                             @map("workspace_id") @db.Uuid
+  userId              String?                            @map("user_id") @db.Uuid
+  targetPlanCode      String                             @map("target_plan_code") @db.VarChar(64)
+  action              WorkspacePaymentIntentAction
+  status              WorkspacePaymentIntentStatus       @default(created)
+  paymentMethodClass  WorkspacePaymentMethodClass        @map("payment_method_class")
+  amountMinor         Int                                @map("amount_minor")
+  currency            String                             @db.VarChar(8)
+  billingPeriod       WorkspacePaymentIntentBillingPeriod @map("billing_period")
+  idempotencyKey      String                             @map("idempotency_key") @db.VarChar(128)
+  returnUrl           String                             @map("return_url") @db.Text
+  billingProvider     String?                            @map("billing_provider") @db.VarChar(64)
+  providerCustomerRef String?                            @map("provider_customer_ref") @db.VarChar(128)
+  providerSessionRef  String?                            @map("provider_session_ref") @db.VarChar(128)
+  providerPaymentRef  String?                            @map("provider_payment_ref") @db.VarChar(128)
+  checkoutMode        WorkspacePaymentCheckoutMode?      @map("checkout_mode")
+  checkoutPayload     Json?                              @map("checkout_payload") @db.JsonB
+  expiresAt           DateTime?                          @map("expires_at") @db.Timestamptz(6)
+  lastErrorCode       String?                            @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage    String?                            @map("last_error_message") @db.Text
+  metadata            Json                               @default("{}") @db.JsonB
+  createdAt           DateTime                           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workspace           Workspace                          @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user                AppUser?                           @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("workspace_payment_intents")
 }
 
 model WorkspaceQuotaAccountingState {

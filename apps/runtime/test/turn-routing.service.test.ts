@@ -799,6 +799,7 @@ async function run(): Promise<void> {
   );
 
   await runOrdinarySourcePriorityModeTests();
+  await runAutoSkillRoutingHardeningTests();
 }
 
 async function runOrdinarySourcePriorityModeTests(): Promise<void> {
@@ -873,6 +874,63 @@ async function runOrdinarySourcePriorityModeTests(): Promise<void> {
   });
   assert.equal(continueTurnPriority.reasonCode, "continue_term");
   assert.equal(continueTurnPriority.retrievalPlan.ordinarySourcePriorityMode, "not_applicable");
+}
+
+async function runAutoSkillRoutingHardeningTests(): Promise<void> {
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  providerGatewayClient.result = {
+    ...providerGatewayClient.result,
+    text: "{invalid json"
+  };
+  const service = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+  const enabledSkills = Array.from({ length: 6 }, (_, index) => ({
+    id: `skill-${index + 1}`,
+    name: `Very Long Specialist Name ${index + 1} For Overflow Checks`,
+    description:
+      "Extremely verbose description that should never be copied into the routing prompt because it wastes tokens.",
+    category: "health-and-wellness",
+    tags: ["nutrition", "metabolism", "diabetes"],
+    iconEmoji: "x",
+    routingExamples: [
+      "Build a detailed weekly plan with constraints and substitutions",
+      "Review supplements and calories for a health goal"
+    ]
+  }));
+  const decision = await service.decide({
+    bundle: createBundle(undefined, true, enabledSkills),
+    request: withSkillRoutingContext(createRequest("Давай диету"), {
+      state: null,
+      currentUserMessageIndex: 3,
+      recentMessages: [
+        { role: "user", text: "OLD-ROUTING-MESSAGE-1 ".repeat(20) },
+        { role: "assistant", text: "OLD-ROUTING-MESSAGE-2 ".repeat(20) },
+        { role: "user", text: "Мне нужен план питания без рыбы и молока" },
+        { role: "assistant", text: "Напиши цель и ограничения" },
+        { role: "user", text: "Хочу похудеть и держать сахар стабильно" },
+        { role: "assistant", text: "Укажи вес и рост" },
+        { role: "user", text: "Вес 92, рост 178" },
+        { role: "assistant", text: "Сколько тренировок в неделю?" }
+      ],
+      forceCheck: true
+    }),
+    projectedTools
+  });
+  assert.equal(decision.source, "fallback");
+  assert.equal(decision.reasonCode, "classifier_invalid_output");
+  assert.equal(decision.autoSkillState?.status, "inactive");
+  assert.equal(decision.autoSkillState?.checkedAtMessageIndex, 3);
+  assert.equal(decision.autoSkillState?.messageCountSinceCheck, 0);
+
+  const classifierPrompt = String(providerGatewayClient.calls[0]?.messages[0]?.content ?? "");
+  assert.ok(classifierPrompt.length < 1800);
+  assert.match(classifierPrompt, /Enabled Skills summary: id=skill-1/);
+  assert.match(classifierPrompt, /\+1 more enabled skills/);
+  assert.doesNotMatch(classifierPrompt, /description=/);
+  assert.doesNotMatch(classifierPrompt, /routingExamples=/);
+  assert.doesNotMatch(classifierPrompt, /topicSummary=/);
+  assert.doesNotMatch(classifierPrompt, /OLD-ROUTING-MESSAGE-1/);
 }
 
 void run();
