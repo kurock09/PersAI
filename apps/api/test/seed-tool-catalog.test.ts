@@ -82,8 +82,10 @@ async function run(): Promise<void> {
 
     assert.ok(imageGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
     assert.ok(imageGenerate?.modelUsageGuidance?.includes("Never print `image_generate(...)`"));
+    assert.ok(imageGenerate?.modelUsageGuidance?.includes('`action="deferred"`'));
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("Never print `video_generate(...)`"));
+    assert.ok(videoGenerate?.modelUsageGuidance?.includes('`action="deferred"`'));
   }
 
   {

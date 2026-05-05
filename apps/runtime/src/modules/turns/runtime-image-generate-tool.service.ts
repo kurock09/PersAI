@@ -408,6 +408,7 @@ export class RuntimeImageGenerateToolService {
   ): RuntimeImageGenerateRequest | Error {
     const unknownKeys = Object.keys(args).filter(
       (key) =>
+        key !== "toolCode" &&
         key !== "prompt" &&
         key !== "count" &&
         key !== "filename" &&
@@ -416,6 +417,9 @@ export class RuntimeImageGenerateToolService {
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    if ("toolCode" in args && args.toolCode !== IMAGE_GENERATE_TOOL_CODE) {
+      return new Error(`toolCode must be ${IMAGE_GENERATE_TOOL_CODE}`);
     }
     const prompt = this.asNonEmptyString(args.prompt);
     if (prompt === null) {

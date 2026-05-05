@@ -454,6 +454,7 @@ export class RuntimeVideoGenerateToolService {
   ): RuntimeVideoGenerateRequest | Error {
     const unknownKeys = Object.keys(args).filter(
       (key) =>
+        key !== "toolCode" &&
         key !== "prompt" &&
         key !== "filename" &&
         key !== "size" &&
@@ -462,6 +463,9 @@ export class RuntimeVideoGenerateToolService {
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    if ("toolCode" in args && args.toolCode !== VIDEO_GENERATE_TOOL_CODE) {
+      return new Error(`toolCode must be ${VIDEO_GENERATE_TOOL_CODE}`);
     }
 
     const prompt = this.asNonEmptyString(args.prompt);

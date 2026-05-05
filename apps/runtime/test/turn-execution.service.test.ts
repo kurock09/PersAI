@@ -5251,19 +5251,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     request.bundle.bundleHash;
   const imageGenerateCompleted = await service.createTurn(request);
   assert.equal(imageGenerateCompleted.assistantText, "reply after image");
-  assert.equal(imageGenerateCompleted.artifacts.length, 1);
-  assert.equal(imageGenerateCompleted.artifacts[0]?.kind, "image");
-  // FIX 2 — `filename` / `objectKey` / `sizeBytes` / `artifactId` MUST stay
-  // on the runtime-side artifact record (this surface flows to the API and
-  // ends up as the chat attachment's persisted metadata). Only the
-  // *model-visible* JSON below has these stripped.
-  assert.equal(imageGenerateCompleted.artifacts[0]?.filename, "poster.png");
-  assert.equal(
-    imageGenerateCompleted.artifacts[0]?.objectKey.includes(
-      "/runtime-output/sessions/session-1/requests/request-1/"
-    ),
-    true
-  );
+  assert.equal(imageGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeImageGenerate]?.tools?.some(
@@ -5271,30 +5259,46 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  assert.deepEqual(providerGatewayClient.imageGenerateCalls.at(-1), {
-    prompt: "Draw a serene poster",
-    model: null,
-    count: 1,
-    size: "1024x1024",
-    background: "auto",
-    credential: {
+  assert.equal(providerGatewayClient.imageGenerateCalls.length, 0);
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.assistantId,
+    "assistant-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageId,
+    "turn-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageText,
+    "hello runtime"
+  );
+  assert.deepEqual(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.attachments,
+    []
+  );
+  assert.equal(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.toolCode,
+    "image_generate"
+  );
+  assert.deepEqual(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.request,
+    {
       toolCode: "image_generate",
-      secretId: "tool/image_generate/api-key",
-      providerId: "openai"
+      prompt: "Draw a serene poster",
+      count: 1,
+      filename: "poster.png",
+      size: "1024x1024",
+      background: "auto"
     }
-  });
-  assert.deepEqual(providerGatewayClient.imageGenerateOptions.at(-1), {
-    timeoutMs: 180000
-  });
-  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
-    assistantId: "assistant-1",
-    toolCode: "image_generate",
-    dailyCallLimit: null,
-    // ADR-082: media tools reserve monthly media units before provider work.
-    units: 1
-  });
-  assert.equal(mediaObjectStorage.saveCalls.length > 0, true);
-  assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "image/png");
+  );
   const imageGenerateToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -5310,19 +5314,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageGenerateToolHistory.action, "generated");
+  assert.equal(imageGenerateToolHistory.action, "deferred");
   assert.equal(imageGenerateToolHistory.provider, "openai");
-  assert.equal(imageGenerateToolHistory.model, "gpt-image-1");
   assert.equal(imageGenerateToolHistory.prompt, "Draw a serene poster");
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.kind, "image");
-  // FIX 2 — model-visible JSON must NOT carry `filename`, `objectKey`,
-  // `artifactId`, or `sizeBytes`. Models that see these fields tend to
-  // quote them back into assistant text, producing duplicate filename
-  // chatter alongside the actually-attached image.
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.filename, undefined);
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.objectKey, undefined);
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.artifactId, undefined);
-  assert.equal(imageGenerateToolHistory.artifacts?.[0]?.sizeBytes, undefined);
+  assert.deepEqual(imageGenerateToolHistory.artifacts, []);
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.video_generate = {
@@ -5427,11 +5422,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     request.bundle.bundleHash;
   const videoGenerateCompleted = await service.createTurn(request);
   assert.equal(videoGenerateCompleted.assistantText, "reply after video");
-  assert.equal(videoGenerateCompleted.artifacts.length, 1);
-  assert.equal(videoGenerateCompleted.artifacts[0]?.kind, "video");
-  // FIX 2 — `filename` stays on the runtime-side artifact record (storage
-  // surface); only the model-visible JSON below has it stripped.
-  assert.equal(videoGenerateCompleted.artifacts[0]?.filename, "sunrise-clip.mp4");
+  assert.equal(videoGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeVideoGenerate]?.tools?.some(
@@ -5439,38 +5430,56 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  assert.deepEqual(providerGatewayClient.videoGenerateCalls.at(-1), {
-    input: {
+  assert.equal(providerGatewayClient.videoGenerateCalls.length, 0);
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.assistantId,
+    "assistant-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageId,
+    "turn-1"
+  );
+  assert.equal(
+    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageText,
+    "hello runtime"
+  );
+  assert.deepEqual(persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.attachments, [
+    {
+      attachmentId: "attachment-video-history-1",
+      kind: "image",
+      objectKey: "assistant-media/uploads/video-reference.png",
+      mimeType: "image/png",
+      filename: "video-reference.png",
+      sizeBytes: videoReferenceBuffer.length
+    }
+  ]);
+  assert.equal(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.toolCode,
+    "video_generate"
+  );
+  assert.deepEqual(
+    (
+      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
+        | { toolCode?: string; request?: Record<string, unknown> }
+        | undefined
+    )?.request,
+    {
+      toolCode: "video_generate",
       prompt: "Animate the attached image into a calm sunrise clip",
-      model: "sora-2-pro",
+      filename: "sunrise-clip.mp4",
       size: "1280x720",
       seconds: 4,
-      referenceImage: {
-        bytesBase64: Buffer.from("video-reference-image").toString("base64"),
-        mimeType: "image/png",
-        filename: "video-reference.png"
-      },
-      credential: {
-        toolCode: "video_generate",
-        secretId: "tool/image_generate/api-key",
-        providerId: "openai"
-      }
-    },
-    options: {
-      timeoutMs: 300000
+      referenceImageIndex: 1
     }
-  });
+  );
   assert.deepEqual(
     turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
     []
   );
-  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
-    assistantId: "assistant-1",
-    toolCode: "video_generate",
-    dailyCallLimit: null,
-    units: 1
-  });
-  assert.equal(mediaObjectStorage.saveCalls.at(-1)?.mimeType, "video/mp4");
   const videoGenerateToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -5487,20 +5496,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     } | null;
   };
-  assert.equal(videoGenerateToolHistory.action, "generated");
+  assert.equal(videoGenerateToolHistory.action, "deferred");
   assert.equal(videoGenerateToolHistory.provider, "openai");
-  assert.equal(videoGenerateToolHistory.model, "sora-2-pro");
   assert.equal(
     videoGenerateToolHistory.prompt,
     "Animate the attached image into a calm sunrise clip"
   );
   assert.equal(videoGenerateToolHistory.referenceImageIndex, 1);
-  assert.equal(videoGenerateToolHistory.artifact?.kind, "video");
-  // FIX 2 — model-visible JSON must NOT carry presentation-only fields.
-  assert.equal(videoGenerateToolHistory.artifact?.filename, undefined);
-  assert.equal(videoGenerateToolHistory.artifact?.objectKey, undefined);
-  assert.equal(videoGenerateToolHistory.artifact?.artifactId, undefined);
-  assert.equal(videoGenerateToolHistory.artifact?.sizeBytes, undefined);
+  assert.equal(videoGenerateToolHistory.artifact, null);
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {
@@ -5584,11 +5587,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     request.bundle.bundleHash;
   const imageEditCompleted = await service.createTurn(request);
   assert.equal(imageEditCompleted.assistantText, "reply after image edit");
-  assert.equal(imageEditCompleted.artifacts.length, 1);
-  assert.equal(imageEditCompleted.artifacts[0]?.kind, "image");
-  // FIX 2 — `filename` stays on the runtime-side artifact record (storage
-  // surface); only the model-visible JSON below has it stripped.
-  assert.equal(imageEditCompleted.artifacts[0]?.filename, "living-room-edit.png");
+  assert.equal(imageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
     providerGatewayClient.calls[providerCallsBeforeImageEdit]?.tools?.some(
@@ -5596,36 +5595,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
-    prompt: "Replace the couch with a red chair",
-    model: null,
-    size: "1024x1024",
-    background: "auto",
-    sourceImage: {
-      bytesBase64: referenceImageBuffer.toString("base64"),
-      mimeType: "image/png",
-      filename: "living-room.png"
-    },
-    referenceImage: null,
-    credential: {
-      toolCode: "image_edit",
-      secretId: "tool/image_generate/api-key",
-      providerId: "openai"
-    }
-  });
-  assert.deepEqual(providerGatewayClient.imageEditOptions.at(-1), {
-    timeoutMs: 180000
-  });
+  assert.equal(providerGatewayClient.imageEditCalls.length, 0);
   assert.deepEqual(
     turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
     []
   );
-  assert.deepEqual(persaiInternalApiClientService.consumeCalls.at(-1), {
-    assistantId: "assistant-1",
-    toolCode: "image_edit",
-    dailyCallLimit: null,
-    units: 1
-  });
   const imageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -5645,9 +5619,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     }>;
   };
-  assert.equal(imageEditToolHistory.action, "generated");
+  assert.equal(imageEditToolHistory.action, "deferred");
   assert.equal(imageEditToolHistory.provider, "openai");
-  assert.equal(imageEditToolHistory.model, "gpt-image-1");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
   assert.equal(imageEditToolHistory.sourceImageIndex, 1);
   assert.equal(imageEditToolHistory.referenceImageIndex, null);
@@ -5658,12 +5631,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   // to know.
   assert.equal(imageEditToolHistory.sourceFilename, "living-room.png");
   assert.equal(imageEditToolHistory.referenceFilename, null);
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.kind, "image");
-  // FIX 2 — model-visible JSON must NOT carry presentation-only fields.
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.filename, undefined);
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.objectKey, undefined);
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.artifactId, undefined);
-  assert.equal(imageEditToolHistory.artifacts?.[0]?.sizeBytes, undefined);
+  assert.deepEqual(imageEditToolHistory.artifacts, []);
 
   const yardImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x03]);
   const carImageBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x04]);
@@ -5741,29 +5709,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     request.bundle.bundleHash;
   const referencedImageEditCompleted = await service.createTurn(request);
   assert.equal(referencedImageEditCompleted.assistantText, "reply after referenced image edit");
-  assert.equal(referencedImageEditCompleted.artifacts.length, 1);
+  assert.equal(referencedImageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReferencedImageEdit + 2);
-  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
-    prompt: "Place the car from image #2 into the yard in image #1",
-    model: null,
-    size: null,
-    background: "auto",
-    sourceImage: {
-      bytesBase64: yardImageBuffer.toString("base64"),
-      mimeType: "image/png",
-      filename: "yard.png"
-    },
-    referenceImage: {
-      bytesBase64: carImageBuffer.toString("base64"),
-      mimeType: "image/png",
-      filename: "car.png"
-    },
-    credential: {
-      toolCode: "image_edit",
-      secretId: "tool/image_generate/api-key",
-      providerId: "openai"
-    }
-  });
+  assert.equal(providerGatewayClient.imageEditCalls.length, 0);
   const referencedImageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -5773,7 +5721,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceFilename?: string | null;
     referenceFilename?: string | null;
   };
-  assert.equal(referencedImageEditToolHistory.action, "generated");
+  assert.equal(referencedImageEditToolHistory.action, "deferred");
   assert.equal(referencedImageEditToolHistory.sourceImageIndex, 1);
   assert.equal(referencedImageEditToolHistory.referenceImageIndex, 2);
   assert.equal(referencedImageEditToolHistory.sourceFilename, "yard.png");
@@ -5841,29 +5789,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.equal(
     providerGatewayClient.imageEditCalls.length,
-    providerImageEditsBeforeInferredReference + 1
+    providerImageEditsBeforeInferredReference
   );
-  assert.deepEqual(providerGatewayClient.imageEditCalls.at(-1), {
-    prompt: "Restyle image #1 like the second photo",
-    model: null,
-    size: null,
-    background: "auto",
-    sourceImage: {
-      bytesBase64: yardImageBuffer.toString("base64"),
-      mimeType: "image/png",
-      filename: "yard.png"
-    },
-    referenceImage: {
-      bytesBase64: carImageBuffer.toString("base64"),
-      mimeType: "image/png",
-      filename: "car.png"
-    },
-    credential: {
-      toolCode: "image_edit",
-      secretId: "tool/image_generate/api-key",
-      providerId: "openai"
-    }
-  });
   const inferredReferenceImageEditToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
@@ -5871,7 +5798,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceImageIndex?: number | null;
     referenceImageIndex?: number | null;
   };
-  assert.equal(inferredReferenceImageEditToolHistory.action, "generated");
+  assert.equal(inferredReferenceImageEditToolHistory.action, "deferred");
   assert.equal(inferredReferenceImageEditToolHistory.sourceImageIndex, 1);
   assert.equal(inferredReferenceImageEditToolHistory.referenceImageIndex, 2);
 

@@ -967,9 +967,7 @@ describe("useChat", () => {
         entry.kind === "activity"
     );
 
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Image ready");
-    expect(activityEntries[0]?.event.emphasis).toBe("strong");
+    expect(activityEntries).toHaveLength(0);
   });
 
   it("shows the live status badge only for the latest assistant reply", async () => {
@@ -1166,11 +1164,7 @@ describe("useChat", () => {
         entry.kind === "activity"
     );
 
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("Image ready");
-    expect(activityEntries[0]?.event.emphasis).toBe("strong");
-    expect(activityEntries[0]?.event.detail).toBe("Навык - 🥦");
-    expect(activityEntries[0]?.event.afterMessageId).toBe("assistant-msg-1");
+    expect(activityEntries).toHaveLength(0);
   });
 
   it("appends the shadow routing label for owner or admin viewers", async () => {
@@ -1996,15 +1990,7 @@ describe("useChat", () => {
       "server-user-1",
       "local-assistant-turn-1"
     ]);
-    expect(result.current.entries).toContainEqual(
-      expect.objectContaining({
-        kind: "activity",
-        event: expect.objectContaining({
-          type: "tool_use",
-          label: "Generating image"
-        })
-      })
-    );
+    expect(result.current.entries.some((entry) => entry.kind === "activity")).toBe(false);
   });
 
   it("loadHistory removes a restored live assistant when committed history has the final turn", async () => {
@@ -3162,10 +3148,6 @@ describe("useChat", () => {
           expect.objectContaining({
             kind: "message",
             message: expect.objectContaining({ role: "assistant", status: "streaming" })
-          }),
-          expect.objectContaining({
-            kind: "activity",
-            event: expect.objectContaining({ label: "Generating image" })
           })
         ]);
       });
@@ -3184,10 +3166,6 @@ describe("useChat", () => {
         expect.objectContaining({
           kind: "message",
           message: expect.objectContaining({ role: "assistant", status: "streaming" })
-        }),
-        expect.objectContaining({
-          kind: "activity",
-          event: expect.objectContaining({ label: "Generating image" })
         })
       ]);
 

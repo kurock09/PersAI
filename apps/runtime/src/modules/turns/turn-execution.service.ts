@@ -899,6 +899,7 @@ export class TurnExecutionService {
           assistantText: iterationBaseText,
           toolHistory,
           forceFinalTextOnly,
+          deferredMediaJobs: turnState.deferredMediaJobs,
           requestMetadata: this.createTurnProviderRequestMetadata({
             acceptedTurn,
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1127,11 +1128,12 @@ export class TurnExecutionService {
               trace?.stage(`iter${String(iteration)}.empty_tool_followup_retry`);
               break;
             }
-            const correctedAssistantText = this.applyUndeliveredAttachmentCorrection(
-              completedProviderResult.text ?? "",
-              turnState.artifacts,
-              input.message.locale
-            );
+            const correctedAssistantText = this.applyAssistantTextCorrections({
+              assistantText: completedProviderResult.text ?? "",
+              artifacts: turnState.artifacts,
+              deferredMediaJobs: turnState.deferredMediaJobs,
+              locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+            });
             if (correctedAssistantText !== (completedProviderResult.text ?? "")) {
               const correctionDeltaEvent = this.createVisibleTextDeltaStreamEvent({
                 acceptedTurn,
@@ -1916,6 +1918,7 @@ export class TurnExecutionService {
             assistantText: accumulatedText,
             toolHistory,
             forceFinalTextOnly,
+            deferredMediaJobs: turnState.deferredMediaJobs,
             requestMetadata: this.createTurnProviderRequestMetadata({
               acceptedTurn,
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
@@ -1956,11 +1959,12 @@ export class TurnExecutionService {
         }
         return this.withAssistantText(
           providerResult,
-          this.applyUndeliveredAttachmentCorrection(
-            accumulatedText,
-            turnState.artifacts,
-            input.message.locale
-          )
+          this.applyAssistantTextCorrections({
+            assistantText: accumulatedText,
+            artifacts: turnState.artifacts,
+            deferredMediaJobs: turnState.deferredMediaJobs,
+            locale: input.message.locale ?? execution.bundle.userContext.locale ?? null
+          })
         );
       }
       if (providerResult.toolCalls.length === 0) {
@@ -2741,6 +2745,7 @@ export class TurnExecutionService {
       assistantText: string;
       toolHistory: ProviderGatewayToolExchange[];
       forceFinalTextOnly?: boolean;
+      deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
       requestMetadata: ProviderGatewayRequestMetadata;
     }
   ): ProviderGatewayTextGenerateRequest {
@@ -2748,7 +2753,8 @@ export class TurnExecutionService {
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       baseRequest.developerInstructions ?? null,
       input.toolHistory.length > 0,
-      input.forceFinalTextOnly === true
+      input.forceFinalTextOnly === true,
+      input.deferredMediaJobs ?? []
     );
     return {
       ...baseRequest,
@@ -2790,17 +2796,25 @@ export class TurnExecutionService {
   private buildToolLoopDeveloperInstructions(
     existing: string | null,
     hasToolHistory: boolean,
-    forceFinalTextOnly: boolean
+    forceFinalTextOnly: boolean,
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
   ): string | null {
     if (!hasToolHistory) {
       return existing;
     }
-    const finalAnswerInstruction = forceFinalTextOnly
-      ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
-      : "After using tools, always return a concise final user-visible answer. Do not finish the turn with empty output.";
-    return existing === null || existing.trim().length === 0
-      ? finalAnswerInstruction
-      : `${existing}\n\n${finalAnswerInstruction}`;
+    const instructions = [];
+    if (existing !== null && existing.trim().length > 0) {
+      instructions.push(existing);
+    }
+    instructions.push(
+      forceFinalTextOnly
+        ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
+        : "After using tools, always return a concise final user-visible answer. Do not finish the turn with empty output."
+    );
+    if (deferredMediaJobs.length > 0) {
+      instructions.push(this.buildDeferredMediaFollowUpInstruction(deferredMediaJobs));
+    }
+    return instructions.join("\n\n");
   }
 
   private mergeAssistantTurnText(existingText: string, nextText: string | null): string {
@@ -2832,6 +2846,26 @@ export class TurnExecutionService {
     };
   }
 
+  private applyAssistantTextCorrections(input: {
+    assistantText: string;
+    artifacts: RuntimeOutputArtifact[];
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
+    locale: string | null;
+  }): string {
+    const normalizedText = this.normalizeOptionalText(input.assistantText) ?? "";
+    const deferredCorrected = this.applyDeferredMediaAcknowledgementCorrection(
+      normalizedText,
+      input.artifacts,
+      input.deferredMediaJobs,
+      input.locale
+    );
+    return this.applyUndeliveredAttachmentCorrection(
+      deferredCorrected,
+      input.artifacts,
+      input.locale
+    );
+  }
+
   private applyUndeliveredAttachmentCorrection(
     assistantText: string,
     artifacts: RuntimeOutputArtifact[],
@@ -2850,6 +2884,19 @@ export class TurnExecutionService {
       : `${normalizedText}\n\n${correction}`;
   }
 
+  private applyDeferredMediaAcknowledgementCorrection(
+    assistantText: string,
+    artifacts: RuntimeOutputArtifact[],
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
+    locale: string | null
+  ): string {
+    const normalizedText = this.normalizeOptionalText(assistantText) ?? "";
+    if (deferredMediaJobs.length === 0 || artifacts.length > 0) {
+      return normalizedText;
+    }
+    return this.buildDeferredMediaAcknowledgement(locale, deferredMediaJobs);
+  }
+
   private claimsAttachmentDelivery(assistantText: string): boolean {
     return DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(assistantText));
   }
@@ -2859,6 +2906,59 @@ export class TurnExecutionService {
       return "Поправка: файл не был реально доставлен в этот чат в рамках этого ответа.";
     }
     return "Correction: no file was actually delivered in this reply.";
+  }
+
+  private buildDeferredMediaAcknowledgement(
+    locale: string | null,
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
+  ): string {
+    const primaryToolCode = deferredMediaJobs[0]?.toolCode ?? null;
+    const hasMixedTools = deferredMediaJobs.some((job) => job.toolCode !== primaryToolCode);
+    if (locale?.toLowerCase().startsWith("ru")) {
+      if (hasMixedTools || primaryToolCode === null) {
+        return "Запрос принят. Готовлю медиа и пришлю результат отдельно, когда всё будет готово.";
+      }
+      switch (primaryToolCode) {
+        case IMAGE_EDIT_TOOL_CODE:
+          return "Запрос принят. Редактирую изображение и пришлю его отдельно, когда оно будет готово.";
+        case VIDEO_GENERATE_TOOL_CODE:
+          return "Запрос принят. Готовлю видео и пришлю его отдельно, когда оно будет готово.";
+        case IMAGE_GENERATE_TOOL_CODE:
+        default:
+          return "Запрос принят. Делаю изображение и пришлю его отдельно, когда оно будет готово.";
+      }
+    }
+    if (hasMixedTools || primaryToolCode === null) {
+      return "Request accepted. I am preparing the media and will send the result separately when it is ready.";
+    }
+    switch (primaryToolCode) {
+      case IMAGE_EDIT_TOOL_CODE:
+        return "Request accepted. I am editing the image and will send it separately when it is ready.";
+      case VIDEO_GENERATE_TOOL_CODE:
+        return "Request accepted. I am preparing the video and will send it separately when it is ready.";
+      case IMAGE_GENERATE_TOOL_CODE:
+      default:
+        return "Request accepted. I am generating the image and will send it separately when it is ready.";
+    }
+  }
+
+  private buildDeferredMediaFollowUpInstruction(
+    deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
+  ): string {
+    const subject =
+      deferredMediaJobs.length === 1
+        ? deferredMediaJobs[0]?.toolCode === IMAGE_EDIT_TOOL_CODE
+          ? "The image edit"
+          : deferredMediaJobs[0]?.toolCode === VIDEO_GENERATE_TOOL_CODE
+            ? "The video request"
+            : "The image request"
+        : "The media requests";
+    return [
+      `${subject} from this same turn was accepted for async background processing.`,
+      "Do not describe the final media as already generated, ready, visible in chat, attached, uploaded, or sent.",
+      "Write only a brief acknowledgement that the request is in progress and the final media will arrive separately when ready.",
+      "Do not print raw tool JSON, job ids, filenames, or imagined result details."
+    ].join(" ");
   }
 
   private resolveCompletedStreamAssistantText(

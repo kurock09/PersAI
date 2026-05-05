@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-05-05 (ADR-086 deferred media acknowledgement hardening) — first-turn media replies are now deterministic across web and Telegram
+
+### What changed
+
+- Traced the full media-reply path end to end instead of guessing from UI: `/admin/presets` `Use code default` feeds the media tool usage guidance from `apps/api/prisma/tool-catalog-data.ts` into runtime tool definitions, while the final post-tool user reply is still assembled by `TurnExecutionService` during the tool-loop follow-up.
+- Strengthened the code-backed `image_generate`, `image_edit`, and `video_generate` guidance so the model now sees explicit default instructions that `action="deferred"` means async acceptance only, not finished media delivery in the current turn.
+- Hardened runtime follow-up behavior in `apps/runtime/src/modules/turns/turn-execution.service.ts`: when the current turn created deferred media jobs and returned no inline artifacts, the first assistant reply is now normalized to one standard honest acknowledgement (`doing / will send separately`) instead of relying on model phrasing. This makes web and Telegram share the same deterministic acceptance copy.
+- Added focused regression coverage for both layers: code-default media prompt text and runtime deferred-media acknowledgement normalization.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/seed-tool-catalog.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/deferred-media-acknowledgement.test.ts test/runtime-media-request-parsing.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx`
+
+### Risks / residuals
+
+- The acknowledgement text is now intentionally runtime-normalized for deferred generated media, so it is deterministic but less stylistically flexible than ordinary tool follow-up text.
+- Already-saved assistant prompt overrides in admin can still diverge from the new code default if an operator intentionally turned off `Use code default` for a media tool.
+
+### Next recommended step
+
+- Deploy this runtime/API bundle and live-check one Telegram `image_generate` and one web `image_generate` turn to confirm the first reply is now the normalized async acknowledgement and the final media still arrives through the durable lane.
+
 ## 2026-05-05 (ADR-086 single-path cleanup and hardening) — async generated media now uses one production contour end to end
 
 ### What changed

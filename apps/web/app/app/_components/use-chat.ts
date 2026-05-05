@@ -303,12 +303,31 @@ const TOOL_ACTIVITY_COPY: Record<string, { start: string; end: string; failure: 
     failure: "Task scheduling failed"
   }
 };
+const HIDDEN_MEDIA_ACTIVITY_LABEL = "__hidden_media_activity__";
+function shouldSuppressLegacyMediaActivity(toolName: string): boolean {
+  return (
+    toolName === "image_generate" || toolName === "image_edit" || toolName === "video_generate"
+  );
+}
+function isHiddenMediaActivity(event: ActivityEvent): boolean {
+  return event.label === HIDDEN_MEDIA_ACTIVITY_LABEL;
+}
 function buildToolLiveActivity(params: {
   assistantMessageId: string;
   toolName: string;
   phase: "start" | "end";
   isError: boolean;
 }): LiveActivityEvent {
+  if (shouldSuppressLegacyMediaActivity(params.toolName)) {
+    return {
+      id: `activity-live-tool-hidden-${Date.now()}-${params.phase}-${params.toolName}`,
+      type: "tool_use",
+      label: HIDDEN_MEDIA_ACTIVITY_LABEL,
+      afterMessageId: params.assistantMessageId,
+      emphasis: "default",
+      source: "tool"
+    };
+  }
   const copy = TOOL_ACTIVITY_COPY[params.toolName];
   const label =
     copy === undefined
@@ -3785,7 +3804,7 @@ export function useChat(threadKey: string): UseChatReturn {
   for (const m of visibleMessages) {
     entries.push({ kind: "message", message: m });
     const live = liveActivitiesByMessageId[m.id];
-    if (live && m.id === latestAssistantMessageId) {
+    if (live && !isHiddenMediaActivity(live) && m.id === latestAssistantMessageId) {
       const shadowRoutingLabel = shadowRoutingLabelsByMessageId[m.id];
       entries.push({
         kind: "activity",
@@ -3794,11 +3813,17 @@ export function useChat(threadKey: string): UseChatReturn {
     }
     const linked = activityByMsg.get(m.id);
     if (linked) {
-      for (const ev of linked) entries.push({ kind: "activity", event: ev });
+      for (const ev of linked) {
+        if (!isHiddenMediaActivity(ev)) {
+          entries.push({ kind: "activity", event: ev });
+        }
+      }
     }
   }
   for (const ev of orphanActivities) {
-    entries.push({ kind: "activity", event: ev });
+    if (!isHiddenMediaActivity(ev)) {
+      entries.push({ kind: "activity", event: ev });
+    }
   }
   return {
     entries,
