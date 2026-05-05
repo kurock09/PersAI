@@ -48,6 +48,59 @@ export class ResolveEffectiveSubscriptionStateService {
    * 5) none
    */
   async execute(input: ResolveEffectiveSubscriptionInput): Promise<EffectiveSubscriptionState> {
+    const resolved = await this.resolveWithoutInitializing(input);
+    if (resolved !== null) {
+      return resolved;
+    }
+
+    const defaultPlan = await this.planCatalogRepository.findDefaultRegistrationPlan();
+    if (defaultPlan !== null) {
+      return this.createInitialWorkspaceSubscription(input.workspaceId, input.userId, defaultPlan);
+    }
+
+    return {
+      source: "none",
+      status: "unconfigured",
+      planCode: null,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      cancelAtPeriodEnd: false
+    };
+  }
+
+  async executeReadOnly(
+    input: ResolveEffectiveSubscriptionInput
+  ): Promise<EffectiveSubscriptionState> {
+    const resolved = await this.resolveWithoutInitializing(input);
+    if (resolved !== null) {
+      return resolved;
+    }
+
+    const defaultPlan = await this.planCatalogRepository.findDefaultRegistrationPlan();
+    if (defaultPlan !== null) {
+      return {
+        source: "catalog_default_fallback",
+        status: "unconfigured",
+        planCode: defaultPlan.code,
+        trialEndsAt: null,
+        currentPeriodEndsAt: null,
+        cancelAtPeriodEnd: false
+      };
+    }
+
+    return {
+      source: "none",
+      status: "unconfigured",
+      planCode: null,
+      trialEndsAt: null,
+      currentPeriodEndsAt: null,
+      cancelAtPeriodEnd: false
+    };
+  }
+
+  private async resolveWithoutInitializing(
+    input: ResolveEffectiveSubscriptionInput
+  ): Promise<EffectiveSubscriptionState | null> {
     if (input.assistantPlanOverrideCode !== null) {
       return {
         source: "assistant_plan_override",
@@ -77,19 +130,7 @@ export class ResolveEffectiveSubscriptionStateService {
       };
     }
 
-    const defaultPlan = await this.planCatalogRepository.findDefaultRegistrationPlan();
-    if (defaultPlan !== null) {
-      return this.createInitialWorkspaceSubscription(input.workspaceId, input.userId, defaultPlan);
-    }
-
-    return {
-      source: "none",
-      status: "unconfigured",
-      planCode: null,
-      trialEndsAt: null,
-      currentPeriodEndsAt: null,
-      cancelAtPeriodEnd: false
-    };
+    return null;
   }
 
   async initializeLifecycleNow(

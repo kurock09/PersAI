@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveBillingSupportActions,
+  resolveBillingNextDate,
   resolvePlanControlOptions,
   type BillingSupportAction
 } from "./page";
@@ -132,5 +133,19 @@ describe("admin ops billing support actions", () => {
         selectedInactive: true
       }
     ]);
+  });
+
+  it("prefers the paid current-period end over stale trial dates for active workspaces", () => {
+    expect(
+      resolveBillingNextDate({
+        workspaceId: "ws-1",
+        planCode: "pro",
+        status: "active",
+        trialEndsAt: "2026-05-08T00:00:00.000Z",
+        graceEndsAt: null,
+        currentPeriodEndsAt: "2026-06-05T00:00:00.000Z",
+        usageRisk: "ok"
+      })
+    ).toBe("2026-06-05T00:00:00.000Z");
   });
 });

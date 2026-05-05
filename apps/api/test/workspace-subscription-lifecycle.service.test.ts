@@ -15,14 +15,14 @@ async function run(): Promise<void> {
   let subscription = {
     id: "sub-1",
     workspaceId: "ws-1",
-    planCode: "pro",
-    status: "active" as const,
-    trialStartedAt: null,
-    trialEndsAt: null,
+    planCode: "starter_trial",
+    status: "trialing" as const,
+    trialStartedAt: new Date("2026-05-01T00:00:00.000Z"),
+    trialEndsAt: new Date("2026-05-08T00:00:00.000Z"),
     graceStartedAt: null as Date | null,
     graceEndsAt: null as Date | null,
     currentPeriodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
-    currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-05-08T00:00:00.000Z"),
     cancelAtPeriodEnd: false,
     billingProvider: null,
     providerCustomerRef: "cust-1",
@@ -148,6 +148,8 @@ async function run(): Promise<void> {
     lifecycleReason: "renewal_succeeded"
   });
   assert.equal(subscription.status, "active");
+  assert.equal(subscription.trialStartedAt, null);
+  assert.equal(subscription.trialEndsAt, null);
   assert.equal(subscription.billingProvider, "stripe");
   assert.equal(subscription.currentPeriodEndsAt?.toISOString(), "2026-06-02T00:00:00.000Z");
   assert.equal(events[0]?.eventCode, "renewal_succeeded");

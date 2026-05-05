@@ -23,6 +23,7 @@ import {
 import { RenderAssistantInboundSurfaceMessageService } from "./render-assistant-inbound-surface-message.service";
 import { toAssistantInboundFailurePayload } from "./assistant-inbound-error";
 import { MediaDeliveryService } from "./media/media-delivery.service";
+import { applyFinalDeliveryHonestyCorrection } from "./final-delivery-honesty";
 
 const TELEGRAM_OWNER_CLAIM_CODE_LENGTH = 6;
 
@@ -600,9 +601,12 @@ export class TelegramChannelAdapterService {
     }
 
     let mediaDeliveryCompleted = false;
+    let outboundTurnResult = turnResult;
     try {
+      let deliveredAttachmentCount = 0;
+      let deliveredAttachmentFilenames: string[] = [];
       if (turnResult.media.length > 0 && turnResult.deduplicated !== true) {
-        await this.mediaDeliveryService.deliver({
+        const deliveredMedia = await this.mediaDeliveryService.deliver({
           artifacts: turnResult.media,
           channel: "telegram",
           assistantId: config.assistantId,
@@ -618,6 +622,31 @@ export class TelegramChannelAdapterService {
           }
         });
         mediaDeliveryCompleted = true;
+        deliveredAttachmentCount = deliveredMedia.attachments.length;
+        deliveredAttachmentFilenames = deliveredMedia.attachments
+          .map((attachment) => attachment.originalFilename)
+          .filter(
+            (filename): filename is string =>
+              typeof filename === "string" && filename.trim().length > 0
+          );
+        if (deliveredAttachmentCount < turnResult.media.length) {
+          this.logger.warn(
+            `Telegram media delivery incomplete for ${config.assistantId}: delivered ${deliveredAttachmentCount}/${turnResult.media.length} artifact(s).`
+          );
+        }
+        if (deliveredAttachmentCount === 0) {
+          outboundTurnResult = {
+            ...turnResult,
+            assistantMessage: applyFinalDeliveryHonestyCorrection({
+              assistantText: turnResult.assistantMessage,
+              attemptedArtifactCount: turnResult.media.length,
+              deliveredAttachmentCount,
+              deliveredAttachmentFilenames,
+              locale: config.locale
+            }),
+            media: []
+          };
+        }
       }
 
       await this.telegramBotClientService.sendAssistantTurnReply({
@@ -625,10 +654,10 @@ export class TelegramChannelAdapterService {
         chatId: event.chatId,
         assistantId: config.assistantId,
         parseMode: config.parseMode,
-        turnResult,
-        mediaAlreadyDelivered: turnResult.media.length > 0,
+        turnResult: outboundTurnResult,
+        mediaAlreadyDelivered: deliveredAttachmentCount > 0,
         postReplyNotices:
-          turnResult.autoCompaction === undefined
+          outboundTurnResult.autoCompaction === undefined
             ? undefined
             : [buildTelegramAutoCompactionNotice(config.locale)],
         onBeforeMediaSend: (media) => {

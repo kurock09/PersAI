@@ -190,6 +190,10 @@ function parseReturnUrl(value: unknown): string {
   return normalized;
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function parseStoredPlanPrice(billingProviderHints: unknown): StoredPlanPrice | null {
   const hints = asObject(billingProviderHints);
   const presentation = asObject(hints?.presentation);
@@ -360,6 +364,9 @@ export class ManageAssistantPaymentIntentsService {
     userId: string,
     paymentIntentId: string
   ): Promise<AssistantPaymentIntentState> {
+    if (!isUuid(paymentIntentId)) {
+      throw new BadRequestException("paymentIntentId must be a valid UUID.");
+    }
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
       throw new NotFoundException("Assistant does not exist for this user.");
@@ -392,7 +399,7 @@ export class ManageAssistantPaymentIntentsService {
     if (governance === null) {
       throw new NotFoundException("Assistant governance does not exist for this assistant.");
     }
-    const subscription = await this.resolveEffectiveSubscriptionStateService.execute({
+    const subscription = await this.resolveEffectiveSubscriptionStateService.executeReadOnly({
       userId,
       workspaceId: assistant.workspaceId,
       assistantId: assistant.id,

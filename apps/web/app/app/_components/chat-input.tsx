@@ -239,6 +239,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   );
 
   const sendBlockedByFailedSlot = pendingSendStatus !== null;
+  const hardBlockedByFailedSlot =
+    pendingSendStatus === "send_failed" ||
+    pendingSendStatus === "send_failed_unconfirmed" ||
+    pendingSendStatus === "send_failed_confirmed";
 
   const handleSend = useCallback(() => {
     if (sendBlockedByFailedSlot) return;
@@ -396,7 +400,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const isRecording = recordingState === "recording";
   const isTranscribing = recordingState === "transcribing";
-  const inputDisabled =
+  const composerDisabled =
+    disabled === true || isRecording || isTranscribing || hardBlockedByFailedSlot;
+  const controlsDisabled =
     disabled === true || isRecording || isTranscribing || sendBlockedByFailedSlot;
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
 
@@ -426,23 +432,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleDragEnter = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (controlsDisabled || isStreaming || recordingState !== "idle") return;
       if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
       e.preventDefault();
       dragDepthRef.current += 1;
       setDragActive(true);
     },
-    [inputDisabled, isStreaming, recordingState]
+    [controlsDisabled, isStreaming, recordingState]
   );
 
   const handleDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (controlsDisabled || isStreaming || recordingState !== "idle") return;
       if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
     },
-    [inputDisabled, isStreaming, recordingState]
+    [controlsDisabled, isStreaming, recordingState]
   );
 
   const handleDragLeave = useCallback(
@@ -459,14 +465,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      if (inputDisabled || isStreaming || recordingState !== "idle") return;
+      if (controlsDisabled || isStreaming || recordingState !== "idle") return;
       if (!Array.from(e.dataTransfer.items).some((item) => item.kind === "file")) return;
       e.preventDefault();
       dragDepthRef.current = 0;
       setDragActive(false);
       appendFiles(Array.from(e.dataTransfer.files));
     },
-    [appendFiles, inputDisabled, isStreaming, recordingState]
+    [appendFiles, controlsDisabled, isStreaming, recordingState]
   );
 
   const stopRecordingCleanup = useCallback(() => {
@@ -649,7 +655,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       // Accept touch + pen + unknown ("" on older WebViews). Reject only mouse,
       // because the desktop branch already handles click-to-toggle for mice.
       if (e.pointerType === "mouse") return;
-      if (disabled || isStreaming) return;
+      if (disabled || isStreaming || sendBlockedByFailedSlot) return;
       e.preventDefault();
       holdActiveRef.current = true;
       holdStartTimeRef.current = Date.now();
@@ -665,7 +671,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
       touchRecordingIntentActiveRef.current = true;
       void startRecording({ touchHold: true });
     },
-    [isTouchDevice, disabled, isStreaming, startRecording, safeVibrate]
+    [isTouchDevice, disabled, isStreaming, sendBlockedByFailedSlot, startRecording, safeVibrate]
   );
 
   const handleMicPointerMove = useCallback(
@@ -756,7 +762,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               type="checkbox"
               aria-label={t("knowledgeAddToBase")}
               checked={addToKnowledgeBase}
-              disabled={inputDisabled}
+              disabled={controlsDisabled}
               onChange={(e) => setAddToKnowledgeBase(e.target.checked)}
               className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:cursor-not-allowed"
             />
@@ -853,7 +859,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           <button
             ref={attachTriggerRef}
             type="button"
-            disabled={inputDisabled || isStreaming}
+            disabled={controlsDisabled || isStreaming}
             aria-haspopup="menu"
             aria-expanded={attachMenuOpen}
             onClick={() =>
@@ -867,7 +873,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             }
             className={cn(
               "mb-0.5 rounded-lg p-2 transition-colors",
-              inputDisabled || isStreaming
+              controlsDisabled || isStreaming
                 ? "cursor-default text-text-subtle/40"
                 : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
               attachMenuOpen && "bg-surface-hover text-text-muted"
@@ -1012,7 +1018,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ref={textareaRef}
             rows={1}
             placeholder={t("placeholder")}
-            disabled={inputDisabled}
+            disabled={composerDisabled}
             onInput={resize}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -1027,7 +1033,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {(!isRecording || isTouchDevice) && !isTranscribing && (
             <button
               type="button"
-              disabled={disabled || isStreaming}
+              disabled={disabled || isStreaming || sendBlockedByFailedSlot}
               {...(isTouchDevice
                 ? {
                     onPointerDown: handleMicPointerDown,
@@ -1039,7 +1045,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 : { onClick: () => void startRecording() })}
               className={cn(
                 "mb-0.5 rounded-lg p-2 transition-colors select-none",
-                disabled || isStreaming
+                disabled || isStreaming || sendBlockedByFailedSlot
                   ? "cursor-default text-text-subtle/40"
                   : isTouchDevice
                     ? "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted"
@@ -1077,10 +1083,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 }
               }}
               onClick={handleSend}
-              disabled={inputDisabled}
+              disabled={controlsDisabled}
               className={cn(
                 "mb-0.5 rounded-lg p-2 transition-colors",
-                inputDisabled
+                controlsDisabled
                   ? "cursor-default text-text-subtle/40"
                   : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
               )}

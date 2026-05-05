@@ -143,12 +143,14 @@ async function run(): Promise<void> {
   assert.equal(fallbackFromAssistant.status, "unconfigured");
   assert.equal(fallbackFromAssistant.planCode, "starter_trial");
 
+  let catalogFallbackWriteCount = 0;
   const fallbackFromCatalog = await createService({
     workspaceSubscriptionRepo: {
       async findByWorkspaceId() {
         return null;
       },
       async upsertFromBillingSnapshot(snapshot) {
+        catalogFallbackWriteCount += 1;
         return {
           id: "sub-created",
           workspaceId: snapshot.workspaceId,
@@ -236,6 +238,104 @@ async function run(): Promise<void> {
   assert.equal(fallbackFromCatalog.planCode, "starter_trial");
   assert.equal(fallbackFromCatalog.status, "trialing");
   assert.notEqual(fallbackFromCatalog.trialEndsAt, null);
+  assert.equal(catalogFallbackWriteCount, 1);
+
+  catalogFallbackWriteCount = 0;
+  const readOnlyFallbackFromCatalog = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return null;
+      },
+      async upsertFromBillingSnapshot(snapshot) {
+        catalogFallbackWriteCount += 1;
+        return {
+          id: "sub-created",
+          workspaceId: snapshot.workspaceId,
+          planCode: snapshot.planCode,
+          status: snapshot.status,
+          trialStartedAt:
+            snapshot.trialStartedAt === null ? null : new Date(snapshot.trialStartedAt),
+          trialEndsAt: snapshot.trialEndsAt === null ? null : new Date(snapshot.trialEndsAt),
+          graceStartedAt:
+            snapshot.graceStartedAt === undefined || snapshot.graceStartedAt === null
+              ? null
+              : new Date(snapshot.graceStartedAt),
+          graceEndsAt:
+            snapshot.graceEndsAt === undefined || snapshot.graceEndsAt === null
+              ? null
+              : new Date(snapshot.graceEndsAt),
+          currentPeriodStartedAt:
+            snapshot.currentPeriodStartedAt === null
+              ? null
+              : new Date(snapshot.currentPeriodStartedAt),
+          currentPeriodEndsAt:
+            snapshot.currentPeriodEndsAt === null ? null : new Date(snapshot.currentPeriodEndsAt),
+          cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+          billingProvider: snapshot.billingProvider,
+          providerCustomerRef: snapshot.providerCustomerRef,
+          providerSubscriptionRef: snapshot.providerSubscriptionRef,
+          metadata: snapshot.metadata,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+    },
+    planRepo: {
+      async findByCode(code: string) {
+        if (code === "starter_fallback") {
+          return {
+            id: "plan-fallback",
+            code,
+            displayName: "Starter Fallback",
+            description: null,
+            status: "active",
+            billingProviderHints: null,
+            entitlementModel: null,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: false,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return {
+          id: "plan-1",
+          code: "starter_trial",
+          displayName: "Starter Trial",
+          description: null,
+          status: "active",
+          billingProviderHints: {
+            lifecyclePolicy: {
+              schema: "persai.planLifecyclePolicy.v1",
+              trialFallbackPlanCode: "starter_fallback"
+            }
+          },
+          entitlementModel: null,
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: true,
+          isTrialPlan: true,
+          trialDurationDays: 14,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+    }
+  }).executeReadOnly({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(readOnlyFallbackFromCatalog.source, "catalog_default_fallback");
+  assert.equal(readOnlyFallbackFromCatalog.planCode, "starter_trial");
+  assert.equal(readOnlyFallbackFromCatalog.status, "unconfigured");
+  assert.equal(readOnlyFallbackFromCatalog.trialEndsAt, null);
+  assert.equal(catalogFallbackWriteCount, 0);
 
   const expiredTrialFallback = await createService({
     workspaceSubscriptionRepo: {

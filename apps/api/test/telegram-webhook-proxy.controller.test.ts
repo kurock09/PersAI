@@ -140,7 +140,16 @@ async function run(): Promise<void> {
       }
     }
   ]);
-  assert.equal(sendReplyPayloads[0]?.mediaAlreadyDelivered, true);
+  assert.equal(sendReplyPayloads[0]?.mediaAlreadyDelivered, false);
+  assert.deepEqual(
+    (sendReplyPayloads[0]?.turnResult as { media?: unknown[] } | undefined)?.media,
+    []
+  );
+  assert.equal(
+    (sendReplyPayloads[0]?.turnResult as { assistantMessage?: string } | undefined)
+      ?.assistantMessage,
+    "native reply\n\nCorrection: no file was actually delivered in this reply."
+  );
 
   const unauthorized = await service.handleWebhook({
     assistantId: "assistant-1",

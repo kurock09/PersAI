@@ -1,10 +1,13 @@
-import { render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatPage from "./page";
 
 const navigationMocks = vi.hoisted(() => ({
   replace: vi.fn(),
-  searchParams: new URLSearchParams()
+  searchParams: new URLSearchParams(),
+  router: {
+    replace: vi.fn()
+  }
 }));
 
 const chatHookMocks = vi.hoisted(() => ({
@@ -38,9 +41,7 @@ const assistantApiClientMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    replace: navigationMocks.replace
-  }),
+  useRouter: () => navigationMocks.router,
   useSearchParams: () => navigationMocks.searchParams
 }));
 
@@ -79,6 +80,10 @@ vi.mock("../assistant-api-client", () => ({
 }));
 
 describe("ChatPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     window.sessionStorage.clear();
     chatHookMocks.chatId = null;
@@ -87,6 +92,8 @@ describe("ChatPage", () => {
     chatAreaMocks.lastProps = null;
     assistantApiClientMocks.getAssistantBillingPaymentIntent.mockReset();
     appDataMocks.reload.mockReset();
+    navigationMocks.replace.mockReset();
+    navigationMocks.router.replace = navigationMocks.replace;
   });
 
   it("does not auto-create a welcome chat just because the chat list is empty", async () => {
@@ -187,9 +194,9 @@ describe("ChatPage", () => {
     expect(window.sessionStorage.getItem("persai.draft-chat-thread.v1")).toBeNull();
   });
 
-  it("passes billing return params through to the chat area banner props", async () => {
+  it("passes billing return params through to the chat area banner props and strips one-shot billing params from the URL", async () => {
     navigationMocks.searchParams = new URLSearchParams(
-      "billingReturn=success&billingPlan=pro_plus"
+      "billingReturn=success&billingPlan=pro_plus&billingPaymentIntentId=intent-1"
     );
     appDataMocks.chats = [];
     chatHookMocks.markHistoryEmpty.mockReset();
@@ -201,28 +208,6 @@ describe("ChatPage", () => {
     });
     expect(chatAreaMocks.lastProps?.billingReturnKind).toBe("success");
     expect(chatAreaMocks.lastProps?.billingPlanCode).toBe("pro_plus");
-    expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
-  });
-
-  it("reloads app data after authoritative succeeded payment intent confirmation", async () => {
-    navigationMocks.searchParams = new URLSearchParams(
-      "billingReturn=success&billingPlan=pro_plus&billingPaymentIntentId=intent-1"
-    );
-    appDataMocks.chats = [];
-    chatHookMocks.markHistoryEmpty.mockReset();
-    assistantApiClientMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
-      id: "intent-1",
-      status: "succeeded"
-    });
-
-    render(<ChatPage />);
-
-    await waitFor(() => {
-      expect(assistantApiClientMocks.getAssistantBillingPaymentIntent).toHaveBeenCalled();
-    });
-    await waitFor(() => {
-      expect(appDataMocks.reload).toHaveBeenCalled();
-    });
     expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
   });
 });

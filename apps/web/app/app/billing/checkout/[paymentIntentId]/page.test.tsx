@@ -8,6 +8,12 @@ const routerMocks = vi.hoisted(() => ({
   replace: vi.fn()
 }));
 
+const navigationMocks = vi.hoisted(() => ({
+  params: {
+    paymentIntentId: "pi-1"
+  }
+}));
+
 const authMocks = vi.hoisted(() => ({
   getToken: vi.fn(async () => "token-1")
 }));
@@ -25,7 +31,8 @@ const cloudpaymentsMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => routerMocks
+  useRouter: () => routerMocks,
+  useParams: () => navigationMocks.params
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -41,6 +48,7 @@ vi.mock("../../../assistant-api-client", () => ({
 afterEach(() => {
   cleanup();
   routerMocks.replace.mockReset();
+  navigationMocks.params = { paymentIntentId: "pi-1" };
   apiMocks.getAssistantBillingPaymentIntent.mockReset();
   cloudpaymentsMocks.start.mockReset();
   cloudpaymentsMocks.instance.start.mockReset();
@@ -50,6 +58,7 @@ afterEach(() => {
 
 describe("BillingCheckoutPage", () => {
   it("loads a manual-test checkout intent and returns success to chat", async () => {
+    navigationMocks.params = { paymentIntentId: "pi-1" };
     apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
       id: "pi-1",
       targetPlanCode: "pro_plus",
@@ -78,7 +87,7 @@ describe("BillingCheckoutPage", () => {
 
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <BillingCheckoutPage params={{ paymentIntentId: "pi-1" }} />
+        <BillingCheckoutPage />
       </NextIntlClientProvider>
     );
 
@@ -92,6 +101,7 @@ describe("BillingCheckoutPage", () => {
   });
 
   it("starts CloudPayments widget checkout and returns success to chat", async () => {
+    navigationMocks.params = { paymentIntentId: "pi-2" };
     cloudpaymentsMocks.instance.start.mockImplementation(async () => {
       cloudpaymentsMocks.instance.oncomplete?.({ status: "success", type: "payment" });
       return { ok: true };
@@ -137,7 +147,7 @@ describe("BillingCheckoutPage", () => {
 
     render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <BillingCheckoutPage params={{ paymentIntentId: "pi-2" }} />
+        <BillingCheckoutPage />
       </NextIntlClientProvider>
     );
 

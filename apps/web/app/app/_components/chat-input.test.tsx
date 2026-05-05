@@ -258,6 +258,46 @@ describe("ChatInput", () => {
     expect(textarea).toHaveFocus();
   });
 
+  it("keeps the desktop composer focusable while a send is pending", async () => {
+    function Wrapper() {
+      const [pendingSendStatus, setPendingSendStatus] = useState<
+        | "sending"
+        | "reconciling"
+        | "send_failed"
+        | "send_failed_unconfirmed"
+        | "send_failed_confirmed"
+        | null
+      >(null);
+
+      return (
+        <ChatInput
+          onSend={() => {
+            setPendingSendStatus("sending");
+          }}
+          onTranscribeVoice={vi.fn(async () => "")}
+          onStop={vi.fn()}
+          isStreaming={false}
+          pendingSendStatus={pendingSendStatus}
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByPlaceholderText("placeholder");
+    fireEvent.change(textarea, {
+      target: { value: "hello pending send" }
+    });
+    fireEvent.mouseDown(screen.getByTitle("send"));
+    fireEvent.click(screen.getByTitle("send"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("placeholder")).toHaveFocus();
+    });
+    expect(textarea).not.toBeDisabled();
+    expect(screen.getByTitle("send")).toBeDisabled();
+  });
+
   it("shows a live camera preview in the mobile camera tile", async () => {
     const stop = vi.fn();
     const stream = {

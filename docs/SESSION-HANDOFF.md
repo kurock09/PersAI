@@ -1,5 +1,120 @@
 # SESSION-HANDOFF
 
+## 2026-05-05 (ADR-086 async media jobs accepted) — platform-wide target state for generated image/audio/video is now one durable async media lane
+
+### What changed
+
+- Kept this session bounded to architecture truth only: no code path was changed yet, but the repo now has an explicit ADR for the long-running generated-media problem that showed up in Telegram live behavior.
+- Added `docs/ADR/086-async-media-jobs-for-generated-image-audio-and-video.md` as the new source of truth for generated `image` / `audio` / `video` orchestration.
+- The ADR deliberately does **not** convert all chat into async. Ordinary text turns stay on the current sync/stream path, while generated media moves to one durable job model shared by `web` and `Telegram`.
+- The ADR locks the two most important founder constraints:
+  - preserve current quota/limit behavior, especially the calm assistant explanations when media is blocked by plan/quota/tool limits
+  - do not leave users in hanging states; pending media state must restore across chat switch, reconnect, and `F5`
+- The ADR also makes the cutover rule explicit: after implementation, the active product path must not keep the old long synchronous media completion contour as a hidden legacy fallback.
+
+### Verification
+
+- Docs-only change; no code/tests run in this session.
+
+### Risks / residuals
+
+- This session did not implement the async media lane yet. Telegram and web still use the current shipped behavior until ADR-086 is implemented and deployed.
+- `ARCHITECTURE.md`, `API-BOUNDARY.md`, and `DATA-MODEL.md` still describe current active behavior, not the future ADR-086 target state. They should change only when implementation lands.
+
+### Next recommended step
+
+- Implement ADR-086 as one coherent cutover slice: add durable media-job state, preserve existing quota/limit refusal semantics, restore pending-media continuity in `web`, move Telegram generated media off the long synchronous webhook path, and remove the old sync media completion contour from the active path once the new lane is live.
+
+## 2026-05-05 (Telegram media-delivery honesty hardening) — Telegram no longer claims media was sent when delivery returned zero successful attachments
+
+### What changed
+
+- Kept this session bounded to the live Telegram image/file delivery regression reported from production behavior, not to a broad Telegram architecture rewrite.
+- Live GKE logs for assistant `8b27ed67-b9dc-4c9e-b1dc-8b09852eaaee` showed repeated long-running `/telegram-webhook/:assistantId` requests (`~60s`, `~68s`, `~148s`, `~153s`) plus repeated `duplicate_inflight` / `duplicate_handled` updates while image-heavy turns were in flight. That explains why Telegram was retrying the same update, but it was not yet the concrete false-success root cause.
+- The concrete product bug was narrower and code-level: `TelegramChannelAdapterService` called `MediaDeliveryService.deliver()` and then still passed `mediaAlreadyDelivered = turnResult.media.length > 0` into `TelegramBotClientService.sendAssistantTurnReply()`. In other words, runtime-produced media was treated as already delivered even when the shared delivery seam returned `attachments=[]` for Telegram.
+- Because of that mismatch, a failed Telegram media send could still be followed by final assistant text that behaved as if the image/file had been sent already. This matched the live founder report: the assistant said it sent a photo, but the chat received no photo and sometimes only confusing link/text leftovers.
+- Fixed the Telegram path so `mediaAlreadyDelivered` now follows the real delivered attachment count from `MediaDeliveryService`. When Telegram delivers `0/N` artifacts, the outbound assistant text is passed through the existing final-delivery honesty correction before being sent, and the follow-up reply no longer treats the missing media as successfully delivered.
+- Added/updated focused regression coverage so the Telegram webhook path now locks this exact failure shape instead of preserving the previous false-positive `mediaAlreadyDelivered=true` behavior.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-bot.client.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- This fixes the false “media was already delivered” behavior in Telegram replies, but it does **not** yet shorten the synchronous Telegram webhook path. Live GKE still showed very long webhook durations and Telegram retries/duplicates for this assistant during heavy turns.
+- The running cluster still has the old behavior until this revision is deployed.
+- `format:check` passed only after formatting the touched Telegram adapter file; this slice did not attempt a repo-wide unrelated formatting cleanup.
+
+### Next recommended step
+
+- Deploy this Telegram fix, then live-smoke one real Telegram image-generation/edit turn for assistant `8b27ed67-b9dc-4c9e-b1dc-8b09852eaaee` and confirm that a failed media delivery now yields an honest correction instead of a false “photo sent” reply. After that, do a separate bounded slice on the long synchronous webhook path if Telegram retries/duplicates remain noisy in live logs.
+
+## 2026-05-05 (ADR-084 checkout truth hardening) — opening checkout no longer silently starts a new trial for legacy workspaces
+
+### What changed
+
+- Kept this session bounded to a production billing regression found during live founder validation: for some legacy users, clicking `Оплатить` created a fresh `trial_started` lifecycle event, reset quota-period dates, and changed trial timing even before any payment happened.
+- Root cause: `ManageAssistantPaymentIntentsService.createPaymentIntent()` resolved current billing state through `ResolveEffectiveSubscriptionStateService.execute()`, and that path lazily creates `workspace_subscription` from the default registration plan when the row does not exist yet. That write is correct for explicit lifecycle initialization, but it is not valid as a side effect of opening checkout.
+- Added a new read-only billing-state path, `ResolveEffectiveSubscriptionStateService.executeReadOnly()`. It preserves the same precedence and fallback visibility, but when the workspace still has no subscription row it returns the catalog/default fallback as `unconfigured` instead of writing lifecycle truth.
+- Switched the payment-intent creation flow to use that new read-only path, so opening checkout now reads current billing context without creating `trial_started`, mutating `workspace_subscription`, or resetting quota-period dates/limits.
+- Added focused regression coverage to lock both sides: the normal lifecycle resolver still initializes the default registration trial when explicitly asked, while the new read-only resolver and the payment-intent path must not perform that write.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This fixes future checkout opens. Already-affected legacy rows/events in live data are historical and remain as-is until explicitly corrected.
+- The running cluster will keep the old behavior until this revision is deployed.
+
+### Next recommended step
+
+- Deploy this billing hotfix, then audit the already-affected legacy workspaces and decide whether their accidental `trial_started` / quota-period resets need one-time admin correction.
+
+## 2026-05-05 (ADR-084 live hardening) — manual paid activation no longer leaks stale trial dates, and checkout no longer requests `/undefined`
+
+### What changed
+
+- Kept this session bounded to two production billing regressions discovered during live use after the ADR-084 widget-first work: an incorrect Ops `Next date` after manual paid activation, and checkout requests hitting `GET /assistant/billing/payment-intents/undefined`.
+- Fixed the web checkout page to read `paymentIntentId` from the actual route params via `next/navigation` instead of relying on a client-page `params` prop shape that did not hold in the real Next runtime. The page now also fails early if the route param is missing instead of making a broken API call.
+- Hardened `ManageAssistantPaymentIntentsService.getPaymentIntent()` so malformed ids now fail with an explicit `400 paymentIntentId must be a valid UUID` instead of bubbling a Prisma `500` from invalid UUID input.
+- Fixed the paid lifecycle transition so upgrading a workspace from trial to paid clears `trialStartedAt` and `trialEndsAt` on the existing `workspace_subscription` row, not only on first create. This removes the stale-trial-date leak at the lifecycle truth layer.
+- Fixed `Admin > Ops` user-directory `Next date` rendering to choose the date by lifecycle status instead of always preferring `trialEndsAt`. Active paid workspaces now prefer `currentPeriodEndsAt`, grace prefers `graceEndsAt`, and trialing still prefers `trialEndsAt`.
+- GKE API logs during this session confirmed the checkout failure shape directly: repeated live requests were hitting `/api/v1/assistant/billing/payment-intents/undefined`, matching the route-param bug.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/admin/ops/page.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The incorrect `Next date` for already affected rows is now masked correctly in `Admin > Ops`, and future paid activations clear stale trial fields. Existing rows that already carry stale `trialEndsAt` remain historically dirty until they are touched by another lifecycle write.
+- This session validated the live failure via GKE logs, but it did not deploy the fix. The running cluster will continue to show the old behavior until the updated revision is shipped.
+
+### Next recommended step
+
+Deploy this hotfix, then recheck the same paid-manual workspace and one real pricing -> checkout click in `persai-dev` to confirm `currentPeriodEndsAt` is shown in Ops and no more `/payment-intents/undefined` requests appear in API logs.
+
 ## 2026-05-05 (ADR-084 widget-first audit cleanup) — dead provider-pull seams and stale pre-Slice-9 billing assumptions were removed
 
 ### What changed

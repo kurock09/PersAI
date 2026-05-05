@@ -679,6 +679,8 @@ export class ManageWorkspaceSubscriptionLifecycleService {
               data: {
                 planCode: input.paidPlanCode,
                 status: "active",
+                trialStartedAt: null,
+                trialEndsAt: null,
                 graceStartedAt: null,
                 graceEndsAt: null,
                 currentPeriodStartedAt: periodStartedAt,

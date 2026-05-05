@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { ManageAssistantPaymentIntentsService } from "../src/modules/workspace-management/application/manage-assistant-payment-intents.service";
 import type { BillingProviderPort } from "../src/modules/workspace-management/application/billing-provider.port";
 import type { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
@@ -148,7 +148,10 @@ async function run(): Promise<void> {
       }
     } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
     {
-      async execute(input: {
+      async execute() {
+        throw new Error("payment-intent flow must not initialize lifecycle truth");
+      },
+      async executeReadOnly(input: {
         assistantPlanOverrideCode: string | null;
         assistantQuotaPlanCode: string | null;
       }) {
@@ -179,7 +182,7 @@ async function run(): Promise<void> {
       }
     } as Pick<
       ResolveEffectiveSubscriptionStateService,
-      "execute"
+      "execute" | "executeReadOnly"
     > as ResolveEffectiveSubscriptionStateService,
     {
       async listPublicPricingPlans() {
@@ -325,8 +328,9 @@ async function run(): Promise<void> {
         },
         async create(args: { data: Record<string, unknown> }) {
           const createdAt = new Date(now.getTime() + nextIntentId * 1000);
+          const id = `00000000-0000-4000-8000-${String(nextIntentId).padStart(12, "0")}`;
           const created: StoredIntent = {
-            id: `pi-${String(nextIntentId++)}`,
+            id,
             workspaceId: "ws-1",
             userId: "user-1",
             targetPlanCode: args.data.targetPlanCode as string,
@@ -351,6 +355,7 @@ async function run(): Promise<void> {
             createdAt,
             updatedAt: createdAt
           };
+          nextIntentId += 1;
           intents.push(created);
           return created;
         },
@@ -442,6 +447,12 @@ async function run(): Promise<void> {
 
   const fetched = await service.getPaymentIntent("user-1", created.id);
   assert.deepEqual(fetched, created);
+  await assert.rejects(
+    () => service.getPaymentIntent("user-1", "undefined"),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      error.message === "paymentIntentId must be a valid UUID."
+  );
 
   const downgradeService = new ManageAssistantPaymentIntentsService(
     {
@@ -522,6 +533,9 @@ async function run(): Promise<void> {
     } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
     {
       async execute() {
+        throw new Error("payment-intent flow must not initialize lifecycle truth");
+      },
+      async executeReadOnly() {
         return {
           source: "workspace_subscription",
           status: "active",
@@ -535,7 +549,7 @@ async function run(): Promise<void> {
       }
     } as Pick<
       ResolveEffectiveSubscriptionStateService,
-      "execute"
+      "execute" | "executeReadOnly"
     > as ResolveEffectiveSubscriptionStateService,
     {
       async listPublicPricingPlans() {

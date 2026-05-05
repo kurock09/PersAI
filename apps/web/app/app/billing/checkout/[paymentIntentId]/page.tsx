@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { AssistantBillingPaymentIntentState } from "@persai/contracts";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -116,10 +116,18 @@ function buildChatReturnHref(
   return `/app/chat?${params.toString()}` as Route;
 }
 
-export default function BillingCheckoutPage({ params }: { params: { paymentIntentId: string } }) {
+export default function BillingCheckoutPage({ params }: { params?: { paymentIntentId?: string } }) {
   const t = useTranslations("billingCheckout");
   const { getToken } = useAuth();
   const router = useRouter();
+  const routeParams = useParams<{ paymentIntentId?: string | string[] }>();
+  const paymentIntentId =
+    params?.paymentIntentId ??
+    (typeof routeParams.paymentIntentId === "string"
+      ? routeParams.paymentIntentId
+      : Array.isArray(routeParams.paymentIntentId)
+        ? routeParams.paymentIntentId[0]
+        : undefined);
   const [paymentIntent, setPaymentIntent] = useState<AssistantBillingPaymentIntentState | null>(
     null
   );
@@ -131,6 +139,13 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      if (typeof paymentIntentId !== "string" || paymentIntentId.trim().length === 0) {
+        if (!cancelled) {
+          setError(t("loadFailed"));
+          setLoading(false);
+        }
+        return;
+      }
       const token = await getToken();
       if (!token) {
         if (!cancelled) {
@@ -140,7 +155,7 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
         return;
       }
       try {
-        const next = await getAssistantBillingPaymentIntent(token, params.paymentIntentId);
+        const next = await getAssistantBillingPaymentIntent(token, paymentIntentId);
         if (!cancelled) {
           setPaymentIntent(next);
           setError(null);
@@ -162,7 +177,7 @@ export default function BillingCheckoutPage({ params }: { params: { paymentInten
     return () => {
       cancelled = true;
     };
-  }, [getToken, params.paymentIntentId, t]);
+  }, [getToken, paymentIntentId, t]);
 
   const modeLabel = useMemo(() => {
     switch (paymentIntent?.checkout.mode) {

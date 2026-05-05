@@ -195,6 +195,29 @@ function formatShortDate(iso: string | null | undefined): string {
   }
 }
 
+export function resolveBillingNextDate(billing: OpsUserRow["billing"]): string | null {
+  switch (billing.status) {
+    case "trialing":
+      return billing.trialEndsAt;
+    case "grace_period":
+      return billing.graceEndsAt ?? billing.currentPeriodEndsAt ?? billing.trialEndsAt;
+    case "active":
+      return billing.currentPeriodEndsAt ?? billing.trialEndsAt ?? billing.graceEndsAt;
+    default:
+      return billing.currentPeriodEndsAt ?? billing.graceEndsAt ?? billing.trialEndsAt;
+  }
+}
+
+function formatPeriodWindow(
+  startedAt: string | null | undefined,
+  endsAt: string | null | undefined
+): string {
+  if (!startedAt && !endsAt) {
+    return "—";
+  }
+  return `${formatTs(startedAt)} → ${formatTs(endsAt)}`;
+}
+
 function formatNullable(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
@@ -853,11 +876,7 @@ function UsersDirectory({
                       </span>
                     </td>
                     <td className="py-1.5 pr-2 text-text-muted">
-                      {formatShortDate(
-                        u.billing.graceEndsAt ??
-                          u.billing.trialEndsAt ??
-                          u.billing.currentPeriodEndsAt
-                      )}
+                      {formatShortDate(resolveBillingNextDate(u.billing))}
                     </td>
                     <td className="py-1.5 pr-2">
                       <span
@@ -1566,15 +1585,32 @@ export default function AdminOpsPage() {
                   <DetailRow label="Plan" value={formatNullable(billing.subscription.planCode)} />
                   <DetailRow
                     label="Trial"
-                    value={`${formatTs(billing.subscription.trialStartedAt)} → ${formatTs(billing.subscription.trialEndsAt)}`}
+                    value={
+                      billing.subscription.status === "trialing"
+                        ? formatPeriodWindow(
+                            billing.subscription.trialStartedAt,
+                            billing.subscription.trialEndsAt
+                          )
+                        : "—"
+                    }
                   />
                   <DetailRow
                     label="Grace"
-                    value={`${formatTs(billing.subscription.graceStartedAt)} → ${formatTs(billing.subscription.graceEndsAt)}`}
+                    value={
+                      billing.subscription.status === "grace_period"
+                        ? formatPeriodWindow(
+                            billing.subscription.graceStartedAt,
+                            billing.subscription.graceEndsAt
+                          )
+                        : "—"
+                    }
                   />
                   <DetailRow
                     label="Paid period"
-                    value={`${formatTs(billing.subscription.currentPeriodStartedAt)} → ${formatTs(billing.subscription.currentPeriodEndsAt)}`}
+                    value={formatPeriodWindow(
+                      billing.subscription.currentPeriodStartedAt,
+                      billing.subscription.currentPeriodEndsAt
+                    )}
                   />
                   <DetailRow
                     label="Latest paid activation"
