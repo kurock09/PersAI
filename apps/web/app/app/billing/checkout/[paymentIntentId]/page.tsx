@@ -216,6 +216,62 @@ function isExpiredCheckout(expiresAt: string | null | undefined): boolean {
   return Number.isFinite(parsed) && parsed <= Date.now();
 }
 
+type CheckoutResolvedTheme = "dark" | "light";
+
+function resolveCheckoutTheme(): CheckoutResolvedTheme {
+  if (typeof document === "undefined") {
+    return "dark";
+  }
+  return document.documentElement.classList.contains("light") ? "light" : "dark";
+}
+
+function buildThemeAwareCustomizationParams(
+  payload: CloudpaymentsConstructorPayload,
+  resolvedTheme: CheckoutResolvedTheme
+): CloudpaymentsConstructorPayload["customizationParams"] {
+  const themeColors =
+    resolvedTheme === "light"
+      ? {
+          primaryButtonColor: "#6b6fd6",
+          primaryHoverButtonColor: "#5f63c8",
+          primaryButtonTextColor: "#f8f7f3",
+          primaryButtonHoverTextColor: "#f8f7f3",
+          activeInputColor: "#6b6fd6",
+          inputBackground: "#fcfaf5",
+          inputColor: "#1f1a12",
+          inputBorderColor: "#ddd6c9",
+          titleColor: "#1f1a12",
+          textColor: "#1f1a12",
+          errorColor: "#c9523f",
+          skeletonBackground: "#f5f2ec"
+        }
+      : {
+          primaryButtonColor: "#6b6fd6",
+          primaryHoverButtonColor: "#7a7ee5",
+          primaryButtonTextColor: "#f8f7f3",
+          primaryButtonHoverTextColor: "#f8f7f3",
+          activeInputColor: "#7a7ee5",
+          inputBackground: "#1f1d1b",
+          inputColor: "#e8e2d8",
+          inputBorderColor: "#3d3936",
+          titleColor: "#e8e2d8",
+          textColor: "#e8e2d8",
+          errorColor: "#e26a5c",
+          skeletonBackground: "#1f1d1b"
+        };
+
+  return {
+    ...payload.customizationParams,
+    appearance: {
+      ...payload.customizationParams?.appearance,
+      colors: {
+        ...payload.customizationParams?.appearance?.colors,
+        ...themeColors
+      }
+    }
+  };
+}
+
 export default function BillingCheckoutPage({ params }: { params?: { paymentIntentId?: string } }) {
   const t = useTranslations("billingCheckout");
   const locale = useLocale();
@@ -237,8 +293,26 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [mountingPaymentForm, setMountingPaymentForm] = useState(false);
   const [paymentFormVisible, setPaymentFormVisible] = useState(false);
+  const [resolvedTheme, setResolvedTheme] = useState<CheckoutResolvedTheme>(() =>
+    resolveCheckoutTheme()
+  );
   const embeddedContainerRef = useRef<HTMLDivElement | null>(null);
   const embeddedCompletionHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    const updateTheme = () => setResolvedTheme(resolveCheckoutTheme());
+    updateTheme();
+    const observer = new MutationObserver(updateTheme);
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["class"]
+    });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -384,7 +458,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
 
         blocksApp = new PaymentBlocks(
           constructorPayload.initializationParams,
-          constructorPayload.customizationParams
+          buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme)
         );
         blocksApp.mount(embeddedContainerRef.current);
         revealTimer = window.setTimeout(() => {
@@ -434,7 +508,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
         blocksApp.unmount();
       }
     };
-  }, [canUseCheckoutSurface, constructorPayload, paymentIntent, router, t]);
+  }, [canUseCheckoutSurface, constructorPayload, paymentIntent, resolvedTheme, router, t]);
 
   return (
     <div className="min-h-dvh bg-chrome text-text">
@@ -534,7 +608,12 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                   </div>
                 ) : paymentIntent.checkout.mode === "embedded" && constructorPayload ? (
                   <div className="mt-6 space-y-4">
-                    <div className="overflow-hidden rounded-[24px] border border-border/70 bg-surface-raised/80 p-4 sm:p-5">
+                    <div
+                      className={cn(
+                        "overflow-hidden rounded-[24px] border border-border/70 p-4 sm:p-5",
+                        resolvedTheme === "light" ? "bg-[#fcfaf5]" : "bg-[#1f1d1b]"
+                      )}
+                    >
                       {mountingPaymentForm || !paymentFormVisible ? (
                         <div className="flex min-h-[16rem] items-center justify-center gap-3 text-sm text-text-muted">
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -544,7 +623,8 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       <div
                         ref={embeddedContainerRef}
                         className={cn(
-                          "min-h-[16rem] rounded-[20px] bg-[#1c1b1a] transition-opacity duration-200",
+                          "min-h-[16rem] rounded-[20px] transition-opacity duration-200",
+                          resolvedTheme === "light" ? "bg-[#fcfaf5]" : "bg-[#1f1d1b]",
                           mountingPaymentForm || !paymentFormVisible ? "opacity-0" : "opacity-100"
                         )}
                       />

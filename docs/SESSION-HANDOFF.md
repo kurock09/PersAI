@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 checkout theme parity fix) — CloudPayments embedded checkout now maps light/dark palettes explicitly
+
+### What changed
+
+- Kept the slice bounded to the live checkout regression the founder reported: the embedded CloudPayments form was effectively inverted across themes, so dark mode showed a light inner form while light mode showed a dark inner form, and the `Отправить квитанцию на E-mail` row looked wrong in at least one scheme.
+- Replaced the previous one-size-fits-all styling contour with explicit client-side light/dark CloudPayments presets in the checkout page, derived from the already-resolved PersAI theme on `<html>`.
+- The checkout frame and the embedded `PaymentBlocks` customization payload now move together by theme, so the provider form background, text, labels, and receipt row no longer depend on a single forced palette that only looks right in one scheme.
+- Added a focused web regression test that asserts the light-theme CloudPayments payload now receives the expected light palette values.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- PersAI now controls the intended palette mapping correctly, but the final rendering still depends on CloudPayments `PaymentBlocks`; if the provider changes internal markup/styles, the exact inner appearance can still drift and must be revalidated live.
+- Live payment activation is still blocked upstream of PersAI lifecycle truth: the latest founder retries still leave all recent `workspace_payment_intents` at `checkout_ready` with no `workspace_subscription_billing_events`, so trusted provider callbacks are not yet completing the activation path.
+
+### Next recommended step
+
+- Deploy the web/API change, then repeat one live checkout in both light and dark themes while also rechecking CloudPayments notification delivery for the active terminal/account because the trusted `check/pay` lifecycle path still is not mutating PersAI billing truth.
+
 ## 2026-05-06 (ADR-084 Android billing return app-link fix) — Capacitor shell can reclaim `/app/*` billing returns after external bank hops
 
 ### What changed

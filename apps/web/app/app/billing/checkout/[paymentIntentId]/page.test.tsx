@@ -48,6 +48,7 @@ vi.mock("../../../assistant-api-client", () => ({
 
 afterEach(() => {
   cleanup();
+  document.documentElement.classList.remove("light");
   routerMocks.replace.mockReset();
   navigationMocks.params = { paymentIntentId: "pi-1" };
   apiMocks.getAssistantBillingPaymentIntent.mockReset();
@@ -183,6 +184,91 @@ describe("BillingCheckoutPage", () => {
     successCallback?.();
     expect(routerMocks.replace).toHaveBeenCalledWith(
       "/app/chat?billingReturn=pending&billingPlan=pro_plus&billingPaymentIntentId=pi-2"
+    );
+  });
+
+  it("passes light-theme CloudPayments colors when the app theme is light", async () => {
+    document.documentElement.classList.add("light");
+    navigationMocks.params = { paymentIntentId: "pi-light" };
+    const PaymentBlocksCtor = vi.fn(() => cloudpaymentsMocks.instance) as unknown as new (
+      initializationParams: unknown,
+      customizationParams?: unknown
+    ) => {
+      mount: (target: unknown) => void;
+      unmount: () => void;
+      on: (event: string, callback: () => void) => void;
+      off: (event: string) => void;
+    };
+    (window as Window & { cp?: unknown }).cp = {
+      PaymentBlocks: PaymentBlocksCtor
+    };
+
+    apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "pi-light",
+      targetPlanCode: "basic",
+      action: "new_purchase",
+      status: "checkout_ready",
+      paymentMethodClass: "card",
+      amountMinor: 56000,
+      currency: "RUB",
+      billingPeriod: "month",
+      returnUrl: "/app/chat",
+      billingProvider: "cloudpayments",
+      providerSessionRef: "pi-light",
+      providerPaymentRef: null,
+      checkout: {
+        mode: "embedded",
+        expiresAt: "2099-05-05T00:45:00.000Z",
+        payload: {
+          schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
+          initializationParams: {
+            publicTerminalId: "test_api_00000000000000000000002",
+            amount: 560,
+            currency: "RUB",
+            externalId: "pi-light",
+            paymentSchema: "Single",
+            description: "PersAI subscription BASIC",
+            emailBehavior: "Optional",
+            language: "ru-RU",
+            metadata: {}
+          },
+          customizationParams: {
+            components: {
+              paymentButton: {
+                text: "Pay subscription"
+              }
+            }
+          }
+        }
+      },
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-05T00:30:00.000Z",
+      updatedAt: "2026-05-05T00:30:01.000Z"
+    });
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <BillingCheckoutPage />
+      </NextIntlClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(cloudpaymentsMocks.instance.mount).toHaveBeenCalled();
+    });
+
+    expect(PaymentBlocksCtor).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        appearance: expect.objectContaining({
+          colors: expect.objectContaining({
+            inputBackground: "#fcfaf5",
+            inputColor: "#1f1a12",
+            textColor: "#1f1a12",
+            titleColor: "#1f1a12"
+          })
+        })
+      })
     );
   });
 

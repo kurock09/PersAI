@@ -27,19 +27,19 @@ type CloudpaymentsConstructorPayload = {
   };
   customizationParams: {
     appearance: {
-      colors: {
-        primaryButtonColor: string;
-        primaryHoverButtonColor: string;
-        primaryButtonTextColor: string;
-        primaryButtonHoverTextColor: string;
-        activeInputColor: string;
-        inputBackground: string;
-        inputColor: string;
-        inputBorderColor: string;
-        titleColor: string;
-        textColor: string;
-        errorColor: string;
-        skeletonBackground: string;
+      colors?: {
+        primaryButtonColor?: string;
+        primaryHoverButtonColor?: string;
+        primaryButtonTextColor?: string;
+        primaryButtonHoverTextColor?: string;
+        activeInputColor?: string;
+        inputBackground?: string;
+        inputColor?: string;
+        inputBorderColor?: string;
+        titleColor?: string;
+        textColor?: string;
+        errorColor?: string;
+        skeletonBackground?: string;
       };
       borders: {
         radius: string;
@@ -118,20 +118,6 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
       },
       customizationParams: {
         appearance: {
-          colors: {
-            primaryButtonColor: "#5b6ee8",
-            primaryHoverButtonColor: "#6b7ef5",
-            primaryButtonTextColor: "#f8fafc",
-            primaryButtonHoverTextColor: "#f8fafc",
-            activeInputColor: "#5b6ee8",
-            inputBackground: "#eceff4",
-            inputColor: "#101828",
-            inputBorderColor: "#3a3d45",
-            titleColor: "#f5f7fb",
-            textColor: "#d4d8e1",
-            errorColor: "#f87171",
-            skeletonBackground: "#20232a"
-          },
           borders: {
             radius: "18px"
           }
