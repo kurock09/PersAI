@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-05-05 (CI runtime test harness hardening) — workspace `pnpm run test` is green again
+
+### What changed
+
+- Investigated the post-push GitHub Actions failure instead of guessing from the commit: the only red job was `CI > Test`, and the concrete break was `apps/runtime test` failing inside the legacy shared-process `test/run-suite.ts` with `Runtime bundle "bundle-1" is not warmed.` during `runTurnExecutionServiceTest`.
+- Replaced the package-level runtime test entrypoint with an isolated harness: `apps/runtime/package.json` now runs `test/run-suite-isolated.ts`, which executes the same exported runtime test modules one by one in separate `tsx` child processes through a tiny `test/run-one.ts` loader.
+- Fixed the now-honest `turn-execution.service.test.ts` defaults that the old shared harness had been masking: runtime turn requests now use the real warmed bundle hash by default instead of a placeholder, and the open-media-jobs assertion path resets the provider mock result after the premium-reply scenario so later cases do not inherit stale reply state.
+
+### Verification
+
+- `corepack pnpm exec tsx apps/runtime/test/run-one.ts "C:\\Users\\alex\\Documents\\PersAI\\apps\\runtime\\test\\turn-execution.service.test.ts" runTurnExecutionServiceTest`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm run test`
+- `corepack pnpm --filter @persai/runtime run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- The old `apps/runtime/test/run-suite.ts` file still exists for history/reference, but package-level CI no longer depends on its shared-process behavior.
+- This slice hardens the runtime package test gate only; it does not change runtime production code paths.
+
+### Next recommended step
+
+- Watch the rerun of the last `main` CI workflow; if it comes back clean, the remaining follow-up is just optional cleanup of the unused legacy `apps/runtime/test/run-suite.ts` file in a later bounded maintenance slice.
+
 ## 2026-05-05 (ADR-086 open-media context developer-tail fix) — open media server truth now rides in developer instructions instead of faux assistant history
 
 ### What changed

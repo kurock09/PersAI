@@ -174,7 +174,7 @@ function createRuntimeTurnRequest(): RuntimeTurnRequest {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       publishedVersionId: "version-1",
-      bundleHash: "bundle-hash-placeholder",
+      bundleHash: DEFAULT_BUNDLE_HASH,
       compiledAt: "2026-04-11T12:00:00.000Z"
     },
     conversation: {
@@ -640,6 +640,8 @@ function createBundleEntry(): RuntimeBundleCacheEntry {
     warmedAt: "2026-04-11T12:01:00.000Z"
   };
 }
+
+const DEFAULT_BUNDLE_HASH = createBundleEntry().bundle.bundleHash;
 
 function createAcceptedTurn(): AcceptedRuntimeTurn {
   return {
@@ -2462,6 +2464,21 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 
+  providerGatewayClient.result = {
+    provider: "openai",
+    model: "gpt-5.4",
+    text: "runtime reply",
+    respondedAt: "2026-04-11T12:00:02.000Z",
+    usage: {
+      providerKey: "openai",
+      modelKey: "gpt-5.4",
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30
+    },
+    stopReason: "completed",
+    toolCalls: []
+  };
   const openMediaJobsRequest = createRuntimeTurnRequest();
   openMediaJobsRequest.message.text = "делается?";
   openMediaJobsRequest.openMediaJobs = [
