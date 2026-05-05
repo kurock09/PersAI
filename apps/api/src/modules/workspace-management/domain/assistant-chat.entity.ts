@@ -1,14 +1,43 @@
 export type AssistantChatSurface = "web" | "telegram";
 
-export type AssistantChatAutoSkillRoutingState = {
+export type AssistantChatSkillDecisionState = {
   status: "inactive" | "active";
   activeSkillId: string | null;
   activeSkillName: string | null;
   topicSummary: string | null;
   confidence: "low" | "medium" | "high";
   checkedAtMessageIndex: number;
+};
+
+export type AssistantChatSkillBootstrapReason =
+  | "new_chat"
+  | "skills_enabled_after_chat_started"
+  | "migration_repair";
+
+export type AssistantChatSkillCadenceState = {
   messageCountSinceCheck: number;
   backgroundCheckQueuedAtMessageIndex?: number | null;
+  needsBootstrap: boolean;
+  bootstrapReason?: AssistantChatSkillBootstrapReason | null;
+};
+
+export type AssistantChatSkillRetrievalDecisionMode =
+  | "reuse_cached_refs"
+  | "refresh_search_only"
+  | "refresh_with_helper";
+
+export type AssistantChatSkillRetrievalState = {
+  activeSkillId: string;
+  lastUserMessageId: string;
+  lastUserQueryFingerprint: string;
+  lastTopReferenceIds: string[];
+  lastTopReferenceScores: number[];
+  lastRetrievedAtMessageIndex: number;
+  lastMode: AssistantChatSkillRetrievalDecisionMode;
+  lastHelperApplied: boolean;
+  lastHelperChangedOrder: boolean;
+  reuseStreak: number;
+  lastCandidateSetHash: string | null;
 };
 
 export type AssistantChat = {
@@ -20,7 +49,9 @@ export type AssistantChat = {
   surfaceThreadKey: string;
   title: string | null;
   deepModeEnabled: boolean;
-  autoSkillRoutingState: AssistantChatAutoSkillRoutingState | null;
+  skillDecisionState: AssistantChatSkillDecisionState | null;
+  skillCadenceState: AssistantChatSkillCadenceState | null;
+  skillRetrievalState: AssistantChatSkillRetrievalState | null;
   archivedAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;

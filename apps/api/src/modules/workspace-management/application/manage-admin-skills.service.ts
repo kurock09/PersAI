@@ -6,7 +6,10 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
-import { createDormantAutoSkillRoutingState } from "./auto-skill-routing-state.service";
+import {
+  createEnabledSkillBootstrapCadenceState,
+  createInactiveSkillDecisionState
+} from "./auto-skill-routing-state.service";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import {
@@ -670,8 +673,10 @@ export class ManageAdminSkillsService {
       await this.prisma.assistantChat.updateMany({
         where: { assistantId: { in: [...assistantsWithActiveSkills] } },
         data: {
-          autoSkillRoutingState:
-            createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue,
+          skillDecisionState:
+            createInactiveSkillDecisionState() as unknown as Prisma.InputJsonValue,
+          skillCadenceState:
+            createEnabledSkillBootstrapCadenceState() as unknown as Prisma.InputJsonValue,
           skillRetrievalState: Prisma.DbNull
         }
       });
@@ -680,7 +685,8 @@ export class ManageAdminSkillsService {
       await this.prisma.assistantChat.updateMany({
         where: { assistantId: { in: assistantsWithoutActiveSkills } },
         data: {
-          autoSkillRoutingState: Prisma.DbNull,
+          skillDecisionState: Prisma.DbNull,
+          skillCadenceState: Prisma.DbNull,
           skillRetrievalState: Prisma.DbNull
         }
       });

@@ -110,15 +110,13 @@ export interface AssistantRuntimeTurnRoutingSnapshot {
     confidence: "low" | "medium" | "high";
     reasonCode: string;
   };
-  autoSkillState?: {
+  skillState?: {
     status: "inactive" | "active";
     activeSkillId: string | null;
     activeSkillName: string | null;
     topicSummary: string | null;
     confidence: "low" | "medium" | "high";
     checkedAtMessageIndex: number;
-    messageCountSinceCheck: number;
-    backgroundCheckQueuedAtMessageIndex?: number | null;
   } | null;
 }
 

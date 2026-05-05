@@ -26,6 +26,7 @@ export interface PromptTemplateMap {
   heartbeat?: string | null;
   presence?: string | null;
   router_classifier?: string | null;
+  skill_state_classifier?: string | null;
   preview_bootstrap?: string | null;
   welcome_bootstrap?: string | null;
   bootstrap?: string | null;
@@ -77,6 +78,8 @@ export class CompilePromptConstructorService {
       presence: this.generatePresencePrompt(params.promptTemplates.presence ?? null),
       routerClassifier:
         this.normalizeOptionalText(params.promptTemplates.router_classifier ?? null) ?? "",
+      skillStateClassifier:
+        this.normalizeOptionalText(params.promptTemplates.skill_state_classifier ?? null) ?? "",
       preview: this.generatePreviewPrompt(
         params.publishedVersion,
         params.userContext,

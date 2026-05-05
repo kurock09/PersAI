@@ -159,6 +159,7 @@ describe("SendNativeTelegramTurnService", () => {
             {
               jobId: "job-telegram-1",
               kind: "video",
+              toolCode: "video_generate",
               status: "running",
               createdAt: "2026-04-12T09:55:00.000Z",
               startedAt: "2026-04-12T09:56:00.000Z",
@@ -196,6 +197,7 @@ describe("SendNativeTelegramTurnService", () => {
         {
           jobId: "job-telegram-1",
           kind: "video",
+          toolCode: "video_generate",
           status: "running",
           createdAt: "2026-04-12T09:55:00.000Z",
           startedAt: "2026-04-12T09:56:00.000Z",

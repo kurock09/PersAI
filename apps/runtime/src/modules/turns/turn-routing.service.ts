@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   ProviderGatewayTextGenerateRequest,
-  RuntimeAutoSkillRoutingState,
+  RuntimeSkillDecisionState,
   RuntimeTurnRequest,
   RuntimeUsageSnapshot
 } from "@persai/runtime-contract";
@@ -76,10 +76,10 @@ export type TurnRouteDecision = {
   fallbackMode: RoutingExecutionMode;
   reasonCode: string;
   retrievalPlan: TurnRetrievalPlan;
-  source: "default" | "precheck" | "classifier" | "fallback";
+  source: "default" | "precheck" | "llm" | "fallback";
   mode: RoutingMode;
   usage: RuntimeUsageSnapshot | null;
-  autoSkillState: RuntimeAutoSkillRoutingState | null;
+  skillState: RuntimeSkillDecisionState | null;
 };
 
 const ROUTER_OUTPUT_SCHEMA = {
@@ -128,8 +128,6 @@ const ROUTER_OUTPUT_SCHEMA = {
         type: "object",
         additionalProperties: false,
         required: [
-          "useSkills",
-          "selectedSkillIds",
           "useUserKnowledge",
           "useProductKnowledge",
           "useWeb",
@@ -138,12 +136,6 @@ const ROUTER_OUTPUT_SCHEMA = {
           "reasonCode"
         ],
         properties: {
-          useSkills: { type: "boolean" },
-          selectedSkillIds: {
-            type: "array",
-            items: { type: "string" },
-            maxItems: 3
-          },
           useUserKnowledge: { type: "boolean" },
           useProductKnowledge: { type: "boolean" },
           useWeb: { type: "boolean" },
@@ -162,12 +154,10 @@ const ROUTER_OUTPUT_SCHEMA = {
   }
 } as const;
 
-const ROUTER_MAX_OUTPUT_TOKENS = 700;
+const ROUTER_MAX_OUTPUT_TOKENS = 1200;
+const ROUTER_MAX_ATTEMPTS = 2;
 const ROUTER_MAX_ENABLED_SKILLS_IN_PROMPT = 5;
 const ROUTER_MAX_ENABLED_SKILL_LINE_CHARS = 120;
-const ROUTER_MAX_RECENT_ROUTING_MESSAGES_IN_PROMPT = 6;
-const ROUTER_MAX_RECENT_ROUTING_MESSAGE_CHARS = 120;
-const ROUTER_MAX_AUTO_SKILL_NAME_CHARS = 48;
 const DEFAULT_CONTINUE_TERMS = [
   "ok",
   "okay",
@@ -358,31 +348,10 @@ export class TurnRoutingService {
     projectedTools: RuntimeNativeToolProjection;
   }): Promise<TurnRouteDecision> {
     const policy = this.readRouterPolicy(input.bundle);
-    const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
     const fallbackMode = this.coerceExecutionMode(
       policy.classifierFailureFallbackMode,
       input.request.deepMode === true
     );
-    const defaultDecision = this.createDecision({
-      executionMode: input.request.deepMode === true ? "premium" : "normal",
-      retrievalHint: false,
-      toolHints: "none",
-      confidence: "high",
-      clarifyNeeded: false,
-      fallbackMode,
-      reasonCode: input.request.deepMode === true ? "deep_mode_default" : "default_normal",
-      retrievalPlan: this.createEmptyRetrievalPlan("default_no_retrieval"),
-      source: "default",
-      mode: policy.mode,
-      usage: null,
-      autoSkillState: input.request.skillRoutingContext?.state ?? null
-    });
-    const allowStandaloneSkillRouting =
-      enabledSkills.length > 0 && input.request.skillRoutingContext !== undefined;
-    if (!policy.enabled && !allowStandaloneSkillRouting) {
-      return defaultDecision;
-    }
-
     const precheck = this.runPrecheck({
       bundle: input.bundle,
       request: input.request,
@@ -393,9 +362,7 @@ export class TurnRoutingService {
     if (precheck.confidence === "high") {
       return this.applyGroundedSkillPremiumFloor(precheck, input.request);
     }
-    const allowClassifier =
-      policy.enabled || precheck.reasonCode === "skill_routing_classifier_candidate";
-    if (!allowClassifier) {
+    if (!policy.enabled) {
       return this.applyGroundedSkillPremiumFloor(precheck, input.request);
     }
 
@@ -414,19 +381,36 @@ export class TurnRoutingService {
     }
 
     try {
-      const result = await this.providerGatewayClientService.generateText(
-        this.buildClassifierRequest({
-          bundle: input.bundle,
-          request: input.request,
-          projectedTools: input.projectedTools,
-          provider: classifierSelection.provider,
-          model: routingFastModelKey,
-          prompt: classifierPrompt,
-          fallbackMode
-        })
-      );
-      const parsed = this.parseClassifierDecision(result.text);
-      if (parsed === null) {
+      let result: Awaited<ReturnType<ProviderGatewayClientService["generateText"]>> | null = null;
+      let parsed: ReturnType<TurnRoutingService["parseClassifierDecision"]> | null = null;
+      for (let attempt = 1; attempt <= ROUTER_MAX_ATTEMPTS; attempt += 1) {
+        result = await this.providerGatewayClientService.generateText(
+          this.buildClassifierRequest({
+            bundle: input.bundle,
+            request: input.request,
+            projectedTools: input.projectedTools,
+            provider: classifierSelection.provider,
+            model: routingFastModelKey,
+            prompt: classifierPrompt,
+            fallbackMode,
+            retryInvalidJson: attempt > 1
+          })
+        );
+        parsed = this.parseClassifierDecision(result.text);
+        if (parsed !== null) {
+          break;
+        }
+        this.logger.warn(
+          `[ordinary-router] Invalid classifier output assistant=${input.bundle.metadata.assistantId} ` +
+            `attempt=${String(attempt)}/${String(ROUTER_MAX_ATTEMPTS)} chars=${String(result.text?.length ?? 0)}`
+        );
+      }
+      if (result === null || parsed === null) {
+        if (result?.text) {
+          this.logger.warn(
+            `[ordinary-router] Final invalid classifier output assistant=${input.bundle.metadata.assistantId} raw=${JSON.stringify(result.text)}`
+          );
+        }
         return this.createDecision({
           executionMode: fallbackMode,
           retrievalHint: false,
@@ -438,8 +422,8 @@ export class TurnRoutingService {
           retrievalPlan: this.createEmptyRetrievalPlan("classifier_invalid_output"),
           source: "fallback",
           mode: policy.mode,
-          usage: result.usage,
-          autoSkillState: this.createAutoSkillStateOnClassifierFailure(input.request)
+          usage: result?.usage ?? null,
+          skillState: this.createAutoSkillStateOnClassifierFailure(input.request)
         });
       }
       const sanitizedRetrievalPlan = this.sanitizeClassifierRetrievalPlan(
@@ -458,14 +442,10 @@ export class TurnRoutingService {
             parsed.fallbackMode,
             input.request.deepMode === true
           ),
-          source: "classifier",
+          source: "llm",
           mode: policy.mode,
           usage: result.usage,
-          autoSkillState: this.createAutoSkillStateFromPlan({
-            bundle: input.bundle,
-            request: input.request,
-            plan: sanitizedRetrievalPlan
-          })
+          skillState: this.carryForwardAutoSkillState(input.request)
         }),
         input.request
       );
@@ -489,8 +469,8 @@ export class TurnRoutingService {
           source: "fallback",
           mode: policy.mode,
           usage: null,
-          autoSkillState:
-            precheck.autoSkillState ?? this.createAutoSkillStateOnClassifierFailure(input.request)
+          skillState:
+            precheck.skillState ?? this.createAutoSkillStateOnClassifierFailure(input.request)
         }),
         input.request
       );
@@ -546,16 +526,6 @@ export class TurnRoutingService {
     });
     const enabledSkills = this.resolveEnabledSkillSummaries(input.bundle);
     const activeAutoSkill = this.resolveActiveAutoSkill(input.request, enabledSkills);
-    const shouldUseClassifierForSkillRouting = this.shouldUseClassifierForAutoSkillRouting({
-      request: input.request,
-      lowerText,
-      enabledSkills,
-      enabledSkillCount: enabledSkills.length,
-      hasActiveAutoSkill: activeAutoSkill !== null,
-      retrievalTerms,
-      toolTerms,
-      availableHints
-    });
     const retrievalIntent = this.matchesAny(lowerText, retrievalTerms);
 
     if (this.isContinueTurn(lowerText, continueTerms)) {
@@ -571,14 +541,28 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: activeAutoSkill
-          ? this.incrementAutoSkillState(activeAutoSkill.state, input.request)
+        skillState: activeAutoSkill
+          ? activeAutoSkill.state
           : this.carryForwardAutoSkillState(input.request)
       });
     }
 
-    if (activeAutoSkill && !shouldUseClassifierForSkillRouting) {
-      const state = this.incrementAutoSkillState(activeAutoSkill.state, input.request);
+    const hintedTool = this.resolveToolHint(lowerText, {
+      availableHints,
+      toolTerms
+    });
+    if (
+      activeAutoSkill &&
+      this.shouldReuseActiveSkill({
+        request: input.request,
+        activeSkill: activeAutoSkill,
+        lowerText,
+        normalizedText,
+        hintedTool,
+        ordinaryPriorityMode
+      })
+    ) {
+      const state = activeAutoSkill.state;
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: true,
@@ -596,28 +580,11 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: state
+        skillState: state
       });
     }
 
-    if (shouldUseClassifierForSkillRouting) {
-      return this.createDecision({
-        executionMode: input.request.deepMode === true ? "premium" : input.fallbackMode,
-        retrievalHint: retrievalIntent,
-        toolHints: retrievalIntent && availableHints.has("knowledge") ? "knowledge" : "none",
-        confidence: "low",
-        clarifyNeeded: false,
-        fallbackMode: input.fallbackMode,
-        reasonCode: "skill_routing_classifier_candidate",
-        retrievalPlan: this.createEmptyRetrievalPlan("skill_routing_classifier_candidate"),
-        source: "precheck",
-        mode: input.policy.mode,
-        usage: null,
-        autoSkillState: activeAutoSkill?.state ?? input.request.skillRoutingContext?.state ?? null
-      });
-    }
-
-    if (retrievalIntent && !shouldUseClassifierForSkillRouting) {
+    if (retrievalIntent) {
       return this.createDecision({
         executionMode: input.request.deepMode === true ? "premium" : "normal",
         retrievalHint: true,
@@ -636,7 +603,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: this.carryForwardAutoSkillState(input.request)
+        skillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -660,7 +627,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: this.carryForwardAutoSkillState(input.request)
+        skillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -677,16 +644,11 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: this.carryForwardAutoSkillState(input.request)
+        skillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
-    const hintedTool = this.resolveToolHint(lowerText, {
-      availableHints,
-      toolTerms
-    });
-    const shouldDeferKnowledgeToolToClassifier =
-      hintedTool === "knowledge" && shouldUseClassifierForSkillRouting;
+    const shouldDeferKnowledgeToolToClassifier = false;
     if (hintedTool !== "none" && !shouldDeferKnowledgeToolToClassifier) {
       const toolHintPriorityMode: OrdinarySourcePriorityMode =
         hintedTool === "web"
@@ -713,14 +675,13 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: this.carryForwardAutoSkillState(input.request)
+        skillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
     if (
       normalizedText.length <= 140 &&
       !normalizedText.includes("\n") &&
-      !(shouldUseClassifierForSkillRouting && retrievalIntent) &&
       !shouldDeferKnowledgeToolToClassifier
     ) {
       return this.createDecision({
@@ -735,7 +696,7 @@ export class TurnRoutingService {
         source: "precheck",
         mode: input.policy.mode,
         usage: null,
-        autoSkillState: this.carryForwardAutoSkillState(input.request)
+        skillState: this.carryForwardAutoSkillState(input.request)
       });
     }
 
@@ -751,7 +712,7 @@ export class TurnRoutingService {
       source: "precheck",
       mode: input.policy.mode,
       usage: null,
-      autoSkillState: this.carryForwardAutoSkillState(input.request)
+      skillState: this.carryForwardAutoSkillState(input.request)
     });
   }
 
@@ -763,11 +724,16 @@ export class TurnRoutingService {
     model: string;
     prompt: string;
     fallbackMode: RoutingExecutionMode;
+    retryInvalidJson: boolean;
   }): ProviderGatewayTextGenerateRequest {
+    const retryInstruction =
+      input.retryInvalidJson === true
+        ? "Previous output was rejected because it was not valid JSON for the required schema. Return only the JSON object with no leading or trailing text."
+        : "";
     return {
       provider: input.provider,
       model: input.model,
-      systemPrompt: `${input.prompt.trim()}\n\nReturn only compact JSON matching the provided schema. Keep every string short. reasonCode must be brief snake_case, not a sentence or explanation.`,
+      systemPrompt: `${input.prompt.trim()}\n\nReturn only compact JSON matching the provided schema. Keep every string short. reasonCode must be brief snake_case, not a sentence or explanation.${retryInstruction.length > 0 ? `\n\n${retryInstruction}` : ""}`,
       messages: [
         {
           role: "user",
@@ -959,38 +925,6 @@ export class TurnRoutingService {
     ].join("; ");
   }
 
-  private summarizeRecentSkillRoutingMessages(request: RuntimeTurnRequest): string {
-    const messages = request.skillRoutingContext?.recentMessages ?? [];
-    if (messages.length === 0) {
-      return "none";
-    }
-    return messages
-      .slice(-ROUTER_MAX_RECENT_ROUTING_MESSAGES_IN_PROMPT)
-      .map((message, index) => {
-        const text = this.normalizeMessageText(message.text).slice(
-          0,
-          ROUTER_MAX_RECENT_ROUTING_MESSAGE_CHARS
-        );
-        return `${index + 1}. ${message.role}: ${text}`;
-      })
-      .join("\n");
-  }
-
-  private summarizeAutoSkillState(request: RuntimeTurnRequest): string {
-    const state = request.skillRoutingContext?.state ?? null;
-    if (state === null) {
-      return "none";
-    }
-    return [
-      `status=${state.status}`,
-      `activeSkillId=${state.activeSkillId ?? "none"}`,
-      `activeSkillName=${this.normalizeMessageText(state.activeSkillName ?? "none").slice(0, ROUTER_MAX_AUTO_SKILL_NAME_CHARS)}`,
-      `confidence=${state.confidence}`,
-      `checkedAtMessageIndex=${state.checkedAtMessageIndex}`,
-      `messageCountSinceCheck=${state.messageCountSinceCheck}`
-    ].join("; ");
-  }
-
   private buildClassifierContextBlock(input: {
     bundle: AssistantRuntimeBundle;
     request: RuntimeTurnRequest;
@@ -1006,9 +940,6 @@ export class TurnRoutingService {
       `Projected tool hints available: ${
         Array.from(this.resolveAvailableToolHints(input.projectedTools)).join(", ") || "none"
       }`,
-      `Enabled Skills summary: ${this.summarizeEnabledSkills(input.bundle)}`,
-      `Recent chat window: ${this.summarizeRecentSkillRoutingMessages(input.request)}`,
-      `Current auto Skill state: ${this.summarizeAutoSkillState(input.request)}`,
       `Available knowledge state: ${this.summarizeKnowledgeState({
         bundle: input.bundle,
         projectedTools: input.projectedTools
@@ -1023,8 +954,8 @@ export class TurnRoutingService {
   private resolveActiveAutoSkill(
     request: RuntimeTurnRequest,
     enabledSkills: EnabledSkillSummary[]
-  ): { state: RuntimeAutoSkillRoutingState; skill: EnabledSkillSummary } | null {
-    const state = request.skillRoutingContext?.state ?? null;
+  ): { state: RuntimeSkillDecisionState; skill: EnabledSkillSummary } | null {
+    const state = request.skillStateContext?.decision ?? null;
     if (state === null || state.status !== "active" || state.activeSkillId === null) {
       return null;
     }
@@ -1032,51 +963,57 @@ export class TurnRoutingService {
     return skill === null ? null : { state, skill };
   }
 
-  private shouldUseClassifierForAutoSkillRouting(input: {
-    request: RuntimeTurnRequest;
-    lowerText: string;
-    enabledSkills: EnabledSkillSummary[];
-    enabledSkillCount: number;
-    hasActiveAutoSkill: boolean;
-    retrievalTerms: string[];
-    toolTerms: string[];
-    availableHints: Set<RoutingToolHint>;
-  }): boolean {
-    if (input.enabledSkillCount === 0) {
-      return false;
-    }
-    if (input.request.skillRoutingContext?.forceCheck === true) {
-      return true;
-    }
-    if (input.hasActiveAutoSkill) {
-      return false;
-    }
-    return false;
-  }
-
   private carryForwardAutoSkillState(
     request: RuntimeTurnRequest
-  ): RuntimeAutoSkillRoutingState | null {
-    const state = request.skillRoutingContext?.state ?? null;
-    if (state === null) {
-      return null;
+  ): RuntimeSkillDecisionState | null {
+    return request.skillStateContext?.decision ?? null;
+  }
+
+  private shouldReuseActiveSkill(input: {
+    request: RuntimeTurnRequest;
+    activeSkill: { state: RuntimeSkillDecisionState; skill: EnabledSkillSummary };
+    lowerText: string;
+    normalizedText: string;
+    hintedTool: RoutingToolHint;
+    ordinaryPriorityMode: OrdinarySourcePriorityMode;
+  }): boolean {
+    if (input.request.skillStateContext?.forceCheck === true) {
+      return false;
     }
-    if (state.status === "active") {
-      return this.incrementAutoSkillState(
-        {
-          ...state,
-          status: "inactive",
-          activeSkillId: null,
-          activeSkillName: null
-        },
-        request
-      );
+    if (
+      input.hintedTool === "web" ||
+      input.hintedTool === "browser" ||
+      input.hintedTool === "media" ||
+      input.ordinaryPriorityMode === "product_first" ||
+      input.ordinaryPriorityMode === "web_first"
+    ) {
+      return false;
     }
-    return this.incrementAutoSkillState(state, request);
+    if (
+      this.hasSkillLexicalMatch(
+        input.lowerText,
+        input.activeSkill.skill,
+        input.activeSkill.state.topicSummary
+      )
+    ) {
+      return true;
+    }
+    const shortFollowUp =
+      input.normalizedText.length > 0 &&
+      input.normalizedText.length <= 160 &&
+      !input.normalizedText.includes("\n");
+    if (!shortFollowUp) {
+      return false;
+    }
+    return this.hasSkillLexicalMatch(
+      this.buildSkillRoutingMatchText(input.request, input.lowerText),
+      input.activeSkill.skill,
+      input.activeSkill.state.topicSummary
+    );
   }
 
   private buildSkillRoutingMatchText(request: RuntimeTurnRequest, lowerText: string): string {
-    const recentMessages = request.skillRoutingContext?.recentMessages ?? [];
+    const recentMessages = request.skillStateContext?.recentMessages ?? [];
     const recentText = recentMessages
       .slice(-8)
       .map((message) => this.normalizeMessageText(message.text).toLowerCase())
@@ -1088,23 +1025,31 @@ export class TurnRoutingService {
       .slice(-4_000);
   }
 
-  private hasEnabledSkillLexicalMatch(
+  private hasSkillLexicalMatch(
     lowerText: string,
-    enabledSkills: EnabledSkillSummary[]
+    skill: EnabledSkillSummary,
+    topicSummary: string | null
   ): boolean {
     if (lowerText.length < 4) {
       return false;
     }
-    return enabledSkills.some((skill) =>
-      this.buildSkillRoutingTerms(skill).some((term) => lowerText.includes(term))
+    return this.buildSkillRoutingTerms(skill, topicSummary).some((term) =>
+      lowerText.includes(term)
     );
   }
 
-  private buildSkillRoutingTerms(skill: EnabledSkillSummary): string[] {
+  private buildSkillRoutingTerms(
+    skill: EnabledSkillSummary,
+    topicSummary: string | null
+  ): string[] {
     const terms = new Set<string>();
-    const values = [skill.name, skill.description, ...skill.tags, ...skill.routingExamples].filter(
-      (value): value is string => value !== null && value.trim().length > 0
-    );
+    const values = [
+      skill.name,
+      skill.description,
+      topicSummary,
+      ...skill.tags,
+      ...skill.routingExamples
+    ].filter((value): value is string => value !== null && value.trim().length > 0);
 
     for (const value of values) {
       const tokens = this.tokenizeForSkillRouting(value);
@@ -1131,98 +1076,25 @@ export class TurnRoutingService {
     return token.length >= 8 ? [token.slice(0, 4), token.slice(0, 5)] : [token.slice(0, 4)];
   }
 
-  private isHighSignalGroundingTurn(input: {
-    request: RuntimeTurnRequest;
-    lowerText: string;
-    retrievalTerms: string[];
-    toolTerms: string[];
-    availableHints: Set<RoutingToolHint>;
-  }): boolean {
-    if (input.request.message.attachments.length > 0) {
-      return true;
-    }
-    if (this.matchesAny(input.lowerText, input.retrievalTerms)) {
-      return true;
-    }
-    return (
-      input.availableHints.has("knowledge") && this.matchesAny(input.lowerText, input.toolTerms)
-    );
-  }
-
-  private incrementAutoSkillState(
-    state: RuntimeAutoSkillRoutingState,
-    request: RuntimeTurnRequest
-  ): RuntimeAutoSkillRoutingState {
-    return {
-      ...state,
-      messageCountSinceCheck: Math.max(0, state.messageCountSinceCheck + 1),
-      backgroundCheckQueuedAtMessageIndex: state.backgroundCheckQueuedAtMessageIndex ?? null,
-      checkedAtMessageIndex: Math.max(
-        0,
-        Math.min(
-          state.checkedAtMessageIndex,
-          request.skillRoutingContext?.currentUserMessageIndex ?? 0
-        )
-      )
-    };
-  }
-
-  private createAutoSkillStateFromPlan(input: {
-    bundle: AssistantRuntimeBundle;
-    request: RuntimeTurnRequest;
-    plan: TurnRetrievalPlan;
-  }): RuntimeAutoSkillRoutingState | null {
-    const currentUserMessageIndex = input.request.skillRoutingContext?.currentUserMessageIndex ?? 0;
-    if (!input.plan.useSkills || input.plan.selectedSkillIds.length === 0) {
-      return {
-        status: "inactive",
-        activeSkillId: null,
-        activeSkillName: null,
-        topicSummary: this.buildTopicSummary(input.request),
-        confidence: input.plan.confidence,
-        checkedAtMessageIndex: currentUserMessageIndex,
-        messageCountSinceCheck: 0,
-        backgroundCheckQueuedAtMessageIndex: null
-      };
-    }
-    const skillId = input.plan.selectedSkillIds[0] ?? null;
-    const skill = this.resolveEnabledSkillSummaries(input.bundle).find((row) => row.id === skillId);
-    if (skill === undefined) {
-      return null;
-    }
-    return {
-      status: "active",
-      activeSkillId: skill.id,
-      activeSkillName: skill.name,
-      topicSummary: this.buildTopicSummary(input.request),
-      confidence: input.plan.confidence,
-      checkedAtMessageIndex: currentUserMessageIndex,
-      messageCountSinceCheck: 0,
-      backgroundCheckQueuedAtMessageIndex: null
-    };
-  }
-
   private createAutoSkillStateOnClassifierFailure(
     request: RuntimeTurnRequest
-  ): RuntimeAutoSkillRoutingState | null {
-    if (request.skillRoutingContext?.forceCheck !== true) {
-      return request.skillRoutingContext?.state ?? null;
+  ): RuntimeSkillDecisionState | null {
+    if (request.skillStateContext?.forceCheck !== true) {
+      return request.skillStateContext?.decision ?? null;
     }
-    const currentUserMessageIndex = request.skillRoutingContext?.currentUserMessageIndex ?? 0;
+    const currentUserMessageIndex = request.skillStateContext?.currentUserMessageIndex ?? 0;
     return {
       status: "inactive",
       activeSkillId: null,
       activeSkillName: null,
       topicSummary: this.buildTopicSummary(request),
       confidence: "low",
-      checkedAtMessageIndex: currentUserMessageIndex,
-      messageCountSinceCheck: 0,
-      backgroundCheckQueuedAtMessageIndex: null
+      checkedAtMessageIndex: currentUserMessageIndex
     };
   }
 
   private buildTopicSummary(request: RuntimeTurnRequest): string | null {
-    const messages = request.skillRoutingContext?.recentMessages ?? [];
+    const messages = request.skillStateContext?.recentMessages ?? [];
     const conversationTexts = messages
       .slice(-6)
       .map((message) => ({
@@ -1318,7 +1190,7 @@ export class TurnRoutingService {
     const useSkills = input.useSkills === true;
     return {
       useSkills,
-      selectedSkillIds: input.selectedSkillIds ?? [],
+      selectedSkillIds: useSkills ? (input.selectedSkillIds ?? []) : [],
       useUserKnowledge: input.useUserKnowledge === true,
       useProductKnowledge: input.useProductKnowledge === true,
       useWeb: input.useWeb === true,
@@ -1334,24 +1206,15 @@ export class TurnRoutingService {
     plan: TurnRetrievalPlan,
     bundle: AssistantRuntimeBundle
   ): TurnRetrievalPlan {
-    const enabledSkillIds = new Set(
-      this.resolveEnabledSkillSummaries(bundle).map((skill) => skill.id)
-    );
-    const selectedSkillIds = plan.selectedSkillIds
-      .filter(
-        (skillId, index, list) => enabledSkillIds.has(skillId) && list.indexOf(skillId) === index
-      )
-      .slice(0, 3);
-    const useSkills = plan.useSkills && selectedSkillIds.length > 0;
-    const ordinarySourcePriorityMode: OrdinarySourcePriorityMode = useSkills
-      ? "not_applicable"
-      : plan.ordinarySourcePriorityMode === "not_applicable"
+    void bundle;
+    const ordinarySourcePriorityMode: OrdinarySourcePriorityMode =
+      plan.ordinarySourcePriorityMode === "not_applicable"
         ? "mixed_ambiguous"
         : plan.ordinarySourcePriorityMode;
     return {
       ...plan,
-      useSkills,
-      selectedSkillIds,
+      useSkills: false,
+      selectedSkillIds: [],
       ordinarySourcePriorityMode,
       reasonCode: this.asNonEmptyString(plan.reasonCode) ?? "classifier_retrieval_plan"
     };
@@ -1534,8 +1397,6 @@ export class TurnRoutingService {
     const confidence = this.asRetrievalPlanConfidence(row.confidence);
     const reasonCode = this.asNonEmptyString(row.reasonCode);
     if (
-      typeof row.useSkills !== "boolean" ||
-      !Array.isArray(row.selectedSkillIds) ||
       typeof row.useUserKnowledge !== "boolean" ||
       typeof row.useProductKnowledge !== "boolean" ||
       typeof row.useWeb !== "boolean" ||
@@ -1545,15 +1406,14 @@ export class TurnRoutingService {
       return null;
     }
     const ordinarySourcePriorityMode =
-      this.asOrdinarySourcePriorityMode(row.ordinarySourcePriorityMode) ??
-      (row.useSkills ? "not_applicable" : "personal_first");
+      this.asOrdinarySourcePriorityMode(row.ordinarySourcePriorityMode) ?? "personal_first";
     return {
-      useSkills: row.useSkills,
-      selectedSkillIds: this.asIdentifierStringArray(row.selectedSkillIds).slice(0, 3),
+      useSkills: false,
+      selectedSkillIds: [],
       useUserKnowledge: row.useUserKnowledge,
       useProductKnowledge: row.useProductKnowledge,
       useWeb: row.useWeb,
-      ordinarySourcePriorityMode: row.useSkills ? "not_applicable" : ordinarySourcePriorityMode,
+      ordinarySourcePriorityMode,
       confidence,
       reasonCode
     };

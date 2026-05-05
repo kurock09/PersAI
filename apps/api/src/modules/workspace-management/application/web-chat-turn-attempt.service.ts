@@ -11,7 +11,10 @@ import type {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import type { CompletedWebTurnReplayState } from "../domain/assistant-channel-surface-binding.repository";
-import type { AssistantChatAutoSkillRoutingState } from "../domain/assistant-chat.entity";
+import type {
+  AssistantChatSkillCadenceState,
+  AssistantChatSkillDecisionState
+} from "../domain/assistant-chat.entity";
 
 export type WebChatTurnAttemptStatus =
   | "unknown"
@@ -37,7 +40,7 @@ export type WebTurnClaimResult = "claimed" | "duplicate_handled" | "duplicate_in
 
 const TERMINAL_STATUSES = new Set<WebChatTurnAttemptStatus>(["completed", "failed", "interrupted"]);
 
-function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRoutingState | null {
+function parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionState | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
@@ -51,16 +54,7 @@ function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRouti
     typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
       ? row.checkedAtMessageIndex
       : null;
-  const messageCountSinceCheck =
-    typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
-      ? row.messageCountSinceCheck
-      : null;
-  if (
-    status === null ||
-    confidence === null ||
-    checkedAtMessageIndex === null ||
-    messageCountSinceCheck === null
-  ) {
+  if (status === null || confidence === null || checkedAtMessageIndex === null) {
     return null;
   }
   return {
@@ -71,12 +65,36 @@ function parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRouti
       status === "active" && typeof row.activeSkillName === "string" ? row.activeSkillName : null,
     topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
     confidence,
-    checkedAtMessageIndex,
+    checkedAtMessageIndex
+  };
+}
+
+function parseSkillCadenceState(value: unknown): AssistantChatSkillCadenceState | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  const messageCountSinceCheck =
+    typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
+      ? row.messageCountSinceCheck
+      : null;
+  const needsBootstrap = typeof row.needsBootstrap === "boolean" ? row.needsBootstrap : null;
+  if (messageCountSinceCheck === null || needsBootstrap === null) {
+    return null;
+  }
+  return {
     messageCountSinceCheck,
     backgroundCheckQueuedAtMessageIndex:
       typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
       Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
         ? row.backgroundCheckQueuedAtMessageIndex
+        : null,
+    needsBootstrap,
+    bootstrapReason:
+      row.bootstrapReason === "new_chat" ||
+      row.bootstrapReason === "skills_enabled_after_chat_started" ||
+      row.bootstrapReason === "migration_repair"
+        ? row.bootstrapReason
         : null
   };
 }
@@ -537,7 +555,8 @@ export class WebChatTurnAttemptService {
               surfaceThreadKey: chat.surfaceThreadKey,
               title: chat.title,
               deepModeEnabled: chat.deepModeEnabled,
-              autoSkillRoutingState: parseAutoSkillRoutingState(chat.autoSkillRoutingState),
+              skillDecisionState: parseSkillDecisionState(chat.skillDecisionState),
+              skillCadenceState: parseSkillCadenceState(chat.skillCadenceState),
               archivedAt: chat.archivedAt?.toISOString() ?? null,
               lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
               createdAt: chat.createdAt.toISOString(),

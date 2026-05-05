@@ -42,6 +42,27 @@ function toRuntimeOpenMediaJobStatus(
   }
 }
 
+function toRuntimeOpenMediaJobToolCode(input: {
+  kind: RuntimeOpenMediaJobContext["kind"];
+  requestJson: unknown;
+}): RuntimeOpenMediaJobContext["toolCode"] {
+  const request = input.requestJson as AssistantMediaJobRequestPayload | null;
+  const toolCode = request?.directToolExecution?.toolCode;
+  if (toolCode === "image_generate" || toolCode === "image_edit" || toolCode === "video_generate") {
+    return toolCode;
+  }
+  switch (input.kind) {
+    case "image":
+      return "image_generate";
+    case "video":
+      return "video_generate";
+    case "audio":
+      return "audio_generate";
+    default:
+      throw new Error(`Unexpected media job kind in runtime open-job query: ${String(input.kind)}`);
+  }
+}
+
 function toWebOpenMediaJobStatus(
   status: AssistantMediaJobStatus
 ): AssistantWebChatActiveMediaJobState["status"] {
@@ -110,6 +131,7 @@ export class AssistantMediaJobService {
       select: {
         id: true,
         kind: true,
+        requestJson: true,
         status: true,
         createdAt: true,
         startedAt: true,
@@ -119,6 +141,10 @@ export class AssistantMediaJobService {
     return rows.map((row) => ({
       jobId: row.id,
       kind: row.kind,
+      toolCode: toRuntimeOpenMediaJobToolCode({
+        kind: row.kind,
+        requestJson: row.requestJson
+      }),
       status: toRuntimeOpenMediaJobStatus(row.status),
       createdAt: row.createdAt.toISOString(),
       startedAt: row.startedAt?.toISOString() ?? null,

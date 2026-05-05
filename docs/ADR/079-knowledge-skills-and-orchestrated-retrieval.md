@@ -502,19 +502,21 @@ The router can still skip classifier calls for obvious cases such as:
 
 Even when a Skill is enabled, Skill documents are not searched on every turn.
 
-Follow-up production routing note, 2026-05-04:
+Follow-up production routing note, 2026-05-05:
 
-- initial auto-Skill activation for ordinary chat turns is cadence-owned background work, not an ordinary foreground lexical/high-signal classifier shortcut
+- the ordinary router itself must not select Skill ids or perform deactivation; those responsibilities belong to the dedicated skill-state path
+- ordinary chat turns may do a bounded foreground activation check through the dedicated skill-state classifier when no Skill is currently active and the turn has a strong lexical/high-signal match
 - a brand-new chat waits until the 3rd user message for the first background auto-Skill check
 - existing chats whose Skill assignments change must reset their per-chat auto-Skill state so they start from a deterministic dormant state instead of stale/null chat truth
 - once background routing establishes an active Skill, ordinary same-topic turns may reuse that persisted active state between later background drift checks
 - the background recheck window should use the freshest bounded recent conversation tail, specifically the latest 5 user turns plus the assistant replies between them
 - the `3 / 5` cadence is runtime policy, not hard-coded product truth: PersAI should expose the initial-check and recheck intervals as global admin-owned runtime settings
+- Skill deactivation remains background/forced-check only
 - no-Skill assistants still keep auto-Skill routing fully off
 
 Follow-up production retrieval note, 2026-05-04:
 
-- auto-Skill state and retrieval reuse state are separate chat-level truths: `autoSkillRoutingState` answers which Skill is active and when drift must be rechecked, while `skillRetrievalState` answers whether the current active Skill can reuse prior refs or needs new search/rerank work
+- Skill decision/cadence state and retrieval reuse state are separate chat-level truths: `skillDecisionState` answers which Skill is active, `skillCadenceState` answers when drift must be rechecked, and `skillRetrievalState` answers whether the current active Skill can reuse prior refs or needs new search/rerank work
 - once a Skill is already active, retrieval should not automatically pay full lexical/vector search plus helper rerank on every near-identical turn
 - active-Skill retrieval may choose among `reuse_cached_refs`, `refresh_search_only`, and `refresh_with_helper` based on generic signals such as recent-query similarity, cached-reference coverage, candidate ambiguity, and prior helper usefulness
 - sticky retrieval must reset when active Skill truth changes or clears, and it must remain measurable through retrieval observability rather than being a hidden optimization

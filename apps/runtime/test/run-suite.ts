@@ -60,6 +60,8 @@ async function run(): Promise<void> {
   await runTurnExecutionServiceTest();
   await runTurnFinalizationServiceTest();
   await runTurnLeaseHeartbeatServiceTest();
+  const { runTurnRoutingServiceTest } = await import("./turn-routing.service.test");
+  await runTurnRoutingServiceTest();
 }
 
 run().catch((error) => {

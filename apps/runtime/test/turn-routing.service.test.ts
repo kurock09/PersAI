@@ -286,11 +286,11 @@ function createRequest(text: string): RuntimeTurnRequest {
 
 function withSkillRoutingContext(
   request: RuntimeTurnRequest,
-  context: NonNullable<RuntimeTurnRequest["skillRoutingContext"]>
+  context: NonNullable<RuntimeTurnRequest["skillStateContext"]>
 ): RuntimeTurnRequest {
   return {
     ...request,
-    skillRoutingContext: context
+    skillStateContext: context
   };
 }
 
@@ -311,7 +311,7 @@ const projectedTools: RuntimeNativeToolProjection = {
   knowledgeFetchSources: []
 };
 
-async function run(): Promise<void> {
+export async function runTurnRoutingServiceTest(): Promise<void> {
   const providerGatewayClient = new FakeProviderGatewayClientService();
   const skillClassifierResult = providerGatewayClient.result;
   const service = new TurnRoutingService(
@@ -381,7 +381,8 @@ async function run(): Promise<void> {
     request: withSkillRoutingContext(
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
       {
-        state: null,
+        decision: null,
+        cadence: null,
         currentUserMessageIndex: 2,
         recentMessages: [
           { role: "user", text: "У меня диабет 1 типа" },
@@ -392,25 +393,26 @@ async function run(): Promise<void> {
     ),
     projectedTools
   });
-  assert.equal(semanticSkillDecision.source, "classifier");
+  assert.equal(semanticSkillDecision.source, "precheck");
   assert.deepEqual(semanticSkillDecision.retrievalPlan, {
-    useSkills: true,
-    selectedSkillIds: ["skill-accounting"],
-    useUserKnowledge: true,
+    useSkills: false,
+    selectedSkillIds: [],
+    useUserKnowledge: false,
     useProductKnowledge: false,
     useWeb: false,
     ordinarySourcePriorityMode: "not_applicable",
-    confidence: "high",
-    reasonCode: "classifier_skill_plan"
+    confidence: "low",
+    reasonCode: "simple_turn"
   });
-  assert.equal(providerGatewayClient.calls.length, 1);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const routerDisabledSkillDecision = await service.decide({
     bundle: createBundle({ enabled: false }),
     request: withSkillRoutingContext(
       createRequest("Какие принципы питания учитывать при диабете 1 типа?"),
       {
-        state: null,
+        decision: null,
+        cadence: null,
         currentUserMessageIndex: 3,
         recentMessages: [
           { role: "user", text: "У меня диабет 1 типа" },
@@ -422,17 +424,16 @@ async function run(): Promise<void> {
     ),
     projectedTools
   });
-  assert.equal(routerDisabledSkillDecision.source, "classifier");
-  assert.equal(routerDisabledSkillDecision.retrievalPlan.useSkills, true);
-  assert.deepEqual(routerDisabledSkillDecision.retrievalPlan.selectedSkillIds, [
-    "skill-accounting"
-  ]);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(routerDisabledSkillDecision.source, "precheck");
+  assert.equal(routerDisabledSkillDecision.retrievalPlan.useSkills, false);
+  assert.deepEqual(routerDisabledSkillDecision.retrievalPlan.selectedSkillIds, []);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const simpleEnabledSkillTurn = await service.decide({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }]
     }),
@@ -441,19 +442,24 @@ async function run(): Promise<void> {
   assert.equal(simpleEnabledSkillTurn.source, "precheck");
   assert.equal(simpleEnabledSkillTurn.reasonCode, "simple_turn");
   assert.equal(simpleEnabledSkillTurn.retrievalPlan.useSkills, false);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const inactiveAutoSkillDecision = await service.decide({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
-      state: {
+      decision: {
         status: "inactive",
         activeSkillId: null,
         activeSkillName: null,
         topicSummary: null,
         confidence: "low",
-        checkedAtMessageIndex: 0,
-        messageCountSinceCheck: 2
+        checkedAtMessageIndex: 0
+      },
+      cadence: {
+        messageCountSinceCheck: 2,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }]
@@ -461,8 +467,7 @@ async function run(): Promise<void> {
     projectedTools
   });
   assert.equal(inactiveAutoSkillDecision.reasonCode, "simple_turn");
-  assert.equal(inactiveAutoSkillDecision.autoSkillState?.status, "inactive");
-  assert.equal(inactiveAutoSkillDecision.autoSkillState?.messageCountSinceCheck, 3);
+  assert.equal(inactiveAutoSkillDecision.skillState?.status, "inactive");
 
   providerGatewayClient.result = {
     ...skillClassifierResult,
@@ -498,7 +503,8 @@ async function run(): Promise<void> {
       }
     ]),
     request: withSkillRoutingContext(createRequest("Сколько калорий?"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Сколько калорий?" }]
     }),
@@ -507,7 +513,7 @@ async function run(): Promise<void> {
   assert.equal(metadataSkillMatchDecision.source, "precheck");
   assert.equal(metadataSkillMatchDecision.reasonCode, "simple_turn");
   assert.equal(metadataSkillMatchDecision.retrievalPlan.useSkills, false);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   providerGatewayClient.result = {
     ...skillClassifierResult,
@@ -572,7 +578,8 @@ async function run(): Promise<void> {
       }
     ]),
     request: withSkillRoutingContext(createRequest("А подешевле?"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 4,
       recentMessages: [
         { role: "user", text: "Посчитай мой рацион" },
@@ -585,7 +592,7 @@ async function run(): Promise<void> {
   assert.equal(assistantContextSkillMatchDecision.source, "precheck");
   assert.equal(assistantContextSkillMatchDecision.reasonCode, "simple_turn");
   assert.equal(assistantContextSkillMatchDecision.retrievalPlan.useSkills, false);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const longTail = "tail-segment ".repeat(40);
   const assembledClassifierRequest = (
@@ -603,7 +610,8 @@ async function run(): Promise<void> {
   ).buildClassifierRequest({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Нужен роутинг по теме"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 5,
       recentMessages: [
         { role: "user", text: "Собери рацион на неделю" },
@@ -618,25 +626,29 @@ async function run(): Promise<void> {
     prompt: "Router prompt",
     fallbackMode: "normal"
   });
-  assert.equal(assembledClassifierRequest.maxOutputTokens, 700);
+  assert.equal(assembledClassifierRequest.maxOutputTokens, 1200);
   const assembledContent = String(assembledClassifierRequest.messages[0]?.content ?? "");
-  assert.match(assembledContent, /Очень длинный ответ/);
-  assert.doesNotMatch(
-    assembledContent,
-    /tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment tail-segment/
-  );
+  assert.match(assembledContent, /Current user message:/);
+  assert.match(assembledContent, /Нужен роутинг по теме/);
+  assert.doesNotMatch(assembledContent, /Очень длинный ответ/);
+  assert.doesNotMatch(assembledContent, /tail-segment/);
 
   const stickySkillDecision = await service.decide({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("А если изменить срок?"), {
-      state: {
+      decision: {
         status: "active",
         activeSkillId: "skill-accounting",
         activeSkillName: "Accountant",
         topicSummary: "quarterly tax categories",
         confidence: "high",
-        checkedAtMessageIndex: 3,
-        messageCountSinceCheck: 2
+        checkedAtMessageIndex: 3
+      },
+      cadence: {
+        messageCountSinceCheck: 2,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 4,
       recentMessages: [
@@ -650,21 +662,29 @@ async function run(): Promise<void> {
   assert.equal(stickySkillDecision.source, "precheck");
   assert.equal(stickySkillDecision.reasonCode, "sticky_skill_reuse");
   assert.deepEqual(stickySkillDecision.retrievalPlan.selectedSkillIds, ["skill-accounting"]);
-  assert.equal(stickySkillDecision.autoSkillState?.messageCountSinceCheck, 3);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const stickySkillWithFileRequest = withSkillRoutingContext(createRequest("Use this file too."), {
-    state: {
+    decision: {
       status: "active",
       activeSkillId: "skill-accounting",
       activeSkillName: "Accountant",
       topicSummary: "quarterly tax categories",
       confidence: "high",
-      checkedAtMessageIndex: 4,
-      messageCountSinceCheck: 1
+      checkedAtMessageIndex: 4
+    },
+    cadence: {
+      messageCountSinceCheck: 1,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
     },
     currentUserMessageIndex: 5,
-    recentMessages: [{ role: "user", text: "Use this file too." }]
+    recentMessages: [
+      { role: "user", text: "Explain quarterly tax categories" },
+      { role: "assistant", text: "Let's compare the categories." },
+      { role: "user", text: "Use this file too." }
+    ]
   });
   stickySkillWithFileRequest.message.attachments = [
     {
@@ -688,7 +708,7 @@ async function run(): Promise<void> {
   assert.deepEqual(stickySkillWithFileDecision.retrievalPlan.selectedSkillIds, [
     "skill-accounting"
   ]);
-  assert.equal(providerGatewayClient.calls.length, 2);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   providerGatewayClient.result = {
     ...skillClassifierResult,
@@ -714,14 +734,19 @@ async function run(): Promise<void> {
   const driftRecheckDecision = await service.decide({
     bundle: createBundle(),
     request: withSkillRoutingContext(createRequest("Теперь хочу обсудить B2B воронку"), {
-      state: {
+      decision: {
         status: "active",
         activeSkillId: "skill-accounting",
         activeSkillName: "Accountant",
         topicSummary: "quarterly tax categories",
         confidence: "high",
-        checkedAtMessageIndex: 3,
-        messageCountSinceCheck: 5
+        checkedAtMessageIndex: 3
+      },
+      cadence: {
+        messageCountSinceCheck: 5,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 9,
       recentMessages: [
@@ -733,22 +758,19 @@ async function run(): Promise<void> {
     }),
     projectedTools
   });
-  assert.equal(driftRecheckDecision.source, "classifier");
+  assert.equal(driftRecheckDecision.source, "precheck");
   assert.deepEqual(driftRecheckDecision.retrievalPlan.selectedSkillIds, []);
-  assert.equal(driftRecheckDecision.autoSkillState?.status, "inactive");
-  assert.equal(driftRecheckDecision.autoSkillState?.activeSkillId, null);
-  assert.equal(driftRecheckDecision.autoSkillState?.checkedAtMessageIndex, 9);
-  assert.equal(driftRecheckDecision.autoSkillState?.messageCountSinceCheck, 0);
-  assert.match(
-    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
-    /Current auto Skill state: status=active/
-  );
+  assert.equal(driftRecheckDecision.skillState?.status, "active");
+  assert.equal(driftRecheckDecision.skillState?.activeSkillId, "skill-accounting");
+  assert.equal(driftRecheckDecision.skillState?.checkedAtMessageIndex, 3);
+  assert.equal(providerGatewayClient.calls.length, 0);
   providerGatewayClient.result = skillClassifierResult;
 
   const noSkillsDecision = await service.decide({
     bundle: createBundle(undefined, false),
     request: withSkillRoutingContext(createRequest("Привет, как дела?"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет, как дела?" }],
       forceCheck: true
@@ -757,7 +779,7 @@ async function run(): Promise<void> {
   });
   assert.equal(noSkillsDecision.source, "precheck");
   assert.equal(noSkillsDecision.reasonCode, "simple_turn");
-  assert.equal(providerGatewayClient.calls.length, 3);
+  assert.equal(providerGatewayClient.calls.length, 0);
 
   const ambiguousDecision = await service.decide({
     bundle: createBundle(),
@@ -767,31 +789,31 @@ async function run(): Promise<void> {
     projectedTools
   });
   assert.equal(ambiguousDecision.executionMode, "premium");
-  assert.equal(ambiguousDecision.source, "classifier");
+  assert.equal(ambiguousDecision.source, "llm");
   assert.deepEqual(ambiguousDecision.retrievalPlan, {
-    useSkills: true,
-    selectedSkillIds: ["skill-accounting"],
+    useSkills: false,
+    selectedSkillIds: [],
     useUserKnowledge: true,
     useProductKnowledge: false,
     useWeb: false,
-    ordinarySourcePriorityMode: "not_applicable",
+    ordinarySourcePriorityMode: "personal_first",
     confidence: "high",
     reasonCode: "classifier_skill_plan"
   });
-  assert.equal(providerGatewayClient.calls.length, 4);
-  assert.equal(providerGatewayClient.calls[3]?.requestMetadata?.classification, "turn_routing");
-  assert.equal(providerGatewayClient.calls[3]?.outputSchema?.name, "turn_route_decision");
+  assert.equal(providerGatewayClient.calls.length, 1);
+  assert.equal(providerGatewayClient.calls[0]?.requestMetadata?.classification, "turn_routing");
+  assert.equal(providerGatewayClient.calls[0]?.outputSchema?.name, "turn_route_decision");
   assert.doesNotMatch(
-    String(providerGatewayClient.calls[3]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
     /Recent conversation tail/
   );
   assert.match(
-    String(providerGatewayClient.calls[3]?.messages[0]?.content ?? ""),
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
     /Current user message:/
   );
-  assert.match(
-    String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
-    /Enabled Skills summary: id=skill-accounting/
+  assert.doesNotMatch(
+    String(providerGatewayClient.calls[0]?.messages[0]?.content ?? ""),
+    /Enabled Skills summary:/
   );
   assert.doesNotMatch(
     String(providerGatewayClient.calls[2]?.messages[0]?.content ?? ""),
@@ -901,7 +923,8 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
   const decision = await service.decide({
     bundle: createBundle(undefined, true, enabledSkills),
     request: withSkillRoutingContext(createRequest("Давай диету"), {
-      state: null,
+      decision: null,
+      cadence: null,
       currentUserMessageIndex: 3,
       recentMessages: [
         { role: "user", text: "OLD-ROUTING-MESSAGE-1 ".repeat(20) },
@@ -917,20 +940,8 @@ async function runAutoSkillRoutingHardeningTests(): Promise<void> {
     }),
     projectedTools
   });
-  assert.equal(decision.source, "fallback");
-  assert.equal(decision.reasonCode, "classifier_invalid_output");
-  assert.equal(decision.autoSkillState?.status, "inactive");
-  assert.equal(decision.autoSkillState?.checkedAtMessageIndex, 3);
-  assert.equal(decision.autoSkillState?.messageCountSinceCheck, 0);
-
-  const classifierPrompt = String(providerGatewayClient.calls[0]?.messages[0]?.content ?? "");
-  assert.ok(classifierPrompt.length < 1800);
-  assert.match(classifierPrompt, /Enabled Skills summary: id=skill-1/);
-  assert.match(classifierPrompt, /\+1 more enabled skills/);
-  assert.doesNotMatch(classifierPrompt, /description=/);
-  assert.doesNotMatch(classifierPrompt, /routingExamples=/);
-  assert.doesNotMatch(classifierPrompt, /topicSummary=/);
-  assert.doesNotMatch(classifierPrompt, /OLD-ROUTING-MESSAGE-1/);
+  assert.equal(decision.source, "precheck");
+  assert.equal(decision.reasonCode, "simple_turn");
+  assert.equal(decision.skillState, null);
+  assert.equal(providerGatewayClient.calls.length, 0);
 }
-
-void run();

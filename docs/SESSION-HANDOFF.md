@@ -1,5 +1,69 @@
 # SESSION-HANDOFF
 
+## 2026-05-05 (ADR-086 open-media context developer-tail fix) — open media server truth now rides in developer instructions instead of faux assistant history
+
+### What changed
+
+- Traced the founder-reported repeat-generation bug down to a prompt-shape seam: the runtime was still rendering `openMediaJobs` as a hydrated `assistant` prefix message, while real provider input for follow-up turns showed `Early Routing Hints` and `Sense of Time` but not the open-job block.
+- Removed the old hydrated-history injection path from `TurnContextHydrationService` entirely, so open media state is no longer presented as if the assistant had already said it earlier in the conversation.
+- Added a dedicated `## Open Media Jobs` developer section in `TurnExecutionService`, alongside the existing per-turn developer-tail guidance, with server truth about each open job (`kind`, `status`, `createdAt`, `startedAt`) plus an explicit instruction to answer progress from that truth and not start a new media tool call unless the current turn is clearly asking for a separate new media task.
+- Updated focused runtime regressions so hydrated messages no longer expect the old assistant block and provider requests now assert the new developer-owned open-media section.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+
+### Risks / residuals
+
+- This fix moves open-job truth to the correct prompt layer, but it does not yet fully solve the follow-up/new-request ambiguity by itself; live validation is still needed to confirm the stronger developer-owned framing is enough or whether the runtime needs a later narrow intent gate on top.
+
+### Next recommended step
+
+- Live-check one web and one Telegram follow-up (`делается?`, `еще долго?`) while a media job is open and confirm the provider input now contains `## Open Media Jobs` in `developerInstructions` and no longer fabricates a second media job.
+
+## 2026-05-05 (ADR-079 skill-state split cleanup) — Skill state is now fully split from the ordinary router path
+
+### What changed
+
+- Kept this session bounded to the founder-reported ADR-079 Skill activation/deactivation regression and finished the remaining ordinary-router cleanup in the same bounded slice.
+- Added a dedicated admin-managed `skill_state_classifier` prompt to `Admin > Presets`, wired it through prompt compilation/materialization/runtime bundle, and added a new runtime `SkillStateRoutingService` with a compact `activate | deactivate | no_change` JSON contract.
+- Raised both ordinary-router and skill-state classifier output caps to `1200` and added one retry path for invalid JSON with raw-output warning logs, so truncated/invalid classifier payloads are much less likely to wedge routing.
+- Split chat persistence into `skillDecisionState` and `skillCadenceState`, added a Prisma migration that backfills old `auto_skill_routing_state`, and removed the old queued-placeholder overwrite path that was blocking valid inactive/active transitions.
+- Reworked API skill-state persistence/cadence handling so new chats bootstrap at message `3`, older chats enabled after the fact force a background check on the next user turn, failed background checks clear the queued flag instead of wedging forever, and background checks now persist through the dedicated skill-state result contract instead of the ordinary turn-routing snapshot.
+- Finished the last routing cleanup: the ordinary router prompt/schema/path no longer selects Skill ids or carries deactivation logic, and ordinary turns can only do a bounded foreground activation check through the dedicated `skill_state_classifier` while deactivation remains background/forced-check only.
+- After an independent follow-up audit, tightened ordinary active-Skill reuse so `sticky_skill_reuse` only survives same-topic/high-signal follow-ups instead of applying unconditionally, hardened the equal-index persistence guard so stale `active` state cannot resurrect a persisted `inactive` state at the same `checkedAtMessageIndex`, and aligned the runtime/API/web transport shape so `turnRouting` now carries `ordinarySourcePriorityMode` plus `skillState` consistently.
+- Finished the last cleanup outliers too: `skillRetrievalState` now lives on the shared `AssistantChat` domain/repository boundary instead of being a Prisma-only side path, and the web-chat contract surface now includes persisted `skillDecisionState` / `skillCadenceState` in `AssistantWebChatState` instead of dropping them from OpenAPI/generated models.
+- Cleaned the stale runtime routing regression file too: `turn-routing.service.test.ts` now asserts post-cleanup behavior instead of the removed ordinary Skill-selection path, and the generated `knowledge_search` default wording no longer mentions old preset/config-doc retrieval.
+
+### Verification
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/auto-skill-routing-state.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-skills.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck` (after `skillRetrievalState` boundary cleanup)
+- `corepack pnpm --filter @persai/web run typecheck` (after `AssistantWebChatState` contract cleanup)
+- `corepack pnpm run format:check` (still fails on pre-existing `apps/web/app/app/_components/chat-input.tsx`)
+
+### Risks / residuals
+
+- The migration is committed, but it still needs normal deploy-time `prisma migrate deploy` rollout before production data actually moves onto `skill_decision_state` / `skill_cadence_state`.
+- `corepack pnpm run format:check` still reports the pre-existing unrelated drift in `apps/web/app/app/_components/chat-input.tsx`, which this slice did not modify.
+- `corepack pnpm --filter @persai/runtime run test` is currently not a trustworthy green gate for this slice because the legacy aggregated `run-suite.ts` still shows an order-sensitive harness failure around `turn-execution` bundle warming, while the focused runtime tests for routing/execution pass in isolated processes.
+- API-side naming still carries old `auto-skill` terminology in a few class/file/test names even though the underlying model is already split; this is now cleanup debt, not a behavior risk.
+
+### Next recommended step
+
+- Deploy the Prisma migration and do one live GKE validation for: new-chat bootstrap at message `3`, cadence recheck at `5`, ordinary foreground activation, and background-only deactivation; after that, clean or replace the legacy runtime aggregate `run-suite.ts` harness so package-level runtime testing is process-isolated and trustworthy again.
+
 ## 2026-05-05 (ADR-086 deferred media acknowledgement hardening) — first-turn media replies are now deterministic across web and Telegram
 
 ### What changed

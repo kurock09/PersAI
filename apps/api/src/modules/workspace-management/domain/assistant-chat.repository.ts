@@ -1,7 +1,9 @@
 import type { AssistantChatMessage } from "./assistant-chat-message.entity";
 import type {
   AssistantChat,
-  AssistantChatAutoSkillRoutingState,
+  AssistantChatSkillCadenceState,
+  AssistantChatSkillDecisionState,
+  AssistantChatSkillRetrievalState,
   AssistantChatSurface
 } from "./assistant-chat.entity";
 
@@ -41,7 +43,9 @@ export type AssistantChatListMetadata = {
 export type UpdateAssistantChatInput = {
   title?: string | null;
   deepModeEnabled?: boolean;
-  autoSkillRoutingState?: AssistantChatAutoSkillRoutingState | null;
+  skillDecisionState?: AssistantChatSkillDecisionState | null;
+  skillCadenceState?: AssistantChatSkillCadenceState | null;
+  skillRetrievalState?: AssistantChatSkillRetrievalState | null;
 };
 
 export interface AssistantChatRepository {

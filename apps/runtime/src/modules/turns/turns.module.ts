@@ -35,6 +35,7 @@ import { TurnAcceptanceService } from "./turn-acceptance.service";
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
+import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService } from "./turn-routing.service";
 
 @Module({
@@ -72,6 +73,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
+    SkillStateRoutingService,
     TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,
@@ -104,6 +106,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     AutoExtractToMemoryService,
     SessionCompactionService,
     TurnAcceptanceService,
+    SkillStateRoutingService,
     TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,

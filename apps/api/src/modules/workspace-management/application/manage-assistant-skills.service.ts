@@ -1,6 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createDormantAutoSkillRoutingState } from "./auto-skill-routing-state.service";
+import {
+  createEnabledSkillBootstrapCadenceState,
+  createInactiveSkillDecisionState
+} from "./auto-skill-routing-state.service";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import {
   parseAssistantSkillAssignmentsInput,
@@ -160,10 +163,14 @@ export class ManageAssistantSkillsService {
           assistantId: assistant.id
         },
         data: {
-          autoSkillRoutingState:
+          skillDecisionState:
             selected.size === 0
               ? Prisma.DbNull
-              : (createDormantAutoSkillRoutingState() as unknown as Prisma.InputJsonValue),
+              : (createInactiveSkillDecisionState() as unknown as Prisma.InputJsonValue),
+          skillCadenceState:
+            selected.size === 0
+              ? Prisma.DbNull
+              : (createEnabledSkillBootstrapCadenceState() as unknown as Prisma.InputJsonValue),
           skillRetrievalState: Prisma.DbNull
         }
       });

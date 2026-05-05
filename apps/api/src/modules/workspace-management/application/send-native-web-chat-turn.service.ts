@@ -4,8 +4,8 @@ import { loadApiConfig } from "@persai/config";
 import type {
   RuntimeOpenMediaJobContext,
   RuntimeAttachmentRef,
-  RuntimeSkillRoutingCheckResult,
-  RuntimeSkillRoutingContext,
+  RuntimeSkillStateCheckResult,
+  RuntimeSkillStateContext,
   RuntimeTurnRequest,
   RuntimeTurnResult
 } from "@persai/runtime-contract";
@@ -42,7 +42,7 @@ export interface SendNativeWebChatTurnInput {
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
-  skillRoutingContext?: RuntimeSkillRoutingContext;
+  skillStateContext?: RuntimeSkillStateContext;
 }
 
 interface JsonResponse {
@@ -127,9 +127,9 @@ export class SendNativeWebChatTurnService {
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      ...(input.skillRoutingContext === undefined
+      ...(input.skillStateContext === undefined
         ? {}
-        : { skillRoutingContext: input.skillRoutingContext })
+        : { skillStateContext: input.skillStateContext })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
@@ -175,7 +175,7 @@ export class SendNativeWebChatTurnService {
 
   async checkSkillRouting(
     input: SendNativeWebChatTurnInput
-  ): Promise<RuntimeSkillRoutingCheckResult> {
+  ): Promise<RuntimeSkillStateCheckResult> {
     const request = await this.buildRuntimeTurnRequest(input);
     const config = loadApiConfig(process.env);
     const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
@@ -190,7 +190,7 @@ export class SendNativeWebChatTurnService {
     if (!response.ok) {
       this.throwForFailedResponse(response);
     }
-    if (!this.isRuntimeSkillRoutingCheckResult(response.body)) {
+    if (!this.isRuntimeSkillStateCheckResult(response.body)) {
       throw new AssistantRuntimeError(
         "invalid_response",
         "Native runtime returned an invalid Skill routing check response."
@@ -259,9 +259,9 @@ export class SendNativeWebChatTurnService {
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      ...(input.skillRoutingContext === undefined
+      ...(input.skillStateContext === undefined
         ? {}
-        : { skillRoutingContext: input.skillRoutingContext })
+        : { skillStateContext: input.skillStateContext })
     };
   }
 
@@ -381,14 +381,9 @@ export class SendNativeWebChatTurnService {
     );
   }
 
-  private isRuntimeSkillRoutingCheckResult(
-    value: unknown
-  ): value is RuntimeSkillRoutingCheckResult {
+  private isRuntimeSkillStateCheckResult(value: unknown): value is RuntimeSkillStateCheckResult {
     const row = this.asObject(value);
-    return (
-      typeof row?.requestId === "string" &&
-      (row.turnRouting === null || this.isRuntimeTurnRoutingSnapshot(row.turnRouting))
-    );
+    return typeof row?.requestId === "string";
   }
 
   private isRuntimeTurnRoutingSnapshot(

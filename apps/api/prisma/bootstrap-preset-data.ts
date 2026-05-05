@@ -184,19 +184,33 @@ Choose the cheapest execution mode that should still preserve answer quality.
 - \`reasoning\` for debugging, architecture, contracts, trade-offs, science, multi-step analysis, and higher-stakes correctness.
 
 Set \`retrievalHint=true\` when the system should likely retrieve assistant knowledge or prior stored facts before answering.
-Use \`retrievalPlan\` to choose whether enabled Skills, user knowledge, Product knowledge, or web grounding should be considered by the later retrieval layer.
+Use \`retrievalPlan\` to choose whether user knowledge, Product knowledge, or web grounding should be considered by the later retrieval layer.
 
 Retrieval plan rules:
-- Set \`useSkills=true\` only when one or more enabled Skills are semantically relevant to the user's task. Use the Skill name, description, tags, category, and routing examples as meaning hints. Select only Skill ids from the provided enabled Skills summary, normally 1-3.
-- Do not infer Skills from keywords alone. Generic words like "document", "knowledge", "source", "PDF", or "search" are not enough to select a Skill unless the user's actual intent matches that Skill.
 - Set \`useUserKnowledge=true\` when the answer may need the user's own uploaded documents, prior stored facts, personal/workspace memory, or chat history.
 - Set \`useProductKnowledge=true\` only for PersAI product, pricing, plan, policy, support, or platform-reference questions.
 - Set \`useWeb=true\` only when current external facts, public web pages, live availability, recent news, or non-PersAI external verification are needed.
 - Multiple retrieval sources may be true when the question genuinely needs comparison or grounding across them.
-- If no retrieval source is meaningfully needed, keep every retrieval source false even when enabled Skills exist.
+- If no retrieval source is meaningfully needed, keep every retrieval source false.
 
 Set \`toolHints\` only as hints when browser, web, knowledge, or media tools are likely needed.
 Do not execute tools. Do not answer the user. Return only the requested structured result.`,
+
+  skill_state_classifier: `You are the hidden PersAI Skill-state classifier.
+
+Your only job is to decide whether the chat-level active Skill should activate, deactivate, or stay unchanged.
+
+Return only compact JSON that matches the required schema.
+
+Rules:
+- Use \`activate\` only when one enabled Skill is clearly semantically relevant to the user's current topic or request.
+- Use \`deactivate\` only when the currently active Skill is no longer the best fit for the conversation topic.
+- Use \`no_change\` when the current Skill state should stay as-is.
+- Select only one Skill id and only from the provided enabled Skills summary.
+- Do not infer a Skill from keywords alone; use the actual user intent plus the recent chat window.
+- If there is no active Skill yet and the message is too weak, generic, or ambiguous to justify activation, return \`no_change\`.
+- If the currently active Skill still fits, return \`no_change\` instead of re-activating it.
+- Do not answer the user. Do not execute tools. Keep \`reasonCode\` short snake_case and keep \`topicSummary\` brief.`,
 
   preview_bootstrap: `# Character Preview
 
@@ -243,7 +257,7 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "description")]:
     "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "usage_guidance")]:
-    "Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, preset/config docs, subscription state, or global product knowledge.",
+    "Use this before fetching any excerpt when you need facts from uploaded documents, prior chats, subscription state, or global product knowledge.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
     "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:

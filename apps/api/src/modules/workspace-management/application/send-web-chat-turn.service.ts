@@ -258,10 +258,11 @@ export class SendWebChatTurnService {
         ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, request.welcomeLocale)
         : prepared.userMessage.content;
       const currentTimeIso = new Date().toISOString();
-      const skillRoutingContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
+      const skillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
         chatId: prepared.chat.id,
         currentUserMessageId: prepared.userMessage.id,
-        state: prepared.chat.autoSkillRoutingState
+        decisionState: prepared.chat.skillDecisionState,
+        cadenceState: prepared.chat.skillCadenceState
       });
       const openMediaJobs = await this.assistantMediaJobService.listOpenJobsForChatContext({
         assistantId: prepared.assistantId,
@@ -281,7 +282,7 @@ export class SendWebChatTurnService {
         ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
-        skillRoutingContext,
+        skillStateContext,
         deepMode: prepared.chat.deepModeEnabled,
         ...(prepared.quotaDegradeModelOverride
           ? {
@@ -411,43 +412,34 @@ export class SendWebChatTurnService {
         );
         trace.stage("replay_completed");
       }
-      await this.autoSkillRoutingStateService.persistFromTurnRouting({
+      const persistedSkillState = await this.autoSkillRoutingStateService.persistFromTurnRouting({
         chatId: prepared.chat.id,
+        currentUserMessageIndex: skillStateContext.currentUserMessageIndex,
         turnRouting: runtimeResponse.turnRouting
       });
-      const persistedAutoSkillState = this.autoSkillRoutingStateService.extractStateFromTurnRouting(
+      const postTurnSkillStateContext = await this.autoSkillRoutingStateService.buildRuntimeContext(
         {
-          turnRouting: runtimeResponse.turnRouting
-        }
-      );
-      const postTurnSkillRoutingContext =
-        await this.autoSkillRoutingStateService.buildRuntimeContext({
           chatId: prepared.chat.id,
           currentUserMessageId: prepared.userMessage.id,
-          state:
-            persistedAutoSkillState === undefined
-              ? prepared.chat.autoSkillRoutingState
-              : persistedAutoSkillState
-        });
+          decisionState: persistedSkillState.skillDecisionState,
+          cadenceState: persistedSkillState.skillCadenceState
+        }
+      );
       if (
-        await this.autoSkillRoutingStateService.shouldRunBackgroundCheck(
-          postTurnSkillRoutingContext
-        )
+        await this.autoSkillRoutingStateService.shouldRunBackgroundCheck(postTurnSkillStateContext)
       ) {
-        const backgroundSkillRoutingContext =
-          this.autoSkillRoutingStateService.createBackgroundCheckContext(
-            postTurnSkillRoutingContext
-          );
+        const backgroundSkillStateContext =
+          this.autoSkillRoutingStateService.createBackgroundCheckContext(postTurnSkillStateContext);
         await this.autoSkillRoutingStateService.markBackgroundCheckQueued({
           chatId: prepared.chat.id,
-          context: postTurnSkillRoutingContext
+          context: postTurnSkillStateContext
         });
         this.autoSkillRoutingStateService.runBackgroundCheck({
           chatId: prepared.chat.id,
           execute: () =>
             this.sendNativeWebChatTurnService.checkSkillRouting({
               ...nativeTurnInput,
-              skillRoutingContext: backgroundSkillRoutingContext
+              skillStateContext: backgroundSkillStateContext
             })
         });
       }
@@ -457,7 +449,11 @@ export class SendWebChatTurnService {
         outputPreview: finalAssistantContent
       });
       return {
-        chat: prepared.chat,
+        chat: {
+          ...prepared.chat,
+          skillDecisionState: persistedSkillState.skillDecisionState,
+          skillCadenceState: persistedSkillState.skillCadenceState
+        },
         userMessage: prepared.userMessage,
         assistantMessage: {
           id: assistantMessage.id,
@@ -624,7 +620,8 @@ export class SendWebChatTurnService {
         surfaceThreadKey: chat.surfaceThreadKey,
         title: chat.title,
         deepModeEnabled: chat.deepModeEnabled,
-        autoSkillRoutingState: chat.autoSkillRoutingState,
+        skillDecisionState: chat.skillDecisionState,
+        skillCadenceState: chat.skillCadenceState,
         archivedAt: chat.archivedAt?.toISOString() ?? null,
         lastMessageAt: chat.lastMessageAt?.toISOString() ?? null,
         createdAt: chat.createdAt.toISOString(),
@@ -713,7 +710,7 @@ export class SendWebChatTurnService {
     attachments: SendNativeWebChatTurnInput["attachments"];
     userTimezone: string;
     currentTimeIso: string;
-    skillRoutingContext?: SendNativeWebChatTurnInput["skillRoutingContext"];
+    skillStateContext?: SendNativeWebChatTurnInput["skillStateContext"];
     deepMode?: SendNativeWebChatTurnInput["deepMode"];
     modelRoleOverride?: SendNativeWebChatTurnInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic";
@@ -731,9 +728,9 @@ export class SendWebChatTurnService {
       attachments: input.attachments,
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
-      ...(input.skillRoutingContext === undefined
+      ...(input.skillStateContext === undefined
         ? {}
-        : { skillRoutingContext: input.skillRoutingContext }),
+        : { skillStateContext: input.skillStateContext }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}

@@ -41,7 +41,6 @@ const MIN_HYDRATED_MEMORY_TOTAL_CHARS = 400;
 const MAX_HYDRATED_MEMORY_TOTAL_CHARS = 1800;
 const MAX_RECENT_IMAGE_TOOL_MESSAGES = 8;
 const MAX_RECENT_IMAGE_TOOL_ATTACHMENTS = 6;
-const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 // ADR-074 F1: Postgres uuid columns reject any non-UUID literal in `WHERE`
 // clauses with `Inconsistent column data: Error creating UUID, …`. We use this
 // guard before passing `RuntimeTurnRequest.idempotencyKey` (free-form string)
@@ -167,7 +166,6 @@ export class TurnContextHydrationService {
       input.message.text,
       contextHydration
     );
-    const openMediaJobsMessage = this.buildOpenMediaJobsMessage(input.openMediaJobs);
     // ADR-074 Slice M3 + M3.2 — the cross-session continuity carry-over block
     // fires when EITHER the current turn is the first turn of a brand-new
     // thread (M3, cooldown-exempt) OR the most recent stored user message is
@@ -198,7 +196,6 @@ export class TurnContextHydrationService {
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
         durableMemory,
-        openMediaJobsMessage,
         [currentUserMessage],
         contextHydration
       );
@@ -209,7 +206,6 @@ export class TurnContextHydrationService {
       input,
       durableMemory,
       carryOver,
-      openMediaJobsMessage,
       contextHydration
     );
     if (hydrated.length > 0) {
@@ -219,7 +215,6 @@ export class TurnContextHydrationService {
     return this.composeWithCarryOverDurableMemoryAndConversation(
       carryOver,
       durableMemory,
-      openMediaJobsMessage,
       [currentUserMessage],
       contextHydration
     );
@@ -300,11 +295,10 @@ export class TurnContextHydrationService {
   private composeWithCarryOverDurableMemoryAndConversation(
     carryOver: CrossSessionCarryOverHydration | null,
     durableMemory: DurableMemoryHydration,
-    openMediaJobsMessage: ProviderGatewayTextMessage | null,
     conversationMessages: ProviderGatewayTextMessage[],
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): ProviderGatewayTextMessage[] {
-    const prefix = this.buildStablePrefix(carryOver, durableMemory, openMediaJobsMessage);
+    const prefix = this.buildStablePrefix(carryOver, durableMemory);
     if (prefix.length === 0) {
       return conversationMessages;
     }
@@ -315,8 +309,7 @@ export class TurnContextHydrationService {
 
   private buildStablePrefix(
     carryOver: CrossSessionCarryOverHydration | null,
-    durableMemory: DurableMemoryHydration,
-    openMediaJobsMessage: ProviderGatewayTextMessage | null
+    durableMemory: DurableMemoryHydration
   ): ProviderGatewayTextMessage[] {
     // Order is fixed: durable_memory_core (M1, stable) -> cross_session_carry_over
     // (M3, stable, turn-0-only) -> durable_memory_contextual (per-turn,
@@ -333,9 +326,6 @@ export class TurnContextHydrationService {
     }
     if (durableMemory.contextualMessage !== null) {
       prefix.push(durableMemory.contextualMessage);
-    }
-    if (openMediaJobsMessage !== null) {
-      prefix.push(openMediaJobsMessage);
     }
     return prefix;
   }
@@ -389,7 +379,6 @@ export class TurnContextHydrationService {
     input: RuntimeTurnRequest,
     durableMemory: DurableMemoryHydration,
     carryOver: CrossSessionCarryOverHydration | null,
-    openMediaJobsMessage: ProviderGatewayTextMessage | null,
     contextHydration: ReturnType<typeof resolveRuntimeContextHydrationConfig>
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydratableMessages = storedMessages.filter((message) =>
@@ -408,7 +397,6 @@ export class TurnContextHydrationService {
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
         durableMemory,
-        openMediaJobsMessage,
         hydratedMessages,
         contextHydration
       );
@@ -429,7 +417,6 @@ export class TurnContextHydrationService {
       return this.composeWithCarryOverDurableMemoryAndConversation(
         carryOver,
         durableMemory,
-        openMediaJobsMessage,
         hydratedMessages,
         contextHydration
       );
@@ -463,9 +450,6 @@ export class TurnContextHydrationService {
     });
     if (durableMemory.contextualMessage !== null) {
       prefixMessages.push(durableMemory.contextualMessage);
-    }
-    if (openMediaJobsMessage !== null) {
-      prefixMessages.push(openMediaJobsMessage);
     }
     return this.limitHydratedMessages(
       [...prefixMessages, ...hydratedRecentMessages],
@@ -1040,30 +1024,6 @@ export class TurnContextHydrationService {
     return {
       role: "assistant",
       content: formatDurableMemoryContextualBlock(lines)
-    };
-  }
-
-  private buildOpenMediaJobsMessage(
-    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
-  ): ProviderGatewayTextMessage | null {
-    if (openMediaJobs === undefined || openMediaJobs.length === 0) {
-      return null;
-    }
-    const lines = openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
-      const ageLine =
-        job.startedAt === null
-          ? `created ${job.createdAt}, not started yet`
-          : `created ${job.createdAt}, started ${job.startedAt}`;
-      return `${index + 1}. ${job.kind} job is ${job.status}; ${ageLine}.`;
-    });
-    return {
-      role: "assistant",
-      content: [
-        "# Open Async Media Jobs",
-        "Background media generation is already in progress in this chat.",
-        "Do not claim those results are finished unless the current turn actually completes them.",
-        ...lines
-      ].join("\n")
     };
   }
 

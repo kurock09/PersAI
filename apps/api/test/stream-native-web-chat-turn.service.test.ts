@@ -168,6 +168,7 @@ describe("StreamNativeWebChatTurnService", () => {
             {
               jobId: "job-1",
               kind: "image",
+              toolCode: "image_generate",
               status: "queued",
               createdAt: "2026-04-11T12:58:00.000Z",
               startedAt: null,
@@ -196,6 +197,7 @@ describe("StreamNativeWebChatTurnService", () => {
         {
           jobId: "job-1",
           kind: "image",
+          toolCode: "image_generate",
           status: "queued",
           createdAt: "2026-04-11T12:58:00.000Z",
           startedAt: null,

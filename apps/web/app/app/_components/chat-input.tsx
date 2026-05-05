@@ -863,306 +863,314 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           </div>
         )}
 
-        {activeMediaJobs.length > 0 && (
-          <div aria-live="polite" className="mb-2">
-            {showCollapsedMediaJobs ? (
-              <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted">
-                <span className="truncate">
-                  {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
-                </span>
-              </div>
-            ) : (
-              <div className="flex max-w-full gap-2 overflow-x-auto pb-0.5">
-                {visibleMediaJobs.map((job) => (
-                  <div
-                    key={job.id}
-                    className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted"
-                  >
-                    <span className="whitespace-nowrap">
-                      {resolveMediaJobLabel(t, job)}{" "}
-                      {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div
-          className={cn(
-            "relative flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
-            dragActive && "border-accent bg-accent/5",
-            sendBlockedByFailedSlot && "opacity-90"
-          )}
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={CHAT_ATTACHMENT_ACCEPT}
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={photosInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <button
-            ref={attachTriggerRef}
-            type="button"
-            disabled={controlsDisabled || isStreaming}
-            aria-haspopup="menu"
-            aria-expanded={attachMenuOpen}
-            onClick={() =>
-              setAttachMenuOpen((open) => {
-                const next = !open;
-                if (next && isTouchDevice) {
-                  setCameraPreviewState("loading");
-                }
-                return next;
-              })
-            }
-            className={cn(
-              "mb-0.5 rounded-lg p-2 transition-colors",
-              controlsDisabled || isStreaming
-                ? "cursor-default text-text-subtle/40"
-                : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
-              attachMenuOpen && "bg-surface-hover text-text-muted"
-            )}
-            title={t("attachFile")}
-          >
-            <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
-          </button>
-
-          {/*
-           * Telegram-style attachment tiles popover. Sits above the composer
-           * (anchored bottom-full of the relative composer row) so the input
-           * keeps its bottom edge stable as the menu opens / closes; on
-           * mobile the keyboard isn't pushed around either. Three square
-           * tiles in a single row — Camera / Photos / File — each tile is
-           * a quiet warm card that warms up to accent on hover/active.
-           */}
-          <AnimatePresence>
-            {attachMenuOpen && (
-              <motion.div
-                ref={attachMenuRef}
-                role="menu"
-                aria-label={t("attachFile")}
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className={cn(
-                  "absolute bottom-full left-0 z-30 mb-2 rounded-2xl border border-border bg-surface-raised p-2 shadow-xl backdrop-blur-sm",
-                  isTouchDevice ? "w-full max-w-[18rem]" : "w-[6.75rem]"
-                )}
-              >
-                <div className={cn("grid gap-2", isTouchDevice ? "grid-cols-3" : "grid-cols-1")}>
-                  {isTouchDevice && (
-                    <>
-                      <AttachTile
-                        icon={<Camera className="h-6 w-6" />}
-                        label={t("attachMenuCamera")}
-                        preview={
-                          cameraPreviewState !== "unavailable" ? (
-                            <CameraPreviewTile
-                              videoRef={cameraPreviewVideoRef}
-                              state={cameraPreviewState}
-                            />
-                          ) : undefined
-                        }
-                        onClick={() => pickFromTile("camera")}
-                      />
-                      <AttachTile
-                        icon={<ImageIcon className="h-6 w-6" />}
-                        label={t("attachMenuPhotos")}
-                        onClick={() => pickFromTile("photos")}
-                      />
-                    </>
-                  )}
-                  <AttachTile
-                    icon={<FilesIcon className="h-6 w-6" />}
-                    label={t("attachMenuFile")}
-                    onClick={() => pickFromTile("file")}
-                  />
+        <div className="relative">
+          {activeMediaJobs.length > 0 && (
+            <div
+              aria-live="polite"
+              className="pointer-events-none absolute bottom-full left-0 right-0 z-10 mb-2"
+            >
+              {showCollapsedMediaJobs ? (
+                <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
+                  <span className="truncate">
+                    {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
+                  </span>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/*
-           * Hold-to-record overlay (touch only). Floats above the composer,
-           * centered horizontally so the user's eye lands on the recording
-           * indicator while their thumb is still on the mic button. Pointer
-           * events stay on the mic button via setPointerCapture, so the
-           * overlay itself is non-interactive (`pointer-events-none`).
-           */}
-          <AnimatePresence>
-            {isTouchDevice && isRecording && (
-              <motion.div
-                role="status"
-                aria-live="polite"
-                aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
-                initial={{ opacity: 0, y: 12, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 12, scale: 0.96 }}
-                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-                className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center"
-              >
-                <div
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-2xl border bg-surface-raised px-5 py-4 shadow-xl backdrop-blur-sm transition-colors",
-                    cancelArmed ? "border-destructive/40" : "border-border"
-                  )}
-                >
-                  <span className="relative flex h-14 w-14 items-center justify-center">
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "absolute inset-0 animate-ping rounded-full",
-                        cancelArmed ? "bg-destructive/30" : "bg-accent/30"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
-                        cancelArmed
-                          ? "bg-destructive/15 text-destructive"
-                          : "bg-accent/15 text-accent"
-                      )}
+              ) : (
+                <div className="flex max-w-full gap-2 overflow-x-auto pb-0.5 pointer-events-auto">
+                  {visibleMediaJobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm"
                     >
-                      <Mic className="h-7 w-7" />
-                    </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "font-mono text-sm tabular-nums transition-colors",
-                      cancelArmed ? "text-destructive" : "text-text-muted"
-                    )}
-                  >
-                    {formatDuration(recordingSeconds)}
-                  </span>
-                  <span
-                    className={cn(
-                      "text-center text-[11px] leading-tight transition-colors",
-                      cancelArmed ? "text-destructive" : "text-text-subtle"
-                    )}
-                  >
-                    {cancelArmed ? (
-                      t("voiceCancelArmed")
-                    ) : (
-                      <>
-                        {t("voiceHoldRelease")}
-                        <span aria-hidden="true" className="mx-1 text-border-strong">
-                          ·
-                        </span>
-                        {t("voiceSwipeUpToCancel")}
-                      </>
-                    )}
-                  </span>
+                      <span className="whitespace-nowrap">
+                        {resolveMediaJobLabel(t, job)}{" "}
+                        {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            placeholder={t("placeholder")}
-            disabled={composerDisabled}
-            onInput={resize}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            style={{ resize: "none" }}
-            className={cn(
-              "flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-subtle",
-              "outline-none",
-              "max-h-[200px] py-2"
-            )}
-          />
-
-          {(!isRecording || isTouchDevice) && !isTranscribing && (
-            <button
-              type="button"
-              disabled={disabled || isStreaming || sendBlockedByFailedSlot}
-              {...(isTouchDevice
-                ? {
-                    onPointerDown: handleMicPointerDown,
-                    onPointerMove: handleMicPointerMove,
-                    onPointerUp: handleMicPointerUp,
-                    onPointerCancel: handleMicPointerCancel,
-                    onContextMenu: (e: React.MouseEvent) => e.preventDefault()
-                  }
-                : { onClick: () => void startRecording() })}
-              className={cn(
-                "mb-0.5 rounded-lg p-2 transition-colors select-none",
-                disabled || isStreaming || sendBlockedByFailedSlot
-                  ? "cursor-default text-text-subtle/40"
-                  : isTouchDevice
-                    ? "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted"
-                    : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
-                isTouchDevice && isRecording && !cancelArmed && "bg-accent/15 text-accent",
-                isTouchDevice && isRecording && cancelArmed && "bg-destructive/15 text-destructive"
               )}
-              title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-              aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
-            >
-              <Mic className="h-5 w-5 md:h-4 md:w-4" />
-            </button>
+            </div>
           )}
 
-          {isStreaming ? (
+          <div
+            className={cn(
+              "relative flex items-end gap-2 rounded-2xl border border-border bg-surface-raised p-2 transition-colors focus-within:border-border-strong",
+              dragActive && "border-accent bg-accent/5",
+              sendBlockedByFailedSlot && "opacity-90"
+            )}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={CHAT_ATTACHMENT_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <input
+              ref={photosInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
             <button
+              ref={attachTriggerRef}
               type="button"
-              onMouseDown={(e) => {
-                if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                  e.preventDefault();
-                }
-              }}
-              onClick={onStop}
-              className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
-              title={t("stop")}
-            >
-              <Square className="h-5 w-5 md:h-4 md:w-4" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onMouseDown={(e) => {
-                if (shouldKeepDesktopComposerFocusOnPointerDown()) {
-                  e.preventDefault();
-                }
-              }}
-              onClick={handleSend}
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || isStreaming}
+              aria-haspopup="menu"
+              aria-expanded={attachMenuOpen}
+              onClick={() =>
+                setAttachMenuOpen((open) => {
+                  const next = !open;
+                  if (next && isTouchDevice) {
+                    setCameraPreviewState("loading");
+                  }
+                  return next;
+                })
+              }
               className={cn(
                 "mb-0.5 rounded-lg p-2 transition-colors",
-                controlsDisabled
+                controlsDisabled || isStreaming
                   ? "cursor-default text-text-subtle/40"
-                  : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
+                  : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
+                attachMenuOpen && "bg-surface-hover text-text-muted"
               )}
-              title={t("send")}
+              title={t("attachFile")}
             >
-              <SendHorizonal className="h-5 w-5 md:h-4 md:w-4" />
+              <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
             </button>
-          )}
+
+            {/*
+             * Telegram-style attachment tiles popover. Sits above the composer
+             * (anchored bottom-full of the relative composer row) so the input
+             * keeps its bottom edge stable as the menu opens / closes; on
+             * mobile the keyboard isn't pushed around either. Three square
+             * tiles in a single row — Camera / Photos / File — each tile is
+             * a quiet warm card that warms up to accent on hover/active.
+             */}
+            <AnimatePresence>
+              {attachMenuOpen && (
+                <motion.div
+                  ref={attachMenuRef}
+                  role="menu"
+                  aria-label={t("attachFile")}
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className={cn(
+                    "absolute bottom-full left-0 z-30 mb-2 rounded-2xl border border-border bg-surface-raised p-2 shadow-xl backdrop-blur-sm",
+                    isTouchDevice ? "w-full max-w-[18rem]" : "w-[6.75rem]"
+                  )}
+                >
+                  <div className={cn("grid gap-2", isTouchDevice ? "grid-cols-3" : "grid-cols-1")}>
+                    {isTouchDevice && (
+                      <>
+                        <AttachTile
+                          icon={<Camera className="h-6 w-6" />}
+                          label={t("attachMenuCamera")}
+                          preview={
+                            cameraPreviewState !== "unavailable" ? (
+                              <CameraPreviewTile
+                                videoRef={cameraPreviewVideoRef}
+                                state={cameraPreviewState}
+                              />
+                            ) : undefined
+                          }
+                          onClick={() => pickFromTile("camera")}
+                        />
+                        <AttachTile
+                          icon={<ImageIcon className="h-6 w-6" />}
+                          label={t("attachMenuPhotos")}
+                          onClick={() => pickFromTile("photos")}
+                        />
+                      </>
+                    )}
+                    <AttachTile
+                      icon={<FilesIcon className="h-6 w-6" />}
+                      label={t("attachMenuFile")}
+                      onClick={() => pickFromTile("file")}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/*
+             * Hold-to-record overlay (touch only). Floats above the composer,
+             * centered horizontally so the user's eye lands on the recording
+             * indicator while their thumb is still on the mic button. Pointer
+             * events stay on the mic button via setPointerCapture, so the
+             * overlay itself is non-interactive (`pointer-events-none`).
+             */}
+            <AnimatePresence>
+              {isTouchDevice && isRecording && (
+                <motion.div
+                  role="status"
+                  aria-live="polite"
+                  aria-label={t("recording", { duration: formatDuration(recordingSeconds) })}
+                  initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 12, scale: 0.96 }}
+                  transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                  className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center"
+                >
+                  <div
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-2xl border bg-surface-raised px-5 py-4 shadow-xl backdrop-blur-sm transition-colors",
+                      cancelArmed ? "border-destructive/40" : "border-border"
+                    )}
+                  >
+                    <span className="relative flex h-14 w-14 items-center justify-center">
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute inset-0 animate-ping rounded-full",
+                          cancelArmed ? "bg-destructive/30" : "bg-accent/30"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "relative flex h-full w-full items-center justify-center rounded-full transition-colors",
+                          cancelArmed
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-accent/15 text-accent"
+                        )}
+                      >
+                        <Mic className="h-7 w-7" />
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "font-mono text-sm tabular-nums transition-colors",
+                        cancelArmed ? "text-destructive" : "text-text-muted"
+                      )}
+                    >
+                      {formatDuration(recordingSeconds)}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-center text-[11px] leading-tight transition-colors",
+                        cancelArmed ? "text-destructive" : "text-text-subtle"
+                      )}
+                    >
+                      {cancelArmed ? (
+                        t("voiceCancelArmed")
+                      ) : (
+                        <>
+                          {t("voiceHoldRelease")}
+                          <span aria-hidden="true" className="mx-1 text-border-strong">
+                            ·
+                          </span>
+                          {t("voiceSwipeUpToCancel")}
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              placeholder={t("placeholder")}
+              disabled={composerDisabled}
+              onInput={resize}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              style={{ resize: "none" }}
+              className={cn(
+                "flex-1 resize-none bg-transparent text-sm text-text placeholder:text-text-subtle",
+                "outline-none",
+                "max-h-[200px] py-2"
+              )}
+            />
+
+            {(!isRecording || isTouchDevice) && !isTranscribing && (
+              <button
+                type="button"
+                disabled={disabled || isStreaming || sendBlockedByFailedSlot}
+                {...(isTouchDevice
+                  ? {
+                      onPointerDown: handleMicPointerDown,
+                      onPointerMove: handleMicPointerMove,
+                      onPointerUp: handleMicPointerUp,
+                      onPointerCancel: handleMicPointerCancel,
+                      onContextMenu: (e: React.MouseEvent) => e.preventDefault()
+                    }
+                  : { onClick: () => void startRecording() })}
+                className={cn(
+                  "mb-0.5 rounded-lg p-2 transition-colors select-none",
+                  disabled || isStreaming || sendBlockedByFailedSlot
+                    ? "cursor-default text-text-subtle/40"
+                    : isTouchDevice
+                      ? "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted"
+                      : "cursor-pointer text-text-subtle hover:bg-surface-hover hover:text-text-muted",
+                  isTouchDevice && isRecording && !cancelArmed && "bg-accent/15 text-accent",
+                  isTouchDevice &&
+                    isRecording &&
+                    cancelArmed &&
+                    "bg-destructive/15 text-destructive"
+                )}
+                title={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+                aria-label={isTouchDevice ? t("voiceHoldToRecord") : t("voiceMessage")}
+              >
+                <Mic className="h-5 w-5 md:h-4 md:w-4" />
+              </button>
+            )}
+
+            {isStreaming ? (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={onStop}
+                className="mb-0.5 cursor-pointer rounded-lg bg-destructive/15 p-2 text-destructive transition-colors hover:bg-destructive/25"
+                title={t("stop")}
+              >
+                <Square className="h-5 w-5 md:h-4 md:w-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  if (shouldKeepDesktopComposerFocusOnPointerDown()) {
+                    e.preventDefault();
+                  }
+                }}
+                onClick={handleSend}
+                disabled={controlsDisabled}
+                className={cn(
+                  "mb-0.5 rounded-lg p-2 transition-colors",
+                  controlsDisabled
+                    ? "cursor-default text-text-subtle/40"
+                    : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
+                )}
+                title={t("send")}
+              >
+                <SendHorizonal className="h-5 w-5 md:h-4 md:w-4" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

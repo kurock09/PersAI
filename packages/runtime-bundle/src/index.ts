@@ -147,6 +147,7 @@ export interface AssistantRuntimePromptDocuments {
    */
   presence?: string;
   routerClassifier?: string;
+  skillStateClassifier?: string;
   preview: string;
   welcome: string;
   bootstrap?: string;

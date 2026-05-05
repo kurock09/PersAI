@@ -347,17 +347,27 @@ export interface RuntimeRetrievalPlan {
   reasonCode: string;
 }
 
-export type RuntimeAutoSkillRoutingConfidence = "low" | "medium" | "high";
+export type RuntimeSkillRoutingConfidence = "low" | "medium" | "high";
 
-export interface RuntimeAutoSkillRoutingState {
+export interface RuntimeSkillDecisionState {
   status: "inactive" | "active";
   activeSkillId: string | null;
   activeSkillName: string | null;
   topicSummary: string | null;
-  confidence: RuntimeAutoSkillRoutingConfidence;
+  confidence: RuntimeSkillRoutingConfidence;
   checkedAtMessageIndex: number;
+}
+
+export type RuntimeSkillBootstrapReason =
+  | "new_chat"
+  | "skills_enabled_after_chat_started"
+  | "migration_repair";
+
+export interface RuntimeSkillCadenceState {
   messageCountSinceCheck: number;
   backgroundCheckQueuedAtMessageIndex?: number | null;
+  needsBootstrap: boolean;
+  bootstrapReason?: RuntimeSkillBootstrapReason | null;
 }
 
 export interface RuntimeSkillRoutingRecentMessage {
@@ -365,11 +375,18 @@ export interface RuntimeSkillRoutingRecentMessage {
   text: string;
 }
 
-export interface RuntimeSkillRoutingContext {
-  state: RuntimeAutoSkillRoutingState | null;
+export type RuntimeSkillCheckReason =
+  | "background_bootstrap"
+  | "background_cadence"
+  | "foreground_activation";
+
+export interface RuntimeSkillStateContext {
+  decision: RuntimeSkillDecisionState | null;
+  cadence: RuntimeSkillCadenceState | null;
   currentUserMessageIndex: number;
   recentMessages: RuntimeSkillRoutingRecentMessage[];
   forceCheck?: boolean;
+  checkReason?: RuntimeSkillCheckReason;
 }
 
 export type RuntimeRetrievedKnowledgeSourceLabel =
@@ -1685,12 +1702,13 @@ export interface RuntimeTurnRequest {
   modelRoleOverride?: PersaiRuntimeModelRole;
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
-  skillRoutingContext?: RuntimeSkillRoutingContext;
+  skillStateContext?: RuntimeSkillStateContext;
 }
 
 export interface RuntimeOpenMediaJobContext {
   jobId: string;
   kind: "image" | "audio" | "video";
+  toolCode: "image_generate" | "image_edit" | "video_generate" | "audio_generate";
   status: "queued" | "running" | "completion_pending";
   createdAt: IsoTimestamp;
   startedAt: IsoTimestamp | null;
@@ -1702,7 +1720,7 @@ export interface RuntimeTurnRoutingSnapshot {
   executionMode: "normal" | "premium" | "reasoning";
   source: "precheck" | "llm" | "fallback";
   retrievalPlan?: RuntimeRetrievalPlan;
-  autoSkillState?: RuntimeAutoSkillRoutingState | null;
+  skillState?: RuntimeSkillDecisionState | null;
 }
 
 export interface RuntimeTurnToolInvocation {
@@ -1733,9 +1751,9 @@ export interface RuntimeTurnResult {
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
 }
 
-export interface RuntimeSkillRoutingCheckResult {
+export interface RuntimeSkillStateCheckResult {
   requestId: string;
-  turnRouting: RuntimeTurnRoutingSnapshot | null;
+  skillState: RuntimeSkillDecisionState | null;
 }
 
 export interface RuntimeTurnAutoCompactionState {

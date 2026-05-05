@@ -15,6 +15,22 @@ export interface AssistantWebChatState {
   title: string | null;
   deepModeEnabled: boolean;
   /** @nullable */
+  skillDecisionState: {
+    status: "inactive" | "active";
+    activeSkillId: string | null;
+    activeSkillName: string | null;
+    topicSummary: string | null;
+    confidence: "low" | "medium" | "high";
+    checkedAtMessageIndex: number;
+  } | null;
+  /** @nullable */
+  skillCadenceState: {
+    messageCountSinceCheck: number;
+    backgroundCheckQueuedAtMessageIndex: number | null;
+    needsBootstrap: boolean;
+    bootstrapReason: "new_chat" | "skills_enabled_after_chat_started" | "migration_repair" | null;
+  } | null;
+  /** @nullable */
   archivedAt: string | null;
   /** @nullable */
   lastMessageAt: string | null;

@@ -1,25 +1,17 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  ASSISTANT_CHAT_REPOSITORY,
+  type AssistantChatRepository
+} from "../domain/assistant-chat.repository";
+import type {
+  AssistantChatSkillRetrievalDecisionMode as SkillRetrievalDecisionMode,
+  AssistantChatSkillRetrievalState as SkillRetrievalState
+} from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { Inject } from "@nestjs/common";
 
-export type SkillRetrievalDecisionMode =
-  | "reuse_cached_refs"
-  | "refresh_search_only"
-  | "refresh_with_helper";
-
-export type SkillRetrievalState = {
-  activeSkillId: string;
-  lastUserMessageId: string;
-  lastUserQueryFingerprint: string;
-  lastTopReferenceIds: string[];
-  lastTopReferenceScores: number[];
-  lastRetrievedAtMessageIndex: number;
-  lastMode: SkillRetrievalDecisionMode;
-  lastHelperApplied: boolean;
-  lastHelperChangedOrder: boolean;
-  reuseStreak: number;
-  lastCandidateSetHash: string | null;
-};
+export type { SkillRetrievalDecisionMode, SkillRetrievalState };
 
 export type SkillRetrievalChatContext = {
   chatId: string;
@@ -30,7 +22,11 @@ export type SkillRetrievalChatContext = {
 
 @Injectable()
 export class SkillRetrievalStateService {
-  constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
+  constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
+    @Inject(ASSISTANT_CHAT_REPOSITORY)
+    private readonly assistantChatRepository: AssistantChatRepository
+  ) {}
 
   async resolveChatContext(input: {
     assistantId: string;
@@ -50,19 +46,11 @@ export class SkillRetrievalStateService {
     if (surface === null || surfaceThreadKey === null || surfaceThreadKey.length === 0) {
       return null;
     }
-    const chat = await this.prisma.assistantChat.findUnique({
-      where: {
-        assistantId_surface_surfaceThreadKey: {
-          assistantId: input.assistantId,
-          surface,
-          surfaceThreadKey
-        }
-      },
-      select: {
-        id: true,
-        skillRetrievalState: true
-      }
-    });
+    const chat = await this.assistantChatRepository.findChatBySurfaceThread(
+      input.assistantId,
+      surface,
+      surfaceThreadKey
+    );
     if (chat === null) {
       return null;
     }
@@ -91,17 +79,13 @@ export class SkillRetrievalStateService {
       chatId: chat.id,
       currentUserMessageId: currentUserMessage.id,
       currentUserMessageIndex,
-      state: this.parseState(chat.skillRetrievalState)
+      state: chat.skillRetrievalState
     };
   }
 
   async persistState(chatId: string, state: SkillRetrievalState | null): Promise<void> {
-    await this.prisma.assistantChat.update({
-      where: { id: chatId },
-      data: {
-        skillRetrievalState:
-          state === null ? Prisma.DbNull : (state as unknown as Prisma.InputJsonValue)
-      }
+    await this.assistantChatRepository.updateChat(chatId, {
+      skillRetrievalState: state
     });
   }
 
@@ -122,11 +106,8 @@ export class SkillRetrievalStateService {
     chatId: string;
     activeSkillId: string | null;
   }): Promise<void> {
-    const chat = await this.prisma.assistantChat.findUnique({
-      where: { id: input.chatId },
-      select: { skillRetrievalState: true }
-    });
-    const state = this.parseState(chat?.skillRetrievalState);
+    const chat = await this.assistantChatRepository.findChatById(input.chatId);
+    const state = chat?.skillRetrievalState ?? null;
     if (state === null) {
       return;
     }

@@ -1,9 +1,20 @@
 import assert from "node:assert/strict";
-import { AutoSkillRoutingStateService } from "../src/modules/workspace-management/application/auto-skill-routing-state.service";
+import {
+  AutoSkillRoutingStateService,
+  createEnabledSkillBootstrapCadenceState,
+  createInactiveSkillDecisionState,
+  createNewChatSkillCadenceState
+} from "../src/modules/workspace-management/application/auto-skill-routing-state.service";
 
 async function run(): Promise<void> {
   const chatUpdates: Array<Record<string, unknown>> = [];
-  const chatStateById = new Map<string, Record<string, unknown> | null>();
+  const chatStateById = new Map<
+    string,
+    {
+      skillDecisionState: Record<string, unknown> | null;
+      skillCadenceState: Record<string, unknown> | null;
+    }
+  >();
   const service = new AutoSkillRoutingStateService(
     {
       platformRuntimeProviderSettings: {
@@ -18,16 +29,20 @@ async function run(): Promise<void> {
       },
       assistantChat: {
         findUnique: async ({ where }: { where: { id: string } }) => ({
-          autoSkillRoutingState: chatStateById.get(where.id) ?? null
+          skillDecisionState: chatStateById.get(where.id)?.skillDecisionState ?? null,
+          skillCadenceState: chatStateById.get(where.id)?.skillCadenceState ?? null
         }),
         update: async (input: Record<string, unknown>) => {
           chatUpdates.push(input);
           const where = input.where as { id: string };
-          const data = input.data as { autoSkillRoutingState?: Record<string, unknown> | null };
-          chatStateById.set(
-            where.id,
-            (data.autoSkillRoutingState as Record<string, unknown>) ?? null
-          );
+          const data = input.data as {
+            skillDecisionState?: Record<string, unknown> | null;
+            skillCadenceState?: Record<string, unknown> | null;
+          };
+          chatStateById.set(where.id, {
+            skillDecisionState: (data.skillDecisionState as Record<string, unknown>) ?? null,
+            skillCadenceState: (data.skillCadenceState as Record<string, unknown>) ?? null
+          });
           return null;
         }
       }
@@ -39,7 +54,8 @@ async function run(): Promise<void> {
 
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: null,
+      decision: null,
+      cadence: createNewChatSkillCadenceState(),
       currentUserMessageIndex: 1,
       recentMessages: [{ role: "user", text: "Привет" }]
     }),
@@ -47,7 +63,8 @@ async function run(): Promise<void> {
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: null,
+      decision: null,
+      cadence: createNewChatSkillCadenceState(),
       currentUserMessageIndex: 2,
       recentMessages: [
         { role: "user", text: "У меня вес стоит" },
@@ -59,7 +76,8 @@ async function run(): Promise<void> {
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: null,
+      decision: null,
+      cadence: createNewChatSkillCadenceState(),
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Белка 120" }]
     }),
@@ -67,22 +85,28 @@ async function run(): Promise<void> {
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: null,
+      decision: null,
+      cadence: createNewChatSkillCadenceState(),
       currentUserMessageIndex: 4,
       recentMessages: [{ role: "user", text: "Unrelated" }]
     }),
-    false
+    true
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: {
+      decision: {
         status: "active",
         activeSkillId: "skill-diet",
         activeSkillName: "Диетолог",
         topicSummary: "nutrition",
         confidence: "high",
-        checkedAtMessageIndex: 3,
-        messageCountSinceCheck: 5
+        checkedAtMessageIndex: 3
+      },
+      cadence: {
+        messageCountSinceCheck: 5,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 8,
       recentMessages: [{ role: "user", text: "А если добавить кардио?" }]
@@ -91,14 +115,16 @@ async function run(): Promise<void> {
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: {
-        status: "inactive",
-        activeSkillId: null,
-        activeSkillName: null,
-        topicSummary: "weight loss and diabetes",
-        confidence: "medium",
+      decision: createInactiveSkillDecisionState({
         checkedAtMessageIndex: 19,
-        messageCountSinceCheck: 5
+        confidence: "medium",
+        topicSummary: "weight loss and diabetes"
+      }),
+      cadence: {
+        messageCountSinceCheck: 5,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 24,
       recentMessages: [{ role: "user", text: "Составь меню на день при диабете 1 типа" }]
@@ -107,14 +133,16 @@ async function run(): Promise<void> {
   );
   assert.equal(
     await service.shouldRunBackgroundCheck({
-      state: {
-        status: "inactive",
-        activeSkillId: null,
-        activeSkillName: null,
-        topicSummary: "weight loss and diabetes",
-        confidence: "medium",
+      decision: createInactiveSkillDecisionState({
         checkedAtMessageIndex: 22,
-        messageCountSinceCheck: 1
+        confidence: "medium",
+        topicSummary: "weight loss and diabetes"
+      }),
+      cadence: {
+        messageCountSinceCheck: 1,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 23,
       recentMessages: [{ role: "user", text: "Именно про диабет" }]
@@ -125,149 +153,204 @@ async function run(): Promise<void> {
   await service.markBackgroundCheckQueued({
     chatId: "chat-1",
     context: {
-      state: null,
+      decision: null,
+      cadence: createNewChatSkillCadenceState(),
       currentUserMessageIndex: 3,
       recentMessages: [{ role: "user", text: "Белка 120" }]
     }
   });
-  assert.deepEqual(chatUpdates[0], {
-    where: { id: "chat-1" },
-    data: {
-      autoSkillRoutingState: {
-        status: "inactive",
-        activeSkillId: null,
-        activeSkillName: null,
-        topicSummary: null,
-        confidence: "low",
-        checkedAtMessageIndex: 3,
-        messageCountSinceCheck: 0,
-        backgroundCheckQueuedAtMessageIndex: 3
-      }
+  assert.deepEqual((chatUpdates[0]?.where as { id: string } | undefined)?.id, "chat-1");
+  assert.deepEqual(
+    (chatUpdates[0]?.data as { skillCadenceState?: Record<string, unknown> } | undefined)
+      ?.skillCadenceState,
+    {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: 3,
+      needsBootstrap: true,
+      bootstrapReason: "new_chat"
     }
-  });
+  );
 
   await service.markBackgroundCheckQueued({
     chatId: "chat-2",
     context: {
-      state: {
+      decision: {
         status: "active",
         activeSkillId: "skill-diet",
         activeSkillName: "Диетолог",
         topicSummary: "nutrition",
         confidence: "high",
-        checkedAtMessageIndex: 3,
-        messageCountSinceCheck: 5
+        checkedAtMessageIndex: 3
+      },
+      cadence: {
+        messageCountSinceCheck: 5,
+        backgroundCheckQueuedAtMessageIndex: null,
+        needsBootstrap: false,
+        bootstrapReason: null
       },
       currentUserMessageIndex: 8,
       recentMessages: [{ role: "user", text: "А если добавить кардио?" }]
     }
   });
-  assert.deepEqual(chatUpdates[1], {
-    where: { id: "chat-2" },
-    data: {
-      autoSkillRoutingState: {
-        status: "active",
-        activeSkillId: "skill-diet",
-        activeSkillName: "Диетолог",
-        topicSummary: "nutrition",
-        confidence: "high",
-        checkedAtMessageIndex: 8,
-        messageCountSinceCheck: 0,
-        backgroundCheckQueuedAtMessageIndex: 8
-      }
+  assert.deepEqual((chatUpdates[1]?.where as { id: string } | undefined)?.id, "chat-2");
+  assert.deepEqual(
+    (chatUpdates[1]?.data as { skillDecisionState?: Record<string, unknown> } | undefined)
+      ?.skillDecisionState,
+    {
+      status: "active",
+      activeSkillId: "skill-diet",
+      activeSkillName: "Диетолог",
+      topicSummary: "nutrition",
+      confidence: "high",
+      checkedAtMessageIndex: 3
     }
-  });
+  );
+  assert.deepEqual(
+    (chatUpdates[1]?.data as { skillCadenceState?: Record<string, unknown> } | undefined)
+      ?.skillCadenceState,
+    {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: 8,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
+  );
 
   chatStateById.set("chat-3", {
-    status: "inactive",
-    activeSkillId: null,
-    activeSkillName: null,
-    topicSummary: "persai landing copy",
-    confidence: "high",
-    checkedAtMessageIndex: 87,
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "persai landing copy",
+      confidence: "high",
+      checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
   });
   const updatesBeforeStalePersist = chatUpdates.length;
   await service.persistFromTurnRouting({
     chatId: "chat-3",
+    currentUserMessageIndex: 88,
     turnRouting: {
-      autoSkillState: {
+      skillState: {
         status: "active",
         activeSkillId: "skill-diet",
         activeSkillName: "Диетолог",
         topicSummary: "nutrition",
         confidence: "high",
-        checkedAtMessageIndex: 82,
-        messageCountSinceCheck: 5,
-        backgroundCheckQueuedAtMessageIndex: null
+        checkedAtMessageIndex: 82
       }
     }
   });
   assert.equal(chatUpdates.length, updatesBeforeStalePersist);
   assert.deepEqual(chatStateById.get("chat-3"), {
-    status: "inactive",
-    activeSkillId: null,
-    activeSkillName: null,
-    topicSummary: "persai landing copy",
-    confidence: "high",
-    checkedAtMessageIndex: 87,
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "persai landing copy",
+      confidence: "high",
+      checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
   });
-  const updatesBeforeStaleQueue = chatUpdates.length;
-  await service.markBackgroundCheckQueued({
+  const updatesBeforeEqualIndexRevive = chatUpdates.length;
+  await service.persistFromSkillCheckResult({
     chatId: "chat-3",
-    context: {
-      state: {
+    result: {
+      requestId: "request-equal-index-revive",
+      skillState: {
         status: "active",
         activeSkillId: "skill-diet",
         activeSkillName: "Диетолог",
         topicSummary: "nutrition",
         confidence: "high",
-        checkedAtMessageIndex: 82,
-        messageCountSinceCheck: 5
+        checkedAtMessageIndex: 87
+      }
+    }
+  });
+  assert.equal(chatUpdates.length, updatesBeforeEqualIndexRevive);
+  assert.deepEqual(chatStateById.get("chat-3"), {
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "persai landing copy",
+      confidence: "high",
+      checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
+  });
+  const updatesBeforeStaleQueue = chatUpdates.length;
+  await service.markBackgroundCheckQueued({
+    chatId: "chat-3",
+    context: {
+      decision: {
+        status: "active",
+        activeSkillId: "skill-diet",
+        activeSkillName: "Диетолог",
+        topicSummary: "nutrition",
+        confidence: "high",
+        checkedAtMessageIndex: 82
       },
+      cadence: createEnabledSkillBootstrapCadenceState(),
       currentUserMessageIndex: 82,
       recentMessages: [{ role: "user", text: "Сделай БЖУ" }]
     }
   });
   assert.equal(chatUpdates.length, updatesBeforeStaleQueue);
   assert.deepEqual(chatStateById.get("chat-3"), {
-    status: "inactive",
-    activeSkillId: null,
-    activeSkillName: null,
-    topicSummary: "persai landing copy",
-    confidence: "high",
-    checkedAtMessageIndex: 87,
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "persai landing copy",
+      confidence: "high",
+      checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
   });
 
   await service.persistFromTurnRouting({
     chatId: "chat-3",
-    turnRouting: {
-      autoSkillState: {
-        status: "inactive",
-        activeSkillId: null,
-        activeSkillName: null,
-        topicSummary: "persai landing copy",
-        confidence: "high",
-        checkedAtMessageIndex: 88,
-        messageCountSinceCheck: 0,
-        backgroundCheckQueuedAtMessageIndex: null
-      }
-    }
+    currentUserMessageIndex: 88,
+    turnRouting: {}
   });
   assert.deepEqual(chatStateById.get("chat-3"), {
-    status: "inactive",
-    activeSkillId: null,
-    activeSkillName: null,
-    topicSummary: "persai landing copy",
-    confidence: "high",
-    checkedAtMessageIndex: 88,
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "persai landing copy",
+      confidence: "high",
+      checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 1,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
   });
 }
 

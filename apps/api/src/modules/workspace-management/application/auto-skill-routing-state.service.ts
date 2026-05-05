@@ -1,9 +1,10 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
-  RuntimeAutoSkillRoutingState,
-  RuntimeSkillRoutingCheckResult,
-  RuntimeSkillRoutingContext
+  RuntimeSkillCadenceState,
+  RuntimeSkillDecisionState,
+  RuntimeSkillStateCheckResult,
+  RuntimeSkillStateContext
 } from "@persai/runtime-contract";
 import {
   DEFAULT_SKILL_ROUTING_BACKGROUND_RECHECK_INTERVAL_MESSAGES,
@@ -17,17 +18,54 @@ const MAX_RECENT_ROUTING_MESSAGES = 30;
 const MAX_RECENT_ROUTING_USER_TURNS = 5;
 const SKILL_ROUTING_POLICY_CACHE_TTL_MS = 10_000;
 
-export function createDormantAutoSkillRoutingState(): RuntimeAutoSkillRoutingState {
+export function createInactiveSkillDecisionState(input?: {
+  checkedAtMessageIndex?: number;
+  confidence?: RuntimeSkillDecisionState["confidence"];
+  topicSummary?: string | null;
+}): RuntimeSkillDecisionState {
   return {
     status: "inactive",
     activeSkillId: null,
     activeSkillName: null,
-    topicSummary: null,
-    confidence: "low",
-    checkedAtMessageIndex: 0,
-    messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    topicSummary: input?.topicSummary ?? null,
+    confidence: input?.confidence ?? "low",
+    checkedAtMessageIndex: input?.checkedAtMessageIndex ?? 0
   };
+}
+
+export function createSkillCadenceState(input?: {
+  messageCountSinceCheck?: number;
+  backgroundCheckQueuedAtMessageIndex?: number | null;
+  needsBootstrap?: boolean;
+  bootstrapReason?: RuntimeSkillCadenceState["bootstrapReason"];
+}): RuntimeSkillCadenceState {
+  return {
+    messageCountSinceCheck: input?.messageCountSinceCheck ?? 0,
+    backgroundCheckQueuedAtMessageIndex: input?.backgroundCheckQueuedAtMessageIndex ?? null,
+    needsBootstrap: input?.needsBootstrap ?? false,
+    bootstrapReason: input?.bootstrapReason ?? null
+  };
+}
+
+export function createNewChatSkillCadenceState(): RuntimeSkillCadenceState {
+  return createSkillCadenceState({
+    needsBootstrap: true,
+    bootstrapReason: "new_chat"
+  });
+}
+
+export function createEnabledSkillBootstrapCadenceState(): RuntimeSkillCadenceState {
+  return createSkillCadenceState({
+    needsBootstrap: true,
+    bootstrapReason: "skills_enabled_after_chat_started"
+  });
+}
+
+export function createMigrationRepairSkillCadenceState(): RuntimeSkillCadenceState {
+  return createSkillCadenceState({
+    needsBootstrap: true,
+    bootstrapReason: "migration_repair"
+  });
 }
 
 @Injectable()
@@ -47,8 +85,9 @@ export class AutoSkillRoutingStateService {
   async buildRuntimeContext(input: {
     chatId: string;
     currentUserMessageId: string;
-    state: RuntimeAutoSkillRoutingState | null;
-  }): Promise<RuntimeSkillRoutingContext> {
+    decisionState: RuntimeSkillDecisionState | null;
+    cadenceState: RuntimeSkillCadenceState | null;
+  }): Promise<RuntimeSkillStateContext> {
     const currentMessage = await this.prisma.assistantChatMessage.findUnique({
       where: { id: input.currentUserMessageId },
       select: { createdAt: true }
@@ -80,7 +119,8 @@ export class AutoSkillRoutingStateService {
     ]);
 
     return {
-      state: input.state,
+      decision: input.decisionState,
+      cadence: input.cadenceState,
       currentUserMessageIndex,
       recentMessages: this.selectRecentRoutingRows(
         recentRows.sort((left, right) => {
@@ -94,158 +134,246 @@ export class AutoSkillRoutingStateService {
     };
   }
 
-  async shouldRunBackgroundCheck(context: RuntimeSkillRoutingContext): Promise<boolean> {
+  async shouldRunBackgroundCheck(context: RuntimeSkillStateContext): Promise<boolean> {
     const currentUserMessageIndex = context.currentUserMessageIndex;
     if (currentUserMessageIndex <= 0) {
       return false;
     }
     const policy = await this.readSkillRoutingPolicy();
-    const state = context.state;
-    if (state === null) {
-      return currentUserMessageIndex === policy.initialCheckUserMessageIndex;
-    }
-    if (currentUserMessageIndex <= state.checkedAtMessageIndex) {
-      return false;
-    }
+    const decision = context.decision;
+    const cadence =
+      context.cadence ??
+      (decision === null ? createMigrationRepairSkillCadenceState() : createSkillCadenceState());
+    const checkedAtMessageIndex = decision?.checkedAtMessageIndex ?? 0;
     if (
-      typeof state.backgroundCheckQueuedAtMessageIndex === "number" &&
-      state.backgroundCheckQueuedAtMessageIndex > state.checkedAtMessageIndex
+      typeof cadence.backgroundCheckQueuedAtMessageIndex === "number" &&
+      cadence.backgroundCheckQueuedAtMessageIndex > checkedAtMessageIndex
     ) {
       return false;
     }
-    return state.messageCountSinceCheck >= policy.backgroundRecheckIntervalMessages;
+    if (cadence.needsBootstrap) {
+      if (cadence.bootstrapReason === "new_chat") {
+        return currentUserMessageIndex >= policy.initialCheckUserMessageIndex;
+      }
+      return currentUserMessageIndex >= 1;
+    }
+    if (currentUserMessageIndex <= checkedAtMessageIndex) {
+      return false;
+    }
+    return cadence.messageCountSinceCheck >= policy.backgroundRecheckIntervalMessages;
   }
 
-  createBackgroundCheckContext(context: RuntimeSkillRoutingContext): RuntimeSkillRoutingContext {
+  createBackgroundCheckContext(context: RuntimeSkillStateContext): RuntimeSkillStateContext {
     return {
       ...context,
-      forceCheck: true
+      forceCheck: true,
+      checkReason:
+        context.cadence?.needsBootstrap === true ? "background_bootstrap" : "background_cadence"
     };
+  }
+
+  extractDecisionStateFromTurnRouting(input: {
+    turnRouting:
+      | {
+          skillState?: RuntimeSkillDecisionState | null;
+        }
+      | null
+      | undefined;
+  }): RuntimeSkillDecisionState | null | undefined {
+    return this.normalizeDecisionState(input.turnRouting?.skillState);
   }
 
   async markBackgroundCheckQueued(input: {
     chatId: string;
-    context: RuntimeSkillRoutingContext;
+    context: RuntimeSkillStateContext;
   }): Promise<void> {
+    const chat = await this.readChatSkillState(input.chatId);
+    const currentDecision = chat.skillDecisionState ?? input.context.decision ?? null;
+    const currentCadence =
+      chat.skillCadenceState ??
+      input.context.cadence ??
+      (currentDecision === null
+        ? createMigrationRepairSkillCadenceState()
+        : createSkillCadenceState());
     const queuedAtMessageIndex = input.context.currentUserMessageIndex;
-    const nextState =
-      input.context.state === null
-        ? {
-            ...createDormantAutoSkillRoutingState(),
-            checkedAtMessageIndex: Math.max(0, queuedAtMessageIndex),
-            messageCountSinceCheck: 0,
-            backgroundCheckQueuedAtMessageIndex: queuedAtMessageIndex
-          }
-        : {
-            ...input.context.state,
-            checkedAtMessageIndex: Math.max(
-              queuedAtMessageIndex,
-              input.context.state.checkedAtMessageIndex
-            ),
-            messageCountSinceCheck: 0,
-            backgroundCheckQueuedAtMessageIndex: Math.max(
-              queuedAtMessageIndex,
-              input.context.state.backgroundCheckQueuedAtMessageIndex ?? 0
-            )
-          };
-    const currentChat = await this.prisma.assistantChat.findUnique({
-      where: { id: input.chatId },
-      select: { autoSkillRoutingState: true }
-    });
-    const currentState = this.normalizeState(currentChat?.autoSkillRoutingState);
-    if (!this.shouldPersistAutoSkillRoutingState(currentState, nextState)) {
+    if (queuedAtMessageIndex < (currentDecision?.checkedAtMessageIndex ?? 0)) {
       return;
     }
-    await this.prisma.assistantChat.update({
-      where: { id: input.chatId },
-      data: {
-        autoSkillRoutingState: nextState as unknown as Prisma.InputJsonValue
-      }
+    const nextCadence: RuntimeSkillCadenceState = {
+      ...(currentCadence ?? createMigrationRepairSkillCadenceState()),
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: Math.max(
+        queuedAtMessageIndex,
+        currentCadence?.backgroundCheckQueuedAtMessageIndex ?? 0
+      )
+    };
+    await this.persistState({
+      chatId: input.chatId,
+      skillDecisionState: currentDecision,
+      skillCadenceState: nextCadence
     });
-  }
-
-  extractStateFromTurnRouting(input: {
-    turnRouting:
-      | {
-          autoSkillState?: RuntimeAutoSkillRoutingState | null;
-        }
-      | null
-      | undefined;
-  }): RuntimeAutoSkillRoutingState | null | undefined {
-    return this.normalizeState(input.turnRouting?.autoSkillState);
   }
 
   runBackgroundCheck(input: {
     chatId: string;
-    execute: () => Promise<RuntimeSkillRoutingCheckResult>;
+    execute: () => Promise<RuntimeSkillStateCheckResult>;
   }): void {
     void input
       .execute()
       .then((result) =>
-        this.persistFromTurnRouting({
+        this.persistFromSkillCheckResult({
           chatId: input.chatId,
-          turnRouting: result.turnRouting
+          result
         })
       )
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
         this.logger.warn(
           `Background Skill routing check failed for chat ${input.chatId}: ${
             error instanceof Error ? error.message : String(error)
           }`
         );
+        await this.markBackgroundCheckFailed(input.chatId);
       });
   }
 
   async persistFromTurnRouting(input: {
     chatId: string;
+    currentUserMessageIndex: number;
     turnRouting:
       | {
-          autoSkillState?: RuntimeAutoSkillRoutingState | null;
+          skillState?: RuntimeSkillDecisionState | null;
         }
       | null
       | undefined;
-  }): Promise<void> {
-    const state = this.extractStateFromTurnRouting({
+  }): Promise<{
+    skillDecisionState: RuntimeSkillDecisionState | null;
+    skillCadenceState: RuntimeSkillCadenceState | null;
+  }> {
+    const current = await this.readChatSkillState(input.chatId);
+    const nextDecision = this.extractDecisionStateFromTurnRouting({
       turnRouting: input.turnRouting
     });
-    if (state === undefined) {
-      return;
+    if (nextDecision !== undefined) {
+      const normalizedDecision = nextDecision === null ? null : nextDecision;
+      const nextCadence =
+        normalizedDecision === null
+          ? current.skillCadenceState
+          : createSkillCadenceState({
+              messageCountSinceCheck: 0,
+              needsBootstrap: false
+            });
+      await this.persistDecisionAndCadence({
+        chatId: input.chatId,
+        currentDecision: current.skillDecisionState,
+        nextDecision: normalizedDecision,
+        skillCadenceState: nextCadence
+      });
+      return {
+        skillDecisionState: normalizedDecision,
+        skillCadenceState: nextCadence
+      };
     }
-    const currentChat = await this.prisma.assistantChat.findUnique({
-      where: { id: input.chatId },
-      select: { autoSkillRoutingState: true }
-    });
-    const currentState = this.normalizeState(currentChat?.autoSkillRoutingState);
-    if (!this.shouldPersistAutoSkillRoutingState(currentState, state)) {
-      return;
+
+    const currentCadence =
+      current.skillCadenceState ??
+      (current.skillDecisionState === null ? createMigrationRepairSkillCadenceState() : null);
+    if (currentCadence === null) {
+      return current;
     }
-    await this.prisma.assistantChat.update({
-      where: { id: input.chatId },
-      data: {
-        autoSkillRoutingState:
-          state === null
-            ? Prisma.DbNull
-            : ({
-                ...state,
-                backgroundCheckQueuedAtMessageIndex: null
-              } as unknown as Prisma.InputJsonValue)
-      }
-    });
-    await this.skillRetrievalStateService.clearForChatWhenSkillMismatches({
+    const nextCadence =
+      currentCadence.needsBootstrap === true
+        ? {
+            ...currentCadence,
+            backgroundCheckQueuedAtMessageIndex: null
+          }
+        : {
+            ...currentCadence,
+            messageCountSinceCheck: Math.max(0, currentCadence.messageCountSinceCheck + 1),
+            backgroundCheckQueuedAtMessageIndex: null
+          };
+    await this.persistState({
       chatId: input.chatId,
-      activeSkillId: state?.status === "active" ? state.activeSkillId : null
+      skillDecisionState: current.skillDecisionState,
+      skillCadenceState: nextCadence
+    });
+    return {
+      skillDecisionState: current.skillDecisionState,
+      skillCadenceState: nextCadence
+    };
+  }
+
+  async persistFromSkillCheckResult(input: {
+    chatId: string;
+    result: RuntimeSkillStateCheckResult;
+  }): Promise<void> {
+    const nextDecision = this.normalizeDecisionState(input.result.skillState) ?? null;
+    const nextCadence =
+      nextDecision === null
+        ? null
+        : createSkillCadenceState({
+            messageCountSinceCheck: 0,
+            needsBootstrap: false
+          });
+    const current = await this.readChatSkillState(input.chatId);
+    await this.persistDecisionAndCadence({
+      chatId: input.chatId,
+      currentDecision: current.skillDecisionState,
+      nextDecision,
+      skillCadenceState: nextCadence
     });
   }
 
-  private shouldPersistAutoSkillRoutingState(
-    currentState: RuntimeAutoSkillRoutingState | null | undefined,
-    nextState: RuntimeAutoSkillRoutingState | null
+  private async persistDecisionAndCadence(input: {
+    chatId: string;
+    currentDecision: RuntimeSkillDecisionState | null;
+    nextDecision: RuntimeSkillDecisionState | null;
+    skillCadenceState: RuntimeSkillCadenceState | null;
+  }): Promise<void> {
+    if (!this.shouldPersistSkillDecisionState(input.currentDecision, input.nextDecision)) {
+      return;
+    }
+    await this.persistState({
+      chatId: input.chatId,
+      skillDecisionState: input.nextDecision,
+      skillCadenceState: input.skillCadenceState
+    });
+    await this.skillRetrievalStateService.clearForChatWhenSkillMismatches({
+      chatId: input.chatId,
+      activeSkillId:
+        input.nextDecision?.status === "active" ? input.nextDecision.activeSkillId : null
+    });
+  }
+
+  private async markBackgroundCheckFailed(chatId: string): Promise<void> {
+    const current = await this.readChatSkillState(chatId);
+    if (current.skillCadenceState === null) {
+      return;
+    }
+    const policy = await this.readSkillRoutingPolicy();
+    const nextCadence: RuntimeSkillCadenceState = {
+      ...current.skillCadenceState,
+      backgroundCheckQueuedAtMessageIndex: null,
+      messageCountSinceCheck:
+        current.skillCadenceState.needsBootstrap === true
+          ? current.skillCadenceState.messageCountSinceCheck
+          : policy.backgroundRecheckIntervalMessages
+    };
+    await this.persistState({
+      chatId,
+      skillDecisionState: current.skillDecisionState,
+      skillCadenceState: nextCadence
+    });
+  }
+
+  private shouldPersistSkillDecisionState(
+    currentState: RuntimeSkillDecisionState | null | undefined,
+    nextState: RuntimeSkillDecisionState | null
   ): boolean {
     if (currentState === undefined || currentState === null) {
       return true;
     }
     if (nextState === null) {
-      return false;
+      return true;
     }
     if (nextState.checkedAtMessageIndex > currentState.checkedAtMessageIndex) {
       return true;
@@ -256,10 +384,44 @@ export class AutoSkillRoutingStateService {
     if (currentState.status === "inactive" && nextState.status === "active") {
       return false;
     }
-    if (currentState.status === "active" && nextState.status === "inactive") {
-      return true;
-    }
     return true;
+  }
+
+  private async readChatSkillState(chatId: string): Promise<{
+    skillDecisionState: RuntimeSkillDecisionState | null;
+    skillCadenceState: RuntimeSkillCadenceState | null;
+  }> {
+    const chat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: {
+        skillDecisionState: true,
+        skillCadenceState: true
+      }
+    });
+    return {
+      skillDecisionState: this.normalizeDecisionState(chat?.skillDecisionState) ?? null,
+      skillCadenceState: this.normalizeCadenceState(chat?.skillCadenceState) ?? null
+    };
+  }
+
+  private async persistState(input: {
+    chatId: string;
+    skillDecisionState: RuntimeSkillDecisionState | null;
+    skillCadenceState: RuntimeSkillCadenceState | null;
+  }): Promise<void> {
+    await this.prisma.assistantChat.update({
+      where: { id: input.chatId },
+      data: {
+        skillDecisionState:
+          input.skillDecisionState === null
+            ? Prisma.DbNull
+            : (input.skillDecisionState as unknown as Prisma.InputJsonValue),
+        skillCadenceState:
+          input.skillCadenceState === null
+            ? Prisma.DbNull
+            : (input.skillCadenceState as unknown as Prisma.InputJsonValue)
+      }
+    });
   }
 
   private selectRecentRoutingRows<
@@ -282,7 +444,7 @@ export class AutoSkillRoutingStateService {
     return rows.slice(startIndex);
   }
 
-  private normalizeState(value: unknown): RuntimeAutoSkillRoutingState | null | undefined {
+  private normalizeDecisionState(value: unknown): RuntimeSkillDecisionState | null | undefined {
     if (value === undefined) {
       return undefined;
     }
@@ -299,16 +461,7 @@ export class AutoSkillRoutingStateService {
       typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
         ? row.checkedAtMessageIndex
         : null;
-    const messageCountSinceCheck =
-      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
-        ? row.messageCountSinceCheck
-        : null;
-    if (
-      status === null ||
-      confidence === null ||
-      checkedAtMessageIndex === null ||
-      messageCountSinceCheck === null
-    ) {
+    if (status === null || confidence === null || checkedAtMessageIndex === null) {
       return null;
     }
     return {
@@ -319,12 +472,39 @@ export class AutoSkillRoutingStateService {
         status === "active" && typeof row.activeSkillName === "string" ? row.activeSkillName : null,
       topicSummary: typeof row.topicSummary === "string" ? row.topicSummary : null,
       confidence,
-      checkedAtMessageIndex,
+      checkedAtMessageIndex
+    };
+  }
+
+  private normalizeCadenceState(value: unknown): RuntimeSkillCadenceState | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const messageCountSinceCheck =
+      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
+        ? row.messageCountSinceCheck
+        : null;
+    const needsBootstrap = typeof row.needsBootstrap === "boolean" ? row.needsBootstrap : null;
+    if (messageCountSinceCheck === null || needsBootstrap === null) {
+      return null;
+    }
+    return {
       messageCountSinceCheck,
       backgroundCheckQueuedAtMessageIndex:
         typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
         Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
           ? row.backgroundCheckQueuedAtMessageIndex
+          : null,
+      needsBootstrap,
+      bootstrapReason:
+        row.bootstrapReason === "new_chat" ||
+        row.bootstrapReason === "skills_enabled_after_chat_started" ||
+        row.bootstrapReason === "migration_repair"
+          ? row.bootstrapReason
           : null
     };
   }

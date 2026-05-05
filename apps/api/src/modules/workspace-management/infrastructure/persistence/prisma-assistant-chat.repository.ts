@@ -7,7 +7,9 @@ import {
 import type { AssistantChatMessage } from "../../domain/assistant-chat-message.entity";
 import type {
   AssistantChat,
-  AssistantChatAutoSkillRoutingState,
+  AssistantChatSkillCadenceState,
+  AssistantChatSkillDecisionState,
+  AssistantChatSkillRetrievalState,
   AssistantChatSurface
 } from "../../domain/assistant-chat.entity";
 import type {
@@ -234,13 +236,29 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       data: {
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.deepModeEnabled === undefined ? {} : { deepModeEnabled: input.deepModeEnabled }),
-        ...(input.autoSkillRoutingState === undefined
+        ...(input.skillDecisionState === undefined
           ? {}
           : {
-              autoSkillRoutingState:
-                input.autoSkillRoutingState === null
+              skillDecisionState:
+                input.skillDecisionState === null
                   ? Prisma.DbNull
-                  : (input.autoSkillRoutingState as unknown as Prisma.InputJsonValue)
+                  : (input.skillDecisionState as unknown as Prisma.InputJsonValue)
+            }),
+        ...(input.skillCadenceState === undefined
+          ? {}
+          : {
+              skillCadenceState:
+                input.skillCadenceState === null
+                  ? Prisma.DbNull
+                  : (input.skillCadenceState as unknown as Prisma.InputJsonValue)
+            }),
+        ...(input.skillRetrievalState === undefined
+          ? {}
+          : {
+              skillRetrievalState:
+                input.skillRetrievalState === null
+                  ? Prisma.DbNull
+                  : (input.skillRetrievalState as unknown as Prisma.InputJsonValue)
             })
       }
     });
@@ -464,7 +482,9 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       surfaceThreadKey: chat.surfaceThreadKey,
       title: chat.title,
       deepModeEnabled: chat.deepModeEnabled,
-      autoSkillRoutingState: this.parseAutoSkillRoutingState(chat.autoSkillRoutingState),
+      skillDecisionState: this.parseSkillDecisionState(chat.skillDecisionState),
+      skillCadenceState: this.parseSkillCadenceState(chat.skillCadenceState),
+      skillRetrievalState: this.parseSkillRetrievalState(chat.skillRetrievalState),
       archivedAt: chat.archivedAt,
       lastMessageAt: chat.lastMessageAt,
       createdAt: chat.createdAt,
@@ -472,7 +492,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     };
   }
 
-  private parseAutoSkillRoutingState(value: unknown): AssistantChatAutoSkillRoutingState | null {
+  private parseSkillDecisionState(value: unknown): AssistantChatSkillDecisionState | null {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
       return null;
     }
@@ -489,16 +509,7 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       typeof row.checkedAtMessageIndex === "number" && Number.isInteger(row.checkedAtMessageIndex)
         ? row.checkedAtMessageIndex
         : null;
-    const messageCountSinceCheck =
-      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
-        ? row.messageCountSinceCheck
-        : null;
-    if (
-      status === null ||
-      confidence === null ||
-      checkedAtMessageIndex === null ||
-      messageCountSinceCheck === null
-    ) {
+    if (status === null || confidence === null || checkedAtMessageIndex === null) {
       return null;
     }
     return {
@@ -507,12 +518,36 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       activeSkillName: status === "active" ? activeSkillName : null,
       topicSummary,
       confidence,
-      checkedAtMessageIndex,
+      checkedAtMessageIndex
+    };
+  }
+
+  private parseSkillCadenceState(value: unknown): AssistantChatSkillCadenceState | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const messageCountSinceCheck =
+      typeof row.messageCountSinceCheck === "number" && Number.isInteger(row.messageCountSinceCheck)
+        ? row.messageCountSinceCheck
+        : null;
+    const needsBootstrap = typeof row.needsBootstrap === "boolean" ? row.needsBootstrap : null;
+    if (messageCountSinceCheck === null || needsBootstrap === null) {
+      return null;
+    }
+    return {
       messageCountSinceCheck,
       backgroundCheckQueuedAtMessageIndex:
         typeof row.backgroundCheckQueuedAtMessageIndex === "number" &&
         Number.isInteger(row.backgroundCheckQueuedAtMessageIndex)
           ? row.backgroundCheckQueuedAtMessageIndex
+          : null,
+      needsBootstrap,
+      bootstrapReason:
+        row.bootstrapReason === "new_chat" ||
+        row.bootstrapReason === "skills_enabled_after_chat_started" ||
+        row.bootstrapReason === "migration_repair"
+          ? row.bootstrapReason
           : null
     };
   }
@@ -525,6 +560,63 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       author: message.author,
       content: message.content,
       createdAt: message.createdAt
+    };
+  }
+
+  private parseSkillRetrievalState(value: unknown): AssistantChatSkillRetrievalState | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const activeSkillId = typeof row.activeSkillId === "string" ? row.activeSkillId : null;
+    const lastUserMessageId =
+      typeof row.lastUserMessageId === "string" ? row.lastUserMessageId : null;
+    const lastUserQueryFingerprint =
+      typeof row.lastUserQueryFingerprint === "string" ? row.lastUserQueryFingerprint : null;
+    const lastRetrievedAtMessageIndex =
+      typeof row.lastRetrievedAtMessageIndex === "number" &&
+      Number.isInteger(row.lastRetrievedAtMessageIndex)
+        ? row.lastRetrievedAtMessageIndex
+        : null;
+    const lastMode =
+      row.lastMode === "reuse_cached_refs" ||
+      row.lastMode === "refresh_search_only" ||
+      row.lastMode === "refresh_with_helper"
+        ? row.lastMode
+        : null;
+    const reuseStreak =
+      typeof row.reuseStreak === "number" && Number.isInteger(row.reuseStreak)
+        ? row.reuseStreak
+        : null;
+    if (
+      activeSkillId === null ||
+      lastUserMessageId === null ||
+      lastUserQueryFingerprint === null ||
+      lastRetrievedAtMessageIndex === null ||
+      lastMode === null ||
+      reuseStreak === null
+    ) {
+      return null;
+    }
+    return {
+      activeSkillId,
+      lastUserMessageId,
+      lastUserQueryFingerprint,
+      lastTopReferenceIds: Array.isArray(row.lastTopReferenceIds)
+        ? row.lastTopReferenceIds.filter((entry): entry is string => typeof entry === "string")
+        : [],
+      lastTopReferenceScores: Array.isArray(row.lastTopReferenceScores)
+        ? row.lastTopReferenceScores.filter(
+            (entry): entry is number => typeof entry === "number" && Number.isFinite(entry)
+          )
+        : [],
+      lastRetrievedAtMessageIndex,
+      lastMode,
+      lastHelperApplied: row.lastHelperApplied === true,
+      lastHelperChangedOrder: row.lastHelperChangedOrder === true,
+      reuseStreak,
+      lastCandidateSetHash:
+        typeof row.lastCandidateSetHash === "string" ? row.lastCandidateSetHash : null
     };
   }
 }

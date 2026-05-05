@@ -571,6 +571,7 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     {
       jobId: "job-1",
       kind: "image",
+      toolCode: "image_generate",
       status: "running",
       createdAt: "2026-04-11T11:55:00.000Z",
       startedAt: "2026-04-11T11:56:00.000Z",
@@ -581,15 +582,15 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     requestWithOpenMediaJobs,
     runtimeBundle
   );
-  assert.ok(
+  assert.equal(
     hydratedWithOpenMediaJobs.some(
       (message) =>
         message.role === "assistant" &&
         typeof message.content === "string" &&
-        message.content.includes("# Open Async Media Jobs") &&
-        message.content.includes("image job is running")
+        message.content.includes("# Open Async Media Jobs")
     ),
-    "open async media jobs should be injected into the hydrated prompt context"
+    false,
+    "open async media jobs should no longer be injected as assistant history"
   );
   assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/diagram.png"));
   assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/manual.pdf"));

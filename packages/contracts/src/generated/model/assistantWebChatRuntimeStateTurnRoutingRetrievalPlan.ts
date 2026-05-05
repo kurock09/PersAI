@@ -15,6 +15,12 @@ export type AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan = {
   useUserKnowledge: boolean;
   useProductKnowledge: boolean;
   useWeb: boolean;
+  ordinarySourcePriorityMode:
+    | "personal_first"
+    | "product_first"
+    | "web_first"
+    | "mixed_ambiguous"
+    | "not_applicable";
   confidence: AssistantWebChatRuntimeStateTurnRoutingRetrievalPlanConfidence;
   reasonCode: string;
 } | null;

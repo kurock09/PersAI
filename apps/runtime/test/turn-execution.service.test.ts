@@ -62,6 +62,7 @@ import { RuntimeScheduledActionToolService } from "../src/modules/turns/runtime-
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import type { RuntimeBundleAutoRefreshService } from "../src/modules/turns/runtime-bundle-auto-refresh.service";
+import { SkillStateRoutingService } from "../src/modules/turns/skill-state-routing.service";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import type {
   FinalizedRuntimeTurn,
@@ -2062,6 +2063,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
+    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -2178,6 +2180,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
+    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -2247,6 +2250,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     > as RuntimeBundleAutoRefreshService,
     turnContextHydrationService as unknown as TurnContextHydrationService,
     turnAcceptanceService as unknown as TurnAcceptanceService,
+    new SkillStateRoutingService(providerGatewayClient as unknown as ProviderGatewayClientService),
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
     sessionCompactionService as never,
@@ -2354,6 +2358,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     bundleRegistry.entry.parsedBundle.runtime.routingFastModelKey = "gpt-4.1";
     bundleRegistry.entry.parsedBundle.promptDocuments.routerClassifier =
       "You are the hidden PersAI early router.";
+    bundleRegistry.entry.parsedBundle.promptDocuments.skillStateClassifier =
+      "You are the hidden PersAI Skill-state classifier.";
   }
   const chooserRequest = createRuntimeTurnRequest();
   chooserRequest.bundle.bundleHash = request.bundle.bundleHash;
@@ -2455,6 +2461,35 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
+
+  const openMediaJobsRequest = createRuntimeTurnRequest();
+  openMediaJobsRequest.message.text = "делается?";
+  openMediaJobsRequest.openMediaJobs = [
+    {
+      jobId: "job-1",
+      kind: "image",
+      toolCode: "image_generate",
+      status: "running",
+      createdAt: "2026-04-11T11:55:00.000Z",
+      startedAt: "2026-04-11T11:56:00.000Z",
+      updatedAt: "2026-04-11T11:59:00.000Z"
+    }
+  ];
+  const openMediaJobsOffset = providerGatewayClient.calls.length;
+  const openMediaJobsCompleted = await service.createTurn(openMediaJobsRequest);
+  assert.equal(openMediaJobsCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
+    /## Open Media Jobs/
+  );
+  assert.match(
+    providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
+    /Server truth: background media generation is already in progress in this chat\./
+  );
+  assert.match(
+    providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
+    /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
+  );
 
   if (bundleRegistry.entry !== null) {
     const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
@@ -2804,12 +2839,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   const groundedSkillRequest = createRuntimeTurnRequest();
   groundedSkillRequest.bundle.bundleHash = request.bundle.bundleHash;
-  groundedSkillRequest.message.text = "Explain nutrition principles using my uploaded plan.";
-  groundedSkillRequest.skillRoutingContext = {
-    state: null,
+  groundedSkillRequest.deepMode = true;
+  groundedSkillRequest.message.text =
+    "Explain nutrition principles using my uploaded plan. " +
+    "Focus on practical nutrition principles for everyday meals and explain the guidance clearly. " +
+    "Keep the answer grounded in the active nutrition skill.";
+  groundedSkillRequest.skillStateContext = {
+    decision: null,
+    cadence: null,
     currentUserMessageIndex: 8,
     recentMessages: [{ role: "user", text: groundedSkillRequest.message.text }],
-    forceCheck: true
+    forceCheck: false
   };
   turnContextHydrationService.messages = [
     {
@@ -2825,22 +2865,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       provider: "openai",
       model: "gpt-4.1",
       text: JSON.stringify({
-        executionMode: "normal",
-        retrievalHint: true,
-        toolHints: "knowledge",
+        decision: "activate",
+        skillId: "skill-diet",
+        topicSummary: "Nutrition principles",
         confidence: "high",
-        clarifyNeeded: false,
-        fallbackMode: "normal",
-        reasonCode: "classifier_grounded_skill",
-        retrievalPlan: {
-          useSkills: true,
-          selectedSkillIds: ["skill-diet"],
-          useUserKnowledge: true,
-          useProductKnowledge: false,
-          useWeb: false,
-          confidence: "high",
-          reasonCode: "classifier_grounded_skill"
-        }
+        reasonCode: "foreground_skill_match"
       }),
       respondedAt: "2026-04-11T12:00:04.000Z",
       usage: {
@@ -2857,7 +2886,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       provider: "openai",
       model: "gpt-5.4-pro",
       text: "grounded premium reply",
-      respondedAt: "2026-04-11T12:00:04.100Z",
+      respondedAt: "2026-04-11T12:00:04.050Z",
       usage: {
         providerKey: "openai",
         modelKey: "gpt-5.4-pro",
@@ -2871,11 +2900,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ];
   const groundedSkillOffset = providerGatewayClient.calls.length;
   const groundedSkillCompleted = await service.createTurn(groundedSkillRequest);
+  const groundedSkillFinalCall = providerGatewayClient.calls.at(-1);
   assert.equal(groundedSkillCompleted.assistantText, "grounded premium reply");
-  assert.equal(providerGatewayClient.calls[groundedSkillOffset + 1]?.model, "gpt-5.4-pro");
-  const groundedSkillKnowledgeSearchTool = providerGatewayClient.calls[
-    groundedSkillOffset + 1
-  ]?.tools?.find((tool) => tool.name === "knowledge_search");
+  assert.equal(providerGatewayClient.calls.length > groundedSkillOffset, true);
+  const groundedSkillKnowledgeSearchTool = groundedSkillFinalCall?.tools?.find(
+    (tool) => tool.name === "knowledge_search"
+  );
   assert.deepEqual(
     (
       groundedSkillKnowledgeSearchTool?.inputSchema as {
@@ -2892,13 +2922,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   });
   assert.equal(
     groundedSkillCompleted.usageAccounting?.entries.some(
-      (entry) => entry.modelRole === "premium_reply"
+      (entry) => entry.stepType === "skill_state_routing"
     ),
     true
   );
-  const plannedRetrievalBlock = String(
-    providerGatewayClient.calls[groundedSkillOffset + 1]?.messages[0]?.content ?? ""
-  );
+  const plannedRetrievalBlock = String(groundedSkillFinalCall?.messages[0]?.content ?? "");
   assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
   assert.ok(plannedRetrievalBlock.length <= 1_250);
   if (bundleRegistry.entry !== null) {
@@ -2972,15 +3000,20 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   emptySkillRetrievalRequest.bundle.bundleHash = request.bundle.bundleHash;
   emptySkillRetrievalRequest.message.text =
     "Adults with Type 1 Diabetes explain nutrition principles.";
-  emptySkillRetrievalRequest.skillRoutingContext = {
-    state: {
+  emptySkillRetrievalRequest.skillStateContext = {
+    decision: {
       status: "active",
       activeSkillId: "skill-diet",
       activeSkillName: "Диетолог",
       topicSummary: "Type 1 diabetes nutrition",
       confidence: "high",
-      checkedAtMessageIndex: 3,
-      messageCountSinceCheck: 1
+      checkedAtMessageIndex: 3
+    },
+    cadence: {
+      messageCountSinceCheck: 1,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
     },
     currentUserMessageIndex: 4,
     recentMessages: []

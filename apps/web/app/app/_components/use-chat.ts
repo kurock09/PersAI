@@ -136,9 +136,23 @@ type RuntimeTransportMeta = {
       useUserKnowledge: boolean;
       useProductKnowledge: boolean;
       useWeb: boolean;
+      ordinarySourcePriorityMode:
+        | "personal_first"
+        | "product_first"
+        | "web_first"
+        | "mixed_ambiguous"
+        | "not_applicable";
       confidence: "low" | "medium" | "high";
       reasonCode: string;
-    };
+    } | null;
+    skillState?: {
+      status: "inactive" | "active";
+      activeSkillId: string | null;
+      activeSkillName: string | null;
+      topicSummary: string | null;
+      confidence: "low" | "medium" | "high";
+      checkedAtMessageIndex: number;
+    } | null;
   } | null;
 };
 export interface ChatSendOptions {

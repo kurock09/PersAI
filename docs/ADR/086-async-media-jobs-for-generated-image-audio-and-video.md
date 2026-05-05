@@ -181,6 +181,8 @@ The purpose is product continuity:
 
 The summary must be factual and backend-owned. The model receives queue truth; it does not invent queue truth.
 
+Implementation note: this open-job summary should be injected as server-owned per-turn runtime guidance, not disguised as ordinary assistant chat history. It is workflow truth for the current turn, not a faux past assistant message.
+
 ### Completion turn with history
 
 When media generation finishes, PersAI may create a short synthetic/internal completion turn that sees:

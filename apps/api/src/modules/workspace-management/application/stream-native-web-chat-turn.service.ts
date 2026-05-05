@@ -7,7 +7,7 @@ import type {
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
   RuntimeOutputArtifact,
-  RuntimeSkillRoutingContext,
+  RuntimeSkillStateContext,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent
@@ -48,7 +48,7 @@ export interface StreamNativeWebChatTurnInput {
   modelRoleOverride?: RuntimeTurnRequest["modelRoleOverride"];
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
-  skillRoutingContext?: RuntimeSkillRoutingContext;
+  skillStateContext?: RuntimeSkillStateContext;
 }
 
 interface JsonResponse {
@@ -136,9 +136,9 @@ export class StreamNativeWebChatTurnService {
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
-      ...(input.skillRoutingContext === undefined
+      ...(input.skillStateContext === undefined
         ? {}
-        : { skillRoutingContext: input.skillRoutingContext })
+        : { skillStateContext: input.skillStateContext })
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,

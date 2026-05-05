@@ -42,21 +42,22 @@ function createSendNativeWebChatTurnServiceMock() {
   };
 }
 
-function createAutoSkillRoutingStateServiceMock() {
+function createSkillStatePersistenceServiceMock() {
   return {
-    buildRuntimeContext: async (input: { state?: unknown }) => ({
-      state: input.state ?? null,
+    buildRuntimeContext: async (input: { decisionState?: unknown; cadenceState?: unknown }) => ({
+      decision: input.decisionState ?? null,
+      cadence: input.cadenceState ?? null,
       currentUserMessageIndex: 1,
       recentMessages: []
     }),
-    extractStateFromTurnRouting: (input: {
-      turnRouting?: { autoSkillState?: unknown | null } | null;
-    }) => input.turnRouting?.autoSkillState,
     createBackgroundCheckContext: (context: Record<string, unknown>) => ({
       ...context,
       forceCheck: true
     }),
-    persistFromTurnRouting: async () => undefined,
+    persistFromTurnRouting: async () => ({
+      skillDecisionState: null,
+      skillCadenceState: null
+    }),
     markBackgroundCheckQueued: async () => undefined,
     shouldRunBackgroundCheck: () => false,
     runBackgroundCheck: () => undefined
@@ -234,7 +235,7 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -408,7 +409,7 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -507,13 +508,15 @@ describe("StreamWebChatTurnService", () => {
           surfaceThreadKey: "thread-1",
           title: "Chat",
           deepModeEnabled: false,
-          autoSkillRoutingState: {
+          skillDecisionState: {
             status: "active",
             activeSkillId: "skill-1",
             activeSkillName: "Psychologist",
             topicSummary: "pricing topic drift",
             confidence: "high",
-            checkedAtMessageIndex: 19,
+            checkedAtMessageIndex: 19
+          },
+          skillCadenceState: {
             messageCountSinceCheck: 5
           },
           archivedAt: null,
@@ -548,9 +551,9 @@ describe("StreamWebChatTurnService", () => {
         }
       } as never,
       {
-        checkSkillRouting: async (input: { skillRoutingContext?: Record<string, unknown> }) => {
-          backgroundCheckContext = input.skillRoutingContext ?? null;
-          return { turnRouting: null };
+        checkSkillRouting: async (input: { skillStateContext?: Record<string, unknown> }) => {
+          backgroundCheckContext = input.skillStateContext ?? null;
+          return { skillState: null };
         }
       } as never,
       {
@@ -575,19 +578,23 @@ describe("StreamWebChatTurnService", () => {
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
       {
-        buildRuntimeContext: async (input: { state?: unknown }) => ({
-          state: input.state ?? null,
+        buildRuntimeContext: async (input: {
+          decisionState?: unknown;
+          cadenceState?: unknown;
+        }) => ({
+          decision: input.decisionState ?? null,
+          cadence: input.cadenceState ?? null,
           currentUserMessageIndex: 24,
           recentMessages: [{ role: "user", text: "какой тариф лучше" }]
         }),
-        extractStateFromTurnRouting: (input: {
-          turnRouting?: { autoSkillState?: unknown | null } | null;
-        }) => input.turnRouting?.autoSkillState,
         createBackgroundCheckContext: (context: Record<string, unknown>) => ({
           ...context,
           forceCheck: true
         }),
-        persistFromTurnRouting: async () => undefined,
+        persistFromTurnRouting: async () => ({
+          skillDecisionState: null,
+          skillCadenceState: null
+        }),
         markBackgroundCheckQueued: async () => undefined,
         shouldRunBackgroundCheck: () => true,
         runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
@@ -610,13 +617,15 @@ describe("StreamWebChatTurnService", () => {
           surfaceThreadKey: "thread-1",
           title: "Chat",
           deepModeEnabled: false,
-          autoSkillRoutingState: {
+          skillDecisionState: {
             status: "active",
             activeSkillId: "skill-1",
             activeSkillName: "Psychologist",
             topicSummary: "pricing topic drift",
             confidence: "high",
-            checkedAtMessageIndex: 19,
+            checkedAtMessageIndex: 19
+          },
+          skillCadenceState: {
             messageCountSinceCheck: 5
           },
           archivedAt: null,
@@ -752,7 +761,7 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -911,7 +920,7 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -1038,7 +1047,7 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
         listOpenJobsForChatContext: async () => [],
@@ -1203,7 +1212,7 @@ function buildToolStreamingServiceForTraceTest(options: {
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
     createAttachmentObjectAvailabilityServiceMock() as never,
-    createAutoSkillRoutingStateServiceMock() as never,
+    createSkillStatePersistenceServiceMock() as never,
     {
       attachAcknowledgementMessageId: async () => 0,
       listOpenJobsForChatContext: async () => [],

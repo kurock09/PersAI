@@ -69,7 +69,8 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
   ]);
   const assignments = new Map<string, MockAssignment>();
   const chatState = {
-    autoSkillRoutingState: { stale: true } as Record<string, unknown> | null,
+    skillDecisionState: { stale: true } as Record<string, unknown> | null,
+    skillCadenceState: { stale: true } as Record<string, unknown> | null,
     skillRetrievalState: { stale: true } as Record<string, unknown> | null
   };
   let nextAssignment = 1;
@@ -143,9 +144,18 @@ function createHarness(options: { maxEnabledSkills?: number } = {}) {
         where: { assistantId: string };
         data: Record<string, unknown>;
       }) => {
-        if ("autoSkillRoutingState" in data) {
-          const nextState = data.autoSkillRoutingState;
-          chatState.autoSkillRoutingState =
+        if ("skillDecisionState" in data) {
+          const nextState = data.skillDecisionState;
+          chatState.skillDecisionState =
+            nextState !== null &&
+            typeof nextState === "object" &&
+            Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
+              ? null
+              : ((nextState as Record<string, unknown> | null) ?? null);
+        }
+        if ("skillCadenceState" in data) {
+          const nextState = data.skillCadenceState;
+          chatState.skillCadenceState =
             nextState !== null &&
             typeof nextState === "object" &&
             Object.getPrototypeOf(nextState)?.constructor?.name === "DbNull"
@@ -230,15 +240,19 @@ async function run(): Promise<void> {
   const assigned = await harness.service.replaceAssignments("user-1", ["skill-1"]);
   assert.deepEqual(assigned.assignedSkillIds, ["skill-1"]);
   assert.equal(harness.assignments.size, 1);
-  assert.deepEqual(harness.chatState.autoSkillRoutingState, {
+  assert.deepEqual(harness.chatState.skillDecisionState, {
     status: "inactive",
     activeSkillId: null,
     activeSkillName: null,
     topicSummary: null,
     confidence: "low",
-    checkedAtMessageIndex: 0,
+    checkedAtMessageIndex: 0
+  });
+  assert.deepEqual(harness.chatState.skillCadenceState, {
     messageCountSinceCheck: 0,
-    backgroundCheckQueuedAtMessageIndex: null
+    backgroundCheckQueuedAtMessageIndex: null,
+    needsBootstrap: true,
+    bootstrapReason: "skills_enabled_after_chat_started"
   });
   assert.equal(harness.chatState.skillRetrievalState, null);
   const skill2 = assigned.skills.find((item) => item.skill.id === "skill-2");
@@ -251,7 +265,8 @@ async function run(): Promise<void> {
   const cleared = await harness.service.replaceAssignments("user-1", []);
   assert.deepEqual(cleared.assignedSkillIds, []);
   assert.equal([...harness.assignments.values()][0]?.status, "disabled");
-  assert.equal(harness.chatState.autoSkillRoutingState, null);
+  assert.equal(harness.chatState.skillDecisionState, null);
+  assert.equal(harness.chatState.skillCadenceState, null);
   assert.equal(harness.chatState.skillRetrievalState, null);
   assert.ok(harness.assistant.configDirtyAt instanceof Date);
 

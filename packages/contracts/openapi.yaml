@@ -8212,6 +8212,8 @@ components:
         - surfaceThreadKey
         - title
         - deepModeEnabled
+        - skillDecisionState
+        - skillCadenceState
         - archivedAt
         - lastMessageAt
         - createdAt
@@ -8232,6 +8234,62 @@ components:
           nullable: true
         deepModeEnabled:
           type: boolean
+        skillDecisionState:
+          type: object
+          nullable: true
+          required:
+            - status
+            - activeSkillId
+            - activeSkillName
+            - topicSummary
+            - confidence
+            - checkedAtMessageIndex
+          properties:
+            status:
+              type: string
+              enum:
+                - inactive
+                - active
+            activeSkillId:
+              type: string
+              nullable: true
+            activeSkillName:
+              type: string
+              nullable: true
+            topicSummary:
+              type: string
+              nullable: true
+            confidence:
+              type: string
+              enum:
+                - low
+                - medium
+                - high
+            checkedAtMessageIndex:
+              type: integer
+        skillCadenceState:
+          type: object
+          nullable: true
+          required:
+            - messageCountSinceCheck
+            - backgroundCheckQueuedAtMessageIndex
+            - needsBootstrap
+            - bootstrapReason
+          properties:
+            messageCountSinceCheck:
+              type: integer
+            backgroundCheckQueuedAtMessageIndex:
+              type: integer
+              nullable: true
+            needsBootstrap:
+              type: boolean
+            bootstrapReason:
+              type: string
+              nullable: true
+              enum:
+                - new_chat
+                - skills_enabled_after_chat_started
+                - migration_repair
         archivedAt:
           type: string
           format: date-time
@@ -8327,6 +8385,7 @@ components:
                 - useUserKnowledge
                 - useProductKnowledge
                 - useWeb
+                - ordinarySourcePriorityMode
                 - confidence
                 - reasonCode
               properties:
@@ -8342,6 +8401,14 @@ components:
                   type: boolean
                 useWeb:
                   type: boolean
+                ordinarySourcePriorityMode:
+                  type: string
+                  enum:
+                    - personal_first
+                    - product_first
+                    - web_first
+                    - mixed_ambiguous
+                    - not_applicable
                 confidence:
                   type: string
                   enum:
@@ -8350,6 +8417,39 @@ components:
                     - high
                 reasonCode:
                   type: string
+            skillState:
+              type: object
+              nullable: true
+              required:
+                - status
+                - activeSkillId
+                - activeSkillName
+                - topicSummary
+                - confidence
+                - checkedAtMessageIndex
+              properties:
+                status:
+                  type: string
+                  enum:
+                    - inactive
+                    - active
+                activeSkillId:
+                  type: string
+                  nullable: true
+                activeSkillName:
+                  type: string
+                  nullable: true
+                topicSummary:
+                  type: string
+                  nullable: true
+                confidence:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                checkedAtMessageIndex:
+                  type: integer
     AssistantWebChatTurnState:
       type: object
       required:

@@ -9,15 +9,19 @@ export interface AssistantWebChatState {
   surfaceThreadKey: string;
   title: string | null;
   deepModeEnabled: boolean;
-  autoSkillRoutingState: {
+  skillDecisionState: {
     status: "inactive" | "active";
     activeSkillId: string | null;
     activeSkillName: string | null;
     topicSummary: string | null;
     confidence: "low" | "medium" | "high";
     checkedAtMessageIndex: number;
+  } | null;
+  skillCadenceState: {
     messageCountSinceCheck: number;
     backgroundCheckQueuedAtMessageIndex?: number | null;
+    needsBootstrap: boolean;
+    bootstrapReason?: "new_chat" | "skills_enabled_after_chat_started" | "migration_repair" | null;
   } | null;
   archivedAt: string | null;
   lastMessageAt: string | null;
@@ -51,6 +55,29 @@ export interface AssistantWebChatTurnRoutingState {
   mode: "shadow" | "active";
   executionMode: "normal" | "premium" | "reasoning";
   source: "precheck" | "llm" | "fallback";
+  retrievalPlan?: {
+    useSkills: boolean;
+    selectedSkillIds: string[];
+    useUserKnowledge: boolean;
+    useProductKnowledge: boolean;
+    useWeb: boolean;
+    ordinarySourcePriorityMode:
+      | "personal_first"
+      | "product_first"
+      | "web_first"
+      | "mixed_ambiguous"
+      | "not_applicable";
+    confidence: "low" | "medium" | "high";
+    reasonCode: string;
+  } | null;
+  skillState?: {
+    status: "inactive" | "active";
+    activeSkillId: string | null;
+    activeSkillName: string | null;
+    topicSummary: string | null;
+    confidence: "low" | "medium" | "high";
+    checkedAtMessageIndex: number;
+  } | null;
 }
 
 export interface AssistantWebChatTurnState {

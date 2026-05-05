@@ -18,4 +18,13 @@ export type AssistantWebChatRuntimeStateTurnRouting = {
   source: AssistantWebChatRuntimeStateTurnRoutingSource;
   /** @nullable */
   retrievalPlan?: AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan;
+  /** @nullable */
+  skillState?: {
+    status: "inactive" | "active";
+    activeSkillId: string | null;
+    activeSkillName: string | null;
+    topicSummary: string | null;
+    confidence: "low" | "medium" | "high";
+    checkedAtMessageIndex: number;
+  } | null;
 } | null;

@@ -721,6 +721,7 @@ export class MaterializeAssistantPublishedVersionService {
         heartbeat: onboardingDocuments.heartbeatDocument,
         presence: onboardingDocuments.presenceDocument ?? "",
         routerClassifier: promptTemplates.router_classifier ?? "",
+        skillStateClassifier: promptTemplates.skill_state_classifier ?? "",
         preview: onboardingDocuments.previewDocument,
         welcome: onboardingDocuments.welcomeDocument,
         bootstrap: onboardingDocuments.bootstrapDocument
@@ -1339,6 +1340,7 @@ export class MaterializeAssistantPublishedVersionService {
       heartbeat: null,
       presence: null,
       router_classifier: null,
+      skill_state_classifier: null,
       preview_bootstrap: null,
       welcome_bootstrap: null,
       bootstrap: null

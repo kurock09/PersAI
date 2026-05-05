@@ -115,6 +115,7 @@ describe("SendNativeWebChatTurnService", () => {
           {
             jobId: "job-1",
             kind: "image",
+            toolCode: "image_generate",
             status: "running",
             createdAt: "2026-04-11T12:55:00.000Z",
             startedAt: "2026-04-11T12:56:00.000Z",
@@ -142,6 +143,7 @@ describe("SendNativeWebChatTurnService", () => {
         {
           jobId: "job-1",
           kind: "image",
+          toolCode: "image_generate",
           status: "running",
           createdAt: "2026-04-11T12:55:00.000Z",
           startedAt: "2026-04-11T12:56:00.000Z",

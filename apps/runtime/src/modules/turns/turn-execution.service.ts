@@ -47,7 +47,7 @@ import {
   type RuntimeFailedEvent,
   type RuntimeInterruptedEvent,
   type RuntimeTextDeltaSource,
-  type RuntimeSkillRoutingCheckResult,
+  type RuntimeSkillStateCheckResult,
   type RuntimeTurnRequest,
   type RuntimeTurnResult,
   type RuntimeTurnRoutingSnapshot,
@@ -101,6 +101,7 @@ import { TurnContextHydrationService } from "./turn-context-hydration.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
+import { SkillStateRoutingService } from "./skill-state-routing.service";
 import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
 
 type NativeManagedProvider = "openai" | "anthropic";
@@ -114,6 +115,7 @@ const PROMPT_CACHE_KEY_BUCKETS = 8;
 const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const APPROX_CHARS_PER_TOKEN = 4;
+const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
@@ -285,6 +287,7 @@ export class TurnExecutionService {
     private readonly runtimeBundleAutoRefreshService: RuntimeBundleAutoRefreshService,
     private readonly turnContextHydrationService: TurnContextHydrationService,
     private readonly turnAcceptanceService: TurnAcceptanceService,
+    private readonly skillStateRoutingService: SkillStateRoutingService,
     private readonly turnRoutingService: TurnRoutingService,
     private readonly turnFinalizationService: TurnFinalizationService,
     private readonly sessionCompactionService: SessionCompactionService,
@@ -415,7 +418,7 @@ export class TurnExecutionService {
     }
   }
 
-  async checkSkillRouting(input: RuntimeTurnRequest): Promise<RuntimeSkillRoutingCheckResult> {
+  async checkSkillRouting(input: RuntimeTurnRequest): Promise<RuntimeSkillStateCheckResult> {
     this.assertSupportedTurnRequest(input, "checkSkillRouting");
     let bundleEntry = this.resolveBundleEntry(input.bundle);
     if (bundleEntry === null || !this.bundleEntryMatchesRequest(bundleEntry, input.bundle)) {
@@ -432,24 +435,20 @@ export class TurnExecutionService {
         `Runtime bundle "${input.bundle.bundleId}" is not warmed.`
       );
     }
-    const projectedTools = projectRuntimeNativeTools(bundleEntry.parsedBundle, {
-      allowModelToolExposure: false
-    });
     const request =
-      input.skillRoutingContext === undefined
+      input.skillStateContext === undefined
         ? input
         : {
             ...input,
-            skillRoutingContext: { ...input.skillRoutingContext, forceCheck: true }
+            skillStateContext: { ...input.skillStateContext, forceCheck: true }
           };
-    const routeDecision = await this.turnRoutingService.decide({
+    const result = await this.skillStateRoutingService.checkSkillState({
       bundle: bundleEntry.parsedBundle,
-      request,
-      projectedTools
+      request
     });
     return {
       requestId: input.requestId,
-      turnRouting: this.toRuntimeTurnRoutingSnapshot(routeDecision)
+      skillState: result.skillState
     };
   }
 
@@ -581,7 +580,8 @@ export class TurnExecutionService {
       projectedTools,
       input.deepMode === true,
       executionPlan.routeDecision,
-      presenceBlock
+      presenceBlock,
+      input.openMediaJobs
     );
     options?.trace?.stage("prepare.provider_request_built");
     return {
@@ -661,9 +661,9 @@ export class TurnExecutionService {
 
   private isActiveSkillRetrievalTurn(routeDecision: TurnRouteDecision): boolean {
     if (
-      routeDecision.autoSkillState?.status === "active" &&
-      typeof routeDecision.autoSkillState.activeSkillId === "string" &&
-      routeDecision.autoSkillState.activeSkillId.trim().length > 0
+      routeDecision.skillState?.status === "active" &&
+      typeof routeDecision.skillState.activeSkillId === "string" &&
+      routeDecision.skillState.activeSkillId.trim().length > 0
     ) {
       return true;
     }
@@ -1423,7 +1423,7 @@ export class TurnExecutionService {
     routeDecision: TurnRouteDecision
   ): RuntimeTurnRoutingSnapshot | null {
     const source =
-      routeDecision.source === "classifier"
+      routeDecision.source === "llm"
         ? "llm"
         : routeDecision.source === "precheck"
           ? "precheck"
@@ -1438,7 +1438,7 @@ export class TurnExecutionService {
       executionMode: routeDecision.executionMode,
       source,
       retrievalPlan: routeDecision.retrievalPlan,
-      autoSkillState: routeDecision.autoSkillState
+      skillState: routeDecision.skillState
     };
   }
 
@@ -1528,7 +1528,8 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection,
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision,
-    presenceBlock: string | null
+    presenceBlock: string | null,
+    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -1543,7 +1544,8 @@ export class TurnExecutionService {
       projectedTools,
       deepModeEnabled,
       routeDecision,
-      presenceBlock
+      presenceBlock,
+      openMediaJobs
     );
     return {
       provider: providerSelection.provider,
@@ -1581,23 +1583,47 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection | undefined,
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision | undefined,
-    presenceBlock: string | null
+    presenceBlock: string | null,
+    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
   ): string | null {
     const routingGuidance = this.buildTurnRoutingPrompt(
       projectedTools,
       routeDecision,
       deepModeEnabled
     );
+    const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(openMediaJobs);
     // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
     // Background Task Evaluation prompt. It must never be appended to a normal
     // user-visible chat turn; otherwise the main assistant may return service
     // decisions like `no_push` as chat text. Background evaluation consumes
     // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
     const presenceSection = this.normalizeOptionalText(presenceBlock);
-    const sections = [routingGuidance, presenceSection]
+    const sections = [routingGuidance, openMediaJobsSection, presenceSection]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;
+  }
+
+  private buildOpenMediaJobsDeveloperSection(
+    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
+  ): string | null {
+    if (openMediaJobs === undefined || openMediaJobs.length === 0) {
+      return null;
+    }
+    const lines = [
+      "## Open Media Jobs",
+      "Server truth: background media generation is already in progress in this chat.",
+      "Use this status block for any progress reply in the current turn.",
+      "Do not start a new image_generate, image_edit, video_generate, or audio_generate call unless the current user turn is clearly asking for a separate new media task.",
+      ...openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
+        const ageLine =
+          job.startedAt === null
+            ? `created ${job.createdAt}, not started yet`
+            : `created ${job.createdAt}, started ${job.startedAt}`;
+        return `${index + 1}. ${job.toolCode} job is ${job.status}; ${ageLine}.`;
+      })
+    ];
+    return lines.join("\n");
   }
 
   private buildTurnRoutingPrompt(
@@ -1792,7 +1818,7 @@ export class TurnExecutionService {
       source: "default",
       mode: "shadow",
       usage: null,
-      autoSkillState: input.skillRoutingContext?.state ?? null
+      skillState: input.skillStateContext?.decision ?? null
     };
     if (input.modelRoleOverride !== undefined) {
       return {
@@ -1808,11 +1834,18 @@ export class TurnExecutionService {
         usageEntries: []
       };
     }
-    const routeDecision = await this.turnRoutingService.decide({
+    let routeDecision = await this.turnRoutingService.decide({
       bundle,
       request: input,
       projectedTools
     });
+    const usageEntries = this.toTurnRoutingUsageEntries(routeDecision.usage);
+    const foregroundSkillActivation = await this.maybeApplyForegroundSkillActivation({
+      bundle,
+      request: input,
+      routeDecision
+    });
+    routeDecision = foregroundSkillActivation.routeDecision;
     const modelRole =
       routeDecision.mode === "active"
         ? this.mapExecutionModeToModelRole(routeDecision.executionMode)
@@ -1822,7 +1855,7 @@ export class TurnExecutionService {
     return {
       modelRole,
       routeDecision,
-      usageEntries: this.toTurnRoutingUsageEntries(routeDecision.usage)
+      usageEntries: [...usageEntries, ...foregroundSkillActivation.usageEntries]
     };
   }
 
@@ -1848,6 +1881,108 @@ export class TurnExecutionService {
     return [
       {
         stepType: "turn_routing",
+        modelRole: "system_tool",
+        providerKey: usage.providerKey,
+        modelKey: usage.modelKey,
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.cachedInputTokens ?? null,
+        outputTokens: usage.outputTokens,
+        totalTokens: usage.totalTokens
+      }
+    ];
+  }
+
+  private async maybeApplyForegroundSkillActivation(input: {
+    bundle: AssistantRuntimeBundle;
+    request: RuntimeTurnRequest;
+    routeDecision: TurnRouteDecision;
+  }): Promise<{
+    routeDecision: TurnRouteDecision;
+    usageEntries: RuntimeUsageAccountingEntry[];
+  }> {
+    if (
+      input.request.skillStateContext?.forceCheck === true ||
+      input.routeDecision.skillState?.status === "active" ||
+      !this.skillStateRoutingService.shouldTryForegroundActivation({
+        bundle: input.bundle,
+        request: input.request
+      })
+    ) {
+      return {
+        routeDecision: input.routeDecision,
+        usageEntries: []
+      };
+    }
+    const result = await this.skillStateRoutingService.tryForegroundActivation({
+      bundle: input.bundle,
+      request: input.request
+    });
+    const skillState = result.skillState;
+    if (
+      skillState === null ||
+      skillState.status !== "active" ||
+      skillState.activeSkillId === null ||
+      skillState.activeSkillId.trim().length === 0
+    ) {
+      return {
+        routeDecision: input.routeDecision,
+        usageEntries: this.toUsageEntries("skill_state_routing", result.usage)
+      };
+    }
+    const routeDecision = this.applyForegroundSkillActivationToDecision({
+      routeDecision: input.routeDecision,
+      skillState,
+      request: input.request
+    });
+    return {
+      routeDecision,
+      usageEntries: this.toUsageEntries("skill_state_routing", result.usage)
+    };
+  }
+
+  private applyForegroundSkillActivationToDecision(input: {
+    routeDecision: TurnRouteDecision;
+    skillState: NonNullable<TurnRouteDecision["skillState"]>;
+    request: RuntimeTurnRequest;
+  }): TurnRouteDecision {
+    const activatedDecision: TurnRouteDecision = {
+      ...input.routeDecision,
+      skillState: input.skillState,
+      retrievalPlan: {
+        ...input.routeDecision.retrievalPlan,
+        useSkills: true,
+        selectedSkillIds: [input.skillState.activeSkillId ?? ""].filter((id) => id.length > 0),
+        ordinarySourcePriorityMode: "not_applicable",
+        reasonCode: "foreground_skill_activation"
+      },
+      reasonCode: `${input.routeDecision.reasonCode}:foreground_skill_activation`
+    };
+    if (activatedDecision.executionMode !== "normal") {
+      return activatedDecision;
+    }
+    if (
+      activatedDecision.retrievalPlan.useUserKnowledge ||
+      activatedDecision.retrievalPlan.useProductKnowledge ||
+      input.request.message.attachments.some((attachment) => attachment.kind === "file")
+    ) {
+      return {
+        ...activatedDecision,
+        executionMode: "premium"
+      };
+    }
+    return activatedDecision;
+  }
+
+  private toUsageEntries(
+    stepType: string,
+    usage: RuntimeUsageSnapshot | null
+  ): RuntimeUsageAccountingEntry[] {
+    if (usage === null) {
+      return [];
+    }
+    return [
+      {
+        stepType,
         modelRole: "system_tool",
         providerKey: usage.providerKey,
         modelKey: usage.modelKey,
@@ -3088,7 +3223,7 @@ export class TurnExecutionService {
     execution: PreparedTurnExecution,
     context: RuntimeRetrievedKnowledgeContext | null
   ): string | undefined {
-    const state = execution.routeDecision.autoSkillState;
+    const state = execution.routeDecision.skillState;
     if (state?.status === "active" && state.activeSkillName !== null) {
       const activeName = state.activeSkillName.trim();
       if (activeName.length > 0) {
@@ -3114,7 +3249,7 @@ export class TurnExecutionService {
   private resolveSelectedSkillActivitySummary(
     execution: PreparedTurnExecution
   ): { name: string; iconEmoji?: string | null } | undefined {
-    const activeSkillId = execution.routeDecision.autoSkillState?.activeSkillId;
+    const activeSkillId = execution.routeDecision.skillState?.activeSkillId;
     const selectedSkillIds =
       typeof activeSkillId === "string" && activeSkillId.trim().length > 0
         ? [activeSkillId]
@@ -3498,7 +3633,8 @@ export class TurnExecutionService {
       execution.projectedTools,
       execution.deepModeEnabled,
       execution.routeDecision,
-      presenceBlock
+      presenceBlock,
+      input.openMediaJobs
     );
   }
 
