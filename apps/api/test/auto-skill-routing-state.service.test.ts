@@ -247,7 +247,7 @@ async function run(): Promise<void> {
       }
     }
   });
-  assert.equal(chatUpdates.length, updatesBeforeStalePersist);
+  assert.equal(chatUpdates.length, updatesBeforeStalePersist + 1);
   assert.deepEqual(chatStateById.get("chat-3"), {
     skillDecisionState: {
       status: "inactive",
@@ -258,7 +258,7 @@ async function run(): Promise<void> {
       checkedAtMessageIndex: 87
     },
     skillCadenceState: {
-      messageCountSinceCheck: 0,
+      messageCountSinceCheck: 1,
       backgroundCheckQueuedAtMessageIndex: null,
       needsBootstrap: false,
       bootstrapReason: null
@@ -290,7 +290,7 @@ async function run(): Promise<void> {
       checkedAtMessageIndex: 87
     },
     skillCadenceState: {
-      messageCountSinceCheck: 0,
+      messageCountSinceCheck: 1,
       backgroundCheckQueuedAtMessageIndex: null,
       needsBootstrap: false,
       bootstrapReason: null
@@ -324,7 +324,7 @@ async function run(): Promise<void> {
       checkedAtMessageIndex: 87
     },
     skillCadenceState: {
-      messageCountSinceCheck: 0,
+      messageCountSinceCheck: 1,
       backgroundCheckQueuedAtMessageIndex: null,
       needsBootstrap: false,
       bootstrapReason: null
@@ -344,6 +344,53 @@ async function run(): Promise<void> {
       topicSummary: "persai landing copy",
       confidence: "high",
       checkedAtMessageIndex: 87
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 2,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
+  });
+
+  chatStateById.set("chat-4", {
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "image generation",
+      confidence: "high",
+      checkedAtMessageIndex: 12
+    },
+    skillCadenceState: {
+      messageCountSinceCheck: 0,
+      backgroundCheckQueuedAtMessageIndex: null,
+      needsBootstrap: false,
+      bootstrapReason: null
+    }
+  });
+  await service.persistFromTurnRouting({
+    chatId: "chat-4",
+    currentUserMessageIndex: 13,
+    turnRouting: {
+      skillState: {
+        status: "inactive",
+        activeSkillId: null,
+        activeSkillName: null,
+        topicSummary: "image generation",
+        confidence: "high",
+        checkedAtMessageIndex: 12
+      }
+    }
+  });
+  assert.deepEqual(chatStateById.get("chat-4"), {
+    skillDecisionState: {
+      status: "inactive",
+      activeSkillId: null,
+      activeSkillName: null,
+      topicSummary: "image generation",
+      confidence: "high",
+      checkedAtMessageIndex: 12
     },
     skillCadenceState: {
       messageCountSinceCheck: 1,

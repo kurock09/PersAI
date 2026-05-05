@@ -135,14 +135,14 @@ export function buildAdminBillingProviderCredentialsState(params: {
           updatedAt: params.cloudpaymentsPublicTerminalIdMetadata.updatedAt
         },
         description:
-          "CloudPayments widget public terminal id is exposed only through checkout payloads; API Secret stays server-only for trusted webhook verification and billing API work."
+          "CloudPayments public terminal id is exposed only through checkout payloads; API Secret stays server-only for trusted webhook verification and billing API work."
       }
     ],
     notes: [
       "Billing provider secrets are managed globally for the active PersAI billing path.",
       "Raw billing secrets are write-only and stored encrypted in PersAI.",
       "CloudPayments API Secret is required for trusted webhook verification.",
-      "CloudPayments Public Terminal ID is required for the production widget checkout path."
+      "CloudPayments Public Terminal ID is required for the production embedded checkout path."
     ]
   };
 }

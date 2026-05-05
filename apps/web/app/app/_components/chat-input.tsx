@@ -867,7 +867,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
           {activeMediaJobs.length > 0 && (
             <div
               aria-live="polite"
-              className="pointer-events-none absolute bottom-full left-0 right-0 z-10 mb-2"
+              className="pointer-events-none absolute right-0 bottom-full z-10 mb-2 flex max-w-full justify-end"
             >
               {showCollapsedMediaJobs ? (
                 <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted shadow-sm pointer-events-auto">
@@ -876,7 +876,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   </span>
                 </div>
               ) : (
-                <div className="flex max-w-full gap-2 overflow-x-auto pb-0.5 pointer-events-auto">
+                <div className="flex max-w-full justify-end gap-2 overflow-x-auto pb-0.5 pointer-events-auto">
                   {visibleMediaJobs.map((job) => (
                     <div
                       key={job.id}

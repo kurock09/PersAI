@@ -253,7 +253,18 @@ export class AutoSkillRoutingStateService {
     const nextDecision = this.extractDecisionStateFromTurnRouting({
       turnRouting: input.turnRouting
     });
+    const carriesForwardStaleDecision =
+      nextDecision !== undefined &&
+      nextDecision !== null &&
+      nextDecision.checkedAtMessageIndex < input.currentUserMessageIndex;
     if (nextDecision !== undefined) {
+      if (carriesForwardStaleDecision) {
+        return this.persistFromTurnRouting({
+          chatId: input.chatId,
+          currentUserMessageIndex: input.currentUserMessageIndex,
+          turnRouting: {}
+        });
+      }
       const normalizedDecision = nextDecision === null ? null : nextDecision;
       const nextCadence =
         normalizedDecision === null

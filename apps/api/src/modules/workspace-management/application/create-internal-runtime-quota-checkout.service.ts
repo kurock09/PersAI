@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { ManageAssistantPaymentIntentsService } from "./manage-assistant-payment-intents.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 
@@ -59,7 +59,7 @@ export class CreateInternalRuntimeQuotaCheckoutService {
     paymentIntentId: string;
     targetPlanCode: string;
     paymentMethodClass: "card" | "sbp_qr";
-    checkoutMode: "widget" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+    checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
     checkoutPagePath: string;
   }> {
     this.assertExplicitConfirmation(input.userConfirmationText, input.confirmed);
@@ -80,6 +80,13 @@ export class CreateInternalRuntimeQuotaCheckoutService {
         returnUrl: "/app/chat"
       }
     );
+    if (paymentIntent.status !== "checkout_ready" || paymentIntent.checkout.mode === null) {
+      throw new ServiceUnavailableException(
+        paymentIntent.lastErrorMessage?.trim().length
+          ? paymentIntent.lastErrorMessage
+          : "Provider checkout session is unavailable right now."
+      );
+    }
     return {
       ok: true,
       paymentIntentId: paymentIntent.id,

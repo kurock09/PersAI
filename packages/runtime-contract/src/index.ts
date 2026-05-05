@@ -844,7 +844,7 @@ export interface RuntimeQuotaStatusCheckout {
   paymentIntentId: string;
   targetPlanCode: string;
   paymentMethodClass: "card" | "sbp_qr";
-  checkoutMode: "widget" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+  checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
   checkoutPagePath: string;
 }
 

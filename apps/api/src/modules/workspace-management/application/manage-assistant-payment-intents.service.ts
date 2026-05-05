@@ -30,7 +30,7 @@ export type AssistantPaymentIntentStatus =
   | "expired";
 export type AssistantPaymentIntentBillingPeriod = "month" | "year";
 export type AssistantPaymentCheckoutMode =
-  | "widget"
+  | "embedded"
   | "redirect"
   | "payment_link"
   | "qr_code"
@@ -99,6 +99,10 @@ type StoredPlanPrice = {
   currency: string;
   billingPeriod: AssistantPaymentIntentBillingPeriod;
 };
+
+function toMinorCurrencyUnits(amountMajor: number): number {
+  return Math.round(amountMajor * 100);
+}
 
 const paymentIntentSelect = {
   id: true,
@@ -198,7 +202,7 @@ function parseStoredPlanPrice(billingProviderHints: unknown): StoredPlanPrice | 
   const hints = asObject(billingProviderHints);
   const presentation = asObject(hints?.presentation);
   const price = asObject(presentation?.price);
-  const amountMinor =
+  const amountMajor =
     typeof price?.amount === "number" && Number.isInteger(price.amount) && price.amount > 0
       ? price.amount
       : null;
@@ -207,11 +211,11 @@ function parseStoredPlanPrice(billingProviderHints: unknown): StoredPlanPrice | 
     price?.billingPeriod === "month" || price?.billingPeriod === "year"
       ? price.billingPeriod
       : null;
-  if (amountMinor === null || currency === null || billingPeriod === null) {
+  if (amountMajor === null || currency === null || billingPeriod === null) {
     return null;
   }
   return {
-    amountMinor,
+    amountMinor: toMinorCurrencyUnits(amountMajor),
     currency,
     billingPeriod
   };
@@ -269,7 +273,7 @@ export class ManageAssistantPaymentIntentsService {
       throw new BadRequestException("Selected plan is already active for this workspace.");
     }
     const action = this.resolveAction(context.currentPlanPrice, context.subscription.status, {
-      amountMinor: targetPrice.amount,
+      amountMinor: toMinorCurrencyUnits(targetPrice.amount),
       currency: targetPrice.currency,
       billingPeriod: targetPrice.billingPeriod
     });
@@ -295,7 +299,7 @@ export class ManageAssistantPaymentIntentsService {
         targetPlanCode: targetPlan.code,
         action,
         paymentMethodClass: input.paymentMethodClass,
-        amountMinor: targetPrice.amount,
+        amountMinor: toMinorCurrencyUnits(targetPrice.amount),
         currency: targetPrice.currency,
         billingPeriod: targetPrice.billingPeriod,
         idempotencyKey: input.idempotencyKey,
@@ -318,7 +322,7 @@ export class ManageAssistantPaymentIntentsService {
         userId,
         planCode: targetPlan.code,
         action,
-        amountMinor: targetPrice.amount,
+        amountMinor: toMinorCurrencyUnits(targetPrice.amount),
         currency: targetPrice.currency,
         billingPeriod: targetPrice.billingPeriod,
         paymentMethodClass: input.paymentMethodClass,

@@ -238,7 +238,7 @@ enum WorkspacePaymentIntentBillingPeriod {
 }
 
 enum WorkspacePaymentCheckoutMode {
-  widget
+  embedded
   redirect
   payment_link
   qr_code

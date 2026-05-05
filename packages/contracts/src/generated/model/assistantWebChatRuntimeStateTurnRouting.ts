@@ -8,6 +8,7 @@ import type { AssistantWebChatRuntimeStateTurnRoutingMode } from "./assistantWeb
 import type { AssistantWebChatRuntimeStateTurnRoutingExecutionMode } from "./assistantWebChatRuntimeStateTurnRoutingExecutionMode";
 import type { AssistantWebChatRuntimeStateTurnRoutingSource } from "./assistantWebChatRuntimeStateTurnRoutingSource";
 import type { AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan } from "./assistantWebChatRuntimeStateTurnRoutingRetrievalPlan";
+import type { AssistantWebChatRuntimeStateTurnRoutingSkillState } from "./assistantWebChatRuntimeStateTurnRoutingSkillState";
 
 /**
  * @nullable
@@ -19,12 +20,5 @@ export type AssistantWebChatRuntimeStateTurnRouting = {
   /** @nullable */
   retrievalPlan?: AssistantWebChatRuntimeStateTurnRoutingRetrievalPlan;
   /** @nullable */
-  skillState?: {
-    status: "inactive" | "active";
-    activeSkillId: string | null;
-    activeSkillName: string | null;
-    topicSummary: string | null;
-    confidence: "low" | "medium" | "high";
-    checkedAtMessageIndex: number;
-  } | null;
+  skillState?: AssistantWebChatRuntimeStateTurnRoutingSkillState;
 } | null;

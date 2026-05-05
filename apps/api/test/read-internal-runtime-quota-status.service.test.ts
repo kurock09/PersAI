@@ -133,7 +133,8 @@ async function run(): Promise<void> {
   assert.equal(result.visiblePlans.length, 2);
   assert.equal(result.visiblePlans[1]?.code, "pro");
   assert.equal(result.visiblePlans[1]?.isCurrent, true);
-  assert.equal(result.visiblePlans[1]?.amountMinor, 1990);
+  assert.equal(result.visiblePlans[0]?.amountMinor, 99000);
+  assert.equal(result.visiblePlans[1]?.amountMinor, 199000);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
     result.tools.some((tool) => tool.toolCode === "image_generate"),

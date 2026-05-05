@@ -10,8 +10,37 @@ import {
 } from "../../application/billing-provider-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "../../application/platform-runtime-provider-secret-store.service";
 
+type CloudpaymentsConstructorPayload = {
+  schema: "persai.billing.cloudpaymentsConstructorCheckout.v1";
+  initializationParams: {
+    publicTerminalId: string;
+    paymentSchema: "Single" | "Dual";
+    description: string;
+    amount: number;
+    currency: string;
+    externalId: string;
+    accountId?: string;
+    emailBehavior: "Required" | "Hidden" | "Optional";
+    language: "ru-RU";
+    tokenize?: boolean;
+    metadata: Record<string, unknown>;
+  };
+  customizationParams: {
+    components: {
+      paymentButton: {
+        text: string;
+      };
+    };
+  };
+  expiresAt: string;
+};
+
+function toMajorCurrencyUnits(amountMinor: number): number {
+  return Number((amountMinor / 100).toFixed(2));
+}
+
 @Injectable()
-export class CloudpaymentsWidgetBillingProviderAdapter implements BillingProviderPort {
+export class CloudpaymentsConstructorBillingProviderAdapter implements BillingProviderPort {
   constructor(
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService
   ) {}
@@ -35,25 +64,20 @@ export class CloudpaymentsWidgetBillingProviderAdapter implements BillingProvide
     }
 
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
-    return {
-      providerKey: "cloudpayments",
-      providerSessionRef: input.paymentIntentId,
-      providerPaymentRef: null,
-      mode: "widget",
-      expiresAt,
-      payload: {
-        schema: "persai.billing.cloudpaymentsWidgetCheckout.v1",
+    const amount = toMajorCurrencyUnits(input.amountMinor);
+    const payload: CloudpaymentsConstructorPayload = {
+      schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
+      initializationParams: {
         publicTerminalId: publicTerminalId.trim(),
-        amount: Number((input.amountMinor / 100).toFixed(2)),
-        currency: input.currency,
-        culture: "ru-RU",
-        description: `PersAI plan ${input.planCode}`,
-        externalId: input.paymentIntentId,
         paymentSchema: "Single",
-        accountId: input.userId,
+        description: `PersAI subscription ${input.planCode.toUpperCase()}`,
+        amount,
+        currency: input.currency,
+        externalId: input.paymentIntentId,
         emailBehavior: "Optional",
-        retryPayment: false,
-        autoClose: 3,
+        language: "ru-RU",
+        tokenize: input.paymentMethodClass === "card",
+        ...(input.providerCustomerRef !== null ? { accountId: input.providerCustomerRef } : {}),
         metadata: {
           paymentIntentId: input.paymentIntentId,
           workspaceId: input.workspaceId,
@@ -62,11 +86,29 @@ export class CloudpaymentsWidgetBillingProviderAdapter implements BillingProvide
           action: input.action,
           billingPeriod: input.billingPeriod,
           paymentMethodClass: input.paymentMethodClass,
+          recurringReady: false,
+          recurringPolicy: "disabled_until_trusted_recurrent_lifecycle_support",
           providerCustomerRef: input.providerCustomerRef,
           ...input.metadata
-        },
-        expiresAt
-      }
+        }
+      },
+      customizationParams: {
+        components: {
+          paymentButton: {
+            text: "Оплатить подписку"
+          }
+        }
+      },
+      expiresAt
+    };
+
+    return {
+      providerKey: "cloudpayments",
+      providerSessionRef: input.paymentIntentId,
+      providerPaymentRef: null,
+      mode: "embedded",
+      expiresAt,
+      payload
     };
   }
 }

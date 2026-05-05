@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { ServiceUnavailableException } from "@nestjs/common";
-import { CloudpaymentsWidgetBillingProviderAdapter } from "../src/modules/workspace-management/infrastructure/billing/cloudpayments-widget-billing-provider.adapter";
+import { CloudpaymentsConstructorBillingProviderAdapter } from "../src/modules/workspace-management/infrastructure/billing/cloudpayments-constructor-billing-provider.adapter";
 
 async function run(): Promise<void> {
   const requestedKeys: string[] = [];
-  const adapter = new CloudpaymentsWidgetBillingProviderAdapter({
+  const adapter = new CloudpaymentsConstructorBillingProviderAdapter({
     async resolveSecretValueByProviderKey(providerKey: string) {
       requestedKeys.push(providerKey);
       if (providerKey === "billing_cloudpayments__api_secret") {
@@ -23,10 +23,10 @@ async function run(): Promise<void> {
     userId: "user-1",
     planCode: "pro",
     action: "upgrade",
-    amountMinor: 1990,
+    amountMinor: 98000,
     currency: "RUB",
     billingPeriod: "month",
-    paymentMethodClass: "sbp_qr",
+    paymentMethodClass: "card",
     returnUrl: "/app/chat",
     providerCustomerRef: "cust-1",
     metadata: {
@@ -40,14 +40,43 @@ async function run(): Promise<void> {
     "billing_cloudpayments__public_terminal_id"
   ]);
   assert.equal(session.providerKey, "cloudpayments");
-  assert.equal(session.mode, "widget");
+  assert.equal(session.mode, "embedded");
   assert.equal(session.providerSessionRef, "pi-1");
-  assert.equal(session.payload.publicTerminalId, "test_api_00000000000000000000002");
-  assert.equal(session.payload.externalId, "pi-1");
-  assert.equal("restrictedPaymentMethods" in session.payload, false);
-  assert.equal((session.payload.metadata as Record<string, unknown>).paymentIntentId, "pi-1");
+  assert.equal(session.payload.schema, "persai.billing.cloudpaymentsConstructorCheckout.v1");
+  assert.equal(
+    (session.payload.initializationParams as Record<string, unknown>).publicTerminalId,
+    "test_api_00000000000000000000002"
+  );
+  assert.equal((session.payload.initializationParams as Record<string, unknown>).amount, 980);
+  assert.equal(
+    (session.payload.initializationParams as Record<string, unknown>).externalId,
+    "pi-1"
+  );
+  assert.equal(
+    (session.payload.initializationParams as Record<string, unknown>).accountId,
+    "cust-1"
+  );
+  assert.equal((session.payload.initializationParams as Record<string, unknown>).tokenize, true);
+  assert.equal(
+    (
+      (session.payload.initializationParams as Record<string, unknown>).metadata as Record<
+        string,
+        unknown
+      >
+    ).paymentIntentId,
+    "pi-1"
+  );
+  assert.equal(
+    (
+      (session.payload.initializationParams as Record<string, unknown>).metadata as Record<
+        string,
+        unknown
+      >
+    ).recurringReady,
+    false
+  );
 
-  const missingConfigAdapter = new CloudpaymentsWidgetBillingProviderAdapter({
+  const missingConfigAdapter = new CloudpaymentsConstructorBillingProviderAdapter({
     async resolveSecretValueByProviderKey(providerKey: string) {
       return providerKey === "billing_cloudpayments__api_secret" ? "cloudpayments-secret" : null;
     }
@@ -61,7 +90,7 @@ async function run(): Promise<void> {
         userId: "user-1",
         planCode: "pro",
         action: "upgrade",
-        amountMinor: 1990,
+        amountMinor: 199000,
         currency: "RUB",
         billingPeriod: "month",
         paymentMethodClass: "card",

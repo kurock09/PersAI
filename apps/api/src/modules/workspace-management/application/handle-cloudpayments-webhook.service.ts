@@ -423,7 +423,7 @@ export class HandleCloudpaymentsWebhookService {
       data: {
         status: nextStatus,
         billingProvider: "cloudpayments",
-        providerCustomerRef: payload.accountId ?? paymentIntent.providerCustomerRef,
+        providerCustomerRef: paymentIntent.providerCustomerRef,
         providerPaymentRef:
           notificationType === "refund"
             ? (paymentIntent.providerPaymentRef ??
@@ -497,7 +497,7 @@ export class HandleCloudpaymentsWebhookService {
         eventRef: this.buildEventRef(notificationType, payload),
         paymentIntentRef: paymentIntent?.id ?? null,
         billingProvider: "cloudpayments",
-        providerCustomerRef: payload.accountId ?? subscription.providerCustomerRef,
+        providerCustomerRef: subscription.providerCustomerRef,
         providerSubscriptionRef: payload.subscriptionId ?? subscription.providerSubscriptionRef,
         paidPlanCode: subscription.planCode,
         metadata: this.buildLifecycleMetadata(notificationType, payload)
@@ -517,7 +517,7 @@ export class HandleCloudpaymentsWebhookService {
         eventRef: this.buildEventRef(notificationType, payload),
         paymentIntentRef: paymentIntent?.id ?? null,
         billingProvider: "cloudpayments",
-        providerCustomerRef: payload.accountId ?? subscription?.providerCustomerRef ?? null,
+        providerCustomerRef: subscription?.providerCustomerRef ?? null,
         providerSubscriptionRef:
           payload.subscriptionId ?? subscription?.providerSubscriptionRef ?? null,
         paidPlanCode: paymentIntent?.targetPlanCode ?? subscription?.planCode ?? null,
@@ -559,7 +559,7 @@ export class HandleCloudpaymentsWebhookService {
       eventRef: this.buildEventRef(notificationType, payload),
       paymentIntentRef: paymentIntent?.id ?? null,
       billingProvider: "cloudpayments",
-      providerCustomerRef: payload.accountId ?? subscription?.providerCustomerRef ?? null,
+      providerCustomerRef: subscription?.providerCustomerRef ?? null,
       providerSubscriptionRef:
         payload.subscriptionId ?? subscription?.providerSubscriptionRef ?? null,
       paidPlanCode,

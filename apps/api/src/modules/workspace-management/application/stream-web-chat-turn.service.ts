@@ -777,6 +777,7 @@ export class StreamWebChatTurnService {
     userMessageId: string;
     userMessage: string;
     attachments: StreamNativeWebChatTurnInput["attachments"];
+    openMediaJobs?: StreamNativeWebChatTurnInput["openMediaJobs"];
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: StreamNativeWebChatTurnInput["skillStateContext"];
@@ -795,6 +796,7 @@ export class StreamWebChatTurnService {
       userMessageId: input.userMessageId,
       userMessage: input.userMessage,
       attachments: input.attachments,
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
       ...(input.skillStateContext === undefined

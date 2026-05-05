@@ -1,11 +1,6 @@
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const require = createRequire(import.meta.url);
 const tsxCliPath = require.resolve("tsx/cli");
 
 const TESTS: Array<{ modulePath: string; exportName: string }> = [

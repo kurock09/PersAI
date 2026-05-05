@@ -156,6 +156,7 @@ describe("SendWebChatTurnService", () => {
   test("routes sync web turns through the native runtime service", async () => {
     let nativeRuntimeCalls = 0;
     let capturedNativeUserMessage = "";
+    let capturedOpenMediaJobs: unknown[] | undefined;
 
     const service = new SendWebChatTurnService(
       {
@@ -176,9 +177,10 @@ describe("SendWebChatTurnService", () => {
         releaseWebTurnProcessing: async () => undefined
       } as never,
       {
-        execute: async (input: { userMessage: string }) => {
+        execute: async (input: { userMessage: string; openMediaJobs?: unknown[] }) => {
           nativeRuntimeCalls += 1;
           capturedNativeUserMessage = input.userMessage;
+          capturedOpenMediaJobs = input.openMediaJobs;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -240,7 +242,17 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         attachAcknowledgementMessageId: async () => 0,
-        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForChatContext: async () => [
+          {
+            jobId: "job-1",
+            kind: "image",
+            toolCode: "image_generate",
+            status: "running",
+            createdAt: "2026-04-05T11:59:00.000Z",
+            startedAt: "2026-04-05T11:59:10.000Z",
+            updatedAt: "2026-04-05T11:59:30.000Z"
+          }
+        ],
         listOpenJobsForWebChat: async () => []
       } as never,
       {
@@ -258,6 +270,17 @@ describe("SendWebChatTurnService", () => {
 
     assert.equal(nativeRuntimeCalls, 1);
     assert.equal(capturedNativeUserMessage, "hello");
+    assert.deepEqual(capturedOpenMediaJobs, [
+      {
+        jobId: "job-1",
+        kind: "image",
+        toolCode: "image_generate",
+        status: "running",
+        createdAt: "2026-04-05T11:59:00.000Z",
+        startedAt: "2026-04-05T11:59:10.000Z",
+        updatedAt: "2026-04-05T11:59:30.000Z"
+      }
+    ]);
     assert.equal(result.assistantMessage.content, "native");
     assert.deepEqual(result.runtime.turnRouting, {
       mode: "shadow",

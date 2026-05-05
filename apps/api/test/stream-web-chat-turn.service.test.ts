@@ -675,6 +675,7 @@ describe("StreamWebChatTurnService", () => {
     const callbackOrder: string[] = [];
     let nativeRuntimeCalls = 0;
     let capturedNativeUserMessage = "";
+    let capturedOpenMediaJobs: unknown[] | undefined;
 
     const service = new StreamWebChatTurnService(
       {
@@ -709,9 +710,10 @@ describe("StreamWebChatTurnService", () => {
         completeWebTurnProcessing: async () => undefined
       } as never,
       {
-        execute: async function* (input: { userMessage: string }) {
+        execute: async function* (input: { userMessage: string; openMediaJobs?: unknown[] }) {
           nativeRuntimeCalls += 1;
           capturedNativeUserMessage = input.userMessage;
+          capturedOpenMediaJobs = input.openMediaJobs;
           yield { type: "delta", delta: "native", accumulated: "native" };
           yield {
             type: "tool",
@@ -764,7 +766,17 @@ describe("StreamWebChatTurnService", () => {
       createSkillStatePersistenceServiceMock() as never,
       {
         attachAcknowledgementMessageId: async () => 0,
-        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForChatContext: async () => [
+          {
+            jobId: "job-1",
+            kind: "image",
+            toolCode: "image_generate",
+            status: "running",
+            createdAt: "2026-04-05T11:59:00.000Z",
+            startedAt: "2026-04-05T11:59:10.000Z",
+            updatedAt: "2026-04-05T11:59:30.000Z"
+          }
+        ],
         listOpenJobsForWebChat: async () => []
       } as never
     );
@@ -823,6 +835,17 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(outcome.status, "completed");
     assert.equal(nativeRuntimeCalls, 1);
     assert.equal(capturedNativeUserMessage, "hello");
+    assert.deepEqual(capturedOpenMediaJobs, [
+      {
+        jobId: "job-1",
+        kind: "image",
+        toolCode: "image_generate",
+        status: "running",
+        createdAt: "2026-04-05T11:59:00.000Z",
+        startedAt: "2026-04-05T11:59:10.000Z",
+        updatedAt: "2026-04-05T11:59:30.000Z"
+      }
+    ]);
     assert.equal(createdMessages.length, 1);
     assert.equal(createdMessages[0]?.content, "native");
     assert.deepEqual(callbackOrder, [

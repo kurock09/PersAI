@@ -1771,7 +1771,7 @@ export class PersaiInternalApiClientService {
       typeof row.targetPlanCode === "string" &&
       (row.paymentMethodClass === "card" || row.paymentMethodClass === "sbp_qr") &&
       (row.checkoutMode === null ||
-        row.checkoutMode === "widget" ||
+        row.checkoutMode === "embedded" ||
         row.checkoutMode === "redirect" ||
         row.checkoutMode === "payment_link" ||
         row.checkoutMode === "qr_code" ||

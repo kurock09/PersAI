@@ -32,7 +32,7 @@ type StoredIntent = {
   providerCustomerRef: string | null;
   providerSessionRef: string | null;
   providerPaymentRef: string | null;
-  checkoutMode: "widget" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+  checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
   checkoutPayload: Record<string, unknown> | null;
   expiresAt: Date | null;
   idempotencyKey: string;
@@ -46,6 +46,7 @@ type StoredIntent = {
 async function run(): Promise<void> {
   const intents: StoredIntent[] = [];
   let providerCallCount = 0;
+  let lastProviderCheckoutInput: Record<string, unknown> | null = null;
   let nextIntentId = 1;
   const now = new Date("2026-05-04T18:00:00.000Z");
   const resolveInputs: Array<{
@@ -390,6 +391,7 @@ async function run(): Promise<void> {
     {
       async createCheckoutSession(input) {
         providerCallCount += 1;
+        lastProviderCheckoutInput = input as Record<string, unknown>;
         return {
           providerKey: "manual_test",
           providerSessionRef: `manual-${input.paymentIntentId}`,
@@ -428,6 +430,8 @@ async function run(): Promise<void> {
   assert.equal(created.billingProvider, "manual_test");
   assert.equal(created.checkout.mode, "manual_test");
   assert.equal(created.checkout.payload?.schema, "persai.billing.manualTestCheckout.v1");
+  assert.equal(created.amountMinor, 200000);
+  assert.equal(lastProviderCheckoutInput?.amountMinor, 200000);
   assert.equal(providerCallCount, 1);
   assert.equal(resolveInputs[0]?.assistantPlanOverrideCode, null);
   assert.equal(resolveInputs[0]?.assistantQuotaPlanCode, null);

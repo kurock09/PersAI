@@ -95,7 +95,7 @@ When a change touches PersAI payment intents, provider-neutral checkout session 
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/cloudpayments-widget-billing-provider.adapter.test.ts
+corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts
 corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts
 corepack pnpm --filter @persai/contracts run generate
 corepack pnpm --filter @persai/contracts run typecheck
@@ -109,9 +109,9 @@ Interpretation rules:
 2. Payment-intent creation must be idempotent per workspace and caller-supplied `idempotencyKey`; the same key with different plan/method/return-url shape must fail loudly.
 3. Only active visible paid plans from the pricing source of truth may be purchased through this boundary.
 4. This slice may start `new_purchase` and `upgrade`, but must not silently perform downgrade/cancel policy early.
-5. The API response must stay provider-neutral and carry a normalized checkout mode (`widget`, `redirect`, `payment_link`, `qr_code`, or current `manual_test`) rather than provider-specific UI assumptions.
+5. The API response must stay provider-neutral and carry a normalized checkout mode (`embedded`, `redirect`, `payment_link`, `qr_code`, or current `manual_test`) rather than provider-specific UI assumptions.
 6. Product/lifecycle truth must still wait for trusted server/provider confirmation; creating a payment intent or checkout session must not activate paid access by itself.
-7. For the CloudPayments widget-first contour, checkout creation must fail loudly when the encrypted API Secret or widget public terminal id is not configured; it must not silently fall back to `manual_test`.
+7. For the CloudPayments embedded constructor contour, checkout creation must fail loudly when the encrypted API Secret or public terminal id is not configured; it must not silently fall back to `manual_test`.
 
 ## ADR-084 web checkout and return-flow focused checks
 
@@ -126,8 +126,8 @@ Interpretation rules:
 
 1. Logged-in pricing CTAs must create or reuse PersAI-owned payment intents through `POST /assistant/billing/payment-intents`; pricing cards must not synthesize provider checkout state client-side.
 2. The web layer may launch `card` and `sbp_qr` starts, but must not activate paid access from checkout launch or return alone.
-3. CloudPayments widget checkout must launch from persisted payment-intent payload on `/app/billing/checkout/:paymentIntentId`, not from ad hoc client-side pricing state.
-4. Manual/test and widget checkout flows must return the user to chat with an explicit `success`, `failed`, or `pending` envelope so the UI can explain what happened without pretending lifecycle confirmation already landed.
+3. CloudPayments embedded checkout must mount from persisted payment-intent payload on `/app/billing/checkout/:paymentIntentId`, not from ad hoc client-side pricing state.
+4. Manual/test and embedded checkout flows must return the user to chat with an explicit `success`, `failed`, or `pending` envelope so the UI can explain what happened without pretending lifecycle confirmation already landed.
 5. Failure return UX must clearly preserve the old plan and provide a retry path back to pricing.
 
 ## ADR-084 webhook-to-lifecycle focused checks
@@ -148,7 +148,7 @@ Interpretation rules:
 
 1. Trusted provider outcomes must enter PersAI through a server-side webhook/controller boundary, not through chat return params or client-declared success.
 2. Webhook verification must use the provider secret from PersAI-managed encrypted admin tools storage, not a second ad hoc config surface.
-3. The webhook path must resolve widget-originated payment intents from CloudPayments `externalId` and `metadata/data` as well as older `invoiceId` compatibility fields.
+3. The webhook path must resolve constructor-originated payment intents from CloudPayments `externalId` and `metadata/data` as well as older `invoiceId` compatibility fields.
 4. The webhook path must update `workspace_payment_intents` deterministically (`pending_confirmation`, `succeeded`, `failed`, `canceled`, `reversed`) before or alongside lifecycle application, with idempotent event refs for duplicate provider delivery.
 5. Successful paid activation or renewal must flow through `ApplyWorkspaceSubscriptionBillingEventService` / ADR-083 lifecycle services, not mutate `workspace_subscriptions` directly from the controller.
 6. Refund/reversal outcomes must apply immediate paid fallback through lifecycle truth rather than leaving the old paid state active.

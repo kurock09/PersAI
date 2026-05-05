@@ -7105,7 +7105,7 @@ components:
     AssistantBillingCheckoutMode:
       type: string
       enum:
-        - widget
+        - embedded
         - redirect
         - payment_link
         - qr_code

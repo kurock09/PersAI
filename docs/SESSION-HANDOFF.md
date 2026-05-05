@@ -1,5 +1,115 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 PROD hardening for embedded checkout truth) — false success, stale checkout state, and customer-ref leakage are closed
+
+### What changed
+
+- Kept this session tightly bounded to the independent-audit findings on the ADR-084 embedded checkout contour, with the goal of making the current path safer for production instead of widening scope.
+- Removed the most dangerous provider/customer seam: the CloudPayments constructor payload no longer writes PersAI `userId` into `accountId`, webhook/lifecycle application no longer overwrites `providerCustomerRef` from incoming `AccountId`, and recurring is now explicitly disabled in the active production contour until trusted recurrent webhook/lifecycle projection is really supported.
+- Closed the runtime false-success gap: `CreateInternalRuntimeQuotaCheckoutService` now fails loudly when payment-intent creation does not return a usable `checkout_ready` contour, so the assistant/runtime path can no longer report `checkout_created` for a failed payment intent.
+- Hardened the web checkout state machine: embedded form mounting is now blocked for expired/terminal intents, legacy widget-shaped persisted rows render a calm retry shell instead of trying to mount unsupported embedded payloads, embedded fail exits now return `failed` instead of `pending`, and embedded success returns as optimistic `pending` until server truth confirms the outcome.
+- Tightened chat return truth too: chat billing banners now key dismissal by `paymentIntentId`, poll both `pending` and `success` return states, and downgrade/upgrade the banner kind when the authoritative payment-intent status resolves.
+- Updated focused tests and admin/operator copy accordingly, including corrected minor-unit runtime quota fixtures and renaming the billing-provider field label from `Widget Public Terminal ID` to `Public Terminal ID`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/create-internal-runtime-quota-checkout.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/chat/page.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- Real live validation is still the last meaningful gap: one full embedded CloudPayments payment should confirm constructor rendering, 3DS/redirect behavior, webhook arrival, banner reconciliation, and final subscription activation with real credentials.
+- `manual_test` still exists as a dev/test compatibility contour in some contracts and UI branches. It is no longer the active production path, but a later cleanup slice can remove more of that residual compatibility if desired.
+
+### Next recommended step
+
+- Run one real end-to-end embedded checkout in the current environment and verify: payment succeeds, webhook lands, the chat banner settles from `pending` to authoritative truth, and `providerSubscriptionRef` / paid lifecycle state persist exactly once.
+
+## 2026-05-06 (ADR-086 web composer chip alignment) — active media chips now anchor to the right side of the composer
+
+### What changed
+
+- Moved the web `activeMediaJobs` chip rail in `ChatInput` from a full-width left-to-right overlay to a right-anchored overlay above the composer.
+- Kept the same pending-job surface and timing text, but aligned the chip container to the send-side of the input so attached-file previews and the left side of the draft field are no longer visually covered.
+- Extended the existing `chat-input` component test to assert the live chip rail is right-aligned.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+
+### Risks / residuals
+
+- This is a layout-only fix; it does not change `activeMediaJobs` truth or polling behavior. Mobile visual validation is still useful to confirm the new right anchor feels balanced with long localized labels.
+
+### Next recommended step
+
+- Check one live web chat with both an attached file and active media jobs to confirm the right-aligned chips no longer cover the left side of the composer.
+
+## 2026-05-06 (ADR-086 web open-media pass-through hotfix) — web follow-up turns now actually forward open jobs into runtime
+
+### What changed
+
+- Traced the founder-reported live mismatch to a concrete API-layer pass-through bug instead of prompt theory: `SendWebChatTurnService` and `StreamWebChatTurnService` were correctly reading durable `openMediaJobs` from `AssistantMediaJobService`, but their internal `buildNative*TurnInput()` helpers silently dropped that field before calling the native runtime adapters.
+- Fixed both web builder helpers so `openMediaJobs` now survive the last API hop and reach the runtime request payload, which means the already-landed `## Open Media Jobs` developer-instruction block can finally render in live web follow-up turns.
+- Extended the existing sync-web and stream-web native-routing regression tests to assert that a non-empty `openMediaJobs` list is forwarded into the native runtime input, closing the exact seam that let live web follow-up turns behave as if no open jobs existed.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx --test test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx --test test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- This hotfix closes the confirmed web API pass-through bug, but live validation is still required to confirm the deployed provider input now visibly contains `## Open Media Jobs` and that the remaining Telegram/live edge cases do not have a second independent seam.
+
+### Next recommended step
+
+- Deploy this API fix, then re-run one live web follow-up on an open image job and inspect the provider input to confirm `developerInstructions` now includes `## Open Media Jobs` before touching any second-layer routing logic.
+
+## 2026-05-05 (ADR-084 embedded constructor checkout + billing amount invariant) — checkout is now premium embedded and recurring-disabled until trusted lifecycle support
+
+### What changed
+
+- Replaced the old CloudPayments popup widget adapter with a constructor-based embedded adapter. Payment intents now persist `checkout.mode=embedded` plus a constructor payload schema (`persai.billing.cloudpaymentsConstructorCheckout.v1`) instead of widget-specific product truth.
+- Kept the first paid subscription contour intentionally non-recurring in production until PersAI can project provider renewals through trusted lifecycle truth without ambiguity. The embedded constructor payload no longer uses `userId` as a fake provider customer ref and does not advertise provider-managed recurring before webhook/lifecycle support is ready.
+- Fixed the billing money invariant end to end so admin/pricing presentation keeps major currency units, payment intents/runtime checkout transport keep minor units, and provider payloads convert back to major units explicitly. This closes the `980 RUB -> 9.8` bug on checkout.
+- Rebuilt `/app/billing/checkout/:paymentIntentId` into the founder-approved minimal embedded payment sheet: quiet eyebrow/title/subline, correct price display, mounted `paymentblocks.js` form, soft disclosure/help copy, and no exposed technical fields like checkout mode or intent status.
+- Updated Prisma/contracts/runtime types/docs to treat `embedded` as the normalized long-term checkout contour, added a migration that rewrites legacy `widget` payment-intent rows to `embedded`, and refreshed ADR-084 / API boundary / data model / test-plan truth accordingly.
+
+### Verification
+
+- `corepack pnpm contracts:generate`
+- `corepack pnpm prisma:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- Real live CloudPayments validation is still needed: one end-to-end card payment should confirm constructor rendering, 3DS/redirect behavior, webhook arrival, and chat return UX with real credentials.
+- This slice still does not add full subscription-management product surfaces such as cancel/resume/change-card UI or provider reconciliation tooling, and recurring remains deliberately disabled until the provider webhook/lifecycle path is ready.
+
+### Next recommended step
+
+- Run one real embedded checkout with the configured CloudPayments credentials, confirm `providerSubscriptionRef` lands on the active subscription after trusted confirmation, and then decide whether the next bounded slice should be customer subscription-management UX or live-operational hardening.
+
 ## 2026-05-05 (CI runtime test harness hardening) — workspace `pnpm run test` is green again
 
 ### What changed

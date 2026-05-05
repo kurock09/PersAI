@@ -133,7 +133,10 @@ export class ReadInternalRuntimeQuotaStatusService {
         displayName: plan.displayName,
         highlighted: plan.presentation.highlighted,
         isCurrent: plan.code === resolved.planCode,
-        amountMinor: plan.presentation.price.amount,
+        amountMinor:
+          typeof plan.presentation.price.amount === "number"
+            ? Math.round(plan.presentation.price.amount * 100)
+            : null,
         currency: plan.presentation.price.currency,
         billingPeriod: plan.presentation.price.billingPeriod
       })),

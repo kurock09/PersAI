@@ -208,6 +208,7 @@ describe("ChatPage", () => {
     });
     expect(chatAreaMocks.lastProps?.billingReturnKind).toBe("success");
     expect(chatAreaMocks.lastProps?.billingPlanCode).toBe("pro_plus");
+    expect(chatAreaMocks.lastProps?.billingPaymentIntentId).toBe("intent-1");
     expect(navigationMocks.replace).toHaveBeenCalledWith("/app/chat");
   });
 });

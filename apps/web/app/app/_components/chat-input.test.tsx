@@ -334,6 +334,9 @@ describe("ChatInput", () => {
 
     expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
     expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
+    expect(
+      screen.getByText("mediaJobImageGenerate 1:42").closest('[aria-live="polite"]')
+    ).toHaveClass("right-0", "justify-end");
   });
 
   it("falls back to createdAt when a media job is still queued", () => {

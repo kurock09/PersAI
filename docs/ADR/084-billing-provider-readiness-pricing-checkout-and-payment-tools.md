@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted; implementation completed through Slice 8, with Slice 9 CloudPayments widget-first wiring landed pending live credential validation.
+Accepted; implementation completed through Slice 9 with CloudPayments constructor-based embedded checkout and recurring intentionally disabled until trusted lifecycle support lands.
 
 Current continuation state:
 
-- **Purpose:** finish the PersAI-owned billing/provider boundary so only concrete provider adapter wiring remains for YooKassa, CloudPayments, Stripe, or another provider.
-- **Completed through:** Slice 8 — assistant billing capability through the existing `quota_status` tool.
-- **Next active item:** Slice 9 — live credential validation and final hardening of the concrete provider adapter.
+- **Purpose:** finish the PersAI-owned billing/provider boundary so production checkout is embedded, subscription-oriented, and still lifecycle-owned by PersAI.
+- **Completed through:** Slice 9 — concrete CloudPayments embedded checkout contour on top of PersAI payment intents.
+- **Next active item:** live end-to-end payment + webhook validation, then recurring subscription-management follow-up only where PersAI product surfaces need it.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -315,9 +315,10 @@ Slice 8 implementation note, 2026-05-05:
 
 Slice 9 implementation note, 2026-05-05:
 
-- the default billing-provider adapter is now a real `CloudPayments widget-first` adapter: it reads the encrypted API Secret plus widget public terminal id from `Admin > Tools`, returns `checkout.mode=widget`, and builds the widget payload from the persisted PersAI payment intent instead of a temporary `manual_test` session
-- `/app/billing/checkout/:paymentIntentId` now launches `cloudpayments.js` from the persisted payment-intent payload and returns the user back to chat with the same `success` / `failed` / `pending` envelope while still waiting for trusted server confirmation before activating paid access
-- CloudPayments webhook resolution now accepts widget-style `externalId` plus `metadata/data` in addition to the older `invoiceId` path so widget-originated payments reconcile back to the correct PersAI payment intent
+- the default billing-provider adapter now builds a real `CloudPayments Payment Constructor` payload from the persisted PersAI payment intent, returns normalized `checkout.mode=embedded`, and keeps provider-specific detail inside the persisted payload schema instead of product truth
+- `/app/billing/checkout/:paymentIntentId` now renders an embedded premium payment form inside the existing PersAI checkout sheet instead of launching a popup widget, while still waiting for trusted server confirmation before activating paid access
+- the first payment contour now stays intentionally non-recurring in production until PersAI fully supports trusted recurring webhook/lifecycle projection; tokenization may remain available for future use, but checkout must not imply provider-managed renewals are active yet
+- CloudPayments webhook resolution continues to accept `externalId` plus `metadata/data` in addition to the older `invoiceId` path so constructor-originated payments reconcile back to the correct PersAI payment intent
 - live provider smoke is still required before this slice can be treated as fully closed in production operations
 
 ## Customer UX
@@ -400,7 +401,7 @@ Implement in production-grade slices.
 | 6. Immediate activation/materialization | Completed   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Trusted paid success now rematerializes/warms published assistants immediately enough that chat/bootstrap can pick up the activated plan without waiting for a later random refresh.  |
 | 7. Admin manual payment and Ops support | Completed   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                                                         |
 | 8. Assistant billing tool               | Completed   | Let assistant explain plans and create payment link/QR after confirmation.   | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant can create payment link/QR only after explicit confirmation and cannot mutate subscription directly.                                                                        |
-| 9. Concrete provider adapter            | In progress | Wire real provider.                                                          | CloudPayments widget adapter, admin billing secrets, webhook verification, live smoke    | Widget payload is now created from persisted PersAI payment intents and trusted webhooks can reconcile widget-originated payments; live smoke and credential validation still remain. |
+| 9. Concrete provider adapter            | In progress | Wire real provider.                                                          | CloudPayments constructor adapter, admin billing secrets, webhook verification, live smoke | Embedded constructor payload is now created from persisted PersAI payment intents, recurring is intentionally disabled until lifecycle support is complete, and trusted webhooks still reconcile back to PersAI lifecycle truth; live smoke still remains. |
 
 ### Execution rules
 
@@ -494,7 +495,7 @@ Focused checks should prove:
 
 Current implementation observations that this ADR intentionally changes or formalizes:
 
-- A provider port exists and now backs the real CloudPayments widget-first checkout path, but subscription lifecycle truth still must remain webhook/admin driven inside PersAI rather than coming from provider-side pull sync.
+- A provider port exists and now backs the real CloudPayments embedded checkout path, but subscription lifecycle truth still must remain webhook/admin driven inside PersAI rather than coming from provider-side pull sync.
 - Admin plan catalog already carries rich plan limits and can become the source for pricing cards.
 - Ops Plan Control already exists for tester/manual override; ADR-084 keeps it separate from billing/payment truth.
 - ADR-083 lifecycle state should own trial/paid/grace/fallback outcomes; ADR-084 provider events should update that state rather than creating a parallel source of truth.

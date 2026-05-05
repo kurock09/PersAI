@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantChatSurface } from "./assistantChatSurface";
+import type { AssistantWebChatStateSkillDecisionState } from "./assistantWebChatStateSkillDecisionState";
+import type { AssistantWebChatStateSkillCadenceState } from "./assistantWebChatStateSkillCadenceState";
 
 export interface AssistantWebChatState {
   id: string;
@@ -15,21 +17,9 @@ export interface AssistantWebChatState {
   title: string | null;
   deepModeEnabled: boolean;
   /** @nullable */
-  skillDecisionState: {
-    status: "inactive" | "active";
-    activeSkillId: string | null;
-    activeSkillName: string | null;
-    topicSummary: string | null;
-    confidence: "low" | "medium" | "high";
-    checkedAtMessageIndex: number;
-  } | null;
+  skillDecisionState: AssistantWebChatStateSkillDecisionState;
   /** @nullable */
-  skillCadenceState: {
-    messageCountSinceCheck: number;
-    backgroundCheckQueuedAtMessageIndex: number | null;
-    needsBootstrap: boolean;
-    bootstrapReason: "new_chat" | "skills_enabled_after_chat_started" | "migration_repair" | null;
-  } | null;
+  skillCadenceState: AssistantWebChatStateSkillCadenceState;
   /** @nullable */
   archivedAt: string | null;
   /** @nullable */

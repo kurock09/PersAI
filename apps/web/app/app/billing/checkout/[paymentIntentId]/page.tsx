@@ -1,106 +1,143 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
 import { useParams, useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import type { AssistantBillingPaymentIntentState } from "@persai/contracts";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, ChevronDown, Loader2 } from "lucide-react";
 import { getAssistantBillingPaymentIntent } from "../../../assistant-api-client";
 
-type CloudpaymentsWidgetPayload = {
-  schema: "persai.billing.cloudpaymentsWidgetCheckout.v1";
-  publicTerminalId: string;
-  amount: number;
-  currency: string;
-  culture?: string;
-  description?: string;
-  externalId: string;
-  paymentSchema: "Single" | "Dual";
-  accountId?: string;
-  emailBehavior?: "Required" | "Hidden" | "Optional";
-  retryPayment?: boolean;
-  autoClose?: number;
-  restrictedPaymentMethods?: string[];
-  metadata?: Record<string, unknown>;
+type CloudpaymentsConstructorPayload = {
+  schema: "persai.billing.cloudpaymentsConstructorCheckout.v1";
+  initializationParams: {
+    publicTerminalId: string;
+    paymentSchema: "Single" | "Dual";
+    description: string;
+    amount: number;
+    currency: string;
+    externalId: string;
+    accountId?: string;
+    emailBehavior: "Required" | "Hidden" | "Optional";
+    language: "ru-RU";
+    tokenize?: boolean;
+    metadata: Record<string, unknown>;
+  };
+  customizationParams?: {
+    components?: {
+      paymentButton?: {
+        text?: string;
+      };
+    };
+  };
   expiresAt?: string;
 };
 
-type CloudpaymentsWidgetResult = {
-  type?: "cancel" | "payment" | "installment" | "error";
-  status?: "success" | "fail" | "appointment" | "reject" | "cancel";
+type LegacyCloudpaymentsWidgetPayload = {
+  schema: "persai.billing.cloudpaymentsWidgetCheckout.v1";
 };
 
 declare global {
   interface Window {
     cp?: {
-      CloudPayments: new () => {
-        oncomplete?: (result: CloudpaymentsWidgetResult) => void;
-        start: (params: CloudpaymentsWidgetPayload) => Promise<unknown>;
+      PaymentBlocks: new (
+        initializationParams: CloudpaymentsConstructorPayload["initializationParams"],
+        customizationParams?: CloudpaymentsConstructorPayload["customizationParams"]
+      ) => {
+        mount: (target: HTMLElement) => void;
+        unmount: () => void;
+        on: (event: "success" | "fail" | "destroy", callback: (result?: unknown) => void) => void;
+        off: (event: "success" | "fail" | "destroy") => void;
       };
     };
   }
 }
 
-const CLOUDPAYMENTS_WIDGET_SCRIPT_SRC = "https://widget.cloudpayments.ru/bundles/cloudpayments.js";
+const CLOUDPAYMENTS_CONSTRUCTOR_SCRIPT_SRC =
+  "https://widget.cloudpayments.ru/bundles/paymentblocks.js";
 
-let cloudpaymentsWidgetScriptPromise: Promise<void> | null = null;
+let cloudpaymentsConstructorScriptPromise: Promise<void> | null = null;
 
-function isCloudpaymentsWidgetPayload(value: unknown): value is CloudpaymentsWidgetPayload {
+function isCloudpaymentsConstructorPayload(
+  value: unknown
+): value is CloudpaymentsConstructorPayload {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const row = value as Record<string, unknown>;
+  const initializationParams =
+    row.initializationParams !== null &&
+    typeof row.initializationParams === "object" &&
+    !Array.isArray(row.initializationParams)
+      ? (row.initializationParams as Record<string, unknown>)
+      : null;
   return (
-    row.schema === "persai.billing.cloudpaymentsWidgetCheckout.v1" &&
-    typeof row.publicTerminalId === "string" &&
-    typeof row.amount === "number" &&
-    Number.isFinite(row.amount) &&
-    typeof row.currency === "string" &&
-    typeof row.externalId === "string" &&
-    (row.paymentSchema === "Single" || row.paymentSchema === "Dual")
+    row.schema === "persai.billing.cloudpaymentsConstructorCheckout.v1" &&
+    initializationParams !== null &&
+    typeof initializationParams.publicTerminalId === "string" &&
+    typeof initializationParams.amount === "number" &&
+    Number.isFinite(initializationParams.amount) &&
+    typeof initializationParams.currency === "string" &&
+    typeof initializationParams.externalId === "string" &&
+    (initializationParams.paymentSchema === "Single" ||
+      initializationParams.paymentSchema === "Dual")
   );
 }
 
-function loadCloudpaymentsWidgetScript(): Promise<void> {
+function isLegacyCloudpaymentsWidgetPayload(
+  value: unknown
+): value is LegacyCloudpaymentsWidgetPayload {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).schema === "persai.billing.cloudpaymentsWidgetCheckout.v1"
+  );
+}
+
+function loadCloudpaymentsConstructorScript(): Promise<void> {
   if (typeof window === "undefined") {
-    return Promise.reject(new Error("CloudPayments widget can only load in the browser."));
+    return Promise.reject(new Error("CloudPayments payment form can only load in the browser."));
   }
-  if (window.cp?.CloudPayments) {
+  if (window.cp?.PaymentBlocks) {
     return Promise.resolve();
   }
-  if (cloudpaymentsWidgetScriptPromise !== null) {
-    return cloudpaymentsWidgetScriptPromise;
+  if (cloudpaymentsConstructorScriptPromise !== null) {
+    return cloudpaymentsConstructorScriptPromise;
   }
-  cloudpaymentsWidgetScriptPromise = new Promise<void>((resolve, reject) => {
+  cloudpaymentsConstructorScriptPromise = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(
-      'script[data-persai-cloudpayments-widget="true"]'
+      'script[data-persai-cloudpayments-constructor="true"]'
     );
     if (existing !== null) {
+      if (window.cp?.PaymentBlocks) {
+        resolve();
+        return;
+      }
       existing.addEventListener("load", () => resolve(), { once: true });
       existing.addEventListener(
         "error",
-        () => reject(new Error("CloudPayments widget script failed to load.")),
+        () => reject(new Error("CloudPayments payment form script failed to load.")),
         { once: true }
       );
       return;
     }
 
     const script = document.createElement("script");
-    script.src = CLOUDPAYMENTS_WIDGET_SCRIPT_SRC;
+    script.src = CLOUDPAYMENTS_CONSTRUCTOR_SCRIPT_SRC;
     script.async = true;
-    script.dataset.persaiCloudpaymentsWidget = "true";
+    script.dataset.persaiCloudpaymentsConstructor = "true";
     script.onload = () => resolve();
-    script.onerror = () => reject(new Error("CloudPayments widget script failed to load."));
+    script.onerror = () => reject(new Error("CloudPayments payment form script failed to load."));
     document.head.appendChild(script);
   }).finally(() => {
-    if (!window.cp?.CloudPayments) {
-      cloudpaymentsWidgetScriptPromise = null;
+    if (!window.cp?.PaymentBlocks) {
+      cloudpaymentsConstructorScriptPromise = null;
     }
   });
-  return cloudpaymentsWidgetScriptPromise;
+  return cloudpaymentsConstructorScriptPromise;
 }
 
 function buildChatReturnHref(
@@ -115,8 +152,48 @@ function buildChatReturnHref(
   return `/app/chat?${params.toString()}` as Route;
 }
 
+function formatPlanCode(planCode: string): string {
+  return planCode.replace(/[_-]+/g, " ").trim().toUpperCase();
+}
+
+function formatSubscriptionPrice(
+  paymentIntent: AssistantBillingPaymentIntentState,
+  locale: string,
+  t: ReturnType<typeof useTranslations>
+): string {
+  const formatted = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: paymentIntent.currency,
+    maximumFractionDigits: paymentIntent.amountMinor % 100 === 0 ? 0 : 2
+  }).format(paymentIntent.amountMinor / 100);
+  return paymentIntent.billingPeriod === "year"
+    ? t("pricePerYear", { price: formatted })
+    : t("pricePerMonth", { price: formatted });
+}
+
+function isTerminalPaymentIntentStatus(
+  status: AssistantBillingPaymentIntentState["status"]
+): boolean {
+  return (
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "canceled" ||
+    status === "reversed" ||
+    status === "expired"
+  );
+}
+
+function isExpiredCheckout(expiresAt: string | null | undefined): boolean {
+  if (typeof expiresAt !== "string" || expiresAt.trim().length === 0) {
+    return false;
+  }
+  const parsed = Date.parse(expiresAt);
+  return Number.isFinite(parsed) && parsed <= Date.now();
+}
+
 export default function BillingCheckoutPage({ params }: { params?: { paymentIntentId?: string } }) {
   const t = useTranslations("billingCheckout");
+  const locale = useLocale();
   const { getToken } = useAuth();
   const router = useRouter();
   const routeParams = useParams<{ paymentIntentId?: string | string[] }>();
@@ -132,8 +209,10 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [launchingWidget, setLaunchingWidget] = useState(false);
-  const widgetCompletionHandledRef = useRef(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [mountingPaymentForm, setMountingPaymentForm] = useState(false);
+  const embeddedContainerRef = useRef<HTMLDivElement | null>(null);
+  const embeddedCompletionHandledRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +237,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
         if (!cancelled) {
           setPaymentIntent(next);
           setError(null);
+          setPaymentError(null);
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -178,23 +258,6 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
     };
   }, [getToken, paymentIntentId, t]);
 
-  const modeLabel = useMemo(() => {
-    switch (paymentIntent?.checkout.mode) {
-      case "manual_test":
-        return t("modeManualTest");
-      case "widget":
-        return t("modeWidget");
-      case "redirect":
-        return t("modeRedirect");
-      case "payment_link":
-        return t("modePaymentLink");
-      case "qr_code":
-        return t("modeQrCode");
-      default:
-        return t("modePending");
-    }
-  }, [paymentIntent?.checkout.mode, t]);
-
   const checkoutUrl =
     paymentIntent?.checkout.payload &&
     typeof paymentIntent.checkout.payload === "object" &&
@@ -203,50 +266,139 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
     typeof paymentIntent.checkout.payload.url === "string"
       ? paymentIntent.checkout.payload.url
       : null;
-  const widgetPayload = isCloudpaymentsWidgetPayload(paymentIntent?.checkout.payload)
+  const constructorPayload = isCloudpaymentsConstructorPayload(paymentIntent?.checkout.payload)
     ? paymentIntent?.checkout.payload
     : null;
+  const legacyWidgetPayload = isLegacyCloudpaymentsWidgetPayload(paymentIntent?.checkout.payload)
+    ? paymentIntent.checkout.payload
+    : null;
 
-  async function launchCloudpaymentsWidget(): Promise<void> {
-    if (paymentIntent === null || widgetPayload === null || launchingWidget) {
+  const planLabel = paymentIntent !== null ? formatPlanCode(paymentIntent.targetPlanCode) : null;
+  const priceLabel =
+    paymentIntent !== null ? formatSubscriptionPrice(paymentIntent, locale, t) : null;
+  const checkoutExpired = isExpiredCheckout(paymentIntent?.checkout.expiresAt);
+  const hasTerminalStatus =
+    paymentIntent !== null ? isTerminalPaymentIntentStatus(paymentIntent.status) : false;
+  const canUseCheckoutSurface =
+    paymentIntent !== null &&
+    paymentIntent.status === "checkout_ready" &&
+    !checkoutExpired &&
+    legacyWidgetPayload === null;
+  const staticCheckoutState =
+    paymentIntent === null
+      ? null
+      : legacyWidgetPayload !== null
+        ? {
+            title: t("legacyCheckoutTitle"),
+            body: t("legacyCheckoutBody"),
+            returnKind: "failed" as const,
+            showRetry: true
+          }
+        : checkoutExpired
+          ? {
+              title: t("expiredCheckoutTitle"),
+              body: t("expiredCheckoutBody"),
+              returnKind: "failed" as const,
+              showRetry: true
+            }
+          : paymentIntent.status === "pending_confirmation"
+            ? {
+                title: t("pendingCheckoutTitle"),
+                body: t("pendingCheckoutBody"),
+                returnKind: "pending" as const,
+                showRetry: false
+              }
+            : paymentIntent.status === "succeeded"
+              ? {
+                  title: t("completedCheckoutTitle"),
+                  body: t("completedCheckoutBody"),
+                  returnKind: "success" as const,
+                  showRetry: false
+                }
+              : hasTerminalStatus
+                ? {
+                    title: t("closedCheckoutTitle"),
+                    body: t("closedCheckoutBody"),
+                    returnKind: "failed" as const,
+                    showRetry: true
+                  }
+                : null;
+
+  useEffect(() => {
+    if (
+      paymentIntent === null ||
+      !canUseCheckoutSurface ||
+      paymentIntent.checkout.mode !== "embedded" ||
+      constructorPayload === null ||
+      embeddedContainerRef.current === null
+    ) {
       return;
     }
-    widgetCompletionHandledRef.current = false;
-    setLaunchingWidget(true);
-    setError(null);
-    try {
-      await loadCloudpaymentsWidgetScript();
-      const CloudPayments = window.cp?.CloudPayments;
-      if (!CloudPayments) {
-        throw new Error(t("widgetUnavailable"));
-      }
-      const widget = new CloudPayments();
-      widget.oncomplete = (result) => {
-        if (widgetCompletionHandledRef.current) {
+    let cancelled = false;
+    let blocksApp: InstanceType<
+      NonNullable<NonNullable<typeof window.cp>["PaymentBlocks"]>
+    > | null = null;
+
+    embeddedCompletionHandledRef.current = false;
+    setMountingPaymentForm(true);
+    setPaymentError(null);
+
+    void (async () => {
+      try {
+        await loadCloudpaymentsConstructorScript();
+        const PaymentBlocks = window.cp?.PaymentBlocks;
+        if (!PaymentBlocks) {
+          throw new Error(t("formUnavailable"));
+        }
+        if (embeddedContainerRef.current === null) {
           return;
         }
-        widgetCompletionHandledRef.current = true;
-        const outcome =
-          result.status === "success"
-            ? "success"
-            : result.type === "cancel" || result.status === "cancel"
-              ? "failed"
-              : result.status === "fail" || result.status === "reject" || result.type === "error"
-                ? "failed"
-                : "pending";
-        router.replace(buildChatReturnHref(paymentIntent, outcome));
-      };
-      await widget.start(widgetPayload);
-    } catch (nextError) {
-      setError(
-        nextError instanceof Error && nextError.message.trim().length > 0
-          ? nextError.message
-          : t("widgetStartFailed")
-      );
-    } finally {
-      setLaunchingWidget(false);
-    }
-  }
+
+        blocksApp = new PaymentBlocks(
+          constructorPayload.initializationParams,
+          constructorPayload.customizationParams
+        );
+        blocksApp.mount(embeddedContainerRef.current);
+        blocksApp.on("success", () => {
+          if (embeddedCompletionHandledRef.current) {
+            return;
+          }
+          embeddedCompletionHandledRef.current = true;
+          router.replace(buildChatReturnHref(paymentIntent, "pending"));
+        });
+        blocksApp.on("fail", () => {
+          setPaymentError(t("paymentFailed"));
+        });
+        blocksApp.on("destroy", () => {
+          if (!cancelled) {
+            setMountingPaymentForm(false);
+          }
+        });
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error && nextError.message.trim().length > 0
+              ? nextError.message
+              : t("formUnavailable")
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setMountingPaymentForm(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (blocksApp !== null) {
+        blocksApp.off("success");
+        blocksApp.off("fail");
+        blocksApp.off("destroy");
+        blocksApp.unmount();
+      }
+    };
+  }, [canUseCheckoutSurface, constructorPayload, paymentIntent, router, t]);
 
   return (
     <div className="min-h-dvh bg-chrome text-text">
@@ -257,9 +409,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
               {t("eyebrow")}
             </p>
             <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text">
-              {t("title")}
+              {paymentIntent ? t("titleWithPlan", { plan: planLabel ?? "" }) : t("title")}
             </h1>
-            <p className="mt-3 text-sm leading-6 text-text-muted">{t("body")}</p>
+            <p className="mt-3 text-sm leading-6 text-text-muted">{t("subtitle")}</p>
 
             {loading ? (
               <div className="mt-8 flex items-center gap-3 rounded-2xl border border-border/70 bg-bg/60 px-4 py-4 text-sm text-text-muted">
@@ -284,35 +436,43 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
               </div>
             ) : paymentIntent ? (
               <>
-                <div className="mt-8 space-y-3 rounded-2xl border border-border/70 bg-bg/60 p-4 text-sm text-text-muted">
-                  <div className="flex items-center justify-between gap-3">
-                    <span>{t("targetPlan")}</span>
-                    <span className="font-medium text-text">{paymentIntent.targetPlanCode}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>{t("paymentMethod")}</span>
-                    <span className="font-medium text-text">
-                      {paymentIntent.paymentMethodClass === "sbp_qr"
-                        ? t("paymentMethodSbpQr")
-                        : t("paymentMethodCard")}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>{t("checkoutMode")}</span>
-                    <span className="font-medium text-text">{modeLabel}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span>{t("status")}</span>
-                    <span className="font-medium text-text">{paymentIntent.status}</span>
-                  </div>
-                </div>
+                {priceLabel ? (
+                  <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-text">
+                    {priceLabel}
+                  </p>
+                ) : null}
 
-                <div className="mt-6 rounded-2xl border border-warning/25 bg-warning/10 p-4">
-                  <p className="text-sm font-medium text-text">{t("activationTitle")}</p>
-                  <p className="mt-1 text-sm leading-6 text-text-muted">{t("activationBody")}</p>
-                </div>
-
-                {paymentIntent.checkout.mode === "manual_test" ? (
+                {staticCheckoutState !== null ? (
+                  <div className="mt-6 space-y-4">
+                    <div className="rounded-2xl border border-border/70 bg-bg/60 p-4">
+                      <p className="text-sm font-medium text-text">{staticCheckoutState.title}</p>
+                      <p className="mt-1 text-sm leading-6 text-text-muted">
+                        {staticCheckoutState.body}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.replace(
+                            buildChatReturnHref(paymentIntent, staticCheckoutState.returnKind)
+                          )
+                        }
+                        className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                      >
+                        {t("returnToChat")}
+                      </button>
+                      {staticCheckoutState.showRetry ? (
+                        <Link
+                          href={"/app/pricing" as Route}
+                          className="flex min-h-11 w-full items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover"
+                        >
+                          {t("backToPricing")}
+                        </Link>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : paymentIntent.checkout.mode === "manual_test" ? (
                   <div className="mt-6 space-y-3">
                     <button
                       type="button"
@@ -333,28 +493,60 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       onClick={() => router.replace(buildChatReturnHref(paymentIntent, "pending"))}
                       className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
                     >
-                      {t("returnPending")}
+                      {t("returnToChat")}
                     </button>
                   </div>
-                ) : paymentIntent.checkout.mode === "widget" && widgetPayload ? (
-                  <div className="mt-6 space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => void launchCloudpaymentsWidget()}
-                      disabled={launchingWidget}
-                      className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover disabled:opacity-60"
-                    >
-                      {launchingWidget ? t("startingWidget") : t("openProviderCheckout")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => router.replace(buildChatReturnHref(paymentIntent, "pending"))}
-                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
-                    >
-                      {t("returnPending")}
-                    </button>
+                ) : paymentIntent.checkout.mode === "embedded" && constructorPayload ? (
+                  <div className="mt-6 space-y-4">
+                    <div className="overflow-hidden rounded-[24px] border border-border/70 bg-bg/[0.52] p-4 sm:p-5">
+                      {mountingPaymentForm ? (
+                        <div className="flex min-h-[16rem] items-center justify-center gap-3 text-sm text-text-muted">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t("loadingPaymentForm")}
+                        </div>
+                      ) : null}
+                      <div
+                        ref={embeddedContainerRef}
+                        className={mountingPaymentForm ? "hidden" : "min-h-[16rem]"}
+                      />
+                    </div>
+
+                    {paymentError ? (
+                      <div className="rounded-2xl border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-text-muted">
+                        {paymentError}
+                      </div>
+                    ) : null}
+
+                    <details className="group rounded-2xl border border-border/70 bg-bg/40 p-4 text-sm text-text-muted">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-text transition-colors hover:text-text-muted">
+                        <span>{t("paymentHelpTitle")}</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
+                      </summary>
+                      <div className="mt-3 space-y-2 leading-6">
+                        <p>{t("paymentHelpBodyCloudpayments")}</p>
+                        <p>{t("paymentHelpBodyActivation")}</p>
+                        <p>{t("paymentHelpBodyRecurring")}</p>
+                      </div>
+                    </details>
+
+                    <div className="flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.replace(
+                            buildChatReturnHref(
+                              paymentIntent,
+                              paymentError !== null ? "failed" : "pending"
+                            )
+                          )
+                        }
+                        className="text-sm text-text-muted transition-colors hover:text-text"
+                      >
+                        {t("returnToChat")}
+                      </button>
+                    </div>
                   </div>
-                ) : checkoutUrl ? (
+                ) : canUseCheckoutSurface && checkoutUrl ? (
                   <div className="mt-6 space-y-3">
                     <a
                       href={checkoutUrl}
@@ -365,9 +557,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     <button
                       type="button"
                       onClick={() => router.replace(buildChatReturnHref(paymentIntent, "pending"))}
-                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-border/80 bg-bg/70 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                      className="text-sm text-text-muted transition-colors hover:text-text"
                     >
-                      {t("returnPending")}
+                      {t("returnToChat")}
                     </button>
                   </div>
                 ) : (

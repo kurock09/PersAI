@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ServiceUnavailableException } from "@nestjs/common";
 import { CreateInternalRuntimeQuotaCheckoutService } from "../src/modules/workspace-management/application/create-internal-runtime-quota-checkout.service";
 
 async function run(): Promise<void> {
@@ -20,8 +20,10 @@ async function run(): Promise<void> {
           id: "pi-1",
           targetPlanCode: input.planCode,
           paymentMethodClass: input.paymentMethodClass,
+          status: "checkout_ready",
+          lastErrorMessage: null,
           checkout: {
-            mode: "manual_test" as const
+            mode: "embedded" as const
           }
         };
       }
@@ -51,7 +53,7 @@ async function run(): Promise<void> {
     paymentIntentId: "pi-1",
     targetPlanCode: "pro",
     paymentMethodClass: "sbp_qr",
-    checkoutMode: "manual_test",
+    checkoutMode: "embedded",
     checkoutPagePath: "/app/billing/checkout/pi-1"
   });
   assert.deepEqual(createCalls[0], {
@@ -75,6 +77,46 @@ async function run(): Promise<void> {
     (error: unknown) =>
       error instanceof BadRequestException &&
       error.message === "Explicit user confirmation is required before creating payment checkout."
+  );
+
+  const failingService = new CreateInternalRuntimeQuotaCheckoutService(
+    {
+      async resolveByAssistantId(assistantId: string) {
+        return {
+          assistantId,
+          userId: "user-1"
+        };
+      }
+    } as never,
+    {
+      async createPaymentIntent() {
+        return {
+          id: "pi-2",
+          targetPlanCode: "pro",
+          paymentMethodClass: "card",
+          status: "failed",
+          lastErrorMessage: "CloudPayments Public Terminal ID is not configured.",
+          checkout: {
+            mode: null
+          }
+        };
+      }
+    } as never
+  );
+
+  await assert.rejects(
+    () =>
+      failingService.execute({
+        assistantId: "assistant-1",
+        requestId: "request-3",
+        targetPlanCode: "pro",
+        paymentMethodClass: "card",
+        confirmed: true,
+        userConfirmationText: "Да, оформляй оплату"
+      }),
+    (error: unknown) =>
+      error instanceof ServiceUnavailableException &&
+      error.message === "CloudPayments Public Terminal ID is not configured."
   );
 }
 

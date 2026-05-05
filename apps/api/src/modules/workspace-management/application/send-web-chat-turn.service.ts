@@ -708,6 +708,7 @@ export class SendWebChatTurnService {
     userMessageId: string;
     userMessage: string;
     attachments: SendNativeWebChatTurnInput["attachments"];
+    openMediaJobs?: SendNativeWebChatTurnInput["openMediaJobs"];
     userTimezone: string;
     currentTimeIso: string;
     skillStateContext?: SendNativeWebChatTurnInput["skillStateContext"];
@@ -726,6 +727,7 @@ export class SendWebChatTurnService {
       userMessageId: input.userMessageId,
       userMessage: input.userMessage,
       attachments: input.attachments,
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       userTimezone: input.userTimezone,
       currentTimeIso: input.currentTimeIso,
       ...(input.skillStateContext === undefined

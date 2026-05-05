@@ -204,7 +204,7 @@ class FakePersaiInternalApiClientService {
         displayName: "Starter",
         highlighted: false,
         isCurrent: false,
-        amountMinor: 990,
+        amountMinor: 99000,
         currency: "RUB",
         billingPeriod: "month"
       },
@@ -213,7 +213,7 @@ class FakePersaiInternalApiClientService {
         displayName: "Paid",
         highlighted: true,
         isCurrent: true,
-        amountMinor: 1990,
+        amountMinor: 199000,
         currency: "RUB",
         billingPeriod: "month"
       }
@@ -280,7 +280,7 @@ class FakePersaiInternalApiClientService {
       paymentIntentId: "pi-1",
       targetPlanCode: "paid",
       paymentMethodClass: "card" as const,
-      checkoutMode: "widget" as const,
+      checkoutMode: "embedded" as const,
       checkoutPagePath: "/app/billing/checkout/pi-1"
     };
   }

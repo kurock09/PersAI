@@ -222,7 +222,7 @@ import { ASSISTANT_GOVERNANCE_REPOSITORY } from "./domain/assistant-governance.r
 import { ASSISTANT_MATERIALIZED_SPEC_REPOSITORY } from "./domain/assistant-materialized-spec.repository";
 import { ASSISTANT_PUBLISHED_VERSION_REPOSITORY } from "./domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY } from "./domain/assistant.repository";
-import { CloudpaymentsWidgetBillingProviderAdapter } from "./infrastructure/billing/cloudpayments-widget-billing-provider.adapter";
+import { CloudpaymentsConstructorBillingProviderAdapter } from "./infrastructure/billing/cloudpayments-constructor-billing-provider.adapter";
 import { PrismaAssistantGovernanceRepository } from "./infrastructure/persistence/prisma-assistant-governance.repository";
 import { PrismaAssistantPlanCatalogRepository } from "./infrastructure/persistence/prisma-assistant-plan-catalog.repository";
 import { PrismaToolCatalogRepository } from "./infrastructure/persistence/prisma-tool-catalog.repository";
@@ -516,7 +516,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     },
     {
       provide: BILLING_PROVIDER_PORT,
-      useClass: CloudpaymentsWidgetBillingProviderAdapter
+      useClass: CloudpaymentsConstructorBillingProviderAdapter
     },
     {
       provide: ASSISTANT_GOVERNANCE_REPOSITORY,

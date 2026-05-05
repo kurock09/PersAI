@@ -694,9 +694,7 @@ export default function AdminToolsPage() {
                       )}
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] font-medium text-text">
-                        Widget Public Terminal ID
-                      </p>
+                      <p className="mb-1 text-[11px] font-medium text-text">Public Terminal ID</p>
                       <input
                         type="text"
                         value={billingKeyInputs.cloudpaymentsPublicTerminalId ?? ""}

@@ -10,7 +10,7 @@ export type AssistantBillingCheckoutMode =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantBillingCheckoutMode = {
-  widget: "widget",
+  embedded: "embedded",
   redirect: "redirect",
   payment_link: "payment_link",
   qr_code: "qr_code",

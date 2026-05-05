@@ -178,7 +178,7 @@ function ChatPageInner() {
   }, [router, searchParams]);
 
   useEffect(() => {
-    if (billingBanner.kind !== "success") {
+    if (billingBanner.kind !== "success" && billingBanner.kind !== "pending") {
       billingTruthRefreshKeyRef.current = null;
       return;
     }
@@ -218,6 +218,14 @@ function ChatPageInner() {
             paymentIntent.status === "reversed" ||
             paymentIntent.status === "expired"
           ) {
+            setBillingBanner((current) =>
+              current.paymentIntentId === billingBanner.paymentIntentId
+                ? {
+                    ...current,
+                    kind: paymentIntent.status === "succeeded" ? "success" : "failed"
+                  }
+                : current
+            );
             await appData.reload();
             return;
           }
@@ -253,6 +261,7 @@ function ChatPageInner() {
       onTitleChanged={appData.reloadChats}
       billingReturnKind={billingBanner.kind}
       billingPlanCode={billingBanner.planCode}
+      billingPaymentIntentId={billingBanner.paymentIntentId}
     />
   );
 }

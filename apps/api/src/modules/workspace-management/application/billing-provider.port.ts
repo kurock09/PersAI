@@ -20,7 +20,7 @@ export type BillingProviderSubscriptionSnapshot = {
 };
 
 export type BillingProviderCheckoutMode =
-  | "widget"
+  | "embedded"
   | "redirect"
   | "payment_link"
   | "qr_code"
@@ -52,7 +52,7 @@ export type BillingProviderCheckoutSession = {
 
 /**
  * Provider-agnostic billing boundary for PersAI-owned payment intents.
- * Current production checkout uses a concrete CloudPayments widget adapter,
+ * Current production checkout uses a concrete CloudPayments embedded adapter,
  * while lifecycle truth still remains webhook/admin driven inside PersAI.
  */
 export interface BillingProviderPort {
