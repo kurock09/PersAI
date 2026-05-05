@@ -5250,7 +5250,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageGenerateCompleted = await service.createTurn(request);
-  assert.equal(imageGenerateCompleted.assistantText, "reply after image");
+  assert.equal(
+    imageGenerateCompleted.assistantText,
+    "Request accepted. I am generating the image and will send it separately when it is ready."
+  );
   assert.equal(imageGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageGenerate + 2);
   assert.equal(
@@ -5421,7 +5424,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const videoGenerateCompleted = await service.createTurn(request);
-  assert.equal(videoGenerateCompleted.assistantText, "reply after video");
+  assert.equal(
+    videoGenerateCompleted.assistantText,
+    "Request accepted. I am preparing the video and will send it separately when it is ready."
+  );
   assert.equal(videoGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
@@ -5586,7 +5592,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const imageEditCompleted = await service.createTurn(request);
-  assert.equal(imageEditCompleted.assistantText, "reply after image edit");
+  assert.equal(
+    imageEditCompleted.assistantText,
+    "Request accepted. I am editing the image and will send it separately when it is ready."
+  );
   assert.equal(imageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeImageEdit + 2);
   assert.equal(
@@ -5708,7 +5717,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const referencedImageEditCompleted = await service.createTurn(request);
-  assert.equal(referencedImageEditCompleted.assistantText, "reply after referenced image edit");
+  assert.equal(
+    referencedImageEditCompleted.assistantText,
+    "Request accepted. I am editing the image and will send it separately when it is ready."
+  );
   assert.equal(referencedImageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReferencedImageEdit + 2);
   assert.equal(providerGatewayClient.imageEditCalls.length, 0);
@@ -5781,7 +5793,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const inferredReferenceImageEditCompleted = await service.createTurn(request);
   assert.equal(
     inferredReferenceImageEditCompleted.assistantText,
-    "reply after inferred reference image edit"
+    "Request accepted. I am editing the image and will send it separately when it is ready."
   );
   assert.equal(
     providerGatewayClient.calls.length,
