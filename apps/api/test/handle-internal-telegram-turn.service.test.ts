@@ -156,7 +156,8 @@ function createChatRepositoryMock() {
       return {
         id: `message-${messageCounter}`,
         author: input.author,
-        content: input.content
+        content: input.content,
+        createdAt: new Date("2026-04-06T00:00:00.000Z")
       };
     }
   };
@@ -236,6 +237,19 @@ async function run(): Promise<void> {
           respondedAt: "2026-04-06T00:00:00.000Z",
           media: []
         };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
       }
     } as never
   );
@@ -318,6 +332,19 @@ async function run(): Promise<void> {
           respondedAt: "2026-04-06T00:00:01.000Z",
           media: []
         };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
       }
     } as never
   );
@@ -402,6 +429,19 @@ async function run(): Promise<void> {
           media: runtimeMedia
         };
       }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
+      }
     } as never
   );
 
@@ -460,6 +500,19 @@ async function run(): Promise<void> {
           respondedAt: "2026-04-06T00:00:03.000Z",
           media: runtimeMedia
         };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
       }
     } as never
   );
@@ -529,6 +582,19 @@ async function run(): Promise<void> {
           respondedAt: "2026-04-06T00:00:04.000Z",
           media: []
         };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
       }
     } as never
   );
@@ -600,6 +666,19 @@ async function run(): Promise<void> {
           respondedAt: "2026-04-06T00:00:05.000Z",
           media: []
         };
+      }
+    } as never,
+    {
+      async assertRuntimeReadable() {
+        return undefined;
+      }
+    } as never,
+    {
+      async listOpenJobsForChatContext() {
+        return [];
+      },
+      async attachAcknowledgementMessageId() {
+        return 0;
       }
     } as never
   );

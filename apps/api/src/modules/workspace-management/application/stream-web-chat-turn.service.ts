@@ -52,6 +52,7 @@ import {
   DEFAULT_CADENCE_THRESHOLDS,
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
+import { AssistantMediaJobService } from "./assistant-media-job.service";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -175,6 +176,7 @@ export class StreamWebChatTurnService {
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
     private readonly autoSkillRoutingStateService: AutoSkillRoutingStateService,
+    private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService
   ) {}
 
@@ -273,6 +275,7 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
+    let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let mediaDeliveryCompleted = false;
     const trace =
@@ -301,6 +304,11 @@ export class StreamWebChatTurnService {
     const baseMessage = prepared.welcomeTurn
       ? resolveWelcomeUserMessage(prepared.welcomeFirstTurnPrompt, prepared.welcomeLocale)
       : prepared.userMessage.content;
+    const openMediaJobs = await this.assistantMediaJobService.listOpenJobsForChatContext({
+      assistantId: prepared.assistantId,
+      userId: prepared.userId,
+      chatId: prepared.chat.id
+    });
     const currentTimeIso = new Date().toISOString();
     const skillRoutingContext = await this.autoSkillRoutingStateService.buildRuntimeContext({
       chatId: prepared.chat.id,
@@ -317,6 +325,7 @@ export class StreamWebChatTurnService {
       userMessageId: prepared.userMessage.id,
       userMessage: baseMessage,
       attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
+      ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
       userTimezone: prepared.workspaceTimezone,
       currentTimeIso,
       skillRoutingContext,
@@ -364,6 +373,7 @@ export class StreamWebChatTurnService {
         respondedAt = result.respondedAt;
         usageAccounting = result.usageAccounting;
         turnRouting = result.turnRouting;
+        deferredMediaJobs = result.deferredMediaJobs;
         for (const m of result.collectedMedia) collectedMedia.push(m);
         if (result.primaryFirstDeltaMs !== null) {
           primaryFirstDeltaMs = result.primaryFirstDeltaMs;
@@ -517,6 +527,18 @@ export class StreamWebChatTurnService {
         content: cleanedAccumulated
       });
       trace.stage("assistant_message_saved");
+      if (deferredMediaJobs !== undefined && deferredMediaJobs.length > 0) {
+        await this.assistantMediaJobService.attachAcknowledgementMessageId({
+          assistantId: prepared.assistantId,
+          sourceUserMessageId: prepared.userMessage.id,
+          assistantAcknowledgementMessageId: assistantMessage.id
+        });
+      }
+      const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
 
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: collectedMedia,
@@ -683,6 +705,7 @@ export class StreamWebChatTurnService {
             attachments: attachmentStates,
             createdAt: assistantMessage.createdAt.toISOString()
           },
+          activeMediaJobs,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -859,6 +882,7 @@ export class StreamWebChatTurnService {
     respondedAt: string | null;
     usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"];
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
+    deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
     toolEventCount: number;
@@ -868,6 +892,7 @@ export class StreamWebChatTurnService {
     let respondedAt: string | null = null;
     let usageAccounting: AssistantRuntimeWebChatTurnStreamChunk["usageAccounting"] = undefined;
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
+    let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
     let toolEventCount = 0;
@@ -910,6 +935,7 @@ export class StreamWebChatTurnService {
             respondedAt,
             usageAccounting,
             turnRouting,
+            deferredMediaJobs,
             collectedMedia,
             primaryFirstDeltaMs,
             toolEventCount,
@@ -1015,6 +1041,7 @@ export class StreamWebChatTurnService {
           respondedAt = chunk.respondedAt;
           usageAccounting = chunk.usageAccounting;
           turnRouting = chunk.turnRouting ?? null;
+          deferredMediaJobs = chunk.deferredMediaJobs;
           if (chunk.runtimeTrace) {
             input.trace.attachExternalTrace(chunk.runtimeTrace);
           }
@@ -1039,6 +1066,7 @@ export class StreamWebChatTurnService {
           respondedAt,
           usageAccounting,
           turnRouting,
+          deferredMediaJobs,
           collectedMedia,
           primaryFirstDeltaMs,
           toolEventCount,
@@ -1057,6 +1085,7 @@ export class StreamWebChatTurnService {
         respondedAt,
         usageAccounting,
         turnRouting,
+        deferredMediaJobs,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1073,6 +1102,7 @@ export class StreamWebChatTurnService {
         respondedAt,
         usageAccounting,
         turnRouting,
+        deferredMediaJobs,
         collectedMedia,
         primaryFirstDeltaMs,
         toolEventCount,
@@ -1086,6 +1116,7 @@ export class StreamWebChatTurnService {
       respondedAt,
       usageAccounting,
       turnRouting,
+      deferredMediaJobs,
       collectedMedia,
       primaryFirstDeltaMs,
       toolEventCount,
@@ -1237,6 +1268,11 @@ export class StreamWebChatTurnService {
       this.attachmentRepository.listByMessageId(userMessage.id),
       this.attachmentRepository.listByMessageId(assistantMessage.id)
     ]);
+    const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+      assistantId,
+      userId: chat.userId,
+      chatId: chat.id
+    });
 
     return {
       chat: {
@@ -1270,6 +1306,7 @@ export class StreamWebChatTurnService {
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
         createdAt: assistantMessage.createdAt.toISOString()
       },
+      activeMediaJobs,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

@@ -5,6 +5,7 @@ import { RuntimeStateModule } from "../runtime-state/runtime-state.module";
 import { TurnsController } from "./interface/http/turns.controller";
 import { InternalRuntimeSessionsController } from "./interface/http/internal-runtime-sessions.controller";
 import { InternalRuntimeBackgroundTasksController } from "./interface/http/internal-runtime-background-tasks.controller";
+import { InternalRuntimeMediaJobsController } from "./interface/http/internal-runtime-media-jobs.controller";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 import { IdempotencyService } from "./idempotency.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
@@ -20,6 +21,8 @@ import { RuntimeMemoryWriteToolService } from "./runtime-memory-write-tool.servi
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeBackgroundTaskEvaluationService } from "./runtime-background-task-evaluation.service";
+import { RuntimeMediaJobCompletionService } from "./runtime-media-job-completion.service";
+import { RuntimeMediaJobRunService } from "./runtime-media-job-run.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
@@ -39,7 +42,8 @@ import { TurnRoutingService } from "./turn-routing.service";
   controllers: [
     TurnsController,
     InternalRuntimeSessionsController,
-    InternalRuntimeBackgroundTasksController
+    InternalRuntimeBackgroundTasksController,
+    InternalRuntimeMediaJobsController
   ],
   providers: [
     PersaiInternalApiClientService,
@@ -55,6 +59,8 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeVideoGenerateToolService,
     RuntimeBackgroundTaskToolService,
     RuntimeBackgroundTaskEvaluationService,
+    RuntimeMediaJobCompletionService,
+    RuntimeMediaJobRunService,
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
@@ -85,6 +91,8 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeVideoGenerateToolService,
     RuntimeBackgroundTaskToolService,
     RuntimeBackgroundTaskEvaluationService,
+    RuntimeMediaJobCompletionService,
+    RuntimeMediaJobRunService,
     RuntimeBundleAutoRefreshService,
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,

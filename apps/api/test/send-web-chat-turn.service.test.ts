@@ -124,6 +124,11 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {} as never,
       {} as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
@@ -231,6 +236,11 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never,
       {
         deliver: async () => ({ attachments: [] })
@@ -344,6 +354,11 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never,
       {
         deliver: async () => ({ attachments: [] })
@@ -466,6 +481,11 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never,
       {
         deliver: async () => ({ attachments: [] })
@@ -591,6 +611,11 @@ describe("SendWebChatTurnService", () => {
       } as never,
       {
         recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never,
       {
         deliver: async (input: Record<string, unknown>) => {
@@ -729,6 +754,11 @@ describe("SendWebChatTurnService", () => {
         recordWebChatTurnUsage: async (input: Record<string, unknown>) => {
           quotaWrites.push(input);
         }
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never,
       {
         deliver: async () => ({ attachments: [] })

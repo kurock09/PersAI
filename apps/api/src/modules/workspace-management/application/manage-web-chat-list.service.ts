@@ -22,12 +22,14 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import type {
   AssistantWebChatActiveTurnState,
+  AssistantWebChatActiveMediaJobState,
   AssistantWebChatCompactionResult,
   AssistantWebChatCompactionState,
   AssistantWebChatListItemState,
   AssistantWebChatMessageAttachmentState,
   AssistantWebChatMessageState
 } from "./web-chat.types";
+import { AssistantMediaJobService } from "./assistant-media-job.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 
 export interface UpdateWebChatRequest {
@@ -90,6 +92,7 @@ export class ManageWebChatListService {
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly compactNativeWebChatSessionService: CompactNativeWebChatSessionService,
     private readonly resolveNativeWebChatSessionStateService: ResolveNativeWebChatSessionStateService,
+    private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService
   ) {}
 
@@ -166,6 +169,11 @@ export class ManageWebChatListService {
             assistantId: assistant.id,
             userId,
             chatId: chat.id
+          }),
+          activeMediaJobs: await this.assistantMediaJobService.listOpenJobsForWebChat({
+            assistantId: assistant.id,
+            userId,
+            chatId: chat.id
           })
         };
       })
@@ -204,7 +212,12 @@ export class ManageWebChatListService {
       chat: toChatState(updated),
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview,
-      activeTurn
+      activeTurn,
+      activeMediaJobs: await this.assistantMediaJobService.listOpenJobsForWebChat({
+        assistantId: assistant.id,
+        userId,
+        chatId
+      })
     };
   }
 
@@ -239,7 +252,8 @@ export class ManageWebChatListService {
       chat: toChatState(archived),
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview,
-      activeTurn: null
+      activeTurn: null,
+      activeMediaJobs: []
     };
   }
 
@@ -251,6 +265,7 @@ export class ManageWebChatListService {
     messages: AssistantWebChatMessageState[];
     nextCursor: string | null;
     activeTurn: AssistantWebChatActiveTurnState | null;
+    activeMediaJobs: AssistantWebChatActiveMediaJobState[];
   }> {
     const assistant = await this.assistantRepository.findByUserId(userId);
     if (assistant === null) {
@@ -310,8 +325,13 @@ export class ManageWebChatListService {
       userId,
       chatId
     });
+    const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+      assistantId: assistant.id,
+      userId,
+      chatId
+    });
 
-    return { messages: page, nextCursor, activeTurn };
+    return { messages: page, nextCursor, activeTurn, activeMediaJobs };
   }
 
   private async getCompactActiveTurn(input: {

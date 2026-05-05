@@ -2,12 +2,14 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; implemented for the active generated-media lane (`image_generate`, `image_edit`, `video_generate`).
 
 Current continuation state:
 
 - **Purpose:** replace long synchronous media completion inside ordinary chat/webhook turns with one durable async media lane for generated `image`, `audio`, and `video` outputs.
 - **Production posture:** text replies remain on the current sync/stream turn path; generated media delivery moves to a durable job model shared by `web` and `Telegram`.
+- **Completed through:** Slice 7 cleanup and verification for the active generated-media lane. Ordinary `image_generate`, `image_edit`, and `video_generate` turns now accept only at the real tool boundary, persist one durable `assistant_media_jobs` request shape with `directToolExecution`, execute in the worker without a second LLM run, and restore pending state on web from durable `activeMediaJobs` truth.
+- **Next active item:** none inside ADR-086 architecture cleanup. Only live validation / operational observation remains outside this ADR slice.
 - **Critical invariant:** preserve current quota/limit truth, especially ADR-082 delivery-confirmed media settlement and the existing calm user-facing limit explanations when media is unavailable.
 - **Do not preserve:** channel-specific long-held media completion paths, Telegram webhook waits for final generated media, web stream waits for final generated media, or dual long-term sync/async media truth.
 - **Continuity requirement:** chat switch, `F5`, passive reconnect, and stream reattach must restore pending media state from server truth. Users must not be left in a hanging or ambiguous state.
@@ -158,6 +160,26 @@ Reason:
 Ordinary text messages may continue normally while a media job is active.
 
 If the user asks for more media than the bounded queue allows, PersAI should return a calm explicit explanation rather than silently dropping the request.
+
+### Ordinary turns must see open media jobs
+
+When a chat has one or more open media jobs, every new ordinary user turn in that chat must receive a compact server-provided summary of those open jobs in runtime context.
+
+This summary is included only when at least one media job is still open, for example:
+
+- `queued`
+- `running`
+- `completion_pending`
+
+It should not be injected when the chat has no open media job state.
+
+The purpose is product continuity:
+
+- the assistant knows that background generation is already in progress
+- the assistant can answer repeated media requests contextually instead of behaving as if no prior request exists
+- the assistant can explain whether it is still working, can queue the next request, or needs the user to replace the current one
+
+The summary must be factual and backend-owned. The model receives queue truth; it does not invent queue truth.
 
 ### Completion turn with history
 
@@ -409,7 +431,7 @@ The exact route/service names are implementation detail, but the active boundary
 The completion-turn path should be explicit and internal:
 
 - accepts a completed media job id plus current history context
-- returns optional final text framing and delivery metadata
+- returns optional final text framing
 - must be idempotent
 
 It is not a reopened user stream and not a resumed Telegram webhook.
@@ -434,15 +456,15 @@ This ADR should be implemented as one coherent cutover slice, not as a long-live
 
 Internal implementation work can still proceed in ordered steps, but the active shipped product truth after cutover must be one model shared by both channels.
 
-| Work block | Status | Purpose | Main affected areas | Completion criteria |
-| --- | --- | --- | --- | --- |
-| 1. ADR and target-state contract | Completed | Lock the async media architecture before code changes. | `docs/ADR/086-*`, handoff, changelog | ADR accepted with one platform-wide media-job model, preserved quota/limit invariants, web continuity rules, and Telegram quick-ack semantics. |
-| 2. Durable media job data model and contracts | Pending | Add canonical persisted job truth and client-facing continuity projections. | Prisma schema, contracts, API read models | Media jobs have durable state, artifact/quota linkage, and chat continuity projection without overloading `activeTurn`. |
-| 3. API orchestration and worker execution | Pending | Create the backend-owned async lane. | `apps/api`, worker services, media delivery services | Media requests create jobs, run asynchronously, retry safely, and produce explicit terminal states. |
-| 4. Runtime/completion-turn seam | Pending | Allow completed jobs to be framed with current history without reviving a long-running turn. | `apps/runtime`, internal API seams | Completion turn is fresh, bounded, idempotent, and does not own job truth. |
-| 5. Web continuity and UX cutover | Pending | Restore pending media state across chat switch, reconnect, and `F5`. | `apps/web`, bootstrap/history payloads, chat UI | Minimal media indicator survives switch/reload and ordinary text chat remains intact. |
-| 6. Telegram cutover and sync-path removal | Pending | Remove long-held webhook media completion from the active path. | Telegram adapter/services, delivery seam | Telegram quick-acks accepted jobs and final media arrives via async delivery; old sync media completion path is removed. |
-| 7. Verification and cleanup | Pending | Ensure no legacy dual-path remains. | API/runtime/web/tests/docs | Both channels use one media lane, quota/limit semantics remain correct, and no obsolete sync media path remains in active truth. |
+| Work block                                    | Status    | Purpose                                                                                      | Main affected areas                                  | Completion criteria                                                                                                                                |
+| --------------------------------------------- | --------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. ADR and target-state contract              | Completed | Lock the async media architecture before code changes.                                       | `docs/ADR/086-*`, handoff, changelog                 | ADR accepted with one platform-wide media-job model, preserved quota/limit invariants, web continuity rules, and Telegram quick-ack semantics.     |
+| 2. Durable media job data model and contracts | Completed | Add canonical persisted job truth and client-facing continuity projections.                  | Prisma schema, contracts, API read models            | `assistant_media_jobs` now exists as durable schema truth, and web continuity responses expose `activeMediaJobs` without overloading `activeTurn`. |
+| 3. API orchestration and worker execution     | Completed | Create the backend-owned async lane.                                                         | `apps/api`, worker services, media delivery services | Web ordinary chat requests can now create durable media jobs with immediate acknowledgement, jobs run asynchronously, and `completion_pending` rows are delivered into the web chat by the backend worker. |
+| 4. Runtime/completion-turn seam               | Completed | Allow completed jobs to be framed with current history without reviving a long-running turn. | `apps/runtime`, internal API seams                   | Completion framing now runs through an explicit internal runtime seam that receives current history from the API, replays idempotently by media-job id, and does not own job truth, quota truth, or delivery truth. |
+| 5. Web continuity and UX cutover              | Completed | Restore pending media state across chat switch, reconnect, and `F5`.                         | `apps/web`, bootstrap/history payloads, chat UI      | Durable `activeMediaJobs` truth now restores on switch/reload/reconnect, the composer shows quiet pending chips, and pending state clears when durable job state clears. |
+| 6. Telegram cutover and sync-path removal     | Completed | Remove long-held webhook media completion from the active path.                              | Telegram adapter/services, delivery seam             | Telegram accepted generated-media requests now quick-ack on the shared async lane, final media arrives through backend completion delivery, and no detector-only or sync fallback path remains in active truth. |
+| 7. Verification and cleanup                   | Completed | Ensure no legacy dual-path remains.                                                          | API/runtime/web/tests/docs                           | The active path uses one tool-boundary acceptance contour, worker execution uses only persisted direct tool requests, duplicate read/acceptance layers are removed, quota semantics stay delivery-confirmed, and docs/tests match repo truth. |
 
 ## Execution rules
 

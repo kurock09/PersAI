@@ -1248,6 +1248,22 @@ class FakePersaiInternalApiClientService {
     monthlyMediaQuotas: null
   };
   quotaStatusError: Error | null = null;
+  deferredMediaEnqueueCalls: Array<Record<string, unknown>> = [];
+  deferredMediaEnqueueOutcome:
+    | {
+        accepted: true;
+        jobId: string;
+        kind: "image" | "video";
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+      } = {
+    accepted: true,
+    jobId: "media-job-1",
+    kind: "image"
+  };
 
   async consumeToolDailyLimit(input: {
     assistantId: string;
@@ -1307,6 +1323,14 @@ class FakePersaiInternalApiClientService {
       checkoutMode: "widget" as const,
       checkoutPagePath: "/app/billing/checkout/pi-1"
     };
+  }
+
+  async enqueueDeferredMediaJob(input: Record<string, unknown>) {
+    this.deferredMediaEnqueueCalls.push(input);
+    if (this.error !== null) {
+      throw this.error;
+    }
+    return this.deferredMediaEnqueueOutcome;
   }
 
   async listScheduledActions(assistantId: string) {
@@ -5222,6 +5246,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
   const imageGenerateCompleted = await service.createTurn(request);
   assert.equal(imageGenerateCompleted.assistantText, "reply after image");
   assert.equal(imageGenerateCompleted.artifacts.length, 1);
@@ -5392,6 +5419,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     currentCount: 1,
     limit: 2
   };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;

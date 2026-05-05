@@ -101,7 +101,7 @@ function renderView(node: ReactNode) {
 
 describe("PricingPageView", () => {
   it("renders guest pricing cards with sign-up CTA", () => {
-    renderView(<PricingPageView plans={[makePlan()]} signedIn={false} backHref="/" />);
+    renderView(<PricingPageView plans={[makePlan()]} signedIn={false} />);
 
     expect(screen.getByText("Choose your PersAI")).toBeInTheDocument();
     expect(screen.getByText("Popular")).toBeInTheDocument();
@@ -117,7 +117,6 @@ describe("PricingPageView", () => {
         plans={[makePlan(), makePlan({ code: "team", displayName: "Team" })]}
         currentPlanCode="pro"
         signedIn
-        backHref="/app"
       />
     );
 
@@ -151,7 +150,6 @@ describe("PricingPageView", () => {
           })
         ]}
         signedIn
-        backHref="/app"
       />
     );
 

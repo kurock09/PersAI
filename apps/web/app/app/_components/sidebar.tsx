@@ -245,10 +245,8 @@ export function Sidebar({
           type="button"
           onClick={() => {
             void guardedNavigate(() => {
-              if (!pushLocalChatUrl("/app/chat")) {
-                router.push("/app/chat" as Route);
-              }
               onClose?.();
+              router.push("/app/chat" as Route);
             });
           }}
           className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2.5 text-sm font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover"
@@ -289,10 +287,8 @@ export function Sidebar({
                   onNavigate={() => {
                     const url = `/app/chat?thread=${encodeURIComponent(item.chat.surfaceThreadKey)}`;
                     void guardedNavigate(() => {
-                      if (!pushLocalChatUrl(url)) {
-                        router.push(url as Route);
-                      }
                       onClose?.();
+                      router.push(url as Route);
                     });
                   }}
                   onChanged={data.reloadChats}
@@ -358,12 +354,6 @@ const LOCALES = [
   { code: "en", label: "EN" },
   { code: "ru", label: "RU" }
 ] as const;
-
-function pushLocalChatUrl(url: string) {
-  if (typeof window === "undefined") return false;
-  window.history.pushState(null, "", url);
-  return true;
-}
 
 function AccountFooter({
   data,

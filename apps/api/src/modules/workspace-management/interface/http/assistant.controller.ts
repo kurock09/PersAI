@@ -887,6 +887,7 @@ export class AssistantController {
     messages: AssistantWebChatMessageState[];
     nextCursor: string | null;
     activeTurn: AssistantWebChatActiveTurnState | null;
+    activeMediaJobs: AssistantWebChatListItemState["activeMediaJobs"];
   }> {
     const userId = this.resolveRequestUserId(req);
     const limit = Math.min(Math.max(parseInt(limitParam ?? "50", 10) || 50, 1), 100);
@@ -899,7 +900,8 @@ export class AssistantController {
       requestId: req.requestId ?? null,
       messages: result.messages,
       nextCursor: result.nextCursor,
-      activeTurn: result.activeTurn
+      activeTurn: result.activeTurn,
+      activeMediaJobs: result.activeMediaJobs
     };
   }
 

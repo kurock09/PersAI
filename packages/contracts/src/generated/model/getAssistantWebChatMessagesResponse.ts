@@ -6,6 +6,7 @@
  */
 import type { AssistantWebChatMessageState } from "./assistantWebChatMessageState";
 import type { AssistantWebChatActiveTurnState } from "./assistantWebChatActiveTurnState";
+import type { AssistantWebChatActiveMediaJobState } from "./assistantWebChatActiveMediaJobState";
 
 export interface GetAssistantWebChatMessagesResponse {
   /** @nullable */
@@ -15,4 +16,5 @@ export interface GetAssistantWebChatMessagesResponse {
   nextCursor: string | null;
   /** @nullable */
   activeTurn: AssistantWebChatActiveTurnState;
+  activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
 }

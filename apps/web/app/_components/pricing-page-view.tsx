@@ -10,7 +10,6 @@ import type { PublicPricingPlanState } from "@persai/contracts";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { postAssistantBillingPaymentIntent } from "../app/assistant-api-client";
-import { PageBackButton } from "./page-back-button";
 
 function pickLocalizedText(
   locale: string,
@@ -89,13 +88,11 @@ export function PricingPageView({
   plans,
   currentPlanCode,
   signedIn,
-  backHref,
   containedScroll = false
 }: {
   plans: PublicPricingPlanState[];
   currentPlanCode?: string | null;
   signedIn: boolean;
-  backHref: Route;
   containedScroll?: boolean;
 }) {
   const t = useTranslations("pricing");
@@ -156,17 +153,8 @@ export function PricingPageView({
           containedScroll ? "h-full" : "min-h-dvh"
         )}
       >
-        <div className="flex items-center justify-between gap-3 py-2 shrink-0">
-          <PageBackButton fallbackHref={backHref} label={t("back")} />
-          {signedIn ? (
-            <span className="rounded-full border border-border/80 bg-surface/70 px-3 py-1.5 text-[11px] font-medium text-text-subtle">
-              {t("signedInContext")}
-            </span>
-          ) : null}
-        </div>
-
         <div className={cn("min-h-0", containedScroll && "flex-1 overflow-y-auto pr-1")}>
-          <header className="mx-auto mt-6 w-full max-w-3xl text-center sm:mt-10">
+          <header className="mx-auto mt-2 w-full max-w-3xl text-center sm:mt-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
               {t("eyebrow")}
             </p>

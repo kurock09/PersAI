@@ -46,7 +46,10 @@ Primary public API surface:
 - stream reattach route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId/stream`
 - hard-stop route: `POST /api/v1/assistant/chat/web/stop` (body: `{ "clientTurnId": string }`, response: 204)
 - turn-status route: `GET /api/v1/assistant/chat/web/turns/:clientTurnId` returns the durable logical-turn state (`unknown`, `accepted`, `running`, `completed`, `failed`, `interrupted`) plus committed user/assistant payloads where available; web/Capacitor clients use it before retrying ambiguous sends
-- web chat list/bootstrap rows expose compact `activeTurn` state, and `GET /api/v1/assistant/chats/web/:chatId/messages` returns committed history plus full `activeTurn`; clients render this server projection as continuity truth before falling back to local recovery hints
+- accepted generated-media requests on the web sync/stream routes may now complete quickly with an acknowledgement assistant message plus a durable `assistant_media_jobs` enqueue, instead of holding the request open until final artifact delivery
+- web chat list/bootstrap rows expose compact `activeTurn` state plus optional `activeMediaJobs`, and `GET /api/v1/assistant/chats/web/:chatId/messages` returns committed history plus full `activeTurn` plus optional `activeMediaJobs`; clients render this server projection as continuity truth before falling back to local recovery hints
+- `activeMediaJobs` is the ADR-086 continuity projection for open generated-media jobs (`queued`, `running`, `completion_pending`) backed by durable `assistant_media_jobs` state.
+- API now also has internal runtime seams `POST /api/v1/internal/runtime/media-jobs/run` and `POST /api/v1/internal/runtime/media-jobs/complete`, used only by the backend media-job worker/delivery path. The first runs a synthetic tool-enabled media job outside the live user chat and returns assistant text plus produced artifacts; the second accepts the durable job id plus current API-built chat history context and returns optional bounded final framing text before backend-owned delivery.
 - current active mode: native-only
 - `apps/api` owns canonical message persistence, replay semantics, quota/media bookkeeping, and user-facing response shaping. Completed native turns should pass runtime `usageAccounting.entries` into API quota recording; API resolves Admin Runtime provider/model weights and persists one weighted Credits delta, using the text estimator only as an explicit fallback when runtime usage is absent. Subscription-period monthly media quota snapshots and mutations are API-owned state backed by `workspace_media_monthly_quota_counters`: runtime may reserve media units through internal API before provider work, while `MediaDeliveryService` settles only successful delivery and records no-delivery outcomes as reconciliation-required.
 - `apps/runtime` owns request-time execution
@@ -55,6 +58,14 @@ Primary public API surface:
 - the hard-stop route is idempotent and returns 204 whether or not a matching in-flight turn exists; the client treats it as fire-and-forget
 - attachment staging under `POST /api/v1/assistant/chat/web/stage-attachment` accepts `clientTurnId` and `clientAttachmentId`; repeated staging for the same logical attachment returns the existing canonical staged attachment instead of creating a duplicate bubble
 - assistant-facing `quota_status` remains the single plan/quota tool surface. Runtime reads live quota + current/public plan context through `POST /api/v1/internal/runtime/tools/check`, and guarded checkout creation goes through `POST /api/v1/internal/runtime/tools/quota-status/checkout`, which requires explicit confirmation text, creates a normal PersAI payment intent, and returns the existing `/app/billing/checkout/:paymentIntentId` path. That checkout page now launches the configured CloudPayments widget from persisted intent payload instead of bypassing payment-intent truth or directly activating subscription state.
+
+### Telegram webhook
+
+- Telegram webhook ingress remains `/telegram-webhook/*` through `apps/api`.
+- ordinary Telegram text turns still use the native request-time execution path.
+- accepted generated-media Telegram requests now complete the webhook quickly with an honest acknowledgement assistant reply plus a durable `assistant_media_jobs` enqueue instead of waiting for final provider/media completion inside the webhook lifecycle.
+- the same backend `assistant_media_jobs` scheduler and `POST /api/v1/internal/runtime/media-jobs/run` seam now execute Telegram media work too.
+- before final delivery, backend completion processing may call `POST /api/v1/internal/runtime/media-jobs/complete` with current canonical chat history to get optional fresh-history framing text; backend completion delivery still owns terminal state and actual web/Telegram delivery.
 
 ## Knowledge boundaries
 

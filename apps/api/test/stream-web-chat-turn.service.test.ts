@@ -234,7 +234,12 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never
+      createAutoSkillRoutingStateServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -403,7 +408,12 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never
+      createAutoSkillRoutingStateServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -583,6 +593,11 @@ describe("StreamWebChatTurnService", () => {
         runBackgroundCheck: (input: { execute: () => Promise<unknown> }) => {
           backgroundCheckPromise = input.execute();
         }
+      } as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
       } as never
     );
 
@@ -737,7 +752,12 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never
+      createAutoSkillRoutingStateServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -891,7 +911,12 @@ describe("StreamWebChatTurnService", () => {
       } as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never
+      createAutoSkillRoutingStateServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1013,7 +1038,12 @@ describe("StreamWebChatTurnService", () => {
       {} as never,
       createOverviewLatencyTraceServiceMock() as never,
       createAttachmentObjectAvailabilityServiceMock() as never,
-      createAutoSkillRoutingStateServiceMock() as never
+      createAutoSkillRoutingStateServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never
     );
 
     const preparation = await service.prepare("user-1", {
@@ -1173,7 +1203,12 @@ function buildToolStreamingServiceForTraceTest(options: {
     } as never,
     createOverviewLatencyTraceServiceMock({ enabled: options.traceEnabled }) as never,
     createAttachmentObjectAvailabilityServiceMock() as never,
-    createAutoSkillRoutingStateServiceMock() as never
+    createAutoSkillRoutingStateServiceMock() as never,
+    {
+      attachAcknowledgementMessageId: async () => 0,
+      listOpenJobsForChatContext: async () => [],
+      listOpenJobsForWebChat: async () => []
+    } as never
   );
 }
 

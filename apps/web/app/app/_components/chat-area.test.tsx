@@ -110,6 +110,7 @@ function createChat(
     entries: messages.map((message) => ({ kind: "message", message })),
     messages,
     chatId: options?.chatId ?? "chat-1",
+    activeMediaJobs: [],
     isStreaming,
     historyLoading: false,
     hasOlderMessages: options?.hasOlderMessages ?? false,

@@ -20,6 +20,7 @@ import {
 import { OverviewLatencyTraceService } from "./overview-latency-trace.service";
 import { SendNativeTelegramTurnService } from "./send-native-telegram-turn.service";
 import { AttachmentObjectAvailabilityService } from "./media/attachment-object-availability.service";
+import { AssistantMediaJobService } from "./assistant-media-job.service";
 
 export interface InternalTelegramTurnResult {
   assistantMessage: string;
@@ -70,7 +71,8 @@ export class HandleInternalTelegramTurnService {
     private readonly inboundMediaService: InboundMediaService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly sendNativeTelegramTurnService: SendNativeTelegramTurnService,
-    private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService
+    private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
+    private readonly assistantMediaJobService: AssistantMediaJobService
   ) {}
 
   async execute(input: TelegramAdapterTurnRequest): Promise<InternalTelegramTurnResult> {
@@ -219,6 +221,11 @@ export class HandleInternalTelegramTurnService {
       }
 
       const currentTimeIso = new Date().toISOString();
+      const openMediaJobs = await this.assistantMediaJobService.listOpenJobsForChatContext({
+        assistantId: resolved.assistantId,
+        userId: chat.userId,
+        chatId: chat.id
+      });
       const runtimeResponse = await this.sendNativeTelegramTurnService.execute(
         {
           assistantId: resolved.assistantId,
@@ -237,6 +244,7 @@ export class HandleInternalTelegramTurnService {
           userMessageId: userMessage.id,
           userMessage: input.message,
           attachments: runtimeAttachments,
+          ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
           userTimezone: workspace.timezone,
           currentTimeIso,
           deepMode: defaultDeepModeEnabled
@@ -266,6 +274,16 @@ export class HandleInternalTelegramTurnService {
         });
         assistantMessageId = assistantChatMessage.id;
         trace.stage("assistant_message_saved");
+        if (
+          runtimeResponse.deferredMediaJobs !== undefined &&
+          runtimeResponse.deferredMediaJobs.length > 0
+        ) {
+          await this.assistantMediaJobService.attachAcknowledgementMessageId({
+            assistantId: resolved.assistantId,
+            sourceUserMessageId: userMessage.id,
+            assistantAcknowledgementMessageId: assistantChatMessage.id
+          });
+        }
       } catch (error) {
         this.logger.error(
           `[telegram-turn] Completed runtime turn could not persist assistant message for ${resolved.assistantId}: ${

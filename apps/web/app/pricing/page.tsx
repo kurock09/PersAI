@@ -19,7 +19,6 @@ export default async function PricingPage() {
         plans={plans}
         currentPlanCode={currentPlanCode}
         signedIn={signedIn}
-        backHref="/"
         containedScroll
       />
     </>

@@ -566,6 +566,31 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       ]
     }
   ]);
+  const requestWithOpenMediaJobs = createRuntimeTurnRequest();
+  requestWithOpenMediaJobs.openMediaJobs = [
+    {
+      jobId: "job-1",
+      kind: "image",
+      status: "running",
+      createdAt: "2026-04-11T11:55:00.000Z",
+      startedAt: "2026-04-11T11:56:00.000Z",
+      updatedAt: "2026-04-11T11:59:00.000Z"
+    }
+  ];
+  const hydratedWithOpenMediaJobs = await service.buildMessages(
+    requestWithOpenMediaJobs,
+    runtimeBundle
+  );
+  assert.ok(
+    hydratedWithOpenMediaJobs.some(
+      (message) =>
+        message.role === "assistant" &&
+        typeof message.content === "string" &&
+        message.content.includes("# Open Async Media Jobs") &&
+        message.content.includes("image job is running")
+    ),
+    "open async media jobs should be injected into the hydrated prompt context"
+  );
   assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/diagram.png"));
   assert.ok(downloadedObjectKeys.includes("assistant-media/chat-1/manual.pdf"));
   assert.ok(

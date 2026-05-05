@@ -1,5 +1,6 @@
 import type { RuntimeTier } from "./runtime-assignment";
 import type {
+  RuntimeDeferredMediaJobSummary,
   RuntimeOutputArtifact,
   RuntimeTurnAutoCompactionState,
   RuntimeTurnToolInvocation,
@@ -127,6 +128,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   media: RuntimeMediaArtifact[];
   usageAccounting?: RuntimeUsageAccounting;
   toolInvocations?: RuntimeTurnToolInvocation[];
+  deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   runtimeTrace?: {
@@ -159,6 +161,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   accumulated?: string;
   respondedAt?: string;
   usageAccounting?: RuntimeUsageAccounting;
+  deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   code?: string;
   message?: string;

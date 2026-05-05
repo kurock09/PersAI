@@ -5,6 +5,7 @@ import type {
   RuntimeFailedEvent,
   RuntimeAttachmentRef,
   RuntimeInterruptedEvent,
+  RuntimeOpenMediaJobContext,
   RuntimeOutputArtifact,
   RuntimeTurnRequest,
   RuntimeTurnResult,
@@ -40,6 +41,7 @@ export interface SendNativeTelegramTurnInput {
   userMessageId: string;
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
+  openMediaJobs?: RuntimeOpenMediaJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   deepMode?: RuntimeTurnRequest["deepMode"];
@@ -136,6 +138,7 @@ export class SendNativeTelegramTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
@@ -248,6 +251,9 @@ export class SendNativeTelegramTurnService {
               ...(event.result.usageAccounting === undefined
                 ? {}
                 : { usageAccounting: event.result.usageAccounting }),
+              ...(event.result.deferredMediaJobs === undefined
+                ? {}
+                : { deferredMediaJobs: event.result.deferredMediaJobs }),
               ...(event.result.autoCompaction === undefined
                 ? {}
                 : { autoCompaction: event.result.autoCompaction }),

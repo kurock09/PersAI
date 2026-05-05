@@ -567,6 +567,76 @@ describe("useChat", () => {
     expect(ids.some((id) => id.startsWith("local-assistant-"))).toBe(false);
   });
 
+  it("restores activeMediaJobs from cached thread state after switch-back", async () => {
+    const activeMediaJobs = [
+      {
+        id: "job-1",
+        kind: "image",
+        operation: "image_generate",
+        status: "queued",
+        createdAt: "2026-05-05T09:00:00.000Z",
+        startedAt: null,
+        updatedAt: "2026-05-05T09:00:00.000Z"
+      }
+    ];
+    assistantApiMocks.getChatMessages.mockResolvedValue({
+      nextCursor: null,
+      activeTurn: null,
+      activeMediaJobs,
+      messages: []
+    });
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onStarted?.({
+          chat: { id: "chat-1" },
+          userMessage: { id: "user-msg-1", chatId: "chat-1", attachments: [] }
+        });
+        handlers.onCompleted?.({
+          transport: {
+            userMessage: {
+              id: "user-msg-1",
+              chatId: "chat-1",
+              attachments: []
+            },
+            assistantMessage: {
+              id: "assistant-msg-1",
+              content: "I queued it."
+            },
+            activeMediaJobs
+          }
+        });
+      }
+    );
+
+    const { result, rerender } = renderHook(
+      ({ threadKey }: { threadKey: string }) => useChat(threadKey),
+      {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>,
+        initialProps: { threadKey: "thread-1" }
+      }
+    );
+
+    await act(async () => {
+      await result.current.send("Generate an image");
+    });
+
+    expect(result.current.activeMediaJobs).toEqual(activeMediaJobs);
+
+    rerender({ threadKey: "thread-2" });
+    rerender({ threadKey: "thread-1" });
+
+    await waitFor(() => {
+      expect(result.current.activeMediaJobs).toEqual(activeMediaJobs);
+    });
+  });
+
   it("clears the local streaming bubble when focus history already contains the completed turn", async () => {
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

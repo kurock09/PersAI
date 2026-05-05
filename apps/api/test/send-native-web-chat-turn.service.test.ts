@@ -111,6 +111,16 @@ describe("SendNativeWebChatTurnService", () => {
         userMessageId: "user-msg-1",
         userMessage: "hello native",
         attachments: [],
+        openMediaJobs: [
+          {
+            jobId: "job-1",
+            kind: "image",
+            status: "running",
+            createdAt: "2026-04-11T12:55:00.000Z",
+            startedAt: "2026-04-11T12:56:00.000Z",
+            updatedAt: "2026-04-11T12:59:30.000Z"
+          }
+        ],
         userTimezone: "UTC",
         currentTimeIso: "2026-04-11T13:00:00.000Z",
         modelRoleOverride: "premium_reply",
@@ -128,6 +138,16 @@ describe("SendNativeWebChatTurnService", () => {
         ((capturedBody?.message as Record<string, unknown>)?.attachments as unknown[]) ?? [],
         []
       );
+      assert.deepEqual(capturedBody?.openMediaJobs, [
+        {
+          jobId: "job-1",
+          kind: "image",
+          status: "running",
+          createdAt: "2026-04-11T12:55:00.000Z",
+          startedAt: "2026-04-11T12:56:00.000Z",
+          updatedAt: "2026-04-11T12:59:30.000Z"
+        }
+      ]);
       assert.equal(
         ((capturedBody?.conversation as Record<string, unknown>)?.externalUserKey as string) ??
           null,

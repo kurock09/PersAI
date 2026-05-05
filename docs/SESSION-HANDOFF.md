@@ -1,29 +1,336 @@
 # SESSION-HANDOFF
 
-## 2026-05-05 (ADR-086 async media jobs accepted) — platform-wide target state for generated image/audio/video is now one durable async media lane
+## 2026-05-05 (ADR-086 single-path cleanup and hardening) — async generated media now uses one production contour end to end
 
 ### What changed
 
-- Kept this session bounded to architecture truth only: no code path was changed yet, but the repo now has an explicit ADR for the long-running generated-media problem that showed up in Telegram live behavior.
-- Added `docs/ADR/086-async-media-jobs-for-generated-image-audio-and-video.md` as the new source of truth for generated `image` / `audio` / `video` orchestration.
-- The ADR deliberately does **not** convert all chat into async. Ordinary text turns stay on the current sync/stream path, while generated media moves to one durable job model shared by `web` and `Telegram`.
-- The ADR locks the two most important founder constraints:
-  - preserve current quota/limit behavior, especially the calm assistant explanations when media is blocked by plan/quota/tool limits
-  - do not leave users in hanging states; pending media state must restore across chat switch, reconnect, and `F5`
-- The ADR also makes the cutover rule explicit: after implementation, the active product path must not keep the old long synchronous media completion contour as a hidden legacy fallback.
+- Kept this session bounded to the last ADR-086 cleanup/hardening slice: remove the remaining duplicate acceptance/read paths, enforce one persisted worker request shape, and verify web continuity against durable job truth.
+- Deleted the old `AssistantWebAsyncMediaLaneService` detector path from sync web, stream web, and Telegram turns, so accepted generated-media work now enters the async lane only when the model actually calls `image_generate`, `image_edit`, or `video_generate`.
+- Removed the older prompt-based worker payload branch and made background media-job execution use persisted `directToolExecution` requests only, which closes the last second-LLM-run seam for async media jobs.
+- Collapsed the duplicate web `activeMediaJobs` read layer into `AssistantMediaJobService`, then fixed a web cache-drift bug so `use-chat` restores and refreshes pending media state from durable server truth across thread switch-back, reconnect, and `F5`.
+- Updated ADR/changelog truth so Slice 5, Slice 6, and Slice 7 now match the actual repo state instead of still describing a remaining detector cleanup item that no longer exists.
 
 ### Verification
 
-- Docs-only change; no code/tests run in this session.
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx app/app/_components/chat-input.test.tsx`
 
 ### Risks / residuals
 
-- This session did not implement the async media lane yet. Telegram and web still use the current shipped behavior until ADR-086 is implemented and deployed.
-- `ARCHITECTURE.md`, `API-BOUNDARY.md`, and `DATA-MODEL.md` still describe current active behavior, not the future ADR-086 target state. They should change only when implementation lands.
+- This slice removes the architecture-level dual path for generated media, but it does not add new live-environment observability or retry UX beyond the existing durable job states. Operational confidence still depends on normal deployment validation.
+- ADR-086 is now clean for the active generated-media tools. Any future expansion to other media families should reuse this lane directly rather than introducing a new pre-routing contour.
 
 ### Next recommended step
 
-- Implement ADR-086 as one coherent cutover slice: add durable media-job state, preserve existing quota/limit refusal semantics, restore pending-media continuity in `web`, move Telegram generated media off the long synchronous webhook path, and remove the old sync media completion contour from the active path once the new lane is live.
+- Do targeted live validation of one web `image_generate`, one web `image_edit`, and one Telegram generated-media turn against deployed services, with attention to durable pending-state restore and delivery-confirmed quota settlement.
+
+## 2026-05-05 (ADR-086 web pending-media continuity UX) — web chat now shows durable pending media jobs as quiet horizontal chips above the composer
+
+### What changed
+
+- Kept this slice bounded to the remaining ADR-086 web continuity UX on top of already-landed durable `activeMediaJobs` truth, without inventing a second client-only pending-state source.
+- Extended the web active-media projection with operation truth (`image_generate`, `image_edit`, `video_generate`, plus `audio_generate` fallback) so the UI can distinguish `Генерирую фото`, `Редактирую фото`, and `Генерирую видео` from the persisted job payload instead of guessing from message text.
+- Sync and stream web turn responses now also return the refreshed open media-job projection right after acknowledgement binding, so the pending indicator appears immediately after acceptance rather than waiting for `F5` or the next manual history read.
+- `use-chat` now keeps `activeMediaJobs` in thread state, restores it across switch/reconnect/`F5` from server truth, and runs a lightweight authoritative refresh loop while jobs are still open so completed/failed jobs disappear automatically.
+- The composer now renders quiet one-line horizontal pending chips for one or two jobs and a compact aggregate banner for larger queues, with elapsed time counted from `startedAt` or `createdAt` when still queued.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- The UI now reflects durable pending media truth honestly, but the older conservative detector-only early acceptance path still exists. That means the product still has one remaining pre-tool shortcut that should be collapsed so all accepted media requests share the same contour.
+- The compact `3+` aggregate intentionally trades detail for calm UI. If product later needs richer per-job progress or retry affordances, that should extend durable job state deliberately rather than growing local-only presentation logic.
+
+### Next recommended step
+
+- Remove or collapse the remaining conservative detector-only async-media shortcut so ordinary accepted media requests rely on a single tool-boundary acceptance path.
+
+## 2026-05-05 (ADR-086 open-media continuity context) — ordinary turns now see existing async media work from durable server truth
+
+### What changed
+
+- Kept this session bounded to ADR-086 continuity awareness after the tool-boundary deferral cutover, without reopening media execution semantics or inventing a second UI-only truth source.
+- Added `openMediaJobs` to the runtime turn request contract and now populate it from durable `assistant_media_jobs` rows on sync web, stream web, and Telegram ordinary turns before calling runtime.
+- `TurnContextHydrationService` now injects a bounded assistant-side context block describing open async media work already in progress in the chat, so later ordinary turns can honestly acknowledge that media generation is still queued/running instead of acting blind to background state.
+- Added focused request-propagation and hydration coverage so the continuity block is asserted both at the API->runtime boundary and inside the hydrated runtime prompt path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Web continuity UX is still incomplete on the client side: durable `activeMediaJobs` truth already exists and runtime now sees it, but the chat UI still needs a dedicated pending-indicator/restore behavior that uses this truth consistently across switch, reconnect, and `F5`.
+- The conservative pre-LLM async-media detector still remains as an early shortcut. Product behavior is now much safer because true tool-boundary deferral and runtime awareness are in place, but the old detector path should still be collapsed so the active path is singular.
+- The continuity block is intentionally brief and bounded. If future product behavior needs richer progress semantics, that should extend the durable job truth deliberately rather than reintroducing local-only inference.
+
+### Next recommended step
+
+- Finish web pending-media continuity UX on top of `activeMediaJobs`, then retire or collapse the remaining conservative detector-only async-media shortcut.
+
+## 2026-05-05 (ADR-086 tool-boundary media deferral cutover) — ordinary turns now enqueue durable media jobs when the model actually calls image/video tools
+
+### What changed
+
+- Kept this session bounded to the actual ordinary-turn tool boundary under ADR-086, without reopening broad message-text routing or reintroducing a second long-lived media truth path.
+- Ordinary `image_generate`, `image_edit`, and `video_generate` calls inside native runtime turns now defer through the shared async media lane instead of executing heavy provider media work inline. The runtime media tool services validate the call, create a durable media job through a new internal API enqueue seam, return a structured `deferred` tool result back into the same turn, and let the model produce the immediate acknowledgement text.
+- The API side now has an internal deferred-media enqueue controller/service that resolves the source user message/chat, enforces queue and quota/tool-availability admission, persists the durable `assistant_media_jobs` row with direct tool execution payload plus attachment refs, and returns the created job id to runtime.
+- Sync/stream web turns and Telegram turns now bind the eventual acknowledgement assistant message back onto already-enqueued media jobs via `assistantAcknowledgementMessageId`, so the durable job is created before streamed acknowledgement text reaches the user while backend completion delivery keeps the final send/backend truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Cross-turn continuity is still incomplete: later ordinary turns still do not receive an explicit runtime prompt/context block describing open async media work, even though durable `activeMediaJobs` truth exists on the API side.
+- The conservative pre-LLM async-media detector still exists as an early fast path. The real tool-boundary cutover is now in place for `image_generate`, `image_edit`, and `video_generate`, but the older detector path should still be simplified/retired so the product relies on one honest acceptance contour.
+- The new internal enqueue seam currently covers generated image/video tools only, matching the bounded user requirement. `tts` was intentionally left out of this cutover.
+
+### Next recommended step
+
+- Inject current open-media-job context into ordinary runtime turns and web continuity UX, then remove or collapse the remaining conservative detector-only media shortcut so ADR-086 runs through one consistent async acceptance model.
+
+## 2026-05-05 (ADR-086 direct media worker execution foundation) — background media jobs can now execute persisted tool requests without a second LLM run
+
+### What changed
+
+- Kept this session bounded to the worker-execution seam under ADR-086, without reopening message-text classification or changing ordinary text-turn routing.
+- Extended the internal media-job run contract so a durable job can now carry either the older synthetic prompt-run payload or a normalized direct media tool execution payload for `image_generate`, `image_edit`, or `video_generate`.
+- `RuntimeMediaJobRunService` now has a direct execution branch that calls the existing native media tool services directly from the background worker path instead of always re-entering a second synthetic LLM tool run. This removes unnecessary token spend for async media jobs once the ordinary turn starts persisting real tool-call payloads.
+- `AssistantMediaJobSchedulerService` and completion-delivery request parsing now accept the richer durable request shape, so the API worker side is ready to persist direct media tool requests and replay them through the runtime without forcing the worker to "re-decide" the job from raw prompt text.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Ordinary turns still do not defer at the exact media tool-call boundary yet. The new direct worker execution path is ready, but ordinary `image_generate` / `image_edit` / `video_generate` calls are not yet persisting those direct payloads into `assistant_media_jobs`.
+- Web/runtime continuity for "media work already in progress" is still incomplete on the ordinary turn path. Durable `activeMediaJobs` truth exists, but the runtime prompt/context still needs an explicit in-progress media block so the assistant can see current background work during later chat messages.
+- `image_edit` attachment continuity is only partially finished: the worker seam is now ready to carry persisted attachment refs, but the ordinary turn still needs to capture and enqueue the exact normalized request plus resolved chat-image refs when the model actually calls `image_edit`.
+
+### Next recommended step
+
+- Wire ordinary `image_generate`, `image_edit`, and `video_generate` execution to return a deferred outcome at the actual tool boundary, persist a durable media job with the normalized tool request plus resolved attachment refs, let the model produce the immediate acknowledgement in the same ordinary turn, and inject current open-media-job context into later ordinary turns.
+
+## 2026-05-05 (ADR-086 Slice 4 completion seam) — finished media jobs now get bounded fresh-history framing before delivery
+
+### What changed
+
+- Kept this session bounded to ADR-086 Slice 4 only: a dedicated completion-turn seam for already-finished media jobs, without reopening the old request-time media contour or introducing a second job truth path.
+- Added an explicit internal runtime completion endpoint for media jobs. `POST /api/v1/internal/runtime/media-jobs/complete` now accepts the durable job id, current API-built chat history snapshot, source message facts, and worker result/artifact summary, then returns optional final user-facing framing text.
+- The runtime completion seam is bounded and idempotent. It uses runtime turn acceptance/finalization for replay semantics keyed by the media job, but it does not run tools, does not enqueue background compaction, and does not own job, quota, or delivery truth.
+- Added `AssistantMediaJobCompletionTurnService` in `apps/api` so backend completion delivery can resolve the current assistant/runtime bundle, read the latest canonical chat history, call the runtime completion seam, and apply fresh-history framing before final web/Telegram delivery honesty correction.
+- `AssistantMediaJobCompletionDeliveryService` now uses that seam before final delivery. The persisted completion assistant message is created/updated from the completion-turn output, then the existing backend-owned delivery logic still decides final `delivered` / `failed` state and channel delivery behavior.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-completion.service.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- The async media intent detector is still conservative. Clear ordinary generated-media asks already use the shared async lane, but some ambiguous asks can still miss the detector and fall back to the last legacy sync generated-media contour.
+- Web continuity UX remains only partially implemented: durable `activeMediaJobs` server truth exists, but the dedicated pending-indicator behavior from ADR-086 Slice 5 is still a remaining UI/product step.
+- The completion seam currently returns only optional final framing text. Delivery truth, artifacts, and quota settlement remain correctly backend-owned, but there is still no richer completion-specific metadata contract because it is not needed for the active path yet.
+
+### Next recommended step
+
+- Remove the remaining conservative sync fallback for ambiguous generated-media asks on top of this new completion seam, while keeping ordinary text turns synchronous and preserving current quota/blocking behavior.
+
+## 2026-05-05 (ADR-086 Telegram cutover) — Telegram generated-media requests now use the shared async media-job lane
+
+### What changed
+
+- Kept this session bounded to ADR-086 Telegram cutover on top of the already landed shared backend lane, without introducing a second Telegram-specific job system.
+- `HandleInternalTelegramTurnService` now routes ordinary accepted Telegram generated image/audio/video requests through the same async-media acceptance path already used by the web cutover. Telegram accepted media requests now create durable `assistant_media_jobs`, persist an immediate acknowledgement assistant message, complete the webhook quickly, and avoid waiting for final media generation inside the webhook lifecycle.
+- The runtime media-job seam is now surface-aware instead of hardcoded to `web`: `RuntimeMediaJobRunRequest.job.surface` flows from the durable job row into the synthetic background runtime conversation channel, so the shared backend worker no longer pretends every media job is a web job.
+- `AssistantMediaJobCompletionDeliveryService` is now surface-aware too. `completion_pending` rows can deliver through `web` or `telegram` from the same backend-owned service. Telegram completion delivery now resolves the bot token/config, persists the completion message row, sends final media asynchronously through `MediaDeliveryService`, and sends final Telegram text/failure text without reviving the old synchronous webhook path.
+- Updated architecture/API/data-model docs so repo truth now states that Telegram accepted generated media is on the shared async lane and that `assistant_media_jobs` is platform-wide state, not web-only worker truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-web-async-media-lane.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- The dedicated Slice 4 completion-turn framing seam with fresh current history is still not implemented. Completion delivery still uses persisted worker `resultText` plus backend-owned delivery truth rather than a second bounded history-aware completion turn.
+- The async media intent detector is still conservative. Clear ordinary generated-media asks now go to the shared async lane on both web and Telegram, but some ambiguous asks can still miss the detector and fall back to the legacy sync media contour until the final classifier/fallback cleanup lands.
+- Web continuity UX remains only partially implemented: durable `activeMediaJobs` server truth is already present, but the dedicated pending-indicator behavior from ADR-086 Slice 5 is still a remaining product/UI step.
+
+### Next recommended step
+
+- Finish ADR-086 Slice 4 and the remaining fallback cleanup together: add the bounded completion-turn seam with fresh current history, then remove the last conservative sync generated-media fallback for ambiguous asks while keeping ordinary text turns synchronous.
+
+## 2026-05-05 (ADR-086 Slice 3 web cutover) — web generated-media requests now enqueue durable jobs and web completion delivery is live
+
+### What changed
+
+- Kept this session bounded to finishing the missing practical parts of ADR-086 Slice 3 for the web path: real enqueue from ordinary web chat turns plus backend-owned delivery from `completion_pending`.
+- Added `AssistantWebAsyncMediaLaneService` and wired it into both `SendWebChatTurnService` and `StreamWebChatTurnService`. Clear generated-media requests on web now receive an immediate acknowledgement assistant message, create a durable `assistant_media_jobs` row, and return quickly instead of waiting for final media generation inside the request lifecycle.
+- Added bounded queue enforcement for web generated media: if the chat already has too many open media jobs, the request is answered explicitly and no new job is created.
+- Added immediate precheck gates for the web async lane using live plan/tool activation plus current quota status, so obviously blocked media requests are refused up front instead of being flattened into a generic worker failure after enqueue.
+- Added `AssistantMediaJobCompletionDeliveryService` and extended `AssistantMediaJobSchedulerService` so `completion_pending` rows are no longer a dead-end: completed media jobs are now delivered into the same web chat, `completionAssistantMessageId` is persisted, and terminal `delivered` / `failed` state is recorded.
+- Updated ADR/API/data-model docs to reflect that Slice 3 is now materially landed for the web path.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-web-async-media-lane.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-completion-delivery.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+
+### Risks / residuals
+
+- Telegram is still on the old synchronous generated-media delivery contour; ADR-086 Slice 6 is still required before the Telegram webhook stops depending on request-time media completion.
+- The web async media intent detector is intentionally conservative. Clear generated image/audio/video requests now take the async lane, but some ambiguous media asks may still fall back to the old synchronous runtime path until the later cleanup/cutover work removes that dual path entirely.
+- Completion-turn framing with fresh current-history context is still not implemented; completed web jobs currently deliver the stored worker result text plus artifacts without the dedicated Slice 4 completion-turn seam.
+
+### Next recommended step
+
+- Start ADR-086 Slice 4 and Slice 6 together: add the completion-turn framing seam for finished jobs, then move Telegram generated media onto the same async lane and remove the remaining synchronous media completion path.
+
+## 2026-05-05 (ADR-086 Slice 3 foundation) — internal runtime media-job run seam and durable API scheduler state are now landed
+
+### What changed
+
+- Kept this session bounded to ADR-086 Slice 3 foundation only: real backend worker claim/run/retry/result progression, but not yet the inbound chat-path cutover that creates media jobs from ordinary web/Telegram turns.
+- Extended `assistant_media_jobs` with the durable worker fields needed for production ownership: request payload, persisted result/artifacts, max-attempt policy, scheduler claim token/timestamps, and retry timing.
+- Added `AssistantMediaJobSchedulerService` plus `InternalRuntimeMediaJobClientService` in `apps/api`; the scheduler now claims queued jobs durably, calls the runtime through a dedicated internal seam, retries retryable failures with backoff, and persists successful runs as `completion_pending` with stored assistant text + artifacts.
+- Added `RuntimeMediaJobRunService` and `POST /api/v1/internal/runtime/media-jobs/run` in `apps/runtime`; this executes a synthetic tool-enabled media run outside the live chat thread via `createBackgroundTaskToolRun`, which avoids reviving an old user turn inside the active conversation.
+- Added `AssistantMediaJobService.enqueue(...)` as the typed API-side creation seam for future ordinary chat-path wiring, but the current web/Telegram request paths do **not** call it yet in this slice.
+- Updated `ADR-086`, `API-BOUNDARY`, and `DATA-MODEL` so repo truth now includes the worker/execution seam rather than only the schema/read-model foundation.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-media-job-scheduler.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-media-job-run.service.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Ordinary web and Telegram media requests still follow the old sync runtime path; no live chat path creates `assistant_media_jobs` yet, so the new scheduler will stay idle until the next slice wires real enqueue points.
+- Completion delivery is not wired yet: successful worker runs persist `completion_pending` with artifacts/result text, but no backend delivery service consumes those rows yet.
+- Because creation and delivery are still pending, current user-visible behavior for long-running generated media is not improved until the remaining ADR-086 slices land and are deployed.
+
+### Next recommended step
+
+- Finish ADR-086 Slice 3 / Slice 4 seam together: wire ordinary web and Telegram generated-media requests to create `assistant_media_jobs` with immediate acknowledgement, feed open-job summaries into ordinary turn context, and add backend-owned completion delivery that consumes `completion_pending` rows without reviving the old sync media contour.
+
+## 2026-05-05 (Billing UI + chat navigation hardening) — pricing chrome was removed and sidebar chat switches use real router navigation again
+
+### What changed
+
+- Kept this session bounded to founder-reported product UI regressions rather than a new billing architecture slice.
+- Removed the extra top chrome from both pricing surfaces and the current checkout page: the public/in-app pricing page no longer renders the top `Назад` and `Вы в аккаунте` row, and the current `/app/billing/checkout/:paymentIntentId` page no longer renders the top back button.
+- Fixed chat switching from the left sidebar by removing the local `window.history.pushState(...)` shortcut and restoring real `router.push(...)` navigation for both `New chat` and existing chat rows. This fixes the live symptom where only the URL changed while the actual page content stayed stale.
+- The same navigation fix also addresses the mobile symptom where clicking a chat could hide the menu button: the app now performs an actual route transition into the chat screen instead of only mutating the URL bar while leaving stale page content mounted.
+- Read the CloudPayments Payment Constructor documentation and confirmed the requested direction change, but did **not** switch checkout from widget to constructor in this slice. That payment-form rewrite remains a separate bounded follow-up.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/_components/sidebar.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice intentionally did not implement the CloudPayments Payment Constructor yet; current checkout still uses the existing widget-oriented backend/page flow until that separate payment rewrite lands.
+- The current checkout page is visually cleaner, but the larger product decision to replace the widget with constructor-based embedded payment UI is still pending.
+
+### Next recommended step
+
+- Start a separate bounded billing UI slice to replace the current CloudPayments widget launch path with the Payment Constructor contour from the provider docs, while keeping PersAI payment-intent and webhook lifecycle truth unchanged.
+
+## 2026-05-05 (ADR-086 Slice 2 foundation) — durable `assistant_media_jobs` and web `activeMediaJobs` continuity contract are now landed
+
+### What changed
+
+- Kept this session bounded to ADR-086 Slice 2 only: durable schema truth and read-only continuity contract, without switching generated media execution onto the async lane yet.
+- Added Prisma schema + migration for `assistant_media_jobs`, including explicit generated-media kind/status enums and the first durable job fields needed for future async orchestration.
+- Added a small API read service for open media jobs and extended web continuity responses so chat list rows and `GET /assistant/chats/web/:chatId/messages` can now expose optional `activeMediaJobs` alongside `activeTurn`.
+- Preserved the existing product/runtime behavior: no new media jobs are created by current turn execution yet, no quota/limit semantics changed, and `activeTurn` remains the text-turn continuity model.
+- Updated `ADR-086`, `API-BOUNDARY`, and `DATA-MODEL` so repo truth now reflects the landed slice rather than only the accepted target architecture.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-web-chat-list.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/web-chat-media-job.service.test.ts`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice does **not** create or run async media jobs yet. Current Telegram/web generated-media execution still follows the old runtime/delivery path until later ADR-086 slices land.
+- `activeMediaJobs` is now part of the web continuity contract, but it will remain empty until Slice 3+ begins writing real job rows.
+- The running cluster still has the old behavior until this revision is deployed.
+
+### Next recommended step
+
+- Continue ADR-086 with Slice 3: add API orchestration and worker execution that actually creates and advances `assistant_media_jobs` while preserving the current immediate quota/limit refusal path and keeping ordinary text turns untouched.
 
 ## 2026-05-05 (Telegram media-delivery honesty hardening) — Telegram no longer claims media was sent when delivery returned zero successful attachments
 

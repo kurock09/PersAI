@@ -36,6 +36,7 @@ import { InternalRuntimeKnowledgeController } from "./interface/http/internal-ru
 import { InternalRuntimeOrchestratedRetrievalController } from "./interface/http/internal-runtime-orchestrated-retrieval.controller";
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
+import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
 import { InternalRuntimeMemoryCloseMostSimilarController } from "./interface/http/internal-runtime-memory-close-most-similar.controller";
 import { InternalRuntimeMemoryCloseByRefController } from "./interface/http/internal-runtime-memory-close-by-ref.controller";
@@ -164,6 +165,12 @@ import { SendNativeWebChatTurnService } from "./application/send-native-web-chat
 import { SendWebChatTurnService } from "./application/send-web-chat-turn.service";
 import { StreamNativeWebChatTurnService } from "./application/stream-native-web-chat-turn.service";
 import { StreamWebChatTurnService } from "./application/stream-web-chat-turn.service";
+import { AssistantMediaJobCompletionTurnService } from "./application/assistant-media-job-completion-turn.service";
+import { AssistantMediaJobCompletionDeliveryService } from "./application/assistant-media-job-completion-delivery.service";
+import { AssistantMediaJobSchedulerService } from "./application/assistant-media-job-scheduler.service";
+import { AssistantMediaJobService } from "./application/assistant-media-job.service";
+import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
+import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
 import { WebChatTurnAttemptService } from "./application/web-chat-turn-attempt.service";
 import { WebChatTurnHardStopRegistry } from "./application/web-chat-turn-hard-stop-registry.service";
 import { WebChatTurnStreamRegistry } from "./application/web-chat-turn-stream-registry.service";
@@ -306,6 +313,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     InternalRuntimeCrossSessionCarryOverController,
     InternalRuntimeCrossSessionMarkFiredController,
     InternalRuntimeCompactionEnqueueController,
+    InternalRuntimeMediaJobsEnqueueController,
     InternalRuntimeTaskRegistryController,
     InternalRuntimeBackgroundTasksController,
     InternalRuntimeToolQuotaController,
@@ -378,6 +386,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     PersaiBackgroundTaskSchedulerService,
     ProactivePushPolicyService,
     EnqueueBackgroundCompactionJobService,
+    EnqueueRuntimeDeferredMediaJobService,
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,
     PersaiIdleReengagementSchedulerService,
@@ -465,6 +474,11 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     PrepareAssistantInboundTurnService,
     SendWebChatTurnService,
     StreamWebChatTurnService,
+    AssistantMediaJobCompletionTurnService,
+    AssistantMediaJobCompletionDeliveryService,
+    AssistantMediaJobSchedulerService,
+    AssistantMediaJobService,
+    InternalRuntimeMediaJobClientService,
     WebChatTurnAttemptService,
     WebChatTurnHardStopRegistry,
     WebChatTurnStreamRegistry,

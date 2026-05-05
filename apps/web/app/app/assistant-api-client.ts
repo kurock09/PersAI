@@ -38,6 +38,7 @@ import {
   type AssistantWebChatCompactRequest,
   type AssistantWebChatCompactionResult,
   type AssistantWebChatCompactionState,
+  type AssistantWebChatActiveMediaJobState,
   type AssistantWebChatListItemState,
   type AssistantWebChatRuntimeState,
   type AssistantWebChatState,
@@ -2014,6 +2015,7 @@ export async function getChatMessages(
   messages: ChatHistoryMessage[];
   nextCursor: string | null;
   activeTurn?: WebChatActiveTurnState | null;
+  activeMediaJobs?: WebChatActiveMediaJobState[];
 }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
@@ -2027,6 +2029,7 @@ export async function getChatMessages(
     messages: ChatHistoryMessage[];
     nextCursor: string | null;
     activeTurn?: WebChatActiveTurnState | null;
+    activeMediaJobs?: WebChatActiveMediaJobState[];
   };
 }
 
@@ -3065,6 +3068,8 @@ export type WebChatActiveTurnState = {
   assistantMessage: ChatHistoryMessage | null;
   canReattach: boolean;
 };
+
+export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;
 
 export type WebChatTurnCurrentActivityState = {
   type: "tool_use";

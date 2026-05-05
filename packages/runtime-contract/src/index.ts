@@ -1065,9 +1065,10 @@ export interface RuntimeImageGenerateToolResult {
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped";
+  action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  jobId?: string | null;
 }
 
 export const PERSAI_RUNTIME_IMAGE_EDIT_PROVIDER_IDS = ["openai"] as const;
@@ -1099,9 +1100,10 @@ export interface RuntimeImageEditToolResult {
   size: PersaiRuntimeImageGenerateSize | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped";
+  action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  jobId?: string | null;
 }
 
 export const PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS = ["openai"] as const;
@@ -1155,9 +1157,10 @@ export interface RuntimeVideoGenerateToolResult {
   referenceFilename: string | null;
   artifact: RuntimeOutputArtifact | null;
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped";
+  action: "generated" | "skipped" | "deferred";
   reason: string | null;
   warning: string | null;
+  jobId?: string | null;
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
@@ -1597,6 +1600,79 @@ export interface RuntimeBackgroundTaskEvaluationResult {
   rawText: string | null;
 }
 
+export interface RuntimeMediaJobRunRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeTier: PersaiRuntimeTier;
+  runtimeBundleDocument: string;
+  job: {
+    id: string;
+    surface: "web" | "telegram";
+    kind: "image" | "audio" | "video";
+    chatId: string;
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  };
+  attachments: RuntimeAttachmentRef[];
+  directToolExecution:
+    | {
+        toolCode: "image_generate";
+        request: RuntimeImageGenerateRequest;
+      }
+    | {
+        toolCode: "image_edit";
+        request: RuntimeImageEditRequest;
+      }
+    | {
+        toolCode: "video_generate";
+        request: RuntimeVideoGenerateRequest;
+      };
+}
+
+export interface RuntimeMediaJobRunResult {
+  assistantText: string;
+  artifacts: RuntimeOutputArtifact[];
+  usage: RuntimeUsageAccounting | RuntimeUsageSnapshot | null;
+  toolInvocations: RuntimeTurnToolInvocation[];
+  rawText: string | null;
+}
+
+export interface RuntimeMediaJobCompletionRequest {
+  assistantId: string;
+  workspaceId: string;
+  runtimeTier: PersaiRuntimeTier;
+  runtimeBundleDocument: string;
+  job: {
+    id: string;
+    surface: "web" | "telegram";
+    kind: "image" | "audio" | "video";
+    chatId: string;
+    sourceUserMessageId: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  };
+  currentHistory: Array<{
+    author: "user" | "assistant" | "system";
+    content: string;
+    createdAt: IsoTimestamp;
+  }>;
+  workerResult: {
+    assistantText: string | null;
+    artifacts: Array<{
+      type: RuntimeOutputArtifact["kind"];
+      filename: string | null;
+      fileRef: string | null;
+    }>;
+  };
+}
+
+export interface RuntimeMediaJobCompletionResult {
+  assistantText: string | null;
+  usage: RuntimeUsageSnapshot | null;
+  rawText: string | null;
+}
+
 export interface RuntimeTurnRequest {
   requestId: string;
   idempotencyKey: string;
@@ -1604,11 +1680,21 @@ export interface RuntimeTurnRequest {
   bundle: RuntimeBundleRef;
   conversation: RuntimeConversationAddress;
   message: RuntimeInboundMessage;
+  openMediaJobs?: RuntimeOpenMediaJobContext[];
   deepMode?: boolean;
   modelRoleOverride?: PersaiRuntimeModelRole;
   providerOverride?: "openai" | "anthropic";
   modelOverride?: string;
   skillRoutingContext?: RuntimeSkillRoutingContext;
+}
+
+export interface RuntimeOpenMediaJobContext {
+  jobId: string;
+  kind: "image" | "audio" | "video";
+  status: "queued" | "running" | "completion_pending";
+  createdAt: IsoTimestamp;
+  startedAt: IsoTimestamp | null;
+  updatedAt: IsoTimestamp;
 }
 
 export interface RuntimeTurnRoutingSnapshot {
@@ -1626,6 +1712,12 @@ export interface RuntimeTurnToolInvocation {
   executionMode?: PersaiRuntimeToolExecutionMode;
 }
 
+export interface RuntimeDeferredMediaJobSummary {
+  jobId: string;
+  toolCode: "image_generate" | "image_edit" | "video_generate";
+  kind: "image" | "video";
+}
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -1638,6 +1730,7 @@ export interface RuntimeTurnResult {
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   toolInvocations?: RuntimeTurnToolInvocation[];
+  deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
 }
 
 export interface RuntimeSkillRoutingCheckResult {
@@ -1724,6 +1817,7 @@ export const PERSAI_PROVIDER_REQUEST_CLASSIFICATIONS = [
   // compacted slice and writes them through the M1 memory_write path.
   "auto_extract_to_memory",
   "background_task_evaluation",
+  "media_job_completion",
   "admin_authoring"
 ] as const;
 

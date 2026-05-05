@@ -25,6 +25,7 @@ import {
   type ChatHistoryMessage,
   type ChatCompactionResult,
   type ChatCompactionState,
+  type WebChatActiveMediaJobState,
   type WebChatActiveTurnState,
   type WebChatTurnStatusState,
   type WebChatUxIssue
@@ -96,6 +97,7 @@ export interface UseChatReturn {
   entries: ChatEntry[];
   messages: ChatMessage[];
   chatId: string | null;
+  activeMediaJobs: WebChatActiveMediaJobState[];
   isStreaming: boolean;
   historyLoading: boolean;
   hasOlderMessages: boolean;
@@ -179,6 +181,7 @@ type ActiveTurnSnapshot = {
 type CachedThreadHistorySnapshot = ActiveTurnSnapshot & {
   olderCursor: string | null;
   hasOlderMessages: boolean;
+  activeMediaJobs: WebChatActiveMediaJobState[];
 };
 type SnapshotDebugEvent = {
   type: "active-snapshot-non-live-user";
@@ -865,6 +868,7 @@ export function useChat(threadKey: string): UseChatReturn {
     Record<string, string>
   >({});
   const [chatId, setChatId] = useState<string | null>(null);
+  const [activeMediaJobs, setActiveMediaJobs] = useState<WebChatActiveMediaJobState[]>([]);
   /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
     activeThreads,
     markStreaming
@@ -897,6 +901,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const historyLoadedRef = useRef<Set<string>>(new Set());
   const olderCursorRef = useRef<string | null>(null);
   const activeChatIdRef = useRef<string | null>(null);
+  const activeMediaJobsRef = useRef<WebChatActiveMediaJobState[]>([]);
   const prevThreadKeyRef = useRef(threadKey);
   const currentThreadKeyRef = useRef(threadKey);
   const lastResumeRefreshAtRef = useRef(0);
@@ -1049,7 +1054,10 @@ export function useChat(threadKey: string): UseChatReturn {
         ...snapshot,
         messages,
         olderCursor: existing?.olderCursor ?? null,
-        hasOlderMessages: existing?.hasOlderMessages ?? false
+        hasOlderMessages: existing?.hasOlderMessages ?? false,
+        activeMediaJobs:
+          existing?.activeMediaJobs ??
+          (currentThreadKeyRef.current === targetThreadKey ? activeMediaJobsRef.current : [])
       });
       if (snapshot.chatId !== null) {
         cachedThreadKeyByChatIdRef.current.set(snapshot.chatId, targetThreadKey);
@@ -1057,6 +1065,10 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     []
   );
+  const replaceActiveMediaJobs = useCallback((next: WebChatActiveMediaJobState[]) => {
+    activeMediaJobsRef.current = next;
+    setActiveMediaJobs(next);
+  }, []);
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -1149,7 +1161,8 @@ export function useChat(threadKey: string): UseChatReturn {
             compactionRunning:
               existingCache?.compactionRunning ?? outgoingSnapshot.compactionRunning,
             olderCursor: existingCache?.olderCursor ?? null,
-            hasOlderMessages: existingCache?.hasOlderMessages ?? false
+            hasOlderMessages: existingCache?.hasOlderMessages ?? false,
+            activeMediaJobs: existingCache?.activeMediaJobs ?? activeMediaJobs
           };
           cachedThreadHistorySnapshotsRef.current.set(outgoingThreadKey, nextCache);
           auditActiveTurnSnapshotMessages("swap-out-cache-sync", outgoingThreadKey, nextCache);
@@ -1235,6 +1248,7 @@ export function useChat(threadKey: string): UseChatReturn {
     setRecentAutoCompaction(null);
     setCompactionRunning(restoredSnapshot?.compactionRunning ?? false);
     setHasOlderMessages(cachedHistorySnapshot?.hasOlderMessages ?? false);
+    replaceActiveMediaJobs(cachedHistorySnapshot?.activeMediaJobs ?? []);
     /*     * Optimistically flip historyLoading to true the moment the user     * navigates to a different thread. Without this, there is one render     * frame between the synchronous reset above and the post-render effect     * in `chat/page.tsx` that triggers `loadHistory()` ��� and during that     * frame `messages.length === 0 && historyLoading === false`, which     * renders the EmptyState. On a slow fetch the EmptyState then flickers     * for the entire 0.5���1s the history takes to arrive (founder report     * 2026-04-25). The `markHistoryEmpty()` callback below clears this back     * to false when the active thread is brand-new and has no history to     * load.     */ setHistoryLoading(
       restoredSnapshot === undefined
     );
@@ -1315,6 +1329,7 @@ export function useChat(threadKey: string): UseChatReturn {
       let reconciledOptimisticTurn = false;
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
+        const nextActiveMediaJobs = page.activeMediaJobs ?? [];
         const loaded = page.messages
           .map(toCommittedChatMessage)
           .filter((message): message is ChatMessage => message !== null);
@@ -1438,7 +1453,18 @@ export function useChat(threadKey: string): UseChatReturn {
         if (currentThreadKeyRef.current === targetThreadKey) {
           activeChatIdRef.current = targetChatId;
           setHasOlderMessages(page.nextCursor !== null);
+          replaceActiveMediaJobs(nextActiveMediaJobs);
           setChatId(targetChatId);
+        }
+        const cachedThreadKey =
+          cachedThreadKeyByChatIdRef.current.get(targetChatId) ?? targetThreadKey;
+        const cachedHistorySnapshotForMediaJobs =
+          cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+        if (cachedHistorySnapshotForMediaJobs !== undefined) {
+          cachedThreadHistorySnapshotsRef.current.set(cachedThreadKey, {
+            ...cachedHistorySnapshotForMediaJobs,
+            activeMediaJobs: nextActiveMediaJobs
+          });
         }
         historyLoadedRef.current.add(targetChatId);
         void refreshCompactionState(targetChatId);
@@ -2645,6 +2671,7 @@ export function useChat(threadKey: string): UseChatReturn {
               content?: string;
               attachments?: ChatAttachment[];
             };
+            activeMediaJobs?: WebChatActiveMediaJobState[];
             runtime?: RuntimeTransportMeta;
           } | null;
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
@@ -2659,6 +2686,9 @@ export function useChat(threadKey: string): UseChatReturn {
               : undefined;
           const userServerAttachments = Array.isArray(t?.userMessage?.attachments)
             ? t.userMessage.attachments
+            : undefined;
+          const nextActiveMediaJobs = Array.isArray(t?.activeMediaJobs)
+            ? t.activeMediaJobs
             : undefined;
           applyThreadMessages(sendThreadKey, (prev) =>
             prev.map((m) => {
@@ -2784,6 +2814,20 @@ export function useChat(threadKey: string): UseChatReturn {
             typeof t?.userMessage?.chatId === "string"
               ? t.userMessage.chatId
               : resolveKnownChatIdForThread(sendThreadKey);
+          if (currentThreadKeyRef.current === sendThreadKey && nextActiveMediaJobs !== undefined) {
+            replaceActiveMediaJobs(nextActiveMediaJobs);
+          }
+          if (resolvedChatId && nextActiveMediaJobs !== undefined) {
+            const cachedThreadKey =
+              cachedThreadKeyByChatIdRef.current.get(resolvedChatId) ?? sendThreadKey;
+            const cachedSnapshot = cachedThreadHistorySnapshotsRef.current.get(cachedThreadKey);
+            if (cachedSnapshot !== undefined) {
+              cachedThreadHistorySnapshotsRef.current.set(cachedThreadKey, {
+                ...cachedSnapshot,
+                activeMediaJobs: nextActiveMediaJobs
+              });
+            }
+          }
           if (resolvedChatId) {
             void refreshCompactionState(resolvedChatId, {
               baselineCompaction: compactionBeforeTurn
@@ -3419,7 +3463,8 @@ export function useChat(threadKey: string): UseChatReturn {
   }, [setThreadPendingSend, threadKey]);
   const markHistoryEmpty = useCallback(() => {
     setHistoryLoading(false);
-  }, []);
+    replaceActiveMediaJobs([]);
+  }, [replaceActiveMediaJobs]);
   const loadHistory = useCallback(
     async (targetChatId: string) => {
       const cachedThreadKey = cachedThreadKeyByChatIdRef.current.get(targetChatId);
@@ -3459,6 +3504,7 @@ export function useChat(threadKey: string): UseChatReturn {
         olderCursorRef.current = cachedHistory.olderCursor;
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(cachedHistory.hasOlderMessages);
+        replaceActiveMediaJobs(cachedHistory.activeMediaJobs);
         setChatId(targetChatId);
         setHistoryLoading(false);
       }
@@ -3467,6 +3513,7 @@ export function useChat(threadKey: string): UseChatReturn {
       setHistoryLoading(cachedHistory === undefined);
       try {
         const page = await getChatMessages(token, targetChatId, undefined, 20);
+        const nextActiveMediaJobs = page.activeMediaJobs ?? [];
         const loaded: ChatMessage[] = page.messages
           .map(toCommittedChatMessage)
           .filter((message): message is ChatMessage => message !== null);
@@ -3621,6 +3668,7 @@ export function useChat(threadKey: string): UseChatReturn {
         olderCursorRef.current = page.nextCursor;
         activeChatIdRef.current = targetChatId;
         setHasOlderMessages(page.nextCursor !== null);
+        replaceActiveMediaJobs(nextActiveMediaJobs);
         setChatId(targetChatId);
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
           clientTurnId:
@@ -3644,7 +3692,8 @@ export function useChat(threadKey: string): UseChatReturn {
           chatId: targetChatId,
           compactionRunning: false,
           olderCursor: page.nextCursor,
-          hasOlderMessages: page.nextCursor !== null
+          hasOlderMessages: page.nextCursor !== null,
+          activeMediaJobs: nextActiveMediaJobs
         });
         cachedThreadKeyByChatIdRef.current.set(targetChatId, targetThreadKey);
         void refreshCompactionState(targetChatId);
@@ -3682,6 +3731,18 @@ export function useChat(threadKey: string): UseChatReturn {
     }
     setOlderMessagesLoading(false);
   }, [getToken, olderMessagesLoading]);
+  useEffect(() => {
+    if (chatId === null || activeMediaJobs.length === 0 || isStreaming) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        return;
+      }
+      void refreshLatestHistory(chatId, { targetThreadKey: currentThreadKeyRef.current });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [activeMediaJobs, chatId, isStreaming, refreshLatestHistory]);
   // Drop phantom "thinking" / blinking-cursor placeholders. If a streaming
   // assistant message has empty content AND there's a NEWER assistant
   // message below it, the older one is stale (background turn already
@@ -3743,6 +3804,7 @@ export function useChat(threadKey: string): UseChatReturn {
     entries,
     messages,
     chatId,
+    activeMediaJobs,
     isStreaming,
     historyLoading,
     hasOlderMessages,

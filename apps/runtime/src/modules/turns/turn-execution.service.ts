@@ -39,6 +39,7 @@ import {
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
   type RuntimeBackgroundTaskToolResult,
+  type RuntimeDeferredMediaJobSummary,
   type RuntimeSharedCompactionToolResult,
   type RuntimeTtsToolResult,
   type RuntimeVideoGenerateToolResult,
@@ -162,6 +163,7 @@ type TurnExecutionState = {
   fileRefs: RuntimeFileRef[];
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
+  deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
 };
 
 type ToolExecutionOutcome = {
@@ -1408,7 +1410,10 @@ export class TurnExecutionService {
         : { usageAccounting: this.buildUsageAccounting(turnState.usageEntries) }),
       ...(turnState.toolInvocations.length === 0
         ? {}
-        : { toolInvocations: [...turnState.toolInvocations] })
+        : { toolInvocations: [...turnState.toolInvocations] }),
+      ...(turnState.deferredMediaJobs.length === 0
+        ? {}
+        : { deferredMediaJobs: [...turnState.deferredMediaJobs] })
     };
   }
 
@@ -2280,7 +2285,15 @@ export class TurnExecutionService {
           toolCall,
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          ...(this.shouldDeferMediaToolExecution(input)
+            ? {
+                deferToAsyncMediaJob: {
+                  sourceUserMessageId: input.idempotencyKey,
+                  sourceUserMessageText: input.message.text
+                }
+              }
+            : {})
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -2295,7 +2308,15 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          ...(this.shouldDeferMediaToolExecution(input)
+            ? {
+                deferToAsyncMediaJob: {
+                  sourceUserMessageId: input.idempotencyKey,
+                  sourceUserMessageText: input.message.text
+                }
+              }
+            : {})
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -2315,7 +2336,15 @@ export class TurnExecutionService {
           toolCall,
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          ...(this.shouldDeferMediaToolExecution(input)
+            ? {
+                deferToAsyncMediaJob: {
+                  sourceUserMessageId: input.idempotencyKey,
+                  sourceUserMessageText: input.message.text
+                }
+              }
+            : {})
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -3153,7 +3182,8 @@ export class TurnExecutionService {
       artifacts: [],
       fileRefs: [],
       usageEntries: [],
-      toolInvocations: []
+      toolInvocations: [],
+      deferredMediaJobs: []
     };
   }
 
@@ -3222,7 +3252,15 @@ export class TurnExecutionService {
       });
     }
     if (outcome.sharedCompaction === undefined) {
+      const deferredMediaJob = this.extractDeferredMediaJob(outcome.payload);
+      if (deferredMediaJob !== null) {
+        turnState.deferredMediaJobs.push(deferredMediaJob);
+      }
       return;
+    }
+    const deferredMediaJob = this.extractDeferredMediaJob(outcome.payload);
+    if (deferredMediaJob !== null) {
+      turnState.deferredMediaJobs.push(deferredMediaJob);
     }
     turnState.sharedCompaction.invoked = true;
     turnState.sharedCompaction.durableStatePersisted =
@@ -3241,6 +3279,34 @@ export class TurnExecutionService {
       return value;
     }
     return undefined;
+  }
+
+  private shouldDeferMediaToolExecution(input: RuntimeTurnRequest): boolean {
+    return !input.conversation.externalThreadKey.startsWith("system:media-job:");
+  }
+
+  private extractDeferredMediaJob(
+    payload: ToolExecutionOutcome["payload"]
+  ): RuntimeDeferredMediaJobSummary | null {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+      return null;
+    }
+    const row = payload as { action?: unknown; jobId?: unknown; toolCode?: unknown };
+    if (row.action !== "deferred" || typeof row.jobId !== "string") {
+      return null;
+    }
+    if (
+      row.toolCode !== IMAGE_GENERATE_TOOL_CODE &&
+      row.toolCode !== IMAGE_EDIT_TOOL_CODE &&
+      row.toolCode !== VIDEO_GENERATE_TOOL_CODE
+    ) {
+      return null;
+    }
+    return {
+      jobId: row.jobId,
+      toolCode: row.toolCode,
+      kind: row.toolCode === VIDEO_GENERATE_TOOL_CODE ? "video" : "image"
+    };
   }
 
   private extractProducedFileRefs(payload: ToolExecutionOutcome["payload"]): RuntimeFileRef[] {

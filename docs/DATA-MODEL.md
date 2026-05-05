@@ -38,6 +38,7 @@ The native runtime path uses PersAI-owned runtime state models for:
 Web/Capacitor chat sends now carry a stable client envelope:
 
 - `assistant_web_chat_turn_attempts` records each logical send with status `accepted`, `running`, `completed`, `failed`, or `interrupted`, plus chat/message ids and terminal replay payloads when available.
+- `assistant_media_jobs` is the ADR-086 durable generated-media job registry for `image` / `audio` / `video` work across both `web` and `telegram`. It now carries not only the canonical job row and web continuity projection for open states (`queued`, `running`, `completion_pending`), but also the source surface, worker-owned request payload, result payload, claim TTL, retry timing, acknowledgement/completion assistant message ids, and terminal error state needed for durable backend execution plus backend-owned web/Telegram completion delivery.
 - `assistant_chat_message_attachments.client_turn_id` and `client_attachment_id` bind staged uploads to the same logical send. Normal attachment merge uses `clientTurnId` ownership instead of the prior "nearby empty message" heuristic.
 - the old surface-binding last-completed replay metadata may remain as a transitional compatibility write, but the durable attempt registry is the current authority for retry/status reconciliation.
 

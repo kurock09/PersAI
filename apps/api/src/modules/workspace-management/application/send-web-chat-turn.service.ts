@@ -35,6 +35,7 @@ import {
 } from "./send-native-web-chat-turn.service";
 import { WebChatTurnAttemptService } from "./web-chat-turn-attempt.service";
 import { AutoSkillRoutingStateService } from "./auto-skill-routing-state.service";
+import { AssistantMediaJobService } from "./assistant-media-job.service";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -141,6 +142,7 @@ export class SendWebChatTurnService {
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
     private readonly recordWebChatMemoryTurnService: RecordWebChatMemoryTurnService,
     private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
+    private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly mediaDeliveryService: MediaDeliveryService,
     private readonly overviewLatencyTraceService: OverviewLatencyTraceService,
     private readonly attachmentObjectAvailabilityService: AttachmentObjectAvailabilityService,
@@ -261,6 +263,11 @@ export class SendWebChatTurnService {
         currentUserMessageId: prepared.userMessage.id,
         state: prepared.chat.autoSkillRoutingState
       });
+      const openMediaJobs = await this.assistantMediaJobService.listOpenJobsForChatContext({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
       const nativeTurnInput = this.buildNativeSyncTurnInput({
         assistantId: prepared.assistantId,
         publishedVersionId: prepared.publishedVersionId,
@@ -271,6 +278,7 @@ export class SendWebChatTurnService {
         userMessageId: prepared.userMessage.id,
         userMessage: baseMessage,
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
+        ...(openMediaJobs.length === 0 ? {} : { openMediaJobs }),
         userTimezone: prepared.workspaceTimezone,
         currentTimeIso,
         skillRoutingContext,
@@ -308,6 +316,21 @@ export class SendWebChatTurnService {
         content: runtimeResponse.assistantMessage
       });
       trace.stage("assistant_message_saved");
+      if (
+        runtimeResponse.deferredMediaJobs !== undefined &&
+        runtimeResponse.deferredMediaJobs.length > 0
+      ) {
+        await this.assistantMediaJobService.attachAcknowledgementMessageId({
+          assistantId: prepared.assistantId,
+          sourceUserMessageId: prepared.userMessage.id,
+          assistantAcknowledgementMessageId: assistantMessage.id
+        });
+      }
+      const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+        assistantId: prepared.assistantId,
+        userId: prepared.userId,
+        chatId: prepared.chat.id
+      });
 
       const delivered = await this.mediaDeliveryService.deliver({
         artifacts: runtimeResponse.media,
@@ -445,6 +468,7 @@ export class SendWebChatTurnService {
           attachments: delivered.attachments,
           createdAt: assistantMessage.createdAt.toISOString()
         },
+        activeMediaJobs,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -586,6 +610,11 @@ export class SendWebChatTurnService {
       this.attachmentRepository.listByMessageId(userMessage.id),
       this.attachmentRepository.listByMessageId(assistantMessage.id)
     ]);
+    const activeMediaJobs = await this.assistantMediaJobService.listOpenJobsForWebChat({
+      assistantId,
+      userId: chat.userId,
+      chatId: chat.id
+    });
 
     return {
       chat: {
@@ -619,6 +648,7 @@ export class SendWebChatTurnService {
         attachments: assistantAttachments.map((attachment) => toAttachmentState(attachment)),
         createdAt: assistantMessage.createdAt.toISOString()
       },
+      activeMediaJobs,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

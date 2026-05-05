@@ -9,7 +9,6 @@ import { useTranslations } from "next-intl";
 import type { AssistantBillingPaymentIntentState } from "@persai/contracts";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { getAssistantBillingPaymentIntent } from "../../../assistant-api-client";
-import { PageBackButton } from "../../../../_components/page-back-button";
 
 type CloudpaymentsWidgetPayload = {
   schema: "persai.billing.cloudpaymentsWidgetCheckout.v1";
@@ -252,11 +251,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
   return (
     <div className="min-h-dvh bg-chrome text-text">
       <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-3 py-2">
-          <PageBackButton fallbackHref={"/app/pricing" as Route} label={t("back")} />
-        </div>
-
-        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-4 sm:py-6">
           <div className="rounded-[28px] border border-border/80 bg-surface/85 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-8">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
               {t("eyebrow")}

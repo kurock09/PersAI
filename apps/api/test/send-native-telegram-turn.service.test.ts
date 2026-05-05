@@ -155,6 +155,16 @@ describe("SendNativeTelegramTurnService", () => {
           userMessageId: "message-1",
           userMessage: "hello native telegram",
           attachments: [],
+          openMediaJobs: [
+            {
+              jobId: "job-telegram-1",
+              kind: "video",
+              status: "running",
+              createdAt: "2026-04-12T09:55:00.000Z",
+              startedAt: "2026-04-12T09:56:00.000Z",
+              updatedAt: "2026-04-12T09:59:00.000Z"
+            }
+          ],
           userTimezone: "UTC",
           currentTimeIso: "2026-04-12T10:00:00.000Z"
         },
@@ -182,6 +192,16 @@ describe("SendNativeTelegramTurnService", () => {
         externalUserKey: "telegram-user-1",
         mode: "direct"
       });
+      assert.deepEqual(capturedBody?.openMediaJobs, [
+        {
+          jobId: "job-telegram-1",
+          kind: "video",
+          status: "running",
+          createdAt: "2026-04-12T09:55:00.000Z",
+          startedAt: "2026-04-12T09:56:00.000Z",
+          updatedAt: "2026-04-12T09:59:00.000Z"
+        }
+      ]);
       assert.deepEqual(toolEvents, [
         {
           phase: "start",

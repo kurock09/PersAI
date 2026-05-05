@@ -749,6 +749,7 @@ export function ChatArea({
         isStreaming={chat.isStreaming}
         disabled={!assistantReady}
         pendingSendStatus={chat.pendingSendStatus}
+        activeMediaJobs={chat.activeMediaJobs}
       />
     </div>
   );

@@ -1,0 +1,246 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { AssistantMediaJobCompletionDeliveryService } from "../src/modules/workspace-management/application/assistant-media-job-completion-delivery.service";
+
+describe("AssistantMediaJobCompletionDeliveryService", () => {
+  test("delivers completion_pending web jobs and marks them delivered", async () => {
+    const txUpdates: Array<Record<string, unknown>> = [];
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-1",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-1",
+                surface: "web",
+                kind: "image",
+                sourceUserMessageId: "user-message-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw a sunset",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw a sunset",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-1", kind: "image" }],
+                completionAssistantMessageId: null,
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async (input: Record<string, unknown>) => {
+                txUpdates.push(input);
+              }
+            }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          content: "Your image is ready.",
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-1",
+              originalFilename: "image.png"
+            }
+          ]
+        })
+      } as never,
+      {
+        async sendAssistantTurnReply() {
+          throw new Error("telegram reply should not run for web jobs");
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for web jobs");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh current-context framing.";
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(txUpdates.length, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
+    assert.equal(finalUpdates.at(-1)?.data?.completionAssistantMessageId, undefined);
+    assert.deepEqual(messageUpdates, [
+      {
+        messageId: "assistant-message-1",
+        assistantId: "assistant-1",
+        content: "Fresh current-context framing."
+      }
+    ]);
+  });
+
+  test("delivers completion_pending telegram jobs asynchronously and marks them delivered", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const sendReplyCalls: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-2",
+                assistantId: "assistant-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-telegram-1",
+                surface: "telegram",
+                kind: "image",
+                sourceUserMessageId: "user-message-2",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "draw the skyline",
+                  sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                  directToolExecution: {
+                    toolCode: "image_generate",
+                    request: {
+                      toolCode: "image_generate",
+                      prompt: "draw the skyline",
+                      count: 1,
+                      filename: null,
+                      size: "1024x1024",
+                      background: "auto"
+                    }
+                  }
+                },
+                resultText: "Your image is ready.",
+                artifactsJson: [{ artifactId: "artifact-2", kind: "image" }],
+                completionAssistantMessageId: null,
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: {
+              update: async () => undefined
+            }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-2",
+          chatId: "chat-telegram-1",
+          assistantId: "assistant-1",
+          content: "Your image is ready.",
+          createdAt: new Date("2026-05-05T09:10:00.000Z")
+        }),
+        findChatById: async () => ({
+          id: "chat-telegram-1",
+          assistantId: "assistant-1",
+          userId: "user-1",
+          workspaceId: "workspace-1",
+          surface: "telegram",
+          surfaceThreadKey: "telegram-chat-42",
+          title: null,
+          deepModeEnabled: false,
+          autoSkillRoutingState: null,
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: new Date("2026-05-05T09:00:00.000Z"),
+          updatedAt: new Date("2026-05-05T09:00:00.000Z")
+        }),
+        updateMessageContent: async () => null
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-2",
+              originalFilename: "image.png"
+            }
+          ]
+        })
+      } as never,
+      {
+        async sendAssistantTurnReply(input: Record<string, unknown>) {
+          sendReplyCalls.push(input);
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          return {
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            locale: "en",
+            botToken: "bot-token",
+            botUserId: 1,
+            botUsername: "persai_bot",
+            inbound: true,
+            outbound: true,
+            groupReplyMode: "mention_reply",
+            parseMode: "plain_text",
+            defaultDeepModeEnabled: false,
+            accessMode: "owner_only",
+            ownerClaimStatus: "claimed",
+            ownerClaimCode: null,
+            ownerClaimCodeExpiresAt: null,
+            ownerTelegramUserId: 42,
+            ownerTelegramUsername: "alex",
+            ownerTelegramChatId: "telegram-chat-42",
+            runtimeHealth: "ok",
+            webhookSecret: "secret"
+          };
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return "Fresh Telegram framing.";
+        }
+      } as never
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "delivered");
+    assert.equal(sendReplyCalls.length, 1);
+    assert.equal(sendReplyCalls[0]?.chatId, "telegram-chat-42");
+    assert.equal(sendReplyCalls[0]?.mediaAlreadyDelivered, true);
+    assert.equal(sendReplyCalls[0]?.turnResult?.assistantMessage, "Fresh Telegram framing.");
+  });
+});

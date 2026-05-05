@@ -234,6 +234,14 @@ function createService(overrides?: {
     content: string;
     createdAt: Date;
   }>;
+  mediaJobs?: Array<{
+    id: string;
+    kind: "image" | "audio" | "video";
+    status: "queued" | "running" | "completion_pending";
+    createdAt: string;
+    startedAt: string | null;
+    updatedAt: string;
+  }>;
   sharedCompaction?: Partial<{
     reserveTokens: number;
     keepRecentTokens: number;
@@ -260,7 +268,12 @@ function createService(overrides?: {
       findByUserId: async (userId: string) => (userId === "user-1" ? createAssistant() : null)
     } as never,
     {
+      listChatsByAssistantId: async () => [createChat()],
       findChatById: async (chatId: string) => (chatId === "chat-1" ? createChat() : null),
+      getChatListMetadata: async () => ({
+        messageCount: 24,
+        lastMessagePreview: "message-24"
+      }),
       hardDeleteChat: async () => {
         callOrder.push("repo-delete");
         return true;
@@ -270,6 +283,7 @@ function createService(overrides?: {
     } as never,
     {
       listByChatId: async () => createAttachments(),
+      listByMessageIds: async () => createAttachments(),
       deleteByChatId: async () => {
         callOrder.push("attachments-delete");
       }
@@ -340,6 +354,12 @@ function createService(overrides?: {
           }
         );
       }
+    } as never,
+    {
+      listOpenJobsForWebChat: async () => overrides?.mediaJobs ?? []
+    } as never,
+    {
+      getActiveTurnForChat: async () => null
     } as never
   );
 
@@ -353,6 +373,48 @@ function createService(overrides?: {
 }
 
 describe("ManageWebChatListService", () => {
+  test("projects active media jobs for web chat continuity reads", async () => {
+    const { service } = createService({
+      mediaJobs: [
+        {
+          id: "job-1",
+          kind: "image",
+          status: "running",
+          createdAt: "2026-05-05T08:00:00.000Z",
+          startedAt: "2026-05-05T08:00:03.000Z",
+          updatedAt: "2026-05-05T08:00:05.000Z"
+        }
+      ]
+    });
+
+    const list = await service.listChats("user-1");
+    const messages = await service.listChatMessages("user-1", "chat-1", {
+      cursor: null,
+      limit: 20
+    });
+
+    assert.deepEqual(list[0]?.activeMediaJobs, [
+      {
+        id: "job-1",
+        kind: "image",
+        status: "running",
+        createdAt: "2026-05-05T08:00:00.000Z",
+        startedAt: "2026-05-05T08:00:03.000Z",
+        updatedAt: "2026-05-05T08:00:05.000Z"
+      }
+    ]);
+    assert.deepEqual(messages.activeMediaJobs, [
+      {
+        id: "job-1",
+        kind: "image",
+        status: "running",
+        createdAt: "2026-05-05T08:00:00.000Z",
+        startedAt: "2026-05-05T08:00:03.000Z",
+        updatedAt: "2026-05-05T08:00:05.000Z"
+      }
+    ]);
+  });
+
   test("hard-deletes a chat after removing runtime/media state", async () => {
     const { service, callOrder, releasedBytes } = createService();
 

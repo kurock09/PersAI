@@ -15,7 +15,5 @@ export default async function AppPricingPage() {
   const currentPlanCode =
     bootstrap?.plan.ok === true ? bootstrap.plan.data.effectivePlan.code : null;
 
-  return (
-    <PricingPageView plans={plans} currentPlanCode={currentPlanCode} signedIn backHref="/app" />
-  );
+  return <PricingPageView plans={plans} currentPlanCode={currentPlanCode} signedIn />;
 }

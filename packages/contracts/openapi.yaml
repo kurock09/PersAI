@@ -8364,6 +8364,10 @@ components:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
         assistantMessage:
           $ref: "#/components/schemas/AssistantWebChatMessageState"
+        activeMediaJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
     AssistantWebChatTurnCurrentActivityState:
@@ -8444,6 +8448,48 @@ components:
               $ref: "#/components/schemas/AssistantWebChatMessageState"
             canReattach:
               type: boolean
+    AssistantWebChatActiveMediaJobState:
+      type: object
+      required:
+        - id
+        - kind
+        - operation
+        - status
+        - createdAt
+        - startedAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - image
+            - audio
+            - video
+        operation:
+          type: string
+          enum:
+            - image_generate
+            - image_edit
+            - video_generate
+            - audio_generate
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - completion_pending
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
     AssistantWebChatTurnStatusState:
       type: object
       required:
@@ -8609,6 +8655,10 @@ components:
         activeTurn:
           nullable: true
           $ref: "#/components/schemas/AssistantWebChatCompactActiveTurnState"
+        activeMediaJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
     AssistantWebChatRenameRequest:
       type: object
       minProperties: 1
@@ -8857,6 +8907,10 @@ components:
         activeTurn:
           nullable: true
           $ref: "#/components/schemas/AssistantWebChatActiveTurnState"
+        activeMediaJobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantWebChatActiveMediaJobState"
     GetAssistantWebChatListItemResponse:
       type: object
       required:

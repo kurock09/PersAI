@@ -98,6 +98,10 @@ export class RuntimeImageEditToolService {
     availableAttachments: RuntimeAttachmentRef[];
     sessionId: string;
     requestId: string;
+    deferToAsyncMediaJob?: {
+      sourceUserMessageId: string;
+      sourceUserMessageText: string;
+    };
   }): Promise<RuntimeImageEditToolExecutionResult> {
     const request = this.readImageEditArguments(params.toolCall.arguments);
     if (request instanceof Error) {
@@ -286,6 +290,94 @@ export class RuntimeImageEditToolService {
         artifacts: [],
         isError: false
       };
+    }
+
+    if (params.deferToAsyncMediaJob !== undefined) {
+      try {
+        const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
+          assistantId: params.bundle.metadata.assistantId,
+          sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
+          sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          attachments: params.availableAttachments,
+          directToolExecution: {
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            request
+          }
+        });
+        if (!enqueueOutcome.accepted) {
+          return {
+            payload: {
+              toolCode: IMAGE_EDIT_TOOL_CODE,
+              executionMode: "worker",
+              provider: providerId,
+              model: this.resolveToolModelKey(credential),
+              prompt: request.prompt,
+              revisedPrompt: null,
+              sourceImageIndex: selection.sourceImageIndex,
+              referenceImageIndex: selection.referenceImageIndex,
+              sourceFilename: selection.sourceFilename,
+              referenceFilename: selection.referenceFilename,
+              size: request.size,
+              artifacts: [],
+              usage: null,
+              action: "skipped",
+              reason: enqueueOutcome.code,
+              warning: enqueueOutcome.message,
+              jobId: null
+            },
+            artifacts: [],
+            isError: false
+          };
+        }
+        return {
+          payload: {
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: this.resolveToolModelKey(credential),
+            prompt: request.prompt,
+            revisedPrompt: null,
+            sourceImageIndex: selection.sourceImageIndex,
+            referenceImageIndex: selection.referenceImageIndex,
+            sourceFilename: selection.sourceFilename,
+            referenceFilename: selection.referenceFilename,
+            size: request.size,
+            artifacts: [],
+            usage: null,
+            action: "deferred",
+            reason: null,
+            warning: null,
+            jobId: enqueueOutcome.jobId
+          },
+          artifacts: [],
+          isError: false
+        };
+      } catch (error) {
+        return {
+          payload: {
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: null,
+            prompt: request.prompt,
+            revisedPrompt: null,
+            sourceImageIndex: selection.sourceImageIndex,
+            referenceImageIndex: selection.referenceImageIndex,
+            sourceFilename: selection.sourceFilename,
+            referenceFilename: selection.referenceFilename,
+            size: request.size,
+            artifacts: [],
+            usage: null,
+            action: "skipped",
+            reason: "runtime_degraded",
+            warning:
+              error instanceof Error ? error.message : "Deferred image edit could not be enqueued.",
+            jobId: null
+          },
+          artifacts: [],
+          isError: false
+        };
+      }
     }
 
     try {

@@ -47,6 +47,7 @@ function enableHybridDesktopTouchDevice() {
 describe("ChatInput", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -296,6 +297,70 @@ describe("ChatInput", () => {
     });
     expect(textarea).not.toBeDisabled();
     expect(screen.getByTitle("send")).toBeDisabled();
+  });
+
+  it("shows up to two active media job chips with elapsed time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:02:00Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-1",
+            kind: "image",
+            operation: "image_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:50Z"
+          },
+          {
+            id: "job-2",
+            kind: "video",
+            operation: "video_generate",
+            status: "running",
+            createdAt: "2026-05-05T12:01:00Z",
+            startedAt: "2026-05-05T12:01:22Z",
+            updatedAt: "2026-05-05T12:01:55Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("mediaJobImageGenerate 1:42")).toBeInTheDocument();
+    expect(screen.getByText("mediaJobVideoGenerate 0:38")).toBeInTheDocument();
+  });
+
+  it("falls back to createdAt when a media job is still queued", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:01:42Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-1",
+            kind: "image",
+            operation: "image_edit",
+            status: "queued",
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: null,
+            updatedAt: "2026-05-05T12:01:40Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
   });
 
   it("shows a live camera preview in the mobile camera tile", async () => {

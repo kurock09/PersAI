@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantWebChatState } from "./assistantWebChatState";
+import type { AssistantWebChatActiveMediaJobState } from "./assistantWebChatActiveMediaJobState";
 import type { AssistantWebChatMessageState } from "./assistantWebChatMessageState";
 import type { AssistantWebChatRuntimeState } from "./assistantWebChatRuntimeState";
 
@@ -12,5 +13,6 @@ export interface AssistantWebChatTurnState {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
   assistantMessage: AssistantWebChatMessageState;
+  activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   runtime: AssistantWebChatRuntimeState;
 }

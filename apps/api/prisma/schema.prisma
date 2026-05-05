@@ -44,6 +44,22 @@ enum AssistantChatSurface {
   telegram
 }
 
+enum AssistantMediaJobKind {
+  image
+  audio
+  video
+}
+
+enum AssistantMediaJobStatus {
+  queued
+  running
+  completion_pending
+  delivered
+  failed
+  canceled
+  expired
+}
+
 enum AssistantChatMessageAuthor {
   user
   assistant
@@ -556,6 +572,7 @@ model Workspace {
   subscriptionBillingEvents         WorkspaceSubscriptionBillingEvent[]
   paymentIntents                    WorkspacePaymentIntent[]
   billingLifecycleNotificationJobs  BillingLifecycleNotificationJob[]
+  mediaJobs                         AssistantMediaJob[]
 
   @@map("workspaces")
 }
@@ -654,6 +671,7 @@ model Assistant {
   assistantFiles                       AssistantFile[]
   backgroundCompactionJobs             AssistantBackgroundCompactionJob[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
+  mediaJobs                            AssistantMediaJob[]
 
   @@unique([workspaceId, userId])
   @@unique([id, userId])
@@ -1545,6 +1563,7 @@ model AssistantChat {
   messages                    AssistantChatMessage[]
   attachments                 AssistantChatMessageAttachment[]
   webTurnAttempts             AssistantWebChatTurnAttempt[]
+  mediaJobs                   AssistantMediaJob[]
 
   @@unique([assistantId, surface, surfaceThreadKey])
   @@unique([id, assistantId])
@@ -1636,6 +1655,47 @@ model AssistantWebChatTurnAttempt {
   @@index([chatId])
   @@index([status, updatedAt])
   @@map("assistant_web_chat_turn_attempts")
+}
+
+model AssistantMediaJob {
+  id                                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId                       String                   @map("assistant_id") @db.Uuid
+  userId                            String                   @map("user_id") @db.Uuid
+  workspaceId                       String                   @map("workspace_id") @db.Uuid
+  chatId                            String                   @map("chat_id") @db.Uuid
+  surface                           AssistantChatSurface
+  kind                              AssistantMediaJobKind
+  status                            AssistantMediaJobStatus
+  sourceClientTurnId                String?                  @map("source_client_turn_id") @db.VarChar(128)
+  sourceUserMessageId               String?                  @map("source_user_message_id") @db.Uuid
+  assistantAcknowledgementMessageId String?                  @map("assistant_acknowledgement_message_id") @db.Uuid
+  completionAssistantMessageId      String?                  @map("completion_assistant_message_id") @db.Uuid
+  requestJson                       Json?                    @map("request_json") @db.JsonB
+  resultText                        String?                  @map("result_text") @db.Text
+  artifactsJson                     Json?                    @map("artifacts_json") @db.JsonB
+  lastErrorCode                     String?                  @map("last_error_code") @db.VarChar(128)
+  lastErrorMessage                  String?                  @map("last_error_message") @db.Text
+  attemptCount                      Int                      @default(0) @map("attempt_count")
+  maxAttempts                       Int                      @default(5) @map("max_attempts")
+  nextRetryAt                       DateTime?                @map("next_retry_at") @db.Timestamptz(6)
+  schedulerClaimToken               String?                  @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt                DateTime?                @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt           DateTime?                @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  startedAt                         DateTime?                @map("started_at") @db.Timestamptz(6)
+  completedAt                       DateTime?                @map("completed_at") @db.Timestamptz(6)
+  deliveredAt                       DateTime?                @map("delivered_at") @db.Timestamptz(6)
+  failedAt                          DateTime?                @map("failed_at") @db.Timestamptz(6)
+  createdAt                         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                         DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                         Assistant                @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat                              AssistantChat            @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([assistantId, status, updatedAt])
+  @@index([chatId, status, updatedAt])
+  @@index([workspaceId, status, updatedAt])
+  @@index([status, updatedAt])
+  @@map("assistant_media_jobs")
 }
 
 model AssistantMemoryRegistryItem {

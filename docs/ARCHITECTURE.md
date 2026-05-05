@@ -73,8 +73,10 @@ ADR-072 remains the historical migration ADR through the native-path closeout. A
 
 1. Telegram webhook hits `apps/api`
 2. `apps/api` resolves assistant/runtime context
-3. request-time execution runs through `apps/runtime`
-4. `apps/api` owns delivery and persistence boundaries
+3. ordinary text and blocked media requests may still run request-time through `apps/runtime`, but accepted generated `image` / `audio` / `video` requests now enqueue durable `assistant_media_jobs` and return quickly from the webhook
+4. the shared backend media-job worker later calls `apps/runtime` through `POST /api/v1/internal/runtime/media-jobs/run`
+5. before final delivery, backend completion processing can call `POST /api/v1/internal/runtime/media-jobs/complete` with current canonical chat history to get optional fresh-history framing text
+6. `apps/api` owns canonical persistence plus backend-owned async delivery back into Telegram
 
 ## Deploy topology
 

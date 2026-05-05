@@ -57,6 +57,7 @@ export interface AssistantWebChatTurnState {
   chat: AssistantWebChatState;
   userMessage: AssistantWebChatMessageState;
   assistantMessage: AssistantWebChatMessageState;
+  activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   runtime: {
     respondedAt: string;
     degradedByQuotaFallback: boolean;
@@ -93,6 +94,26 @@ export interface AssistantWebChatActiveTurnState extends AssistantWebChatCompact
   canReattach: boolean;
 }
 
+export type AssistantWebChatActiveMediaJobKind = "image" | "audio" | "video";
+
+export type AssistantWebChatActiveMediaJobStatus = "queued" | "running" | "completion_pending";
+
+export type AssistantWebChatActiveMediaJobOperation =
+  | "image_generate"
+  | "image_edit"
+  | "video_generate"
+  | "audio_generate";
+
+export interface AssistantWebChatActiveMediaJobState {
+  id: string;
+  kind: AssistantWebChatActiveMediaJobKind;
+  operation: AssistantWebChatActiveMediaJobOperation;
+  status: AssistantWebChatActiveMediaJobStatus;
+  createdAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+}
+
 export interface AssistantWebChatCompactionState {
   available: boolean;
   suggested: boolean;
@@ -120,4 +141,5 @@ export interface AssistantWebChatListItemState {
   messageCount: number;
   lastMessagePreview: string | null;
   activeTurn: AssistantWebChatCompactActiveTurnState | null;
+  activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
 }

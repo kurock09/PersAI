@@ -164,6 +164,16 @@ describe("StreamNativeWebChatTurnService", () => {
           userMessageId: "user-msg-1",
           userMessage: "hello native",
           attachments: [],
+          openMediaJobs: [
+            {
+              jobId: "job-1",
+              kind: "image",
+              status: "queued",
+              createdAt: "2026-04-11T12:58:00.000Z",
+              startedAt: null,
+              updatedAt: "2026-04-11T12:59:00.000Z"
+            }
+          ],
           userTimezone: "UTC",
           currentTimeIso: "2026-04-11T13:00:00.000Z",
           modelRoleOverride: "premium_reply",
@@ -182,6 +192,16 @@ describe("StreamNativeWebChatTurnService", () => {
         ((capturedBody?.message as Record<string, unknown>)?.attachments as unknown[]) ?? [],
         []
       );
+      assert.deepEqual(capturedBody?.openMediaJobs, [
+        {
+          jobId: "job-1",
+          kind: "image",
+          status: "queued",
+          createdAt: "2026-04-11T12:58:00.000Z",
+          startedAt: null,
+          updatedAt: "2026-04-11T12:59:00.000Z"
+        }
+      ]);
       assert.deepEqual(chunks, [
         { type: "delta", delta: "hello", accumulated: "hello" },
         {

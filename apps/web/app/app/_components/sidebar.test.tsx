@@ -128,7 +128,6 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("switches chats with local history so uploads do not wait for app-router navigation", async () => {
-    const pushState = vi.spyOn(window.history, "pushState");
     const data = makeAppData({
       chats: [makeChat("thread-a")]
     });
@@ -138,14 +137,12 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     fireEvent.click(screen.getByText("Chat thread-a"));
 
     await waitFor(() => {
-      expect(pushState).toHaveBeenCalledWith(null, "", "/app/chat?thread=thread-a");
+      expect(navigationMocks.push).toHaveBeenCalledWith("/app/chat?thread=thread-a");
     });
-    expect(navigationMocks.push).not.toHaveBeenCalled();
   });
 
   it("blocks chat navigation and exposes the offline overlay when health recheck fails", async () => {
     vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
-    const pushState = vi.spyOn(window.history, "pushState");
     const data = makeAppData({
       chats: [makeChat("thread-a")]
     });
@@ -166,7 +163,6 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
       );
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
-    expect(pushState).not.toHaveBeenCalled();
     expect(navigationMocks.push).not.toHaveBeenCalled();
   });
 

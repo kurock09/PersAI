@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
+  RuntimeOpenMediaJobContext,
   RuntimeAttachmentRef,
   RuntimeSkillRoutingCheckResult,
   RuntimeSkillRoutingContext,
@@ -34,6 +35,7 @@ export interface SendNativeWebChatTurnInput {
   userMessageId: string;
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
+  openMediaJobs?: RuntimeOpenMediaJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   deepMode?: RuntimeTurnRequest["deepMode"];
@@ -118,6 +120,7 @@ export class SendNativeWebChatTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -157,6 +160,9 @@ export class SendNativeWebChatTurnService {
       ...(response.body.toolInvocations === undefined
         ? {}
         : { toolInvocations: response.body.toolInvocations }),
+      ...(response.body.deferredMediaJobs === undefined
+        ? {}
+        : { deferredMediaJobs: response.body.deferredMediaJobs }),
       ...(response.body.turnRouting === undefined
         ? {}
         : { turnRouting: response.body.turnRouting }),
@@ -246,6 +252,7 @@ export class SendNativeWebChatTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}

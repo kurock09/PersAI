@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
+  RuntimeOpenMediaJobContext,
   RuntimeAttachmentRef,
   RuntimeFailedEvent,
   RuntimeInterruptedEvent,
@@ -40,6 +41,7 @@ export interface StreamNativeWebChatTurnInput {
   userMessageId: string;
   userMessage: string;
   attachments: RuntimeAttachmentRef[];
+  openMediaJobs?: RuntimeOpenMediaJobContext[];
   userTimezone?: string;
   currentTimeIso?: string;
   deepMode?: RuntimeTurnRequest["deepMode"];
@@ -127,6 +129,7 @@ export class StreamNativeWebChatTurnService {
         timezone: input.userTimezone ?? null,
         receivedAt: input.currentTimeIso ?? new Date().toISOString()
       },
+      ...(input.openMediaJobs === undefined ? {} : { openMediaJobs: input.openMediaJobs }),
       ...(input.deepMode === undefined ? {} : { deepMode: input.deepMode }),
       ...(input.modelRoleOverride === undefined
         ? {}
@@ -331,6 +334,9 @@ export class StreamNativeWebChatTurnService {
               ...(event.result.usageAccounting === undefined
                 ? {}
                 : { usageAccounting: event.result.usageAccounting }),
+              ...(event.result.deferredMediaJobs === undefined
+                ? {}
+                : { deferredMediaJobs: event.result.deferredMediaJobs }),
               ...(event.result.turnRouting === undefined
                 ? {}
                 : { turnRouting: event.result.turnRouting }),

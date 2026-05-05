@@ -21,7 +21,11 @@ import type {
   RuntimeQuotaStatusCheckout,
   RuntimeQuotaStatusBucket,
   RuntimeQuotaStatusCurrentPlan,
-  RuntimeQuotaStatusToolRow
+  RuntimeQuotaStatusToolRow,
+  RuntimeAttachmentRef,
+  RuntimeImageEditRequest,
+  RuntimeImageGenerateRequest,
+  RuntimeVideoGenerateRequest
 } from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
@@ -267,6 +271,26 @@ export type InternalEnqueueBackgroundCompactionInput = {
   enqueuedRequestId: string | null;
 };
 
+export type InternalEnqueueDeferredMediaJobInput = {
+  assistantId: string;
+  sourceUserMessageId: string;
+  sourceUserMessageText: string;
+  attachments: RuntimeAttachmentRef[];
+  directToolExecution:
+    | {
+        toolCode: "image_generate";
+        request: RuntimeImageGenerateRequest;
+      }
+    | {
+        toolCode: "image_edit";
+        request: RuntimeImageEditRequest;
+      }
+    | {
+        toolCode: "video_generate";
+        request: RuntimeVideoGenerateRequest;
+      };
+};
+
 // ADR-074 Slice M3 — opt-in explicit close of an active open-loop entry,
 // driven by the model setting `closeOpenLoop: true` on `memory_write`.
 export type InternalCloseMostSimilarOpenLoopInput = {
@@ -384,6 +408,66 @@ export class PersaiInternalApiClientService {
         `[bg-compaction] Enqueue threw for ${input.channel}:${input.externalThreadKey}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  async enqueueDeferredMediaJob(input: InternalEnqueueDeferredMediaJobInput): Promise<
+    | {
+        accepted: true;
+        jobId: string;
+        kind: "image" | "video";
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+      }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/media-jobs/enqueue", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (payload?.ok === true && payload.accepted === true && typeof payload.jobId === "string") {
+        return {
+          accepted: true,
+          jobId: payload.jobId,
+          kind: payload.kind === "video" ? "video" : "image"
+        };
+      }
+      if (
+        payload?.ok === true &&
+        payload.accepted === false &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          code: payload.code,
+          message: payload.message
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid deferred media enqueue response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API deferred media enqueue failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected deferred media enqueue."
+    );
   }
 
   async consumeToolDailyLimit(input: {

@@ -31,6 +31,7 @@ import {
   isAcceptedChatFile,
   isKnowledgeEligibleFile
 } from "../chat-file-policy";
+import type { WebChatActiveMediaJobState } from "../assistant-api-client";
 import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
@@ -80,6 +81,31 @@ function isAcceptedFile(file: File): boolean {
   return isAcceptedChatFile(file);
 }
 
+function resolveMediaJobLabel(
+  t: ReturnType<typeof useTranslations>,
+  job: WebChatActiveMediaJobState
+): string {
+  switch (job.operation) {
+    case "image_edit":
+      return t("mediaJobImageEdit");
+    case "video_generate":
+      return t("mediaJobVideoGenerate");
+    case "audio_generate":
+      return t("mediaJobAudioGenerate");
+    case "image_generate":
+    default:
+      return t("mediaJobImageGenerate");
+  }
+}
+
+function resolveMediaJobElapsedSeconds(job: WebChatActiveMediaJobState, nowMs: number): number {
+  const startedAtMs = Date.parse(job.startedAt ?? job.createdAt);
+  if (Number.isNaN(startedAtMs)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
+}
+
 function collectAcceptedFiles(files: Iterable<File>, existingCount: number): File[] {
   const accepted: File[] = [];
   for (const file of files) {
@@ -117,6 +143,7 @@ interface ChatInputProps {
     | "send_failed_unconfirmed"
     | "send_failed_confirmed"
     | null;
+  activeMediaJobs?: WebChatActiveMediaJobState[];
 }
 
 export interface ChatInputHandle {
@@ -136,7 +163,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     onStop,
     isStreaming,
     disabled,
-    pendingSendStatus = null
+    pendingSendStatus = null,
+    activeMediaJobs = []
   }: ChatInputProps,
   ref
 ) {
@@ -165,6 +193,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [mediaJobNowMs, setMediaJobNowMs] = useState(() => Date.now());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -202,6 +231,17 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     }
     restoreComposerFocusAfterSend(el);
   }, [isStreaming, pendingSendStatus, isTouchDevice]);
+
+  useEffect(() => {
+    if (activeMediaJobs.length === 0) {
+      return;
+    }
+    setMediaJobNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setMediaJobNowMs(Date.now());
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [activeMediaJobs]);
 
   const stopCameraPreview = useCallback(() => {
     cameraPreviewStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -405,6 +445,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const controlsDisabled =
     disabled === true || isRecording || isTranscribing || sendBlockedByFailedSlot;
   const hasKnowledgeEligibleFiles = pendingFiles.some((file) => isKnowledgeEligibleFile(file));
+  const visibleMediaJobs = activeMediaJobs.slice(0, 2);
+  const showCollapsedMediaJobs = activeMediaJobs.length > 2;
 
   useEffect(() => {
     if (!hasKnowledgeEligibleFiles) {
@@ -818,6 +860,32 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {dragActive && (
           <div className="mb-2 rounded-lg border border-dashed border-accent/50 bg-accent/5 px-3 py-2 text-center text-xs text-text-muted">
             {t("dropFilesHere")}
+          </div>
+        )}
+
+        {activeMediaJobs.length > 0 && (
+          <div aria-live="polite" className="mb-2">
+            {showCollapsedMediaJobs ? (
+              <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted">
+                <span className="truncate">
+                  {t("mediaJobsInProgress", { count: activeMediaJobs.length })}
+                </span>
+              </div>
+            ) : (
+              <div className="flex max-w-full gap-2 overflow-x-auto pb-0.5">
+                {visibleMediaJobs.map((job) => (
+                  <div
+                    key={job.id}
+                    className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-surface px-3 py-1 text-xs text-text-muted"
+                  >
+                    <span className="whitespace-nowrap">
+                      {resolveMediaJobLabel(t, job)}{" "}
+                      {formatDuration(resolveMediaJobElapsedSeconds(job, mediaJobNowMs))}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
