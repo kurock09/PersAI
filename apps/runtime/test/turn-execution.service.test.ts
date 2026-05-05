@@ -2789,11 +2789,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(retrievalHintToolNames.includes("knowledge_fetch"), true);
   assert.equal(persaiInternalApiClientService.orchestrateRetrievalCalls.length, 1);
   assert.match(
-    String(providerGatewayClient.calls[retrievalHintPlannerOffset]?.messages[0]?.content ?? ""),
+    providerGatewayClient.calls[retrievalHintPlannerOffset]?.developerInstructions ?? "",
     /# Retrieved Knowledge Context/
   );
   assert.match(
-    String(providerGatewayClient.calls[retrievalHintPlannerOffset]?.messages[1]?.content ?? ""),
+    String(providerGatewayClient.calls[retrievalHintPlannerOffset]?.messages[0]?.content ?? ""),
     /look in memory/
   );
   // ADR-074 P1: retrieval routing hint travels via `developerInstructions`, not the cached prefix.
@@ -2964,7 +2964,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ),
     true
   );
-  const plannedRetrievalBlock = String(groundedSkillFinalCall?.messages[0]?.content ?? "");
+  const groundedSkillDeveloperInstructions = groundedSkillFinalCall?.developerInstructions ?? "";
+  const plannedRetrievalBlockStart = groundedSkillDeveloperInstructions.indexOf(
+    "# Retrieved Knowledge Context"
+  );
+  assert.notEqual(plannedRetrievalBlockStart, -1);
+  const plannedRetrievalBlock = groundedSkillDeveloperInstructions.slice(
+    plannedRetrievalBlockStart
+  );
   assert.match(plannedRetrievalBlock, /skill grounded exact nutrition facts/);
   assert.ok(plannedRetrievalBlock.length <= 1_250);
   if (bundleRegistry.entry !== null) {

@@ -563,10 +563,6 @@ export class TurnExecutionService {
       bundleEntry.parsedBundle,
       retrievedKnowledgeContext
     );
-    const messagesWithRetrievalContext = this.injectRetrievedKnowledgeContext(
-      hydratedMessages,
-      plannedRetrievedKnowledgeContext
-    );
     const providerSelection = this.resolveProviderSelection(bundleEntry.parsedBundle, {
       modelRoleOverride: executionPlan.modelRole,
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
@@ -576,10 +572,11 @@ export class TurnExecutionService {
     const providerRequest = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
-      messagesWithRetrievalContext,
+      hydratedMessages,
       projectedTools,
       input.deepMode === true,
       executionPlan.routeDecision,
+      plannedRetrievedKnowledgeContext,
       presenceBlock,
       input.openMediaJobs
     );
@@ -720,29 +717,6 @@ export class TurnExecutionService {
       );
       return null;
     }
-  }
-
-  private injectRetrievedKnowledgeContext(
-    messages: ProviderGatewayTextMessage[],
-    context: RuntimeRetrievedKnowledgeContext | null
-  ): ProviderGatewayTextMessage[] {
-    const block = this.normalizeOptionalText(context?.renderedBlock ?? null);
-    if (block === null) {
-      return messages;
-    }
-    const insertionIndex = messages.findIndex((message) => message.role === "user");
-    const contextMessage: ProviderGatewayTextMessage = {
-      role: "assistant",
-      content: block
-    };
-    if (insertionIndex === -1) {
-      return [contextMessage, ...messages];
-    }
-    return [
-      ...messages.slice(0, insertionIndex),
-      contextMessage,
-      ...messages.slice(insertionIndex)
-    ];
   }
 
   private planRetrievedKnowledgeContext(
@@ -1528,6 +1502,7 @@ export class TurnExecutionService {
     projectedTools: RuntimeNativeToolProjection,
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision,
+    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
     presenceBlock: string | null,
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
   ): ProviderGatewayTextGenerateRequest {
@@ -1535,7 +1510,7 @@ export class TurnExecutionService {
       bundle,
       provider: providerSelection.provider,
       family: deepModeEnabled ? "deep_chat" : "ordinary_chat",
-      messages: messages.filter((message) => !this.isRetrievedKnowledgeContextMessage(message)),
+      messages,
       deepModeEnabled,
       projectedTools
     });
@@ -1544,6 +1519,7 @@ export class TurnExecutionService {
       projectedTools,
       deepModeEnabled,
       routeDecision,
+      retrievedKnowledgeContext,
       presenceBlock,
       openMediaJobs
     );
@@ -1570,19 +1546,12 @@ export class TurnExecutionService {
     return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
   }
 
-  private isRetrievedKnowledgeContextMessage(message: ProviderGatewayTextMessage): boolean {
-    return (
-      message.role === "assistant" &&
-      typeof message.content === "string" &&
-      message.content.startsWith("# Retrieved Knowledge Context\n")
-    );
-  }
-
   private buildDeveloperInstructions(
     bundle: AssistantRuntimeBundle,
     projectedTools: RuntimeNativeToolProjection | undefined,
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision | undefined,
+    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
     presenceBlock: string | null,
     openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
   ): string | null {
@@ -1591,6 +1560,8 @@ export class TurnExecutionService {
       routeDecision,
       deepModeEnabled
     );
+    const retrievedKnowledgeSection =
+      this.buildRetrievedKnowledgeContextDeveloperSection(retrievedKnowledgeContext);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(openMediaJobs);
     // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
     // Background Task Evaluation prompt. It must never be appended to a normal
@@ -1598,10 +1569,21 @@ export class TurnExecutionService {
     // decisions like `no_push` as chat text. Background evaluation consumes
     // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
     const presenceSection = this.normalizeOptionalText(presenceBlock);
-    const sections = [routingGuidance, openMediaJobsSection, presenceSection]
+    const sections = [
+      routingGuidance,
+      retrievedKnowledgeSection,
+      openMediaJobsSection,
+      presenceSection
+    ]
       .filter((section): section is string => section !== null)
       .join("\n\n");
     return sections.length === 0 ? null : sections;
+  }
+
+  private buildRetrievedKnowledgeContextDeveloperSection(
+    context: RuntimeRetrievedKnowledgeContext | null
+  ): string | null {
+    return this.normalizeOptionalText(context?.renderedBlock ?? null);
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -1649,11 +1631,11 @@ export class TurnExecutionService {
         ? "Assistant knowledge retrieval is likely needed before answering. Prefer knowledge_search first, then knowledge_fetch only for the exact excerpt you need."
         : null,
       routeDecision.retrievalPlan.useSkills
-        ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. Prefer the injected Retrieved Knowledge Context when present.`
+        ? `Retrieval plan selected enabled Skills: ${routeDecision.retrievalPlan.selectedSkillIds.join(", ")}. Prefer the Retrieved Knowledge Context developer section when present.`
         : null,
       this.isActiveSkillRetrievalTurn(routeDecision) &&
       availableToolNames.includes("knowledge_search")
-        ? "Active-skill retrieval is runtime-owned for this turn. Use low-level knowledge_search/knowledge_fetch only for assistant-owned follow-up lookup that is still genuinely needed after the injected context."
+        ? "Active-skill retrieval is runtime-owned for this turn. Use low-level knowledge_search/knowledge_fetch only for assistant-owned follow-up lookup that is still genuinely needed after the Retrieved Knowledge Context developer section."
         : null,
       routeDecision.retrievalPlan.useUserKnowledge &&
       availableToolNames.includes("knowledge_search")
@@ -3611,10 +3593,6 @@ export class TurnExecutionService {
       input,
       execution.bundle
     );
-    const messages = this.injectRetrievedKnowledgeContext(
-      hydratedMessages,
-      execution.retrievedKnowledgeContext
-    );
     // ADR-074 Slice T1: presence is per-turn but, because durable compaction
     // can land mid-turn and trigger a context refresh, we also re-render the
     // presence block here so the developer-tail keeps a fresh local time and
@@ -3629,10 +3607,11 @@ export class TurnExecutionService {
         provider: execution.providerRequest.provider,
         model: execution.providerRequest.model
       },
-      messages,
+      hydratedMessages,
       execution.projectedTools,
       execution.deepModeEnabled,
       execution.routeDecision,
+      execution.retrievedKnowledgeContext,
       presenceBlock,
       input.openMediaJobs
     );

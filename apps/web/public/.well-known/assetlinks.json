@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.persai.app",
+      "sha256_cert_fingerprints": [
+        "59:EB:9D:C4:A1:57:1F:37:00:29:97:A2:22:14:25:57:E5:76:32:C1:87:3C:10:9F:07:BE:24:92:94:5C:BF:62"
+      ]
+    }
+  }
+]

@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 Android billing return app-link fix) — Capacitor shell can reclaim `/app/*` billing returns after external bank hops
+
+### What changed
+
+- Kept the slice bounded to the concrete founder pain: after T-Bank opened externally, the payment return landed in the browser instead of the Android Capacitor shell even though the app itself is just PersAI web in a shell.
+- Confirmed the real gap was not billing-banner parsing inside chat; the existing web chat path already understands `billingReturn` and `billingPaymentIntentId` once the user is back in the shell. The missing layer was domain-to-app re-entry.
+- Added a Capacitor `appUrlOpen` / `getLaunchUrl` bridge in `apps/web` so verified `https://persai.dev/app/*` links reopen the shell and soft-route to the same Next.js in-app path instead of defaulting to the shell origin entrypoint.
+- Added Android App Links ownership for `https://persai.dev/app/*`: the mobile shell manifest now claims only `/app` paths, and `apps/web` now serves `.well-known/assetlinks.json` for the current shipped `com.persai.app` signing fingerprint.
+- Kept the fix honest about scope: iOS universal links are still not wired because the current repos do not yet contain Apple signing / associated-domains truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- Static inspection of `apps/web/public/.well-known/assetlinks.json`
+- Static inspection of `persai-mobile/android/app/src/main/AndroidManifest.xml`
+- Static inspection of `apps/web/app/_components/app-url-open-bridge.tsx`
+
+### Risks / residuals
+
+- The current `assetlinks.json` fingerprint matches the shipped Android APK/debug-style signing seen in the repo today. If the Android shell starts shipping with a different release certificate later, the fingerprint must be updated in web deploy truth at the same time.
+- iOS still returns to the browser until Apple Developer signing, associated-domains entitlements, and `apple-app-site-association` are introduced in a follow-up slice.
+
+### Next recommended step
+
+- Publish the updated web assets and mobile shell manifest together, then live-smoke one Android bank-app checkout return to confirm `https://persai.dev/app/chat?...` now reopens the Capacitor shell automatically.
+
+## 2026-05-06 (ADR-079 retrieved-knowledge developer-tail hotfix) — runtime-owned grounding no longer depends on assistant-message injection
+
+### What changed
+
+- Investigated the live skill-grounding bug where API/runtime retrieval truth existed for an exact turn, but the founder still could not see `Retrieved Knowledge Context` in the provider trace.
+- Kept the slice bounded to the final runtime prompt seam: `TurnExecutionService` now carries planned retrieved knowledge through `developerInstructions` instead of injecting a synthetic assistant-history message before the first user message.
+- Updated the runtime routing guidance copy so active-skill turns now explicitly reference the `Retrieved Knowledge Context` developer section, which aligns the prompt wording with the live prompt shape the provider actually receives.
+- Adjusted the focused runtime `turn-execution` regression expectations so retrieved grounding is asserted from `developerInstructions` rather than from a synthetic history message slot.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- This hotfix moves retrieval evidence to the developer tail for reliability/traceability, so prompt-token placement changed even though the bounded retrieval content itself did not.
+- A broader forensic answer for why the old assistant-message contour disappeared in the live provider trace is still not fully proven; this slice removes that contour from the critical path instead of preserving it.
+
+### Next recommended step
+
+- Roll out the updated `runtime`, then validate one live active-skill turn in `persai-dev` and confirm the exact OpenAI developer trace now shows `# Retrieved Knowledge Context` for the same chat contour that was failing before.
+
 ## 2026-05-06 (ADR-084 live webhook HMAC hotfix) — CloudPayments `check` webhooks no longer fail on the wrong header priority
 
 ### What changed

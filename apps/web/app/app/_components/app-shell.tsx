@@ -19,6 +19,7 @@ import { SlideOver } from "./slide-over";
 import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
+import { AppUrlOpenBridge } from "../../_components/app-url-open-bridge";
 import { OfflineGate } from "./offline-gate";
 import { StreamingThreadsProvider } from "./streaming-threads";
 import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
@@ -129,6 +130,7 @@ export function AppShell({
         <ShellActionsContext.Provider value={shellActions}>
           <StreamingThreadsProvider>
             <BackButtonBridge />
+            <AppUrlOpenBridge />
             <OfflineGate />
             {children}
           </StreamingThreadsProvider>
@@ -142,6 +144,7 @@ export function AppShell({
       <ShellActionsContext.Provider value={shellActions}>
         <StreamingThreadsProvider>
           <BackButtonBridge />
+          <AppUrlOpenBridge />
           <OfflineGate />
           {/*
           Bento layout on desktop: outer chrome frame (`bg-chrome`) shows
