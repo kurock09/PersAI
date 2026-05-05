@@ -830,14 +830,41 @@ export interface RuntimeQuotaStatusCurrentPlan {
   displayName: string | null;
 }
 
+export interface RuntimeQuotaStatusLocalizedText {
+  ru: string | null;
+  en: string | null;
+}
+
+export interface RuntimeQuotaStatusLocalizedTextList {
+  ru: string[];
+  en: string[];
+}
+
+export interface RuntimeQuotaStatusVisiblePlanLimits {
+  tokenBudgetLimit: number | null;
+  activeWebChatsLimit: number | null;
+  imageGenerateMonthlyUnitsLimit: number | null;
+  imageEditMonthlyUnitsLimit: number | null;
+  videoGenerateMonthlyUnitsLimit: number | null;
+}
+
 export interface RuntimeQuotaStatusVisiblePlan {
   code: string;
   displayName: string;
+  description: string | null;
   highlighted: boolean;
   isCurrent: boolean;
   amountMinor: number | null;
   currency: string | null;
   billingPeriod: "month" | "year" | null;
+  enabledToolCodes: string[];
+  title: RuntimeQuotaStatusLocalizedText;
+  subtitle: RuntimeQuotaStatusLocalizedText;
+  notes: RuntimeQuotaStatusLocalizedText;
+  badge: RuntimeQuotaStatusLocalizedText;
+  ctaLabel: RuntimeQuotaStatusLocalizedText;
+  highlightItems: RuntimeQuotaStatusLocalizedTextList;
+  limits: RuntimeQuotaStatusVisiblePlanLimits;
 }
 
 export interface RuntimeQuotaStatusCheckout {
@@ -846,6 +873,8 @@ export interface RuntimeQuotaStatusCheckout {
   paymentMethodClass: "card" | "sbp_qr";
   checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
   checkoutPagePath: string;
+  checkoutPageUrl: string | null;
+  checkoutSignInUrl: string | null;
 }
 
 export interface RuntimeQuotaStatusToolResult {

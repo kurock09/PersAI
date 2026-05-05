@@ -219,8 +219,8 @@ corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test
 Interpretation rules:
 
 1. `quota_status` must keep reporting quota truth while also exposing enough current/public plan context for the assistant to explain upgrades from the same existing tool surface.
-2. Checkout creation must require explicit confirmation and must still go through a PersAI payment intent; the tool must not activate subscription state directly.
-3. The assistant-facing result should return the existing `/app/billing/checkout/:paymentIntentId` path (or equivalent checkout page entry), not a second billing truth surface that bypasses product checkout state.
+2. Checkout creation must stay action-guarded (`confirmed=true` on the tool call), must not use lexical matching against raw user text, and must still go through a PersAI payment intent; the tool must not activate subscription state directly.
+3. The assistant-facing result should return the existing `/app/billing/checkout/:paymentIntentId` entry plus an absolute checkout URL when public web origin config is available, not a second billing truth surface that bypasses product checkout state.
 
 ## ADR-079 grounded Skill/user-KB routing focused checks
 

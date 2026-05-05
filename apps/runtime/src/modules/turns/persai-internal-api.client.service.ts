@@ -78,11 +78,44 @@ export type InternalQuotaStatusOutcome = {
   visiblePlans: Array<{
     code: string;
     displayName: string;
+    description: string | null;
     highlighted: boolean;
     isCurrent: boolean;
     amountMinor: number | null;
     currency: string | null;
     billingPeriod: "month" | "year" | null;
+    enabledToolCodes: string[];
+    title: {
+      ru: string | null;
+      en: string | null;
+    };
+    subtitle: {
+      ru: string | null;
+      en: string | null;
+    };
+    notes: {
+      ru: string | null;
+      en: string | null;
+    };
+    badge: {
+      ru: string | null;
+      en: string | null;
+    };
+    ctaLabel: {
+      ru: string | null;
+      en: string | null;
+    };
+    highlightItems: {
+      ru: string[];
+      en: string[];
+    };
+    limits: {
+      tokenBudgetLimit: number | null;
+      activeWebChatsLimit: number | null;
+      imageGenerateMonthlyUnitsLimit: number | null;
+      imageEditMonthlyUnitsLimit: number | null;
+      videoGenerateMonthlyUnitsLimit: number | null;
+    };
   }>;
   tools: RuntimeQuotaStatusToolRow[];
   buckets: RuntimeQuotaStatusBucket[];
@@ -750,7 +783,6 @@ export class PersaiInternalApiClientService {
     targetPlanCode: string;
     paymentMethodClass: "card" | "sbp_qr";
     confirmed: boolean;
-    userConfirmationText: string;
   }): Promise<InternalQuotaCheckoutOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -773,7 +805,9 @@ export class PersaiInternalApiClientService {
           targetPlanCode: payload.targetPlanCode,
           paymentMethodClass: payload.paymentMethodClass,
           checkoutMode: payload.checkoutMode,
-          checkoutPagePath: payload.checkoutPagePath
+          checkoutPagePath: payload.checkoutPagePath,
+          checkoutPageUrl: payload.checkoutPageUrl,
+          checkoutSignInUrl: payload.checkoutSignInUrl
         };
       }
       throw new BadGatewayException(
@@ -1715,15 +1749,57 @@ export class PersaiInternalApiClientService {
     value: unknown
   ): value is InternalQuotaStatusOutcome["visiblePlans"][number] {
     const row = this.asObject(value);
+    const title = this.asObject(row?.title);
+    const subtitle = this.asObject(row?.subtitle);
+    const notes = this.asObject(row?.notes);
+    const badge = this.asObject(row?.badge);
+    const ctaLabel = this.asObject(row?.ctaLabel);
+    const highlightItems = this.asObject(row?.highlightItems);
+    const limits = this.asObject(row?.limits);
     return (
       row !== null &&
       typeof row.code === "string" &&
       typeof row.displayName === "string" &&
+      (row.description === null || typeof row.description === "string") &&
       typeof row.highlighted === "boolean" &&
       typeof row.isCurrent === "boolean" &&
       (row.amountMinor === null || this.isNonNegativeInteger(row.amountMinor)) &&
       (row.currency === null || typeof row.currency === "string") &&
-      (row.billingPeriod === null || row.billingPeriod === "month" || row.billingPeriod === "year")
+      (row.billingPeriod === null ||
+        row.billingPeriod === "month" ||
+        row.billingPeriod === "year") &&
+      Array.isArray(row.enabledToolCodes) &&
+      row.enabledToolCodes.every((item) => typeof item === "string") &&
+      title !== null &&
+      (title.ru === null || typeof title.ru === "string") &&
+      (title.en === null || typeof title.en === "string") &&
+      subtitle !== null &&
+      (subtitle.ru === null || typeof subtitle.ru === "string") &&
+      (subtitle.en === null || typeof subtitle.en === "string") &&
+      notes !== null &&
+      (notes.ru === null || typeof notes.ru === "string") &&
+      (notes.en === null || typeof notes.en === "string") &&
+      badge !== null &&
+      (badge.ru === null || typeof badge.ru === "string") &&
+      (badge.en === null || typeof badge.en === "string") &&
+      ctaLabel !== null &&
+      (ctaLabel.ru === null || typeof ctaLabel.ru === "string") &&
+      (ctaLabel.en === null || typeof ctaLabel.en === "string") &&
+      highlightItems !== null &&
+      Array.isArray(highlightItems.ru) &&
+      highlightItems.ru.every((item) => typeof item === "string") &&
+      Array.isArray(highlightItems.en) &&
+      highlightItems.en.every((item) => typeof item === "string") &&
+      limits !== null &&
+      (limits.tokenBudgetLimit === null || this.isNonNegativeInteger(limits.tokenBudgetLimit)) &&
+      (limits.activeWebChatsLimit === null ||
+        this.isNonNegativeInteger(limits.activeWebChatsLimit)) &&
+      (limits.imageGenerateMonthlyUnitsLimit === null ||
+        this.isNonNegativeInteger(limits.imageGenerateMonthlyUnitsLimit)) &&
+      (limits.imageEditMonthlyUnitsLimit === null ||
+        this.isNonNegativeInteger(limits.imageEditMonthlyUnitsLimit)) &&
+      (limits.videoGenerateMonthlyUnitsLimit === null ||
+        this.isNonNegativeInteger(limits.videoGenerateMonthlyUnitsLimit))
     );
   }
 
@@ -1776,7 +1852,9 @@ export class PersaiInternalApiClientService {
         row.checkoutMode === "payment_link" ||
         row.checkoutMode === "qr_code" ||
         row.checkoutMode === "manual_test") &&
-      typeof row.checkoutPagePath === "string"
+      typeof row.checkoutPagePath === "string" &&
+      (row.checkoutPageUrl === null || typeof row.checkoutPageUrl === "string") &&
+      (row.checkoutSignInUrl === null || typeof row.checkoutSignInUrl === "string")
     );
   }
 

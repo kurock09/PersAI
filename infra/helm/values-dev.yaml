@@ -65,6 +65,7 @@ api:
     PERSAI_RUNTIME_TURN_TIMEOUT_MS: "90000"
     PERSAI_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
+    PERSAI_WEB_BASE_URL: "https://persai.dev"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
     TELEGRAM_WEBHOOK_BASE_URL: "https://bot.persai.dev"
@@ -313,6 +314,7 @@ runtime:
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
     PERSAI_API_BASE_URL: "http://api-internal:3002"
+    PERSAI_WEB_BASE_URL: "https://persai.dev"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"

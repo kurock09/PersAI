@@ -97,25 +97,61 @@ async function run(): Promise<void> {
           {
             code: "starter",
             displayName: "Starter",
+            description: "Starter plan",
+            enabledToolCodes: ["web_search"],
             presentation: {
               highlighted: false,
+              title: { ru: "Старт", en: "Starter" },
+              subtitle: { ru: "Для начала", en: "For getting started" },
+              notes: { ru: "Базовый план", en: "Base plan" },
+              badge: { ru: null, en: null },
+              ctaLabel: { ru: "Выбрать", en: "Choose" },
               price: {
                 amount: 990,
                 currency: "RUB",
                 billingPeriod: "month" as const
+              },
+              highlightItems: {
+                ru: ["Базовый поиск"],
+                en: ["Basic search"]
               }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 100,
+              activeWebChatsLimit: 2,
+              imageGenerateMonthlyUnitsLimit: 0,
+              imageEditMonthlyUnitsLimit: 0,
+              videoGenerateMonthlyUnitsLimit: 0
             }
           },
           {
             code: "pro",
             displayName: "Pro",
+            description: "Pro plan",
+            enabledToolCodes: ["web_search", "image_generate"],
             presentation: {
               highlighted: true,
+              title: { ru: "Про", en: "Pro" },
+              subtitle: { ru: "Для работы", en: "For work" },
+              notes: { ru: "Популярный план", en: "Popular plan" },
+              badge: { ru: "Хит", en: "Popular" },
+              ctaLabel: { ru: "Открыть", en: "Open" },
               price: {
                 amount: 1990,
                 currency: "RUB",
                 billingPeriod: "month" as const
+              },
+              highlightItems: {
+                ru: ["Больше лимитов"],
+                en: ["Higher limits"]
               }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 500,
+              activeWebChatsLimit: 10,
+              imageGenerateMonthlyUnitsLimit: 30,
+              imageEditMonthlyUnitsLimit: 10,
+              videoGenerateMonthlyUnitsLimit: 5
             }
           }
         ];
@@ -133,8 +169,13 @@ async function run(): Promise<void> {
   assert.equal(result.visiblePlans.length, 2);
   assert.equal(result.visiblePlans[1]?.code, "pro");
   assert.equal(result.visiblePlans[1]?.isCurrent, true);
+  assert.equal(result.visiblePlans[0]?.description, "Starter plan");
   assert.equal(result.visiblePlans[0]?.amountMinor, 99000);
   assert.equal(result.visiblePlans[1]?.amountMinor, 199000);
+  assert.deepEqual(result.visiblePlans[1]?.enabledToolCodes, ["web_search", "image_generate"]);
+  assert.equal(result.visiblePlans[1]?.title.ru, "Про");
+  assert.equal(result.visiblePlans[1]?.highlightItems.ru[0], "Больше лимитов");
+  assert.equal(result.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
     result.tools.some((tool) => tool.toolCode === "image_generate"),

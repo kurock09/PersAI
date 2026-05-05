@@ -9,6 +9,7 @@ import { useLocale, useTranslations } from "next-intl";
 import type { AssistantBillingPaymentIntentState } from "@persai/contracts";
 import { AlertCircle, ChevronDown, Loader2 } from "lucide-react";
 import { getAssistantBillingPaymentIntent } from "../../../assistant-api-client";
+import { cn } from "@/app/lib/utils";
 
 type CloudpaymentsConstructorPayload = {
   schema: "persai.billing.cloudpaymentsConstructorCheckout.v1";
@@ -26,9 +27,33 @@ type CloudpaymentsConstructorPayload = {
     metadata: Record<string, unknown>;
   };
   customizationParams?: {
+    appearance?: {
+      colors?: {
+        primaryButtonColor?: string;
+        primaryHoverButtonColor?: string;
+        primaryButtonTextColor?: string;
+        primaryButtonHoverTextColor?: string;
+        activeInputColor?: string;
+        inputBackground?: string;
+        inputColor?: string;
+        inputBorderColor?: string;
+        titleColor?: string;
+        textColor?: string;
+        errorColor?: string;
+        skeletonBackground?: string;
+      };
+      borders?: {
+        radius?: string;
+      };
+    };
     components?: {
       paymentButton?: {
         text?: string;
+      };
+      paymentForm?: {
+        labelFontSize?: string;
+        activeLabelFontSize?: string;
+        fontSize?: string;
       };
     };
   };
@@ -211,6 +236,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
   const [error, setError] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [mountingPaymentForm, setMountingPaymentForm] = useState(false);
+  const [paymentFormVisible, setPaymentFormVisible] = useState(false);
   const embeddedContainerRef = useRef<HTMLDivElement | null>(null);
   const embeddedCompletionHandledRef = useRef(false);
 
@@ -338,9 +364,11 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
     let blocksApp: InstanceType<
       NonNullable<NonNullable<typeof window.cp>["PaymentBlocks"]>
     > | null = null;
+    let revealTimer: number | null = null;
 
     embeddedCompletionHandledRef.current = false;
     setMountingPaymentForm(true);
+    setPaymentFormVisible(false);
     setPaymentError(null);
 
     void (async () => {
@@ -359,6 +387,11 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
           constructorPayload.customizationParams
         );
         blocksApp.mount(embeddedContainerRef.current);
+        revealTimer = window.setTimeout(() => {
+          if (!cancelled) {
+            setPaymentFormVisible(true);
+          }
+        }, 180);
         blocksApp.on("success", () => {
           if (embeddedCompletionHandledRef.current) {
             return;
@@ -391,6 +424,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
 
     return () => {
       cancelled = true;
+      if (revealTimer !== null) {
+        window.clearTimeout(revealTimer);
+      }
       if (blocksApp !== null) {
         blocksApp.off("success");
         blocksApp.off("fail");
@@ -498,8 +534,8 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                   </div>
                 ) : paymentIntent.checkout.mode === "embedded" && constructorPayload ? (
                   <div className="mt-6 space-y-4">
-                    <div className="overflow-hidden rounded-[24px] border border-border/70 bg-bg/[0.52] p-4 sm:p-5">
-                      {mountingPaymentForm ? (
+                    <div className="overflow-hidden rounded-[24px] border border-border/70 bg-surface-raised/80 p-4 sm:p-5">
+                      {mountingPaymentForm || !paymentFormVisible ? (
                         <div className="flex min-h-[16rem] items-center justify-center gap-3 text-sm text-text-muted">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           {t("loadingPaymentForm")}
@@ -507,7 +543,10 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       ) : null}
                       <div
                         ref={embeddedContainerRef}
-                        className={mountingPaymentForm ? "hidden" : "min-h-[16rem]"}
+                        className={cn(
+                          "min-h-[16rem] rounded-[20px] bg-[#1c1b1a] transition-opacity duration-200",
+                          mountingPaymentForm || !paymentFormVisible ? "opacity-0" : "opacity-100"
+                        )}
                       />
                     </div>
 

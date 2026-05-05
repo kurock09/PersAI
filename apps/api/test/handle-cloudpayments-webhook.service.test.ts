@@ -145,6 +145,39 @@ async function run(): Promise<void> {
   assert.deepEqual(metadataResult, { status: "processed" });
   assert.equal(paymentIntentUpdates[2]?.providerPaymentRef, "123458");
 
+  const encodedCheckBody = {
+    TransactionId: 123459,
+    Amount: 99,
+    Currency: "RUB",
+    InvoiceId: "intent-1",
+    DateTime: "2026-05-04 19:08:00"
+  };
+  const encodedCheckRawBody = Buffer.from(
+    new URLSearchParams({
+      TransactionId: "123459",
+      Amount: "99",
+      Currency: "RUB",
+      InvoiceId: "intent-1",
+      DateTime: "2026-05-04 19:08:00"
+    }).toString(),
+    "utf8"
+  );
+  const encodedCheckContentHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(encodedCheckRawBody)
+    .digest("base64");
+
+  const encodedCheckResult = await service.handle({
+    notificationType: "check",
+    body: encodedCheckBody,
+    rawBody: encodedCheckRawBody,
+    headers: {
+      "x-content-hmac": "invalid-signature",
+      "content-hmac": encodedCheckContentHmac
+    }
+  });
+
+  assert.deepEqual(encodedCheckResult, { status: "processed" });
+
   await assert.rejects(
     service.handle({
       notificationType: "pay",

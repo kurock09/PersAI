@@ -252,7 +252,7 @@ export class HandleCloudpaymentsWebhookService {
     headers: CloudpaymentsWebhookHeaders
   ): void {
     const provided =
-      this.resolveHeader(headers, "x-content-hmac") ?? this.resolveHeader(headers, "content-hmac");
+      this.resolveHeader(headers, "content-hmac") ?? this.resolveHeader(headers, "x-content-hmac");
     if (provided === null) {
       throw new ForbiddenException("CloudPayments webhook signature is missing.");
     }

@@ -32,7 +32,7 @@ After those pieces, PersAI still needs the payment-provider readiness layer:
 - webhook ingestion that updates PersAI lifecycle state, not product UI directly
 - card and SBP QR payment paths for the first production contour
 - customer plan/payment UX in Settings and chat
-- assistant billing tool that can explain plans and create payment links/QR only after explicit confirmation
+- assistant billing tool that can explain plans, compare visible tariffs, and create checkout links/QR from the same quota surface without lexical confirmation hacks
 - admin manual payment activation for support/offline cases
 - immediate plan activation/materialization after successful upgrade
 
@@ -45,7 +45,7 @@ Founder decisions for this ADR:
 - after successful payment, return the user to chat with a clear "plan activated" banner
 - if payment fails, the assistant should calmly explain and offer retry
 - admin can manually mark payment and activate paid access
-- assistant billing tool may create payment link/QR only after explicit user confirmation
+- assistant billing tool may create checkout link/QR only when the user wants it opened now; do not gate this with hard-coded word matching
 - upgrades activate immediately; downgrades and cancellation take effect at the end of the current paid period
 - refund/chargeback applies immediate fallback/free
 - `Admin > Ops > Plan Control` remains tester/admin override and is not billing/subscription truth
@@ -64,7 +64,7 @@ Core decisions:
 6. Admin Plan Control tester overrides remain separate from billing and invoices.
 7. Successful upgrade triggers immediate subscription activation and assistant/runtime materialization.
 8. Downgrade and cancellation are scheduled for the current period end.
-9. Assistant billing tool can explain plans and create payment links/QR only after explicit confirmation.
+9. Assistant billing tool can explain plans and create checkout links/QR from the same quota surface and may open checkout only when the user wants it now.
 
 ## Product flow
 
@@ -310,7 +310,7 @@ Pre-Slice 8 hardening note, 2026-05-04:
 Slice 8 implementation note, 2026-05-05:
 
 - PersAI did not add a separate new billing tool; the existing `quota_status` tool now exposes current/public pricing-plan context so the assistant can explain upgrades from the same quota/governance surface it already used for limits
-- `quota_status` may now create checkout only after explicit confirmation, and the guarded runtime/API path creates a normal PersAI payment intent plus returns the existing `/app/billing/checkout/:paymentIntentId` path instead of bypassing product checkout state
+- `quota_status` is now the single assistant surface for live quota facts, current/public plan comparison, and guarded checkout-link creation; the runtime/API path creates a normal PersAI payment intent plus returns the existing `/app/billing/checkout/:paymentIntentId` entry instead of bypassing product checkout state
 - the tool still cannot activate subscriptions directly; paid access remains webhook/trusted-server lifecycle truth only
 
 Slice 9 implementation note, 2026-05-05:
@@ -358,12 +358,12 @@ Allowed behavior:
 - explain current plan and limits
 - compare visible plans from pricing cards
 - answer "what changes if I upgrade?"
-- ask for explicit confirmation before creating payment
-- create payment link or SBP QR after confirmation
+- explain current and visible plan differences from the same tool surface
+- create checkout link or SBP QR when the user wants it opened now
 
 Forbidden behavior:
 
-- changing plan without explicit confirmation
+- opening checkout proactively when the user has not asked for it
 - claiming payment success before provider/PersAI confirmation
 - inventing price, discount, renewal, or refund details
 - bypassing PersAI payment intent
@@ -400,7 +400,7 @@ Implement in production-grade slices.
 | 5. Webhook to lifecycle integration     | Completed   | Route provider outcomes into ADR-083 lifecycle.                              | Webhook controller, lifecycle service, idempotency, audit events                         | Payment success/failure/refund/chargeback update PersAI payment intent and subscription lifecycle deterministically.                                                                  |
 | 6. Immediate activation/materialization | Completed   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Trusted paid success now rematerializes/warms published assistants immediately enough that chat/bootstrap can pick up the activated plan without waiting for a later random refresh.  |
 | 7. Admin manual payment and Ops support | Completed   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                                                         |
-| 8. Assistant billing tool               | Completed   | Let assistant explain plans and create payment link/QR after confirmation.   | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant can create payment link/QR only after explicit confirmation and cannot mutate subscription directly.                                                                        |
+| 8. Assistant billing tool               | Completed   | Let assistant explain plans and create checkout link/QR from one quota surface. | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant uses `quota_status` for live plan comparison, limits, and guarded checkout-link creation without lexical confirmation matching, and still cannot mutate subscription directly. |
 | 9. Concrete provider adapter            | In progress | Wire real provider.                                                          | CloudPayments constructor adapter, admin billing secrets, webhook verification, live smoke | Embedded constructor payload is now created from persisted PersAI payment intents, recurring is intentionally disabled until lifecycle support is complete, and trusted webhooks still reconcile back to PersAI lifecycle truth; live smoke still remains. |
 
 ### Execution rules
@@ -410,7 +410,7 @@ Implement in production-grade slices.
 - Do not treat admin tester override as billing.
 - Do not activate paid access from client return alone; require provider/webhook or trusted server verification.
 - Do not generate payment links without a PersAI payment intent.
-- Do not let the assistant create payment without explicit confirmation.
+- Do not let the assistant open checkout proactively or without an intentional tool action.
 - Do not silently switch a paid user to a new plan without explaining immediate upgrade/downgrade timing.
 
 ### Prompt for a future implementation session
@@ -439,7 +439,7 @@ Production rules:
 - provider webhook updates PersAI lifecycle state
 - Plan Control remains tester/admin override, not billing
 - upgrade activates immediately; downgrade/cancel apply at current period end
-- assistant billing tool may create payment link/QR only after explicit confirmation
+- assistant billing tool may create checkout link/QR from `quota_status` when the user wants it opened now
 
 Before ending:
 - run focused checks for changed code
@@ -463,7 +463,7 @@ Focused checks should prove:
 9. Refund/chargeback applies immediate fallback/free and records audit.
 10. Manual admin payment activation is clearly marked as manual/admin source.
 11. Plan Control override does not create or mutate billing provider state.
-12. Assistant billing tool requires explicit confirmation before payment link/QR creation.
+12. Assistant billing tool must use `quota_status` as the live plan/quota source and may open checkout only through the guarded payment-intent path.
 
 ## Non-goals
 
@@ -482,7 +482,7 @@ Focused checks should prove:
 - Pricing page stays aligned with Admin Plans.
 - Users get one understandable path from tariff choice to payment and activation.
 - Admin tester overrides remain useful without polluting billing truth.
-- Assistant can help with payment while staying guarded by explicit confirmation and payment intents.
+- Assistant can help with plan choice and checkout while staying guarded by payment intents and an intentional checkout action.
 
 ### Negative
 
@@ -499,4 +499,4 @@ Current implementation observations that this ADR intentionally changes or forma
 - Admin plan catalog already carries rich plan limits and can become the source for pricing cards.
 - Ops Plan Control already exists for tester/manual override; ADR-084 keeps it separate from billing/payment truth.
 - ADR-083 lifecycle state should own trial/paid/grace/fallback outcomes; ADR-084 provider events should update that state rather than creating a parallel source of truth.
-- Existing assistant notification/tool governance is now reused by the existing `quota_status` billing path, and payment creation remains guarded by explicit confirmation plus PersAI payment intents.
+- Existing assistant notification/tool governance is now reused by the existing `quota_status` billing path, and checkout-link creation remains guarded by an intentional tool action plus PersAI payment intents.

@@ -87,11 +87,44 @@ export class InternalRuntimeToolQuotaController {
     visiblePlans: Array<{
       code: string;
       displayName: string;
+      description: string | null;
       highlighted: boolean;
       isCurrent: boolean;
       amountMinor: number | null;
       currency: string | null;
       billingPeriod: "month" | "year" | null;
+      enabledToolCodes: string[];
+      title: {
+        ru: string | null;
+        en: string | null;
+      };
+      subtitle: {
+        ru: string | null;
+        en: string | null;
+      };
+      notes: {
+        ru: string | null;
+        en: string | null;
+      };
+      badge: {
+        ru: string | null;
+        en: string | null;
+      };
+      ctaLabel: {
+        ru: string | null;
+        en: string | null;
+      };
+      highlightItems: {
+        ru: string[];
+        en: string[];
+      };
+      limits: {
+        tokenBudgetLimit: number | null;
+        activeWebChatsLimit: number | null;
+        imageGenerateMonthlyUnitsLimit: number | null;
+        imageEditMonthlyUnitsLimit: number | null;
+        videoGenerateMonthlyUnitsLimit: number | null;
+      };
     }>;
     tools: Array<{
       toolCode: string;
@@ -147,6 +180,8 @@ export class InternalRuntimeToolQuotaController {
     paymentMethodClass: "card" | "sbp_qr";
     checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
     checkoutPagePath: string;
+    checkoutPageUrl: string | null;
+    checkoutSignInUrl: string | null;
   }> {
     this.assertAuthorized(req);
     const input = this.createInternalRuntimeQuotaCheckoutService.parseInput(body);

@@ -29,6 +29,7 @@ const baseRuntimeConfigSchema = z.object({
   RUNTIME_TURN_RECEIPT_TTL_SECONDS: z.coerce.number().int().positive().default(86400),
   RUNTIME_BUNDLE_MARKER_TTL_SECONDS: z.coerce.number().int().positive().default(604800),
   PERSAI_API_BASE_URL: optionalUrl,
+  PERSAI_WEB_BASE_URL: optionalUrl,
   PERSAI_INTERNAL_API_TOKEN: optionalNonEmptyString,
   RUNTIME_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_MEDIA_BUCKET_NAME: optionalNonEmptyString,

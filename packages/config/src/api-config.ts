@@ -60,6 +60,7 @@ const baseApiConfigSchema = z.object({
   PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MIN_REPLICAS: z.coerce.number().int().positive().optional(),
   PERSAI_PROVIDER_GATEWAY_AUTOSCALING_MAX_REPLICAS: z.coerce.number().int().positive().optional(),
   PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  PERSAI_WEB_BASE_URL: optionalUrl,
   PERSAI_MEDIA_BUCKET_NAME: z.string().optional(),
   PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
   PERSAI_KNOWLEDGE_OBJECT_PREFIX: z.string().min(1).default("assistant-knowledge"),

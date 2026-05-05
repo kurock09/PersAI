@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 live webhook HMAC hotfix) — CloudPayments `check` webhooks no longer fail on the wrong header priority
+
+### What changed
+
+- Investigated the live `persai-dev` payment failure after CloudPayments notifications were enabled: `Check` webhooks were reaching `api`, but PersAI was responding `400` with `CloudPayments webhook signature verification failed`.
+- Confirmed the deploy symptom against the active webhook handler and CloudPayments docs: for the provider's POST notification shape, `Content-HMAC` is the safer match for the raw encoded request body, while the previous handler prioritized `X-Content-HMAC` first.
+- Updated `HandleCloudpaymentsWebhookService` to prefer `Content-HMAC` before falling back to `X-Content-HMAC`, keeping the same trusted-HMAC gate while removing the false-negative signature rejection seen in live traffic.
+- Added a regression test that reproduces the mixed-header case: invalid `X-Content-HMAC`, valid `Content-HMAC`, encoded POST raw body, and successful `check` handling.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+
+### Risks / residuals
+
+- This fix is committed in repo truth, but `persai-dev` still needs a fresh `api` rollout before live CloudPayments retries/new payments benefit from it.
+- The previously paid attempt made before notifications were enabled still has no trusted provider callback in PersAI, so it remains outside the normal activation path and may need manual support handling.
+
+### Next recommended step
+
+- Push and deploy the updated `api`, then repeat one live CloudPayments payment and verify that `check` and `pay` webhooks both land as `200` and that the workspace subscription moves off `starter_trial`.
+
+## 2026-05-06 (ADR-084 quota tool one-path cleanup) — quota is now the single assistant surface for plan facts, limits, and checkout links
+
+### What changed
+
+- Kept this session bounded to the founder-requested quota/billing cleanup instead of widening billing scope: `quota_status` is now the single assistant-facing path for current plan, visible-plan comparison, remaining limits, and guarded checkout-link creation.
+- Removed the overfitted lexical confirmation seam from runtime checkout creation. `CreateInternalRuntimeQuotaCheckoutService` no longer inspects raw user text for hard-coded phrases; the guard is now the intentional tool action itself (`confirmed=true` on `create_checkout`), which fits the founder decision that generating a checkout link is not itself a payment.
+- Expanded the `visiblePlans` payload returned by internal quota reads so the assistant can compare plans from one place without falling back to duplicated subscription knowledge. The runtime now receives plan description, enabled tool codes, localized presentation copy, highlight bullets, and key quota limits together with the existing price/current-plan flags.
+- Added usable checkout-link outputs for the assistant path: quota checkout still returns the canonical `/app/billing/checkout/:paymentIntentId` path, and now also returns absolute `checkoutPageUrl` plus `checkoutSignInUrl` when `PERSAI_WEB_BASE_URL` is configured.
+- Updated default tool descriptions/guidance in the generator path so `quota_status` is explicitly the one source for live plan/quota facts and checkout-link creation, instead of telling the model to bounce plan questions into separate subscription knowledge retrieval.
+- Reconciled ADR-084, API boundary, and test-plan wording with the new behavior so the active docs no longer describe lexical confirmation matching as current truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/create-internal-runtime-quota-checkout.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Absolute checkout URLs now depend on `PERSAI_WEB_BASE_URL`; without that config the assistant still gets the canonical relative in-app path, so deploy envs should set the public web origin if they want fully shareable links from the quota tool.
+- This slice intentionally removes duplicated plan-fact guidance from prompt defaults, but it does not yet remove any old historical `subscription` retrieval traces outside the active billing/quota tool path.
+- Real live validation is still needed to confirm the assistant now uses the richer `quota_status` payload well in production conversations and that absolute links/sign-in redirects feel right in the actual web product.
+
+### Next recommended step
+
+- Set `PERSAI_WEB_BASE_URL` in the active environment, then run one live assistant upgrade conversation that covers: asking about limits, comparing plans, asking for checkout, opening the returned link, and confirming the embedded checkout page loads correctly from the assistant-provided URL.
+
 ## 2026-05-06 (ADR-084 PROD hardening for embedded checkout truth) — false success, stale checkout state, and customer-ref leakage are closed
 
 ### What changed

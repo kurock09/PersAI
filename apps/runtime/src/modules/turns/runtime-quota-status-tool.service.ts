@@ -37,13 +37,22 @@ export class RuntimeQuotaStatusToolService {
 
     try {
       if (request.action === "create_checkout") {
+        if (!request.confirmed) {
+          return {
+            payload: this.createSkippedPayload(
+              null,
+              "confirmation_required",
+              "Create the checkout link only when the user wants it opened now."
+            ),
+            isError: true
+          };
+        }
         const outcome = await this.persaiInternalApiClientService.createQuotaCheckout({
           assistantId: params.bundle.metadata.assistantId,
           requestId: params.requestId,
           targetPlanCode: request.targetPlanCode,
           paymentMethodClass: request.paymentMethodClass,
-          confirmed: request.confirmed,
-          userConfirmationText: params.currentUserText
+          confirmed: request.confirmed
         });
         const quotaStatus = await this.persaiInternalApiClientService.readQuotaStatus({
           assistantId: params.bundle.metadata.assistantId,
@@ -93,8 +102,7 @@ export class RuntimeQuotaStatusToolService {
     } catch (error) {
       const warning = error instanceof Error ? error.message : "Quota status lookup failed.";
       const reason =
-        request.action === "create_checkout" &&
-        warning.toLowerCase().includes("explicit user confirmation")
+        request.action === "create_checkout" && warning.toLowerCase().includes("confirmed=true")
           ? "confirmation_required"
           : "quota_status_failed";
       return {

@@ -8,7 +8,6 @@ export type CreateInternalRuntimeQuotaCheckoutRequest = {
   targetPlanCode: string;
   paymentMethodClass: "card" | "sbp_qr";
   confirmed: boolean;
-  userConfirmationText: string;
 };
 
 function normalizeNonEmptyString(value: unknown, field: string): string {
@@ -29,6 +28,18 @@ function parsePaymentMethodClass(value: unknown): "card" | "sbp_qr" {
   throw new BadRequestException("paymentMethodClass must be 'card' or 'sbp_qr'.");
 }
 
+function resolvePublicWebBaseUrl(): string | null {
+  const raw = process.env.PERSAI_WEB_BASE_URL?.trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    return new URL(raw).toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class CreateInternalRuntimeQuotaCheckoutService {
   constructor(
@@ -46,11 +57,7 @@ export class CreateInternalRuntimeQuotaCheckoutService {
       requestId: normalizeNonEmptyString(row.requestId, "requestId"),
       targetPlanCode: normalizePlanCode(row.targetPlanCode),
       paymentMethodClass: parsePaymentMethodClass(row.paymentMethodClass),
-      confirmed: row.confirmed === true,
-      userConfirmationText: normalizeNonEmptyString(
-        row.userConfirmationText,
-        "userConfirmationText"
-      )
+      confirmed: row.confirmed === true
     };
   }
 
@@ -61,8 +68,10 @@ export class CreateInternalRuntimeQuotaCheckoutService {
     paymentMethodClass: "card" | "sbp_qr";
     checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
     checkoutPagePath: string;
+    checkoutPageUrl: string | null;
+    checkoutSignInUrl: string | null;
   }> {
-    this.assertExplicitConfirmation(input.userConfirmationText, input.confirmed);
+    this.assertCheckoutRequested(input.confirmed);
     const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
       input.assistantId
     );
@@ -87,40 +96,35 @@ export class CreateInternalRuntimeQuotaCheckoutService {
           : "Provider checkout session is unavailable right now."
       );
     }
+    const checkoutPagePath = `/app/billing/checkout/${paymentIntent.id}`;
+    const publicWebBaseUrl = resolvePublicWebBaseUrl();
+    const checkoutPageUrl =
+      publicWebBaseUrl !== null
+        ? new URL(checkoutPagePath, `${publicWebBaseUrl}/`).toString()
+        : null;
+    const checkoutSignInUrl =
+      publicWebBaseUrl !== null
+        ? new URL(
+            `/sign-in?${new URLSearchParams({ redirect_url: checkoutPagePath }).toString()}`,
+            `${publicWebBaseUrl}/`
+          ).toString()
+        : null;
     return {
       ok: true,
       paymentIntentId: paymentIntent.id,
       targetPlanCode: paymentIntent.targetPlanCode,
       paymentMethodClass: paymentIntent.paymentMethodClass,
       checkoutMode: paymentIntent.checkout.mode,
-      checkoutPagePath: `/app/billing/checkout/${paymentIntent.id}`
+      checkoutPagePath,
+      checkoutPageUrl,
+      checkoutSignInUrl
     };
   }
 
-  private assertExplicitConfirmation(userText: string, confirmed: boolean): void {
-    const text = userText.trim().toLowerCase();
-    const strongConfirmation =
-      /(?:подтверждаю|созда(?:й|йте)\s+(?:оплату|плат[её]ж|ссылку|qr|qr-код)|оформл(?:яй|яйте)\s+(?:оплату|плат[её]ж)|давай\s+(?:оформим|оплату)|confirm|confirmed|create (?:payment|checkout|payment link|qr)|send (?:payment link|qr)|go ahead with (?:payment|checkout)|proceed with (?:payment|checkout)|buy it)/i.test(
-        text
-      );
-    const weakAffirmationPrefixes = [
-      "да",
-      "yes",
-      "ok",
-      "okay",
-      "ага",
-      "угу",
-      "go ahead",
-      "proceed"
-    ];
-    const weakAffirmation = weakAffirmationPrefixes.some(
-      (prefix) => text === prefix || text.startsWith(`${prefix} `)
-    );
-    if (strongConfirmation || (confirmed && weakAffirmation)) {
+  private assertCheckoutRequested(confirmed: boolean): void {
+    if (confirmed) {
       return;
     }
-    throw new BadRequestException(
-      "Explicit user confirmation is required before creating payment checkout."
-    );
+    throw new BadRequestException("Checkout link creation must be requested on this quota action.");
   }
 }

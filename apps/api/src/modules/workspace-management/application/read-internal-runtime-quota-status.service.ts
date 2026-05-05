@@ -57,11 +57,44 @@ export class ReadInternalRuntimeQuotaStatusService {
     visiblePlans: Array<{
       code: string;
       displayName: string;
+      description: string | null;
       highlighted: boolean;
       isCurrent: boolean;
       amountMinor: number | null;
       currency: string | null;
       billingPeriod: "month" | "year" | null;
+      enabledToolCodes: string[];
+      title: {
+        ru: string | null;
+        en: string | null;
+      };
+      subtitle: {
+        ru: string | null;
+        en: string | null;
+      };
+      notes: {
+        ru: string | null;
+        en: string | null;
+      };
+      badge: {
+        ru: string | null;
+        en: string | null;
+      };
+      ctaLabel: {
+        ru: string | null;
+        en: string | null;
+      };
+      highlightItems: {
+        ru: string[];
+        en: string[];
+      };
+      limits: {
+        tokenBudgetLimit: number | null;
+        activeWebChatsLimit: number | null;
+        imageGenerateMonthlyUnitsLimit: number | null;
+        imageEditMonthlyUnitsLimit: number | null;
+        videoGenerateMonthlyUnitsLimit: number | null;
+      };
     }>;
     tools: ToolDailyQuotaStatusRow[];
     buckets: AssistantQuotaBucketSnapshot[];
@@ -131,6 +164,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       visiblePlans: visiblePlans.map((plan) => ({
         code: plan.code,
         displayName: plan.displayName,
+        description: plan.description,
         highlighted: plan.presentation.highlighted,
         isCurrent: plan.code === resolved.planCode,
         amountMinor:
@@ -138,7 +172,21 @@ export class ReadInternalRuntimeQuotaStatusService {
             ? Math.round(plan.presentation.price.amount * 100)
             : null,
         currency: plan.presentation.price.currency,
-        billingPeriod: plan.presentation.price.billingPeriod
+        billingPeriod: plan.presentation.price.billingPeriod,
+        enabledToolCodes: plan.enabledToolCodes,
+        title: plan.presentation.title,
+        subtitle: plan.presentation.subtitle,
+        notes: plan.presentation.notes,
+        badge: plan.presentation.badge,
+        ctaLabel: plan.presentation.ctaLabel,
+        highlightItems: plan.presentation.highlightItems,
+        limits: {
+          tokenBudgetLimit: plan.quotaLimits.tokenBudgetLimit,
+          activeWebChatsLimit: plan.quotaLimits.activeWebChatsLimit,
+          imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
+          imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
+          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+        }
       })),
       tools,
       buckets: snapshot.buckets,

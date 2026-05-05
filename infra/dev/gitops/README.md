@@ -40,6 +40,8 @@ There is no active OpenClaw image tag, fork SHA pin, or fork-clone build stage i
 - `providerGateway.env.*`
 - `web.env.*`
 
+For ADR-084 checkout-link sharing, the active `persai-dev` values explicitly set `PERSAI_WEB_BASE_URL=https://persai.dev` in both `api.env` and `runtime.env` so assistant-generated billing links resolve to the public web origin instead of staying relative.
+
 Kubernetes secret refs remain explicit through:
 
 - `api.secretEnv`

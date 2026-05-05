@@ -366,7 +366,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
     name: "quota_status",
     description: resolveToolDefinitionDescription(
       policy,
-      "Read live PersAI quota status for the current assistant, explain current/public plan options, and create a checkout only after the user explicitly confirms payment creation."
+      "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, and create a checkout link when the user wants to open it now."
     ),
     inputSchema: {
       type: "object",
@@ -376,7 +376,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           enum: ["report", "create_checkout"],
           description:
-            "Optional action. Use 'report' (default) to inspect quota and plan status. Use 'create_checkout' only after the user explicitly confirms they want PersAI to open checkout."
+            "Optional action. Use 'report' (default) to inspect quota, limits, and plan options. Use 'create_checkout' when the user wants PersAI to open the checkout link now."
         },
         toolCode: {
           type: "string",
@@ -385,7 +385,8 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         },
         targetPlanCode: {
           type: "string",
-          description: "Required when action='create_checkout'. Target paid plan code to purchase."
+          description:
+            "Required when action='create_checkout'. Target paid plan code to open in checkout."
         },
         paymentMethodClass: {
           type: "string",
@@ -396,7 +397,7 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         confirmed: {
           type: "boolean",
           description:
-            "Set true only after the user explicitly confirms they want checkout created in this conversation turn."
+            "Set true when the user wants PersAI to create the checkout link in this turn."
         }
       }
     }

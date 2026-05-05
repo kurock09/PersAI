@@ -1220,11 +1220,29 @@ class FakePersaiInternalApiClientService {
       {
         code: "paid",
         displayName: "Paid",
+        description: "Paid plan",
         highlighted: true,
         isCurrent: true,
         amountMinor: 199000,
         currency: "RUB",
-        billingPeriod: "month"
+        billingPeriod: "month",
+        enabledToolCodes: ["web_search", "image_generate"],
+        title: { ru: "Платный", en: "Paid" },
+        subtitle: { ru: "Для работы", en: "For work" },
+        notes: { ru: "Расширенные лимиты", en: "Higher limits" },
+        badge: { ru: "Популярный", en: "Popular" },
+        ctaLabel: { ru: "Открыть", en: "Open" },
+        highlightItems: {
+          ru: ["Больше лимитов"],
+          en: ["Higher limits"]
+        },
+        limits: {
+          tokenBudgetLimit: 5000,
+          activeWebChatsLimit: 10,
+          imageGenerateMonthlyUnitsLimit: 30,
+          imageEditMonthlyUnitsLimit: 10,
+          videoGenerateMonthlyUnitsLimit: 5
+        }
       }
     ],
     tools: [
@@ -1324,7 +1342,10 @@ class FakePersaiInternalApiClientService {
       targetPlanCode: "paid",
       paymentMethodClass: "card" as const,
       checkoutMode: "embedded" as const,
-      checkoutPagePath: "/app/billing/checkout/pi-1"
+      checkoutPagePath: "/app/billing/checkout/pi-1",
+      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
+      checkoutSignInUrl:
+        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
     };
   }
 

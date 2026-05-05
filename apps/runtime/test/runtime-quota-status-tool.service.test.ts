@@ -202,20 +202,56 @@ class FakePersaiInternalApiClientService {
       {
         code: "starter",
         displayName: "Starter",
+        description: "Starter plan",
         highlighted: false,
         isCurrent: false,
         amountMinor: 99000,
         currency: "RUB",
-        billingPeriod: "month"
+        billingPeriod: "month",
+        enabledToolCodes: ["web_search"],
+        title: { ru: "Старт", en: "Starter" },
+        subtitle: { ru: "Для начала", en: "For getting started" },
+        notes: { ru: "Базовый план", en: "Base plan" },
+        badge: { ru: null, en: null },
+        ctaLabel: { ru: "Выбрать", en: "Choose" },
+        highlightItems: {
+          ru: ["Базовый поиск"],
+          en: ["Basic search"]
+        },
+        limits: {
+          tokenBudgetLimit: 100,
+          activeWebChatsLimit: 2,
+          imageGenerateMonthlyUnitsLimit: 0,
+          imageEditMonthlyUnitsLimit: 0,
+          videoGenerateMonthlyUnitsLimit: 0
+        }
       },
       {
         code: "paid",
         displayName: "Paid",
+        description: "Paid plan",
         highlighted: true,
         isCurrent: true,
         amountMinor: 199000,
         currency: "RUB",
-        billingPeriod: "month"
+        billingPeriod: "month",
+        enabledToolCodes: ["web_search", "image_generate"],
+        title: { ru: "Платный", en: "Paid" },
+        subtitle: { ru: "Для работы", en: "For work" },
+        notes: { ru: "Расширенные лимиты", en: "Higher limits" },
+        badge: { ru: "Популярный", en: "Popular" },
+        ctaLabel: { ru: "Открыть", en: "Open" },
+        highlightItems: {
+          ru: ["Больше лимитов"],
+          en: ["Higher limits"]
+        },
+        limits: {
+          tokenBudgetLimit: 500,
+          activeWebChatsLimit: 10,
+          imageGenerateMonthlyUnitsLimit: 30,
+          imageEditMonthlyUnitsLimit: 10,
+          videoGenerateMonthlyUnitsLimit: 5
+        }
       }
     ],
     tools: [
@@ -281,7 +317,10 @@ class FakePersaiInternalApiClientService {
       targetPlanCode: "paid",
       paymentMethodClass: "card" as const,
       checkoutMode: "embedded" as const,
-      checkoutPagePath: "/app/billing/checkout/pi-1"
+      checkoutPagePath: "/app/billing/checkout/pi-1",
+      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
+      checkoutSignInUrl:
+        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
     };
   }
 }
@@ -318,6 +357,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.requestedToolCode, "web_search");
   assert.equal(success.payload.currentPlan.displayName, "Paid");
   assert.equal(success.payload.visiblePlans[0]?.code, "starter");
+  assert.equal(success.payload.visiblePlans[0]?.title.ru, "Старт");
+  assert.equal(success.payload.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
   assert.equal(success.payload.buckets.length, 1);
@@ -386,18 +427,18 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(checkout.payload.action, "checkout_created");
   assert.equal(checkout.payload.checkout?.paymentIntentId, "pi-1");
   assert.equal(checkout.payload.checkout?.checkoutPagePath, "/app/billing/checkout/pi-1");
+  assert.equal(
+    checkout.payload.checkout?.checkoutPageUrl,
+    "https://persai.dev/app/billing/checkout/pi-1"
+  );
   assert.deepEqual(internalApi.checkoutCalls.at(-1), {
     assistantId: "assistant-1",
     requestId: "request-5",
     targetPlanCode: "paid",
     paymentMethodClass: "card",
-    confirmed: true,
-    userConfirmationText: "Да"
+    confirmed: true
   });
 
-  internalApi.error = new Error(
-    "Explicit user confirmation is required before creating payment checkout."
-  );
   const confirmationRequired = await service.executeToolCall({
     bundle,
     requestId: "request-6",
@@ -413,6 +454,6 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(confirmationRequired.payload.reason, "confirmation_required");
   assert.equal(
     confirmationRequired.payload.warning,
-    "Explicit user confirmation is required before creating payment checkout."
+    "Create the checkout link only when the user wants it opened now."
   );
 }

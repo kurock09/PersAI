@@ -295,10 +295,10 @@ export function ChatArea({
     billingReturnKind !== undefined && billingReturnKey !== dismissedBillingReturnKey;
   const billingBannerCardTone =
     billingReturnKind === "success"
-      ? "border-success/15 bg-[linear-gradient(180deg,rgba(16,185,129,0.08),rgba(255,255,255,0.94))]"
+      ? "border-success/15 bg-surface/95 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
       : billingReturnKind === "failed"
-        ? "border-border/70 bg-[linear-gradient(180deg,rgba(245,158,11,0.07),rgba(255,255,255,0.94))]"
-        : "border-border/70 bg-[linear-gradient(180deg,rgba(99,102,241,0.06),rgba(255,255,255,0.94))]";
+        ? "border-warning/15 bg-surface/95 shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
+        : "border-accent/15 bg-surface/95 shadow-[0_10px_30px_rgba(0,0,0,0.18)]";
   const billingBannerBadgeTone =
     billingReturnKind === "success"
       ? "border-success/20 bg-success/10 text-success"
