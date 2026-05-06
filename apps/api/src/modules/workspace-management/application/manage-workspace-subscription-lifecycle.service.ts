@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma, WorkspaceSubscriptionStatus } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./manage-admin-billing-lifecycle-settings.service";
@@ -38,6 +38,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly billingLifecycleSettingsService: ManageAdminBillingLifecycleSettingsService,
     private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    @Inject(forwardRef(() => MaterializeWorkspacePaidActivationService))
     private readonly materializeWorkspacePaidActivationService: MaterializeWorkspacePaidActivationService
   ) {}
 

@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
 import type { EffectiveSubscriptionState } from "./effective-subscription.types";
 import {
   ASSISTANT_PLAN_CATALOG_REPOSITORY,
@@ -38,6 +38,7 @@ export class ResolveEffectiveSubscriptionStateService {
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
     private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    @Inject(forwardRef(() => ManageWorkspaceSubscriptionLifecycleService))
     private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
   ) {}
 

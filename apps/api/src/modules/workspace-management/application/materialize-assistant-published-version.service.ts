@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import { compileAssistantRuntimeBundle, type AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { AssistantGovernance } from "../domain/assistant-governance.entity";
@@ -195,6 +195,7 @@ export class MaterializeAssistantPublishedVersionService {
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     private readonly resolveRuntimeProviderRoutingService: ResolveRuntimeProviderRoutingService,
     private readonly resolveAssistantCapabilityEnvelopeService: ResolveAssistantCapabilityEnvelopeService,
+    @Inject(forwardRef(() => ResolveEffectiveSubscriptionStateService))
     private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService,

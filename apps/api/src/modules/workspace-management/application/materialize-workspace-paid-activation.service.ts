@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
   type AssistantPublishedVersionRepository
@@ -20,6 +20,7 @@ export class MaterializeWorkspacePaidActivationService {
     private readonly assistantRepository: AssistantRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(forwardRef(() => EnsureAssistantMaterializedSpecCurrentService))
     private readonly ensureAssistantMaterializedSpecCurrentService: EnsureAssistantMaterializedSpecCurrentService,
     private readonly syncNativeRuntimeBundleService: SyncNativeRuntimeBundleService,
     private readonly syncProviderGatewayWarmupService: SyncProviderGatewayWarmupService

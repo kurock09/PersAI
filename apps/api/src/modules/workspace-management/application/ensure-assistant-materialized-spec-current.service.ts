@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
@@ -29,6 +29,7 @@ export class EnsureAssistantMaterializedSpecCurrentService {
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
     private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
+    @Inject(forwardRef(() => MaterializeAssistantPublishedVersionService))
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly bumpConfigGenerationService: BumpConfigGenerationService
   ) {}
