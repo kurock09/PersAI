@@ -72,6 +72,9 @@ declare global {
         customizationParams?: CloudpaymentsConstructorPayload["customizationParams"]
       ) => {
         mount: (target: HTMLElement) => void;
+        update: (
+          customizationParams: CloudpaymentsConstructorPayload["customizationParams"]
+        ) => void;
         unmount: () => void;
         on: (event: "success" | "fail" | "destroy", callback: (result?: unknown) => void) => void;
         off: (event: "success" | "fail" | "destroy") => void;
@@ -461,6 +464,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
           buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme)
         );
         blocksApp.mount(embeddedContainerRef.current);
+        blocksApp.update(buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme));
         revealTimer = window.setTimeout(() => {
           if (!cancelled) {
             setPaymentFormVisible(true);
@@ -512,9 +516,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
 
   return (
     <div className="min-h-dvh bg-chrome text-text">
-      <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-4 sm:py-6">
-          <div className="rounded-[28px] border border-border/80 bg-surface/85 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-8">
+      <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pt-[max(1rem,env(safe-area-inset-top))] lg:px-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center py-2 sm:py-6">
+          <div className="rounded-[24px] border border-border/80 bg-surface/85 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:rounded-[28px] sm:p-8">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
               {t("eyebrow")}
             </p>
@@ -547,13 +551,13 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
             ) : paymentIntent ? (
               <>
                 {priceLabel ? (
-                  <p className="mt-6 text-2xl font-semibold tracking-[-0.03em] text-text">
+                  <p className="mt-5 text-2xl font-semibold tracking-[-0.03em] text-text sm:mt-6">
                     {priceLabel}
                   </p>
                 ) : null}
 
                 {staticCheckoutState !== null ? (
-                  <div className="mt-6 space-y-4">
+                  <div className="mt-5 space-y-4 sm:mt-6">
                     <div className="rounded-2xl border border-border/70 bg-bg/60 p-4">
                       <p className="text-sm font-medium text-text">{staticCheckoutState.title}</p>
                       <p className="mt-1 text-sm leading-6 text-text-muted">
@@ -583,7 +587,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </div>
                   </div>
                 ) : paymentIntent.checkout.mode === "manual_test" ? (
-                  <div className="mt-6 space-y-3">
+                  <div className="mt-5 space-y-3 sm:mt-6">
                     <button
                       type="button"
                       onClick={() => router.replace(buildChatReturnHref(paymentIntent, "success"))}
@@ -607,13 +611,8 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </button>
                   </div>
                 ) : paymentIntent.checkout.mode === "embedded" && constructorPayload ? (
-                  <div className="mt-6 space-y-4">
-                    <div
-                      className={cn(
-                        "overflow-hidden rounded-[24px] border border-border/70 p-4 sm:p-5",
-                        resolvedTheme === "light" ? "bg-[#fcfaf5]" : "bg-[#1f1d1b]"
-                      )}
-                    >
+                  <div className="mt-5 space-y-4 sm:mt-6">
+                    <div className="overflow-hidden">
                       {mountingPaymentForm || !paymentFormVisible ? (
                         <div className="flex min-h-[16rem] items-center justify-center gap-3 text-sm text-text-muted">
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -623,8 +622,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       <div
                         ref={embeddedContainerRef}
                         className={cn(
-                          "min-h-[16rem] rounded-[20px] transition-opacity duration-200",
-                          resolvedTheme === "light" ? "bg-[#fcfaf5]" : "bg-[#1f1d1b]",
+                          "min-h-[16rem] transition-opacity duration-200",
                           mountingPaymentForm || !paymentFormVisible ? "opacity-0" : "opacity-100"
                         )}
                       />
@@ -666,7 +664,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </div>
                   </div>
                 ) : canUseCheckoutSurface && checkoutUrl ? (
-                  <div className="mt-6 space-y-3">
+                  <div className="mt-5 space-y-3 sm:mt-6">
                     <a
                       href={checkoutUrl}
                       className="flex min-h-12 w-full items-center justify-center rounded-2xl bg-accent px-4 text-sm font-semibold text-white shadow-[0_0_36px_var(--accent-glow)] transition-all hover:bg-accent-hover"
@@ -682,7 +680,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </button>
                   </div>
                 ) : (
-                  <div className="mt-6 rounded-2xl border border-border/70 bg-bg/60 p-4 text-sm leading-6 text-text-muted">
+                  <div className="mt-5 rounded-2xl border border-border/70 bg-bg/60 p-4 text-sm leading-6 text-text-muted sm:mt-6">
                     {t("unsupportedMode")}
                   </div>
                 )}

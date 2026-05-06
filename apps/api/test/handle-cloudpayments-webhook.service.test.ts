@@ -5,6 +5,7 @@ import { HandleCloudpaymentsWebhookService } from "../src/modules/workspace-mana
 async function run(): Promise<void> {
   const appliedBillingEvents: Array<Record<string, unknown>> = [];
   const paymentIntentUpdates: Array<Record<string, unknown>> = [];
+  const paymentIntentFindFirstCalls: Array<Record<string, unknown>> = [];
 
   const paymentIntent = {
     id: "intent-1",
@@ -27,7 +28,10 @@ async function run(): Promise<void> {
   const service = new HandleCloudpaymentsWebhookService(
     {
       workspacePaymentIntent: {
-        findFirst: async () => paymentIntent,
+        findFirst: async (args: Record<string, unknown>) => {
+          paymentIntentFindFirstCalls.push(args);
+          return paymentIntent;
+        },
         update: async (args: { data: Record<string, unknown> }) => {
           paymentIntentUpdates.push(args.data);
           return { ...paymentIntent, ...args.data };
@@ -177,6 +181,12 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(encodedCheckResult, { status: "processed" });
+  assert.deepEqual(paymentIntentFindFirstCalls.at(-1)?.where, {
+    OR: [
+      { providerPaymentRef: { in: ["intent-1", "123459"] } },
+      { providerSessionRef: { in: ["intent-1", "123459"] } }
+    ]
+  });
 
   await assert.rejects(
     service.handle({

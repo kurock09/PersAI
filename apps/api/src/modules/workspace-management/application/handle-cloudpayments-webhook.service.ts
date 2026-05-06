@@ -124,6 +124,10 @@ function asTrimmedString(value: unknown): string | null {
   return null;
 }
 
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function asMinorAmount(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.round(value * 100);
@@ -343,13 +347,18 @@ export class HandleCloudpaymentsWebhookService {
       return null;
     }
     const uniqueCandidates = [...new Set(candidates)];
+    const uuidCandidates = uniqueCandidates.filter(isUuidLike);
+    const refCandidates = uniqueCandidates;
+    const orClauses: Prisma.WorkspacePaymentIntentWhereInput[] = [
+      { providerPaymentRef: { in: refCandidates } },
+      { providerSessionRef: { in: refCandidates } }
+    ];
+    if (uuidCandidates.length > 0) {
+      orClauses.unshift({ id: { in: uuidCandidates } });
+    }
     return (await this.prisma.workspacePaymentIntent.findFirst({
       where: {
-        OR: [
-          { id: { in: uniqueCandidates } },
-          { providerPaymentRef: { in: uniqueCandidates } },
-          { providerSessionRef: { in: uniqueCandidates } }
-        ]
+        OR: orClauses
       },
       select: paymentIntentSelect
     })) as PaymentIntentRecord | null;

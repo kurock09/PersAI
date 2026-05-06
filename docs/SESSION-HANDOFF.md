@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 live `check` UUID lookup hotfix) — CloudPayments short refs no longer crash Prisma before intent matching
+
+### What changed
+
+- Investigated the latest live `persai-dev` founder payment retry and confirmed the trusted `check` webhook was finally reaching `PersAI`, but it still returned `400` before any billing event or lifecycle mutation was recorded.
+- The concrete crash was inside `HandleCloudpaymentsWebhookService.resolvePaymentIntent()`: webhook candidates such as short `InvoiceId` / transaction refs were being passed into the Prisma `id IN (...)` UUID clause together with normal provider refs, which made Prisma throw `Error creating UUID, invalid length: expected length 32 for simple format, found 10`.
+- Fixed the matcher so only UUID-shaped candidates are used for the `workspace_payment_intents.id` lookup, while all ordinary provider refs continue to match through `providerSessionRef` / `providerPaymentRef`.
+- Added a focused regression test that keeps a short non-UUID `InvoiceId` in the webhook payload and asserts that the service no longer routes that value through the UUID clause.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- This fixes the Prisma crash on short provider refs, but the full live billing path still needs another retry in `persai-dev` to prove that `check` now passes and that the later `pay/confirm` lifecycle stages land normally.
+- The current live cluster may still be serving the pre-fix API image until the next deploy rolls this change out.
+
+### Next recommended step
+
+- Deploy the updated `api`, then repeat one live payment and recheck GKE logs for a `200` on `/api/v1/public/billing/cloudpayments/webhooks/check` followed by payment-intent status mutation and a new `workspace_subscription_billing_event`.
+
 ## 2026-05-06 (ADR-084 checkout theme parity fix) — CloudPayments embedded checkout now maps light/dark palettes explicitly
 
 ### What changed
