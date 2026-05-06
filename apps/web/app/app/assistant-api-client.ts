@@ -51,6 +51,7 @@ import {
   type AssistantMemoryRegistryItemState,
   type AssistantTaskRegistryItemState,
   type AssistantBillingPaymentIntentState,
+  type AssistantBillingSubscriptionManagementState,
   type PostAssistantBillingPaymentIntentRequest,
   ContractsApiError,
   type AssistantLifecycleState,
@@ -77,6 +78,7 @@ import {
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
   postAssistantMemoryDoNotRemember as postAssistantMemoryDoNotRememberContract,
   postAssistantBillingPaymentIntent as postAssistantBillingPaymentIntentContract,
+  postAssistantBillingDisableAutoRenew as postAssistantBillingDisableAutoRenewContract,
   postAssistantMemoryItemForget as postAssistantMemoryItemForgetContract,
   postAssistantMemoryItemCloseOpenLoop as postAssistantMemoryItemCloseOpenLoopContract,
   postAssistantTaskItemCancel as postAssistantTaskItemCancelContract,
@@ -94,6 +96,7 @@ import {
   getAdminRuntimeProviderSettings as getAdminRuntimeProviderSettingsContract,
   getAdminBillingLifecycleSettings as getAdminBillingLifecycleSettingsContract,
   getAssistantBillingPaymentIntent as getAssistantBillingPaymentIntentContract,
+  getAssistantBillingSubscription as getAssistantBillingSubscriptionContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
@@ -109,6 +112,7 @@ import {
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract,
   putAdminBillingLifecycleSettings as putAdminBillingLifecycleSettingsContract
 } from "@persai/contracts";
+export type { AssistantBillingSubscriptionManagementState } from "@persai/contracts";
 import {
   uploadWithProgress,
   XhrAbortError,
@@ -2109,6 +2113,49 @@ export async function getAssistantPlanVisibility(token: string): Promise<UserPla
       throw new Error("Unexpected non-success response for GET /assistant/plan-visibility.");
     }
     return response.data.visibility;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getAssistantBillingSubscription(
+  token: string
+): Promise<AssistantBillingSubscriptionManagementState> {
+  try {
+    const response = await getAssistantBillingSubscriptionContract({
+      headers: getAuthHeaders(token)
+    });
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /assistant/billing/subscription.");
+    }
+    return response.data.subscription;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantBillingDisableAutoRenew(
+  token: string
+): Promise<AssistantBillingSubscriptionManagementState> {
+  try {
+    const response = await postAssistantBillingDisableAutoRenewContract({
+      headers: getAuthHeaders(token)
+    });
+    if (!isSuccessStatus(response.status)) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/billing/subscription/disable-auto-renew."
+      );
+    }
+    if (
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("subscription" in response.data)
+    ) {
+      throw new Error(
+        "Unexpected response payload for POST /assistant/billing/subscription/disable-auto-renew."
+      );
+    }
+    return response.data.subscription;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

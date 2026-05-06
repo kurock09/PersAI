@@ -431,7 +431,10 @@ async function run(): Promise<void> {
   assert.equal(created.checkout.mode, "manual_test");
   assert.equal(created.checkout.payload?.schema, "persai.billing.manualTestCheckout.v1");
   assert.equal(created.amountMinor, 200000);
+  assert.equal(created.recurring.checkoutKind, "recurring_start");
+  assert.equal(created.recurring.supportedBySelectedMethod, true);
   assert.equal(lastProviderCheckoutInput?.amountMinor, 200000);
+  assert.equal(lastProviderCheckoutInput?.checkoutKind, "recurring_start");
   assert.equal(providerCallCount, 1);
   assert.equal(resolveInputs[0]?.assistantPlanOverrideCode, null);
   assert.equal(resolveInputs[0]?.assistantQuotaPlanCode, null);
@@ -439,6 +442,220 @@ async function run(): Promise<void> {
   const repeated = await service.createPaymentIntent("user-1", parsed);
   assert.deepEqual(repeated, created);
   assert.equal(providerCallCount, 1, "idempotent retry must not create another checkout session");
+
+  const sbpIntent = await service.createPaymentIntent("user-1", {
+    planCode: "pro_plus",
+    paymentMethodClass: "sbp_qr",
+    idempotencyKey: "intent-2",
+    returnUrl: "/app/chat?billing=return"
+  });
+  assert.equal(sbpIntent.recurring.checkoutKind, "one_time");
+  assert.equal(sbpIntent.recurring.supportedBySelectedMethod, false);
+  assert.equal(lastProviderCheckoutInput?.checkoutKind, "one_time");
+
+  const managedRecurringUpgradeService = new ManageAssistantPaymentIntentsService(
+    {
+      async findByUserId() {
+        return {
+          id: "assistant-1",
+          userId: "user-1",
+          workspaceId: "ws-1",
+          draftDisplayName: null,
+          draftInstructions: null,
+          draftTraits: null,
+          draftAvatarEmoji: null,
+          draftAvatarUrl: null,
+          draftAssistantGender: null,
+          draftVoiceProfile: null,
+          draftArchetypeKey: null,
+          draftUpdatedAt: null,
+          applyStatus: "succeeded",
+          applyTargetVersionId: null,
+          applyAppliedVersionId: null,
+          applyRequestedAt: null,
+          applyStartedAt: null,
+          applyFinishedAt: null,
+          applyErrorCode: null,
+          applyErrorMessage: null,
+          configDirtyAt: null,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+    } as Pick<AssistantRepository, "findByUserId"> as AssistantRepository,
+    {
+      async findByAssistantId() {
+        return {
+          id: "gov-1",
+          assistantId: "assistant-1",
+          assistantPlanOverrideCode: null,
+          quotaPlanCode: null,
+          channelCredentialRefs: null,
+          memoryControl: null,
+          createdAt: now,
+          updatedAt: now
+        };
+      }
+    } as Pick<AssistantGovernanceRepository, "findByAssistantId"> as AssistantGovernanceRepository,
+    {
+      async findByCode(code: string) {
+        if (code === "starter") {
+          return {
+            code,
+            billingProviderHints: {
+              presentation: {
+                price: {
+                  amount: 990,
+                  currency: "RUB",
+                  billingPeriod: "month"
+                }
+              }
+            }
+          };
+        }
+        if (code === "pro_plus") {
+          return {
+            code,
+            billingProviderHints: {
+              presentation: {
+                price: {
+                  amount: 2000,
+                  currency: "RUB",
+                  billingPeriod: "month"
+                }
+              }
+            }
+          };
+        }
+        return null;
+      }
+    } as Pick<AssistantPlanCatalogRepository, "findByCode"> as AssistantPlanCatalogRepository,
+    {
+      async execute() {
+        throw new Error("payment-intent flow must not initialize lifecycle truth");
+      },
+      async executeReadOnly() {
+        return {
+          source: "workspace_subscription",
+          status: "active",
+          planCode: "starter",
+          trialEndsAt: null,
+          graceStartedAt: null,
+          graceEndsAt: null,
+          currentPeriodEndsAt: "2026-06-01T00:00:00.000Z",
+          cancelAtPeriodEnd: false
+        };
+      }
+    } as Pick<
+      ResolveEffectiveSubscriptionStateService,
+      "execute" | "executeReadOnly"
+    > as ResolveEffectiveSubscriptionStateService,
+    {
+      async listPublicPricingPlans() {
+        return [
+          {
+            code: "pro_plus",
+            displayName: "Pro Plus",
+            description: null,
+            trialEnabled: false,
+            trialDurationDays: null,
+            defaultOnRegistration: false,
+            enabledToolCodes: [],
+            entitlements: {
+              toolClasses: {
+                costDrivingTools: true,
+                utilityTools: true,
+                costDrivingQuotaGoverned: true,
+                utilityQuotaGoverned: true
+              },
+              channelsAndSurfaces: {
+                webChat: true,
+                telegram: true,
+                whatsapp: false,
+                max: false
+              },
+              mediaClasses: {
+                image: true,
+                audio: true,
+                video: true,
+                file: true
+              }
+            },
+            quotaLimits: {
+              tokenBudgetLimit: 10000,
+              activeWebChatsLimit: 25,
+              imageGenerateMonthlyUnitsLimit: 30,
+              imageEditMonthlyUnitsLimit: 10,
+              videoGenerateMonthlyUnitsLimit: 5,
+              mediaStorageBytesLimit: null,
+              knowledgeStorageBytesLimit: null,
+              workspaceStorageBytesLimit: null
+            },
+            skillPolicy: {
+              maxEnabledSkills: 8
+            },
+            presentation: {
+              showOnPricingPage: true,
+              displayOrder: 1,
+              highlighted: true,
+              title: { ru: "Про+", en: "Pro Plus" },
+              subtitle: { ru: null, en: null },
+              notes: { ru: null, en: null },
+              badge: { ru: null, en: null },
+              ctaLabel: { ru: "Выбрать", en: "Choose" },
+              price: {
+                amount: 2000,
+                currency: "RUB",
+                billingPeriod: "month"
+              },
+              highlightItems: { ru: [], en: [] }
+            }
+          }
+        ];
+      }
+    } as Pick<ManageAdminPlansService, "listPublicPricingPlans"> as ManageAdminPlansService,
+    {
+      workspaceSubscription: {
+        async findUnique() {
+          return {
+            providerCustomerRef: "cust-1",
+            billingProvider: "cloudpayments",
+            providerSubscriptionRef: "sub-provider-1"
+          };
+        }
+      },
+      workspacePaymentIntent: {
+        async findUnique() {
+          return null;
+        },
+        async create() {
+          throw new Error("should not create payment intent for recurring managed upgrade");
+        },
+        async update() {
+          throw new Error("should not update payment intent for recurring managed upgrade");
+        },
+        async findFirst() {
+          return null;
+        }
+      }
+    } as unknown as WorkspaceManagementPrismaService,
+    {
+      async createCheckoutSession() {
+        throw new Error("provider should not be called for recurring managed upgrade");
+      }
+    } as BillingProviderPort
+  );
+
+  await assert.rejects(
+    () =>
+      managedRecurringUpgradeService.createPaymentIntent("user-1", {
+        planCode: "pro_plus",
+        paymentMethodClass: "card",
+        idempotencyKey: "upgrade-managed-1",
+        returnUrl: "/app/chat"
+      }),
+    /Changing an existing recurring subscription in place is not supported yet/
+  );
 
   await assert.rejects(
     () =>

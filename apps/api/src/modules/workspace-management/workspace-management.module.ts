@@ -109,6 +109,7 @@ import { ManageAdminAssistantPlanOverrideService } from "./application/manage-ad
 import { ManageAdminWorkspaceSubscriptionService } from "./application/manage-admin-workspace-subscription.service";
 import { ManageAdminOpsBillingSupportService } from "./application/manage-admin-ops-billing-support.service";
 import { ManageAdminBillingLifecycleSettingsService } from "./application/manage-admin-billing-lifecycle-settings.service";
+import { ManageAssistantBillingSubscriptionService } from "./application/manage-assistant-billing-subscription.service";
 import { ManageAssistantPaymentIntentsService } from "./application/manage-assistant-payment-intents.service";
 import { HandleCloudpaymentsWebhookService } from "./application/handle-cloudpayments-webhook.service";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./application/manage-workspace-subscription-lifecycle.service";
@@ -467,6 +468,7 @@ import { TelegramChannelAdapterService } from "./application/telegram-channel-ad
     DisableAssistantTaskRegistryItemService,
     EnableAssistantTaskRegistryItemService,
     CancelAssistantTaskRegistryItemService,
+    ManageAssistantBillingSubscriptionService,
     SyncAssistantTaskRegistryService,
     SyncTelegramChatTargetService,
     SyncTelegramGroupMembershipService,

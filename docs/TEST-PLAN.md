@@ -153,6 +153,36 @@ Interpretation rules:
 5. Successful paid activation or renewal must flow through `ApplyWorkspaceSubscriptionBillingEventService` / ADR-083 lifecycle services, not mutate `workspace_subscriptions` directly from the controller.
 6. Refund/reversal outcomes must apply immediate paid fallback through lifecycle truth rather than leaving the old paid state active.
 
+## ADR-084 recurring billing and user-controls focused checks
+
+When a change touches recurring-start checkout policy, provider-backed renewal/cancel lifecycle, recurring management APIs, or the `Limits & Plan -> Payment settings` UX, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts
+corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Payment-intent creation must distinguish `recurring_start` from honest `one_time` fallback; unsupported methods must surface that downgrade explicitly.
+2. Provider-managed recurring ids are reconciliation inputs and must persist on PersAI subscription truth before later renewal/cancel events can reconcile correctly.
+3. Trusted recurring provider events must flow through `workspace_subscription_billing_events` into ADR-083 lifecycle truth (`renewal_succeeded`, `renewal_failed`, `payment_recovered`, `subscription_cancel_scheduled`) instead of mutating subscription rows directly.
+4. Disabling auto-renew must map to PersAI `cancelAtPeriodEnd` truth and preserve paid access until the stored current paid period ends.
+5. Period-end fallback after cancellation must be lifecycle-owned and deterministic; UI/client state must not be the source of cancellation truth.
+6. Product recurring controls must read server-truth recurring state from PersAI API, not from checkout completion heuristics or direct provider status reads in the browser.
+7. `quota_status` checkout output must carry enough recurring metadata for the assistant to explain whether the selected method opens a recurring checkout or only a one-time fallback.
+
 ## ADR-084 immediate activation/materialization focused checks
 
 When a change touches post-payment activation speed, assistant rematerialization after trusted success, or the billing-return truth refresh path, add focused checks before broad verification:

@@ -1350,6 +1350,16 @@ async function run(): Promise<void> {
     {
       recordSearch: async () => undefined,
       recordFetch: async () => undefined
+    } as never,
+    {
+      executeReadOnly: async () => ({
+        source: "workspace_subscription",
+        status: "active",
+        planCode: "pro",
+        trialEndsAt: null,
+        currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
+        cancelAtPeriodEnd: false
+      })
     } as never
   );
 

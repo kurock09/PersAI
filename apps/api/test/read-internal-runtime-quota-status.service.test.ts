@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { ReadInternalRuntimeQuotaStatusService } from "../src/modules/workspace-management/application/read-internal-runtime-quota-status.service";
 
+function normalizeSpacing(value: string | null | undefined): string | null {
+  return typeof value === "string" ? value.replace(/\u00a0/g, " ") : null;
+}
+
 async function run(): Promise<void> {
   const assistant = {
     id: "assistant-1",
@@ -171,7 +175,11 @@ async function run(): Promise<void> {
   assert.equal(result.visiblePlans[1]?.isCurrent, true);
   assert.equal(result.visiblePlans[0]?.description, "Starter plan");
   assert.equal(result.visiblePlans[0]?.amountMinor, 99000);
+  assert.equal(result.visiblePlans[0]?.amountMajor, 990);
+  assert.equal(normalizeSpacing(result.visiblePlans[0]?.priceLabel.ru), "990 ₽ / месяц");
   assert.equal(result.visiblePlans[1]?.amountMinor, 199000);
+  assert.equal(result.visiblePlans[1]?.amountMajor, 1990);
+  assert.equal(normalizeSpacing(result.visiblePlans[1]?.priceLabel.ru), "1 990 ₽ / месяц");
   assert.deepEqual(result.visiblePlans[1]?.enabledToolCodes, ["web_search", "image_generate"]);
   assert.equal(result.visiblePlans[1]?.title.ru, "Про");
   assert.equal(result.visiblePlans[1]?.highlightItems.ru[0], "Больше лимитов");

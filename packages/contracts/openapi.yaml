@@ -3197,6 +3197,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetAssistantBillingPaymentIntentResponse"
+        "400":
+          description: Invalid payment intent id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         "401":
           description: Unauthorized
           content:
@@ -3205,6 +3211,68 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "404":
           description: Payment intent not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/subscription:
+    get:
+      operationId: getAssistantBillingSubscription
+      summary: Read recurring billing management state for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Billing subscription management state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantBillingSubscriptionResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/subscription/disable-auto-renew:
+    post:
+      operationId: postAssistantBillingDisableAutoRenew
+      summary: Disable auto-renew for the current provider-managed recurring subscription
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Updated billing subscription management state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantBillingDisableAutoRenewResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Provider-managed recurring subscription not found
           content:
             application/json:
               schema:
@@ -7129,6 +7197,25 @@ components:
           type: object
           additionalProperties: true
           nullable: true
+    AssistantBillingRecurringCheckoutKind:
+      type: string
+      enum:
+        - one_time
+        - recurring_start
+    AssistantBillingPaymentIntentRecurringState:
+      type: object
+      required:
+        - checkoutKind
+        - supportedBySelectedMethod
+        - unsupportedReason
+      properties:
+        checkoutKind:
+          $ref: "#/components/schemas/AssistantBillingRecurringCheckoutKind"
+        supportedBySelectedMethod:
+          type: boolean
+        unsupportedReason:
+          type: string
+          nullable: true
     AssistantBillingPaymentIntentState:
       type: object
       required:
@@ -7144,6 +7231,7 @@ components:
         - billingProvider
         - providerSessionRef
         - providerPaymentRef
+        - recurring
         - checkout
         - lastErrorCode
         - lastErrorMessage
@@ -7177,6 +7265,8 @@ components:
         providerPaymentRef:
           type: string
           nullable: true
+        recurring:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentRecurringState"
         checkout:
           $ref: "#/components/schemas/AssistantBillingCheckoutState"
         lastErrorCode:
@@ -7230,6 +7320,102 @@ components:
           nullable: true
         paymentIntent:
           $ref: "#/components/schemas/AssistantBillingPaymentIntentState"
+    AssistantBillingSubscriptionManagementMode:
+      type: string
+      enum:
+        - provider_portal
+        - provider_managed_recovery
+        - unavailable
+    AssistantBillingSubscriptionManagementState:
+      type: object
+      required:
+        - planCode
+        - planDisplayName
+        - subscriptionStatus
+        - billingProvider
+        - providerSubscriptionRef
+        - autoRenewEnabled
+        - canDisableAutoRenew
+        - nextChargeAt
+        - currentPeriodEndsAt
+        - paymentMethodLabel
+        - managePaymentMethodUrl
+        - managePaymentMethodMode
+        - cancelUrl
+        - warning
+      properties:
+        planCode:
+          type: string
+          nullable: true
+        planDisplayName:
+          type: string
+          nullable: true
+        subscriptionStatus:
+          type: string
+          enum:
+            - trialing
+            - active
+            - grace_period
+            - past_due
+            - paused
+            - canceled
+            - expired
+            - expired_fallback
+            - unconfigured
+        billingProvider:
+          type: string
+          nullable: true
+        providerSubscriptionRef:
+          type: string
+          nullable: true
+        autoRenewEnabled:
+          type: boolean
+        canDisableAutoRenew:
+          type: boolean
+        nextChargeAt:
+          type: string
+          format: date-time
+          nullable: true
+        currentPeriodEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        paymentMethodLabel:
+          type: string
+          nullable: true
+        managePaymentMethodUrl:
+          type: string
+          nullable: true
+        managePaymentMethodMode:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionManagementMode"
+        cancelUrl:
+          type: string
+          nullable: true
+        warning:
+          type: string
+          nullable: true
+    GetAssistantBillingSubscriptionResponse:
+      type: object
+      required:
+        - requestId
+        - subscription
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        subscription:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionManagementState"
+    PostAssistantBillingDisableAutoRenewResponse:
+      type: object
+      required:
+        - requestId
+        - subscription
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        subscription:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionManagementState"
     GetKnowledgeIndexingJobsResponse:
       type: object
       required:

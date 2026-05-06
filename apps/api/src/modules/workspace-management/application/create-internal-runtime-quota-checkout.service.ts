@@ -67,6 +67,9 @@ export class CreateInternalRuntimeQuotaCheckoutService {
     targetPlanCode: string;
     paymentMethodClass: "card" | "sbp_qr";
     checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+    recurringCheckoutKind: "one_time" | "recurring_start";
+    recurringSupportedBySelectedMethod: boolean;
+    recurringUnsupportedReason: string | null;
     checkoutPagePath: string;
     checkoutPageUrl: string | null;
     checkoutSignInUrl: string | null;
@@ -115,6 +118,9 @@ export class CreateInternalRuntimeQuotaCheckoutService {
       targetPlanCode: paymentIntent.targetPlanCode,
       paymentMethodClass: paymentIntent.paymentMethodClass,
       checkoutMode: paymentIntent.checkout.mode,
+      recurringCheckoutKind: paymentIntent.recurring.checkoutKind,
+      recurringSupportedBySelectedMethod: paymentIntent.recurring.supportedBySelectedMethod,
+      recurringUnsupportedReason: paymentIntent.recurring.unsupportedReason,
       checkoutPagePath,
       checkoutPageUrl,
       checkoutSignInUrl

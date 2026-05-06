@@ -45,8 +45,9 @@ export function resolveBillingSummaryCopy(
       return resolveDate("billingDateGraceEnds", plan.graceEndsAt);
     case "active":
     case "paused":
-    case "canceled":
       return resolveDate("billingDateNextBilling", plan.currentPeriodEndsAt);
+    case "canceled":
+      return resolveDate("billingDateAccessUntil", plan.currentPeriodEndsAt);
     case "expired":
     case "expired_fallback":
       return resolveDate("billingDateAccessUntil", plan.currentPeriodEndsAt);

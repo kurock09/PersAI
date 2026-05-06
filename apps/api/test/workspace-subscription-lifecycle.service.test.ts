@@ -175,6 +175,9 @@ async function run(): Promise<void> {
   });
   assert.equal(subscription.status, "expired_fallback");
   assert.equal(subscription.planCode, "starter");
+  assert.equal(subscription.billingProvider, null);
+  assert.equal(subscription.providerCustomerRef, null);
+  assert.equal(subscription.providerSubscriptionRef, null);
   assert.equal(events.at(-2)?.eventCode, "grace_expired");
   assert.equal(events.at(-1)?.eventCode, "fallback_applied");
 
@@ -191,6 +194,42 @@ async function run(): Promise<void> {
   assert.equal(subscription.graceStartedAt, null);
   assert.equal(subscription.graceEndsAt, null);
   assert.equal(events.at(-1)?.eventCode, "payment_recovered");
+
+  await service.schedulePaidCancellationAtPeriodEnd({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    refs: { relatedProviderEventRef: "evt-cancel-scheduled" }
+  });
+  assert.equal(subscription.cancelAtPeriodEnd, true);
+  assert.equal(events.at(-1)?.eventCode, "auto_renew_disabled");
+
+  subscription.currentPeriodEndsAt = new Date("2026-05-03T00:00:00.000Z");
+  await service.applyCancelledPaidPeriodEndFallback({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    now: new Date("2026-05-04T00:00:00.000Z")
+  });
+  assert.equal(subscription.status, "expired_fallback");
+  assert.equal(subscription.planCode, "starter");
+  assert.equal(subscription.cancelAtPeriodEnd, false);
+  assert.equal(subscription.billingProvider, null);
+  assert.equal(subscription.providerCustomerRef, null);
+  assert.equal(subscription.providerSubscriptionRef, null);
+  assert.equal(events.at(-2)?.eventCode, "subscription_canceled");
+  assert.equal(events.at(-1)?.eventCode, "fallback_applied");
+
+  subscription = {
+    ...subscription,
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-provider-1",
+    currentPeriodStartedAt: new Date("2026-05-04T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-06-04T00:00:00.000Z")
+  };
   await service.applyImmediatePaidFallback({
     workspaceId: "ws-1",
     userId: "user-1",
@@ -201,6 +240,9 @@ async function run(): Promise<void> {
   });
   assert.equal(subscription.status, "expired_fallback");
   assert.equal(subscription.planCode, "starter");
+  assert.equal(subscription.billingProvider, null);
+  assert.equal(subscription.providerCustomerRef, null);
+  assert.equal(subscription.providerSubscriptionRef, null);
   assert.equal(events.at(-2)?.eventCode, "payment_reversed");
   assert.equal(events.at(-1)?.eventCode, "fallback_applied");
   subscription = {
@@ -230,6 +272,9 @@ async function run(): Promise<void> {
   });
   assert.equal(subscription.status, "expired_fallback");
   assert.equal(subscription.planCode, "starter");
+  assert.equal(subscription.billingProvider, null);
+  assert.equal(subscription.providerCustomerRef, null);
+  assert.equal(subscription.providerSubscriptionRef, null);
   assert.equal(events.at(-1)?.eventCode, "fallback_applied");
 
   subscription = {
@@ -275,6 +320,7 @@ async function run(): Promise<void> {
     "ws-1",
     "ws-1",
     "ws-1",
+    "ws-1",
     "ws-1"
   ]);
   assert.deepEqual(scheduledEventIds, [
@@ -282,12 +328,13 @@ async function run(): Promise<void> {
     ["event-2", "event-3"],
     ["event-4", "event-5"],
     ["event-6"],
-    ["event-7", "event-8"],
-    ["event-9"],
-    ["event-10"],
-    ["event-11"],
+    ["event-8", "event-9"],
+    ["event-10", "event-11"],
     ["event-12"],
-    ["event-13"]
+    ["event-13"],
+    ["event-14"],
+    ["event-15"],
+    ["event-16"]
   ]);
   assert.deepEqual(immediateActivationWorkspaces, ["ws-1", "ws-1"]);
 }

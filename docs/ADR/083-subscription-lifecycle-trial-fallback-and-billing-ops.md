@@ -2,14 +2,15 @@
 
 ## Status
 
-Accepted; implementation completed through Slice 7.
+Accepted; implementation completed through Slice 7 plus ADR-084 recurring lifecycle follow-through.
 
 Current continuation state:
 
-- **Completed through:** Slice 7 — billing provider integration readiness.
-- **Next active item:** ADR-084 Slice 3 — payment intent and provider port.
+- **Completed through:** Slice 7 — billing provider integration readiness, plus recurring renewal/cancel follow-through from ADR-084.
+- **Latest landed follow-through:** trusted recurring lifecycle now feeds ADR-083 truth for `renewal_succeeded`, `renewal_failed`, `payment_recovered`, and `subscription_cancel_scheduled`; `WorkspaceSubscription.cancelAtPeriodEnd` plus period-end fallback are active product truth.
+- **Next active item:** live recurring validation and any evidence-driven hardening, not a new lifecycle architecture slice.
 - **Production posture:** no transitional or legacy billing lifecycle mode. Every workspace must always resolve to one clear effective state and plan.
-- **Primary admin surface:** `Admin > Ops Cockpit` for user/workspace subscription inspection and support actions; `Admin > Plans` for plan-level trial/fallback policy; a future admin billing/settings surface may own global lifecycle settings.
+- **Primary admin surfaces:** `Admin > Ops Cockpit` for user/workspace subscription inspection and support actions, `Admin > Plans` for plan-level trial/fallback policy, and `Admin > Billing Settings` for global lifecycle settings and notification policy.
 
 ## Date
 

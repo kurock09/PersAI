@@ -128,7 +128,7 @@ const WORKER_TOOLS_CONFIG = {
       toolCode: "image_edit",
       family: "media_generation",
       outcomeKind: "artifact_refs",
-      timeoutMs: 180000,
+      timeoutMs: 300000,
       confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
@@ -137,7 +137,7 @@ const WORKER_TOOLS_CONFIG = {
       toolCode: "image_generate",
       family: "media_generation",
       outcomeKind: "artifact_refs",
-      timeoutMs: 180000,
+      timeoutMs: 300000,
       confirmationRule: "none",
       supportsProviderRouting: true,
       failureBehavior: "surface_error"
@@ -1224,8 +1224,10 @@ class FakePersaiInternalApiClientService {
         highlighted: true,
         isCurrent: true,
         amountMinor: 199000,
+        amountMajor: 1990,
         currency: "RUB",
         billingPeriod: "month",
+        priceLabel: { ru: "1 990 ₽ / месяц", en: "RUB 1,990 / month" },
         enabledToolCodes: ["web_search", "image_generate"],
         title: { ru: "Платный", en: "Paid" },
         subtitle: { ru: "Для работы", en: "For work" },

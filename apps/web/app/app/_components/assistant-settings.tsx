@@ -21,7 +21,10 @@ import {
   Files,
   GraduationCap,
   SlidersHorizontal,
-  ChevronRight
+  ChevronRight,
+  CreditCard,
+  ExternalLink,
+  X
 } from "lucide-react";
 import type {
   AssistantMemoryRegistryItemState,
@@ -66,6 +69,9 @@ import {
   forgetWorkspaceMemoryItem,
   searchWorkspaceMemory,
   uploadAssistantAvatar,
+  getAssistantBillingSubscription,
+  postAssistantBillingDisableAutoRenew,
+  type AssistantBillingSubscriptionManagementState,
   type WorkspaceMemoryItem,
   type AssistantSkillsState
 } from "../assistant-api-client";
@@ -211,6 +217,19 @@ function isNativeShell(): boolean {
     (typeof maybeNative.Capacitor?.isNativePlatform === "function" &&
       maybeNative.Capacitor.isNativePlatform())
   );
+}
+
+function isPaidRecurringSubscription(
+  subscription: AssistantBillingSubscriptionManagementState | null
+): boolean {
+  if (
+    subscription === null ||
+    subscription.billingProvider !== "cloudpayments" ||
+    subscription.providerSubscriptionRef === null
+  ) {
+    return false;
+  }
+  return ["active", "grace_period", "past_due"].includes(subscription.subscriptionStatus);
 }
 
 function FeedbackLine({ fb }: { fb: ActionFeedback }) {
@@ -480,6 +499,13 @@ export function AssistantSettings({
   const tp = useTranslations("persona");
   const [nativeShell, setNativeShell] = useState(false);
   const [toolLimitsExpanded, setToolLimitsExpanded] = useState(false);
+  const [billingSettingsOpen, setBillingSettingsOpen] = useState(false);
+  const [billingSubscription, setBillingSubscription] =
+    useState<AssistantBillingSubscriptionManagementState | null>(null);
+  const [billingSubscriptionLoading, setBillingSubscriptionLoading] = useState(false);
+  const [billingSubscriptionFb, setBillingSubscriptionFb] = useState<ActionFeedback>(null);
+  const [billingSubscriptionLoaded, setBillingSubscriptionLoaded] = useState(false);
+  const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const assistant = data.assistant;
   const statusLabel = t(
     (
@@ -663,6 +689,156 @@ export function AssistantSettings({
   const [openSection, setOpenSection] = useState<SettingsSectionId | null>(() =>
     normalizeInitialSection(initialSection)
   );
+  const billingStatusLabel = useCallback(
+    (
+      status: AssistantBillingSubscriptionManagementState["subscriptionStatus"] | null | undefined
+    ) => {
+      switch (status) {
+        case "trialing":
+          return t("billingStatusTrial");
+        case "active":
+          return t("billingStatusActive");
+        case "grace_period":
+        case "past_due":
+          return t("billingStatusGrace");
+        case "paused":
+          return t("billingStatusPaused");
+        case "canceled":
+          return t("billingStatusCanceled");
+        case "expired":
+        case "expired_fallback":
+          return t("billingStatusExpired");
+        default:
+          return t("billingStatusFree");
+      }
+    },
+    [t]
+  );
+  const formatBillingDate = useCallback((value: string | null): string | null => {
+    if (value === null) {
+      return null;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short"
+    });
+  }, []);
+  const loadBillingSubscription = useCallback(
+    async (mode: "silent" | "blocking" = "blocking") => {
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+      if (mode === "blocking") {
+        setBillingSubscriptionLoading(true);
+      }
+      try {
+        const nextState = await getAssistantBillingSubscription(token);
+        setBillingSubscription(nextState);
+        setBillingSubscriptionFb(null);
+      } catch (error) {
+        setBillingSubscriptionFb({
+          type: "err",
+          text: error instanceof Error ? error.message : t("billingSettingsLoadFailed")
+        });
+      } finally {
+        setBillingSubscriptionLoaded(true);
+        if (mode === "blocking") {
+          setBillingSubscriptionLoading(false);
+        }
+      }
+    },
+    [getToken, t]
+  );
+  const openBillingSettings = useCallback(async () => {
+    setBillingSettingsOpen(true);
+    if (!billingSubscriptionLoaded || billingSubscription === null) {
+      await loadBillingSubscription("blocking");
+      return;
+    }
+    void loadBillingSubscription("silent");
+  }, [billingSubscription, billingSubscriptionLoaded, loadBillingSubscription]);
+  const handleDisableAutoRenew = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+    setDisableAutoRenewPending(true);
+    setBillingSubscriptionFb(null);
+    try {
+      const nextState = await postAssistantBillingDisableAutoRenew(token);
+      setBillingSubscription(nextState);
+      setBillingSubscriptionFb({
+        type: "ok",
+        text: t("billingAutoRenewDisabled")
+      });
+    } catch (error) {
+      setBillingSubscriptionFb({
+        type: "err",
+        text: error instanceof Error ? error.message : t("billingAutoRenewDisableFailed")
+      });
+    } finally {
+      setDisableAutoRenewPending(false);
+    }
+  }, [getToken, t]);
+  const handleManagePaymentMethod = useCallback(() => {
+    const url = billingSubscription?.managePaymentMethodUrl;
+    if (!url) {
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, [billingSubscription]);
+  const shouldShowPaymentSettings = isPaidRecurringSubscription(billingSubscription);
+  const shouldPreferBillingSettingsEntry =
+    shouldShowPaymentSettings ||
+    ((!billingSubscriptionLoaded || billingSubscriptionFb?.type === "err") &&
+      ["active", "grace_period", "past_due"].includes(
+        data.plan?.effectivePlan.subscriptionStatus ?? "unconfigured"
+      ));
+  const nextChargeLabel = formatBillingDate(billingSubscription?.nextChargeAt ?? null);
+  const currentPeriodEndsLabel = formatBillingDate(
+    billingSubscription?.currentPeriodEndsAt ?? null
+  );
+  const billingSubscriptionTruthUnknown =
+    !billingSubscriptionLoading &&
+    billingSubscription === null &&
+    billingSubscriptionFb?.type === "err";
+  const billingPlanLabel =
+    billingSubscription?.planDisplayName ??
+    data.plan?.effectivePlan.displayName ??
+    (billingSubscriptionTruthUnknown ? t("billingUnknownValue") : t("freePlan"));
+  const billingStatusChipLabel =
+    billingSubscription !== null
+      ? billingStatusLabel(billingSubscription.subscriptionStatus)
+      : t("billingStatusUnknown");
+  const billingAutoRenewLabel =
+    billingSubscription !== null
+      ? billingSubscription.autoRenewEnabled
+        ? t("billingAutoRenewOn")
+        : t("billingAutoRenewOff")
+      : t("billingUnknownValue");
+  const billingDateHeadingLabel =
+    billingSubscription !== null
+      ? billingSubscription.autoRenewEnabled
+        ? t("billingNextCharge")
+        : t("billingAccessUntil")
+      : t("billingDateLabel");
+  const billingDateValueLabel =
+    billingSubscription !== null
+      ? (nextChargeLabel ?? currentPeriodEndsLabel ?? t("billingDateUnavailable"))
+      : t("billingUnknownValue");
+  const billingPaymentMethodValue =
+    billingSubscription !== null
+      ? (billingSubscription.paymentMethodLabel ?? t("billingPaymentMethodUnknown"))
+      : t("billingUnknownValue");
+  const billingPaymentMethodHint =
+    billingSubscription !== null
+      ? (billingSubscription.warning ?? t("billingSettingsQuietHint"))
+      : t("billingSettingsUnknownHint");
 
   useEffect(() => {
     setNativeShell(isNativeShell());
@@ -671,6 +847,13 @@ export function AssistantSettings({
   useEffect(() => {
     setOpenSection(normalizeInitialSection(initialSection));
   }, [initialSection]);
+
+  useEffect(() => {
+    if (data.plan === null) {
+      return;
+    }
+    void loadBillingSubscription("blocking");
+  }, [data.plan, loadBillingSubscription]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2386,10 +2569,14 @@ export function AssistantSettings({
                 </p>
                 <button
                   type="button"
-                  onClick={() => onOpenPricingPage?.()}
+                  onClick={() =>
+                    shouldPreferBillingSettingsEntry
+                      ? void openBillingSettings()
+                      : onOpenPricingPage?.()
+                  }
                   className="inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
                 >
-                  {t("changePlan")}
+                  {shouldPreferBillingSettingsEntry ? t("paymentSettings") : t("changePlan")}
                 </button>
               </div>
 
@@ -2541,6 +2728,126 @@ export function AssistantSettings({
           }}
         />
       </div>
+      {billingSettingsOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+          onClick={() => setBillingSettingsOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-border/70 px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
+                    {t("paymentSettingsEyebrow")}
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
+                    {t("paymentSettings")}
+                  </h3>
+                  <p className="mt-1 text-sm text-text-muted">{t("paymentSettingsDescription")}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBillingSettingsOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
+                  aria-label={t("closeBillingSettings")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="space-y-4 px-5 py-5 sm:px-6">
+              {billingSubscriptionLoading ? (
+                <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-surface-raised/40 px-4 py-4 text-sm text-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{t("billingSettingsLoading")}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-2xl border border-border/80 bg-surface-raised/40 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                          {t("currentPlan")}
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-text">{billingPlanLabel}</p>
+                      </div>
+                      <span className="rounded-full border border-accent/20 bg-accent/10 px-3 py-1 text-[11px] font-medium text-text">
+                        {billingStatusChipLabel}
+                      </span>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                          {t("billingAutoRenew")}
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-text">
+                          {billingAutoRenewLabel}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-background/40 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-text-subtle">
+                          {billingDateHeadingLabel}
+                        </p>
+                        <p className="mt-2 text-sm font-medium text-text">
+                          {billingDateValueLabel}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 rounded-xl border border-border/70 bg-background/40 p-3">
+                      <div className="flex items-center gap-2 text-text">
+                        <CreditCard className="h-4 w-4 text-text-muted" />
+                        <span className="text-sm font-medium">{billingPaymentMethodValue}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-text-subtle">{billingPaymentMethodHint}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      onClick={handleManagePaymentMethod}
+                      disabled={!billingSubscription?.managePaymentMethodUrl}
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span>{t("billingManagePaymentMethod")}</span>
+                      <ExternalLink className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOpenPricingPage?.()}
+                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                    >
+                      {t("changePlan")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDisableAutoRenew()}
+                      disabled={
+                        disableAutoRenewPending ||
+                        !billingSubscription?.canDisableAutoRenew ||
+                        !billingSubscription?.autoRenewEnabled
+                      }
+                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {disableAutoRenewPending ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          {t("billingDisabling")}
+                        </span>
+                      ) : (
+                        t("billingDisableAutoRenew")
+                      )}
+                    </button>
+                  </div>
+                  <FeedbackLine fb={billingSubscriptionFb} />
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

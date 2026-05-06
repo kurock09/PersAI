@@ -26,6 +26,16 @@ export type BillingProviderCheckoutMode =
   | "qr_code"
   | "manual_test";
 
+export type BillingProviderCheckoutKind = "one_time" | "recurring_start";
+
+export type BillingProviderRecurringPlan = {
+  interval: "Day" | "Week" | "Month";
+  period: number;
+  maxPeriods: number | null;
+  amountMinor: number | null;
+  startDate: string | null;
+};
+
 export type BillingProviderCheckoutSessionRequest = {
   paymentIntentId: string;
   workspaceId: string;
@@ -38,6 +48,8 @@ export type BillingProviderCheckoutSessionRequest = {
   paymentMethodClass: "card" | "sbp_qr";
   returnUrl: string;
   providerCustomerRef: string | null;
+  checkoutKind: BillingProviderCheckoutKind;
+  recurringPlan: BillingProviderRecurringPlan | null;
   metadata: Record<string, unknown>;
 };
 
@@ -50,6 +62,21 @@ export type BillingProviderCheckoutSession = {
   payload: Record<string, unknown>;
 };
 
+export type BillingProviderManagedSubscription = {
+  providerKey: string;
+  providerSubscriptionRef: string;
+  status: string;
+  nextChargeAt: string | null;
+  amountMinor: number | null;
+  currency: string | null;
+  interval: "Day" | "Week" | "Month" | null;
+  period: number | null;
+  customerPortalUrl: string | null;
+  paymentMethodUpdateUrl: string | null;
+  cancelUrl: string | null;
+  raw: Record<string, unknown>;
+};
+
 /**
  * Provider-agnostic billing boundary for PersAI-owned payment intents.
  * Current production checkout uses a concrete CloudPayments embedded adapter,
@@ -59,4 +86,14 @@ export interface BillingProviderPort {
   createCheckoutSession(
     input: BillingProviderCheckoutSessionRequest
   ): Promise<BillingProviderCheckoutSession>;
+
+  getManagedSubscription(input: {
+    providerSubscriptionRef: string;
+  }): Promise<BillingProviderManagedSubscription | null>;
+
+  cancelManagedSubscription(input: { providerSubscriptionRef: string }): Promise<{
+    providerKey: string;
+    providerSubscriptionRef: string;
+    canceledAt: string;
+  }>;
 }

@@ -25,6 +25,11 @@ async function run(): Promise<void> {
             paymentMethodClass: input.paymentMethodClass,
             status: "checkout_ready",
             lastErrorMessage: null,
+            recurring: {
+              checkoutKind: "one_time" as const,
+              supportedBySelectedMethod: false,
+              unsupportedReason: "Selected payment method does not support recurring billing."
+            },
             checkout: {
               mode: "embedded" as const
             }
@@ -55,6 +60,9 @@ async function run(): Promise<void> {
       targetPlanCode: "pro",
       paymentMethodClass: "sbp_qr",
       checkoutMode: "embedded",
+      recurringCheckoutKind: "one_time",
+      recurringSupportedBySelectedMethod: false,
+      recurringUnsupportedReason: "Selected payment method does not support recurring billing.",
       checkoutPagePath: "/app/billing/checkout/pi-1",
       checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
       checkoutSignInUrl:
@@ -99,6 +107,11 @@ async function run(): Promise<void> {
             paymentMethodClass: "card",
             status: "failed",
             lastErrorMessage: "CloudPayments Public Terminal ID is not configured.",
+            recurring: {
+              checkoutKind: "recurring_start" as const,
+              supportedBySelectedMethod: true,
+              unsupportedReason: null
+            },
             checkout: {
               mode: null
             }

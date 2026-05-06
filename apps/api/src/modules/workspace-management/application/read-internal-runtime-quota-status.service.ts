@@ -9,6 +9,44 @@ import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal
 
 const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
 
+function toMajorCurrencyUnits(amountMinor: number | null): number | null {
+  if (typeof amountMinor !== "number" || !Number.isFinite(amountMinor)) {
+    return null;
+  }
+  return Number((amountMinor / 100).toFixed(amountMinor % 100 === 0 ? 0 : 2));
+}
+
+function formatPlanPriceLabel(params: {
+  amountMinor: number | null;
+  currency: string | null;
+  billingPeriod: "month" | "year" | null;
+  locale: string;
+}): string | null {
+  if (
+    typeof params.amountMinor !== "number" ||
+    !Number.isFinite(params.amountMinor) ||
+    typeof params.currency !== "string" ||
+    params.currency.trim().length === 0 ||
+    (params.billingPeriod !== "month" && params.billingPeriod !== "year")
+  ) {
+    return null;
+  }
+  const formatted = new Intl.NumberFormat(params.locale, {
+    style: "currency",
+    currency: params.currency,
+    maximumFractionDigits: params.amountMinor % 100 === 0 ? 0 : 2
+  }).format(params.amountMinor / 100);
+  const suffix =
+    params.billingPeriod === "year"
+      ? params.locale.startsWith("ru")
+        ? " / год"
+        : " / year"
+      : params.locale.startsWith("ru")
+        ? " / месяц"
+        : " / month";
+  return `${formatted}${suffix}`;
+}
+
 export type ReadInternalRuntimeQuotaStatusRequest = {
   assistantId: string;
   toolCode?: string;
@@ -61,8 +99,13 @@ export class ReadInternalRuntimeQuotaStatusService {
       highlighted: boolean;
       isCurrent: boolean;
       amountMinor: number | null;
+      amountMajor: number | null;
       currency: string | null;
       billingPeriod: "month" | "year" | null;
+      priceLabel: {
+        ru: string | null;
+        en: string | null;
+      };
       enabledToolCodes: string[];
       title: {
         ru: string | null;
@@ -161,33 +204,51 @@ export class ReadInternalRuntimeQuotaStatusService {
         code: resolved.planCode,
         displayName: currentVisiblePlan?.displayName ?? null
       },
-      visiblePlans: visiblePlans.map((plan) => ({
-        code: plan.code,
-        displayName: plan.displayName,
-        description: plan.description,
-        highlighted: plan.presentation.highlighted,
-        isCurrent: plan.code === resolved.planCode,
-        amountMinor:
+      visiblePlans: visiblePlans.map((plan) => {
+        const amountMinor =
           typeof plan.presentation.price.amount === "number"
             ? Math.round(plan.presentation.price.amount * 100)
-            : null,
-        currency: plan.presentation.price.currency,
-        billingPeriod: plan.presentation.price.billingPeriod,
-        enabledToolCodes: plan.enabledToolCodes,
-        title: plan.presentation.title,
-        subtitle: plan.presentation.subtitle,
-        notes: plan.presentation.notes,
-        badge: plan.presentation.badge,
-        ctaLabel: plan.presentation.ctaLabel,
-        highlightItems: plan.presentation.highlightItems,
-        limits: {
-          tokenBudgetLimit: plan.quotaLimits.tokenBudgetLimit,
-          activeWebChatsLimit: plan.quotaLimits.activeWebChatsLimit,
-          imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
-          imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
-          videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
-        }
-      })),
+            : null;
+        return {
+          code: plan.code,
+          displayName: plan.displayName,
+          description: plan.description,
+          highlighted: plan.presentation.highlighted,
+          isCurrent: plan.code === resolved.planCode,
+          amountMinor,
+          amountMajor: toMajorCurrencyUnits(amountMinor),
+          currency: plan.presentation.price.currency,
+          billingPeriod: plan.presentation.price.billingPeriod,
+          priceLabel: {
+            ru: formatPlanPriceLabel({
+              amountMinor,
+              currency: plan.presentation.price.currency,
+              billingPeriod: plan.presentation.price.billingPeriod,
+              locale: "ru-RU"
+            }),
+            en: formatPlanPriceLabel({
+              amountMinor,
+              currency: plan.presentation.price.currency,
+              billingPeriod: plan.presentation.price.billingPeriod,
+              locale: "en-US"
+            })
+          },
+          enabledToolCodes: plan.enabledToolCodes,
+          title: plan.presentation.title,
+          subtitle: plan.presentation.subtitle,
+          notes: plan.presentation.notes,
+          badge: plan.presentation.badge,
+          ctaLabel: plan.presentation.ctaLabel,
+          highlightItems: plan.presentation.highlightItems,
+          limits: {
+            tokenBudgetLimit: plan.quotaLimits.tokenBudgetLimit,
+            activeWebChatsLimit: plan.quotaLimits.activeWebChatsLimit,
+            imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
+            imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
+            videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+          }
+        };
+      }),
       tools,
       buckets: snapshot.buckets,
       monthlyMediaQuotas

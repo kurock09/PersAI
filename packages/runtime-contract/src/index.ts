@@ -855,8 +855,10 @@ export interface RuntimeQuotaStatusVisiblePlan {
   highlighted: boolean;
   isCurrent: boolean;
   amountMinor: number | null;
+  amountMajor: number | null;
   currency: string | null;
   billingPeriod: "month" | "year" | null;
+  priceLabel: RuntimeQuotaStatusLocalizedText;
   enabledToolCodes: string[];
   title: RuntimeQuotaStatusLocalizedText;
   subtitle: RuntimeQuotaStatusLocalizedText;
@@ -872,6 +874,9 @@ export interface RuntimeQuotaStatusCheckout {
   targetPlanCode: string;
   paymentMethodClass: "card" | "sbp_qr";
   checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+  recurringCheckoutKind: "one_time" | "recurring_start";
+  recurringSupportedBySelectedMethod: boolean;
+  recurringUnsupportedReason: string | null;
   checkoutPagePath: string;
   checkoutPageUrl: string | null;
   checkoutSignInUrl: string | null;

@@ -41,6 +41,17 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     private readonly materializeWorkspacePaidActivationService: MaterializeWorkspacePaidActivationService
   ) {}
 
+  private fallbackProviderResetData(): Pick<
+    SubscriptionSnapshot,
+    "billingProvider" | "providerCustomerRef" | "providerSubscriptionRef"
+  > {
+    return {
+      billingProvider: null,
+      providerCustomerRef: null,
+      providerSubscriptionRef: null
+    };
+  }
+
   async startPaidGrace(input: {
     workspaceId: string;
     userId: string | null;
@@ -308,6 +319,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           currentPeriodStartedAt: now,
           currentPeriodEndsAt: null,
           cancelAtPeriodEnd: false,
+          ...this.fallbackProviderResetData(),
           metadata: this.mergeMetadata(current.metadata, {
             schema: "persai.subscriptionLifecycle.v1",
             lifecycleState: "expired_fallback",
@@ -409,6 +421,134 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
   }
 
+  async schedulePaidCancellationAtPeriodEnd(input: {
+    workspaceId: string;
+    userId: string | null;
+    source: WorkspaceSubscriptionLifecycleEventSource;
+    refs?: LifecycleEventRefs;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      if (
+        current.status !== "active" &&
+        current.status !== "grace_period" &&
+        current.status !== "past_due"
+      ) {
+        throw new BadRequestException(
+          "Auto-renew can only be disabled for a paid subscription state."
+        );
+      }
+      if (current.cancelAtPeriodEnd) {
+        return;
+      }
+      const updated = await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          cancelAtPeriodEnd: true,
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            lifecycleState: current.status,
+            lifecycleReason: "auto_renew_disabled",
+            cancelAtPeriodEnd: true,
+            autoRenewDisabledAt: new Date().toISOString()
+          })
+        }
+      });
+      await this.appendLifecycleEvent(tx, {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subscriptionId: current.id,
+        eventCode: "auto_renew_disabled",
+        previous: current,
+        next: updated,
+        source: input.source,
+        refs: input.refs
+      });
+    });
+  }
+
+  async applyCancelledPaidPeriodEndFallback(input: {
+    workspaceId: string;
+    userId: string | null;
+    source?: WorkspaceSubscriptionLifecycleEventSource;
+    refs?: LifecycleEventRefs;
+    now?: Date;
+  }): Promise<void> {
+    const now = input.now ?? new Date();
+    const settings = await this.billingLifecycleSettingsService.resolveSettings();
+    const lifecycleEventIds: string[] = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      if (!current.cancelAtPeriodEnd) {
+        return;
+      }
+      if (
+        current.currentPeriodEndsAt === null ||
+        current.currentPeriodEndsAt.getTime() > now.getTime()
+      ) {
+        return;
+      }
+      const fallbackPlanCode = await this.resolvePaidFallbackPlanCode(
+        current.planCode,
+        settings.globalFallbackPlanCode
+      );
+      const updated = await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          planCode: fallbackPlanCode,
+          status: "expired_fallback",
+          cancelAtPeriodEnd: false,
+          graceStartedAt: null,
+          graceEndsAt: null,
+          currentPeriodStartedAt: now,
+          currentPeriodEndsAt: null,
+          ...this.fallbackProviderResetData(),
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            lifecycleState: "expired_fallback",
+            lifecycleReason: "canceled_paid_period_ended",
+            previousPaidPlanCode: current.planCode,
+            fallbackPlanCode,
+            paidPeriodEndedAt: current.currentPeriodEndsAt.toISOString()
+          })
+        }
+      });
+      lifecycleEventIds.push(
+        await this.appendLifecycleEvent(tx, {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          subscriptionId: current.id,
+          eventCode: "subscription_canceled",
+          previous: current,
+          next: updated,
+          source: input.source ?? "system",
+          refs: input.refs
+        })
+      );
+      lifecycleEventIds.push(
+        await this.appendLifecycleEvent(tx, {
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          subscriptionId: current.id,
+          eventCode: "fallback_applied",
+          previous: current,
+          next: updated,
+          source: input.source ?? "system",
+          refs: input.refs
+        })
+      );
+    });
+
+    if (lifecycleEventIds.length === 0) {
+      return;
+    }
+    await this.markWorkspaceAssistantsConfigDirty(input.workspaceId);
+    await this.scheduleBillingLifecycleNotificationsService.scheduleForLifecycleEventIds(
+      lifecycleEventIds
+    );
+  }
+
   async applyImmediatePaidFallback(input: {
     workspaceId: string;
     userId: string | null;
@@ -438,6 +578,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           currentPeriodStartedAt: now,
           currentPeriodEndsAt: null,
           cancelAtPeriodEnd: false,
+          ...this.fallbackProviderResetData(),
           metadata: this.mergeMetadata(current.metadata, {
             schema: "persai.subscriptionLifecycle.v1",
             lifecycleState: "expired_fallback",
@@ -514,6 +655,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           currentPeriodStartedAt: now,
           currentPeriodEndsAt: null,
           cancelAtPeriodEnd: false,
+          ...this.fallbackProviderResetData(),
           metadata: this.mergeMetadata(current.metadata, {
             schema: "persai.subscriptionLifecycle.v1",
             lifecycleState: "expired_fallback",

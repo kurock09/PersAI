@@ -8,6 +8,7 @@ import type { AssistantBillingPaymentIntentAction } from "./assistantBillingPaym
 import type { AssistantBillingPaymentIntentStatus } from "./assistantBillingPaymentIntentStatus";
 import type { AssistantBillingPaymentMethodClass } from "./assistantBillingPaymentMethodClass";
 import type { AssistantBillingPaymentIntentBillingPeriod } from "./assistantBillingPaymentIntentBillingPeriod";
+import type { AssistantBillingPaymentIntentRecurringState } from "./assistantBillingPaymentIntentRecurringState";
 import type { AssistantBillingCheckoutState } from "./assistantBillingCheckoutState";
 
 export interface AssistantBillingPaymentIntentState {
@@ -26,6 +27,7 @@ export interface AssistantBillingPaymentIntentState {
   providerSessionRef: string | null;
   /** @nullable */
   providerPaymentRef: string | null;
+  recurring: AssistantBillingPaymentIntentRecurringState;
   checkout: AssistantBillingCheckoutState;
   /** @nullable */
   lastErrorCode: string | null;

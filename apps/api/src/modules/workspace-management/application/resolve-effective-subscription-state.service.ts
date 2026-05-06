@@ -12,6 +12,7 @@ import {
 import type { WorkspaceSubscription } from "../domain/workspace-subscription.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { resolveStoredPlanLifecyclePolicy } from "./plan-lifecycle-policy";
+import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
 import { ScheduleBillingLifecycleNotificationsService } from "./schedule-billing-lifecycle-notifications.service";
 
 export type ResolveEffectiveSubscriptionInput = {
@@ -36,7 +37,8 @@ export class ResolveEffectiveSubscriptionStateService {
     @Inject(ASSISTANT_PLAN_CATALOG_REPOSITORY)
     private readonly planCatalogRepository: AssistantPlanCatalogRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService
+    private readonly scheduleBillingLifecycleNotificationsService: ScheduleBillingLifecycleNotificationsService,
+    private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
   ) {}
 
   /**
@@ -155,6 +157,23 @@ export class ResolveEffectiveSubscriptionStateService {
     input: ResolveEffectiveSubscriptionInput,
     workspaceSubscription: WorkspaceSubscription
   ): Promise<EffectiveSubscriptionState> {
+    if (
+      workspaceSubscription.cancelAtPeriodEnd &&
+      workspaceSubscription.currentPeriodEndsAt !== null &&
+      workspaceSubscription.currentPeriodEndsAt.getTime() <= Date.now()
+    ) {
+      await this.manageWorkspaceSubscriptionLifecycleService.applyCancelledPaidPeriodEndFallback({
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        now: new Date()
+      });
+      const refreshed = await this.workspaceSubscriptionRepository.findByWorkspaceId(
+        input.workspaceId
+      );
+      if (refreshed !== null) {
+        return this.toEffectiveWorkspaceSubscription(refreshed);
+      }
+    }
     if (
       workspaceSubscription.status === "trialing" &&
       workspaceSubscription.trialEndsAt !== null &&
@@ -294,7 +313,7 @@ export class ResolveEffectiveSubscriptionStateService {
       workspaceId,
       planCode: fallbackPlanCode,
       status: "expired_fallback",
-      billingProvider: workspaceSubscription.billingProvider,
+      billingProvider: null,
       trialStartedAt: workspaceSubscription.trialStartedAt?.toISOString() ?? null,
       trialEndsAt: workspaceSubscription.trialEndsAt?.toISOString() ?? null,
       graceStartedAt: null,
@@ -302,8 +321,8 @@ export class ResolveEffectiveSubscriptionStateService {
       currentPeriodStartedAt: null,
       currentPeriodEndsAt: null,
       cancelAtPeriodEnd: false,
-      providerCustomerRef: workspaceSubscription.providerCustomerRef,
-      providerSubscriptionRef: workspaceSubscription.providerSubscriptionRef,
+      providerCustomerRef: null,
+      providerSubscriptionRef: null,
       metadata: {
         schema: "persai.subscriptionLifecycle.v1",
         lifecycleState: "trial_expired_fallback",

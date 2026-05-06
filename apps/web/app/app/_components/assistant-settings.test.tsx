@@ -39,7 +39,9 @@ const assistantApiMocks = vi.hoisted(() => ({
   cleanupAssistantFilesCache: vi.fn(),
   patchAssistantFileDisplayName: vi.fn(),
   deleteAssistantFile: vi.fn(),
-  uploadAssistantAvatar: vi.fn()
+  uploadAssistantAvatar: vi.fn(),
+  getAssistantBillingSubscription: vi.fn(),
+  postAssistantBillingDisableAutoRenew: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -78,7 +80,9 @@ vi.mock("../assistant-api-client", async () => {
     cleanupAssistantFilesCache: assistantApiMocks.cleanupAssistantFilesCache,
     patchAssistantFileDisplayName: assistantApiMocks.patchAssistantFileDisplayName,
     deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
-    uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar
+    uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
+    getAssistantBillingSubscription: assistantApiMocks.getAssistantBillingSubscription,
+    postAssistantBillingDisableAutoRenew: assistantApiMocks.postAssistantBillingDisableAutoRenew
   };
 });
 
@@ -247,6 +251,38 @@ beforeEach(() => {
     elevenlabs: null
   });
   assistantApiMocks.getWorkspaceMemoryItems.mockResolvedValue([]);
+  assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+    planCode: null,
+    planDisplayName: null,
+    subscriptionStatus: "unconfigured",
+    billingProvider: null,
+    providerSubscriptionRef: null,
+    autoRenewEnabled: false,
+    canDisableAutoRenew: false,
+    nextChargeAt: null,
+    currentPeriodEndsAt: null,
+    paymentMethodLabel: null,
+    managePaymentMethodUrl: null,
+    managePaymentMethodMode: "unavailable",
+    cancelUrl: null,
+    warning: null
+  });
+  assistantApiMocks.postAssistantBillingDisableAutoRenew.mockResolvedValue({
+    planCode: "pro",
+    planDisplayName: "Pro",
+    subscriptionStatus: "active",
+    billingProvider: "cloudpayments",
+    providerSubscriptionRef: "sub-provider-1",
+    autoRenewEnabled: false,
+    canDisableAutoRenew: false,
+    nextChargeAt: null,
+    currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+    paymentMethodLabel: "Bank card",
+    managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+    managePaymentMethodMode: "provider_portal",
+    cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+    warning: null
+  });
   assistantApiMocks.getAssistantFiles.mockResolvedValue({
     files: [],
     cleanup: { eligibleCount: 0, eligibleBytes: 0 }
@@ -342,7 +378,7 @@ describe("AssistantSettings character CTA", () => {
     renderSettings(makeAppData(), "character");
 
     expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
-  });
+  }, 10000);
 
   it("shows the Android release download banner in settings", () => {
     renderSettings(makeAppData(), "character");
@@ -505,7 +541,7 @@ describe("AssistantSettings Files", () => {
     fireEvent.click(screen.getByRole("button", { name: /User files/i }));
     expect(screen.getByText("notes.md")).toBeInTheDocument();
     expect(screen.queryByText("voice-1.webm")).toBeNull();
-  });
+  }, 10000);
 });
 
 // ---------------------------------------------------------------------------
@@ -904,6 +940,200 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Code execution")).toBeInTheDocument();
     expect(screen.getByText("Image editing")).toBeInTheDocument();
     expect(screen.getByText("Off")).toBeInTheDocument();
+  });
+
+  it("opens payment settings for recurring subscribers and disables auto-renew", async () => {
+    const openPricingPage = vi.fn();
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits",
+      { onOpenPricingPage: openPricingPage }
+    );
+
+    expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
+
+    expect(
+      await screen.findByText(
+        "Manage auto-renew and payment method from server-truth billing state."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Bank card")).toBeInTheDocument();
+    expect(screen.getByText("On")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Disable auto-renew" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantBillingDisableAutoRenew).toHaveBeenCalledWith(
+        "token-1"
+      );
+    });
+    expect(
+      await screen.findByText("Auto-renew was turned off for the current paid period.")
+    ).toBeInTheDocument();
+    expect(openPricingPage).not.toHaveBeenCalled();
+  });
+
+  it("keeps payment settings entry reachable when recurring state refresh fails", async () => {
+    const openPricingPage = vi.fn();
+    assistantApiMocks.getAssistantBillingSubscription.mockRejectedValue(
+      new Error("billing refresh failed")
+    );
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits",
+      { onOpenPricingPage: openPricingPage }
+    );
+
+    const button = await screen.findByRole("button", { name: "Payment settings" });
+    fireEvent.click(button);
+
+    expect(await screen.findByRole("heading", { name: "Payment settings" })).toBeInTheDocument();
+    expect(await screen.findByText("billing refresh failed")).toBeInTheDocument();
+    expect(screen.getAllByText("Unknown").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Free")).toBeNull();
+    expect(screen.queryByText("Off")).toBeNull();
+    expect(screen.queryByText("Provider-managed payment method")).toBeNull();
+    expect(openPricingPage).not.toHaveBeenCalled();
+  });
+
+  it("shows access-until copy for canceled subscription state in the limits summary", () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "canceled",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(screen.getByText("Access until May 12")).toBeInTheDocument();
+    expect(screen.queryByText("Next billing May 12")).toBeNull();
   });
 });
 

@@ -119,7 +119,7 @@ async function run(): Promise<void> {
         toolCode: "image_generate",
         family: "media_generation",
         outcomeKind: "artifact_refs",
-        timeoutMs: 180000,
+        timeoutMs: 300000,
         confirmationRule: "none",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"
@@ -128,7 +128,7 @@ async function run(): Promise<void> {
         toolCode: "image_edit",
         family: "media_generation",
         outcomeKind: "artifact_refs",
-        timeoutMs: 180000,
+        timeoutMs: 300000,
         confirmationRule: "none",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"

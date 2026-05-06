@@ -25,7 +25,7 @@ import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const IMAGE_EDIT_TOOL_CODE = "image_edit" as const;
-const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 180_000;
+const DEFAULT_IMAGE_EDIT_TIMEOUT_MS = 300_000;
 const SUPPORTED_IMAGE_EDIT_INPUT_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const SECOND_IMAGE_REFERENCE_PROMPT_MARKERS = [
   "second image",

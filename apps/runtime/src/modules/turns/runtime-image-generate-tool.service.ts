@@ -26,7 +26,7 @@ import { selectMediaModelForRequest } from "./media-model-routing";
 import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
 
 const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
-const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 180_000;
+const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 300_000;
 
 export interface RuntimeImageGenerateToolExecutionResult {
   payload: RuntimeImageGenerateToolResult;

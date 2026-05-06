@@ -91,8 +91,13 @@ export class InternalRuntimeToolQuotaController {
       highlighted: boolean;
       isCurrent: boolean;
       amountMinor: number | null;
+      amountMajor: number | null;
       currency: string | null;
       billingPeriod: "month" | "year" | null;
+      priceLabel: {
+        ru: string | null;
+        en: string | null;
+      };
       enabledToolCodes: string[];
       title: {
         ru: string | null;

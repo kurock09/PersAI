@@ -82,8 +82,13 @@ export type InternalQuotaStatusOutcome = {
     highlighted: boolean;
     isCurrent: boolean;
     amountMinor: number | null;
+    amountMajor: number | null;
     currency: string | null;
     billingPeriod: "month" | "year" | null;
+    priceLabel: {
+      ru: string | null;
+      en: string | null;
+    };
     enabledToolCodes: string[];
     title: {
       ru: string | null;
@@ -805,6 +810,9 @@ export class PersaiInternalApiClientService {
           targetPlanCode: payload.targetPlanCode,
           paymentMethodClass: payload.paymentMethodClass,
           checkoutMode: payload.checkoutMode,
+          recurringCheckoutKind: payload.recurringCheckoutKind,
+          recurringSupportedBySelectedMethod: payload.recurringSupportedBySelectedMethod,
+          recurringUnsupportedReason: payload.recurringUnsupportedReason,
           checkoutPagePath: payload.checkoutPagePath,
           checkoutPageUrl: payload.checkoutPageUrl,
           checkoutSignInUrl: payload.checkoutSignInUrl
@@ -1754,6 +1762,7 @@ export class PersaiInternalApiClientService {
     const notes = this.asObject(row?.notes);
     const badge = this.asObject(row?.badge);
     const ctaLabel = this.asObject(row?.ctaLabel);
+    const priceLabel = this.asObject(row?.priceLabel);
     const highlightItems = this.asObject(row?.highlightItems);
     const limits = this.asObject(row?.limits);
     return (
@@ -1764,10 +1773,17 @@ export class PersaiInternalApiClientService {
       typeof row.highlighted === "boolean" &&
       typeof row.isCurrent === "boolean" &&
       (row.amountMinor === null || this.isNonNegativeInteger(row.amountMinor)) &&
+      (row.amountMajor === null ||
+        (typeof row.amountMajor === "number" &&
+          Number.isFinite(row.amountMajor) &&
+          row.amountMajor >= 0)) &&
       (row.currency === null || typeof row.currency === "string") &&
       (row.billingPeriod === null ||
         row.billingPeriod === "month" ||
         row.billingPeriod === "year") &&
+      priceLabel !== null &&
+      (priceLabel.ru === null || typeof priceLabel.ru === "string") &&
+      (priceLabel.en === null || typeof priceLabel.en === "string") &&
       Array.isArray(row.enabledToolCodes) &&
       row.enabledToolCodes.every((item) => typeof item === "string") &&
       title !== null &&
@@ -1852,6 +1868,11 @@ export class PersaiInternalApiClientService {
         row.checkoutMode === "payment_link" ||
         row.checkoutMode === "qr_code" ||
         row.checkoutMode === "manual_test") &&
+      (row.recurringCheckoutKind === "one_time" ||
+        row.recurringCheckoutKind === "recurring_start") &&
+      typeof row.recurringSupportedBySelectedMethod === "boolean" &&
+      (row.recurringUnsupportedReason === null ||
+        typeof row.recurringUnsupportedReason === "string") &&
       typeof row.checkoutPagePath === "string" &&
       (row.checkoutPageUrl === null || typeof row.checkoutPageUrl === "string") &&
       (row.checkoutSignInUrl === null || typeof row.checkoutSignInUrl === "string")

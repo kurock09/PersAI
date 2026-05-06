@@ -4,6 +4,7 @@ import { KnowledgeEmbeddingService } from "./knowledge-embedding.service";
 import { KnowledgeModelPolicyService } from "./knowledge-model-policy.service";
 import { KnowledgeRetrievalObservabilityService } from "./knowledge-retrieval-observability.service";
 import { KnowledgeRetrievalHelperService } from "./knowledge-retrieval-helper.service";
+import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 
 const DEFAULT_KNOWLEDGE_SEARCH_MAX_RESULTS = 5;
@@ -161,14 +162,6 @@ type PlanCatalogKnowledgeRow = {
       capabilityGroup: string;
     };
   }>;
-};
-
-type WorkspaceSubscriptionKnowledgeRow = {
-  planCode: string;
-  status: string;
-  trialEndsAt: Date | null;
-  currentPeriodEndsAt: Date | null;
-  cancelAtPeriodEnd: boolean;
 };
 
 type SearchQueryInfo = {
@@ -954,7 +947,8 @@ export class ReadAssistantKnowledgeService {
     private readonly knowledgeEmbeddingService: KnowledgeEmbeddingService,
     private readonly knowledgeModelPolicyService: KnowledgeModelPolicyService,
     private readonly knowledgeRetrievalHelperService: KnowledgeRetrievalHelperService,
-    private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService
+    private readonly knowledgeRetrievalObservabilityService: KnowledgeRetrievalObservabilityService,
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
   parseSearchInput(body: unknown): {
@@ -2828,57 +2822,20 @@ export class ReadAssistantKnowledgeService {
       return [];
     }
 
-    const workspaceSubscription = (await this.prisma.workspaceSubscription.findUnique({
-      where: {
-        workspaceId: assistant.workspaceId
-      },
-      select: {
-        planCode: true,
-        status: true,
-        trialEndsAt: true,
-        currentPeriodEndsAt: true,
-        cancelAtPeriodEnd: true
-      }
-    })) as WorkspaceSubscriptionKnowledgeRow | null;
-
-    let effectiveSource = "none";
-    let effectiveStatus = "unconfigured";
-    let planCode: string | null = null;
-    let trialEndsAt: string | null = null;
-    let currentPeriodEndsAt: string | null = null;
-    let cancelAtPeriodEnd = false;
-
-    if (assistant.governance?.assistantPlanOverrideCode) {
-      effectiveSource = "assistant_plan_override";
-      effectiveStatus = "unconfigured";
-      planCode = assistant.governance.assistantPlanOverrideCode;
-    } else if (workspaceSubscription !== null) {
-      effectiveSource = "workspace_subscription";
-      effectiveStatus = workspaceSubscription.status;
-      planCode = workspaceSubscription.planCode;
-      trialEndsAt = workspaceSubscription.trialEndsAt?.toISOString() ?? null;
-      currentPeriodEndsAt = workspaceSubscription.currentPeriodEndsAt?.toISOString() ?? null;
-      cancelAtPeriodEnd = workspaceSubscription.cancelAtPeriodEnd;
-    } else if (assistant.governance?.quotaPlanCode) {
-      effectiveSource = "assistant_plan_fallback";
-      effectiveStatus = "unconfigured";
-      planCode = assistant.governance.quotaPlanCode;
-    } else {
-      const defaultPlan = await this.prisma.planCatalogPlan.findFirst({
-        where: {
-          isDefaultFirstRegistrationPlan: true,
-          status: "active"
-        },
-        select: {
-          code: true
-        }
+    const effectiveSubscription =
+      await this.resolveEffectiveSubscriptionStateService.executeReadOnly({
+        userId: assistant.userId,
+        workspaceId: assistant.workspaceId,
+        assistantId: assistant.id,
+        assistantPlanOverrideCode: assistant.governance?.assistantPlanOverrideCode ?? null,
+        assistantQuotaPlanCode: assistant.governance?.quotaPlanCode ?? null
       });
-      if (defaultPlan !== null) {
-        effectiveSource = "catalog_default_fallback";
-        effectiveStatus = "unconfigured";
-        planCode = defaultPlan.code;
-      }
-    }
+    const effectiveSource = effectiveSubscription.source;
+    const effectiveStatus = effectiveSubscription.status;
+    const planCode = effectiveSubscription.planCode;
+    const trialEndsAt = effectiveSubscription.trialEndsAt;
+    const currentPeriodEndsAt = effectiveSubscription.currentPeriodEndsAt;
+    const cancelAtPeriodEnd = effectiveSubscription.cancelAtPeriodEnd;
 
     const plan =
       planCode === null

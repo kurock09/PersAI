@@ -3,12 +3,17 @@ import { createHmac } from "node:crypto";
 import { HandleCloudpaymentsWebhookService } from "../src/modules/workspace-management/application/handle-cloudpayments-webhook.service";
 
 async function run(): Promise<void> {
+  const paymentIntentId = "11111111-1111-4111-8111-111111111111";
   const appliedBillingEvents: Array<Record<string, unknown>> = [];
   const paymentIntentUpdates: Array<Record<string, unknown>> = [];
-  const paymentIntentFindFirstCalls: Array<Record<string, unknown>> = [];
+  const paymentIntentFindManyCalls: Array<Record<string, unknown>> = [];
+  const subscriptionFindFirstCalls: Array<Record<string, unknown>> = [];
+  let subscriptionStatus: "trialing" | "active" | "grace_period" = "trialing";
+  let allowAccountIdSubscriptionFallback = true;
+  let duplicateIntentMatches = false;
 
   const paymentIntent = {
-    id: "intent-1",
+    id: paymentIntentId,
     workspaceId: "ws-1",
     userId: "user-1",
     targetPlanCode: "pro",
@@ -20,7 +25,7 @@ async function run(): Promise<void> {
     billingPeriod: "month",
     billingProvider: null,
     providerCustomerRef: null,
-    providerSessionRef: null,
+    providerSessionRef: paymentIntentId,
     providerPaymentRef: null,
     metadata: {}
   };
@@ -28,9 +33,31 @@ async function run(): Promise<void> {
   const service = new HandleCloudpaymentsWebhookService(
     {
       workspacePaymentIntent: {
-        findFirst: async (args: Record<string, unknown>) => {
-          paymentIntentFindFirstCalls.push(args);
-          return paymentIntent;
+        findMany: async (args: Record<string, unknown>) => {
+          paymentIntentFindManyCalls.push(args);
+          const where = args.where as { OR?: Array<Record<string, { in?: string[] }>> } | undefined;
+          const candidates = (where?.OR ?? []).flatMap((clause) =>
+            Object.values(clause).flatMap((value) => value.in ?? [])
+          );
+          if (duplicateIntentMatches && candidates.includes("intent-duplicate")) {
+            return [
+              {
+                ...paymentIntent,
+                id: "intent-duplicate-1",
+                providerSessionRef: "intent-duplicate"
+              },
+              {
+                ...paymentIntent,
+                id: "intent-duplicate-2",
+                providerSessionRef: "intent-duplicate"
+              }
+            ];
+          }
+          return candidates.some((candidate) =>
+            [paymentIntentId, "123456", "123457", "123458", "123459"].includes(candidate)
+          )
+            ? [paymentIntent]
+            : [];
         },
         update: async (args: { data: Record<string, unknown> }) => {
           paymentIntentUpdates.push(args.data);
@@ -42,14 +69,46 @@ async function run(): Promise<void> {
           id: "sub-1",
           workspaceId: "ws-1",
           planCode: "starter",
-          status: "trialing",
+          status: subscriptionStatus,
           providerCustomerRef: null,
-          providerSubscriptionRef: null
+          providerSubscriptionRef: "sub-provider-1"
         }),
-        findFirst: async () => null
+        findFirst: async (args: { where: Record<string, unknown> }) => {
+          subscriptionFindFirstCalls.push(args);
+          const providerSubscriptionRef = args.where.providerSubscriptionRef;
+          if (providerSubscriptionRef === "sub-provider-1") {
+            return {
+              id: "sub-1",
+              workspaceId: "ws-1",
+              planCode: "starter",
+              status: subscriptionStatus,
+              providerCustomerRef: "acct-1",
+              providerSubscriptionRef: "sub-provider-1"
+            };
+          }
+          if (allowAccountIdSubscriptionFallback && args.where.providerCustomerRef === "acct-1") {
+            return {
+              id: "sub-1",
+              workspaceId: "ws-1",
+              planCode: "starter",
+              status: subscriptionStatus,
+              providerCustomerRef: "acct-1",
+              providerSubscriptionRef: "sub-provider-1"
+            };
+          }
+          return null;
+        }
       },
       planCatalogPlan: {
-        findUnique: async () => null
+        findUnique: async () => ({
+          billingProviderHints: {
+            presentation: {
+              price: {
+                billingPeriod: "month"
+              }
+            }
+          }
+        })
       }
     } as never,
     {
@@ -70,7 +129,7 @@ async function run(): Promise<void> {
     TransactionId: 123456,
     Amount: 99,
     Currency: "RUB",
-    InvoiceId: "intent-1",
+    InvoiceId: paymentIntentId,
     Status: "Completed",
     DateTime: "2026-05-04 19:05:00"
   };
@@ -100,7 +159,7 @@ async function run(): Promise<void> {
     TransactionId: 123457,
     Amount: 99,
     Currency: "RUB",
-    InvoiceId: "intent-1",
+    InvoiceId: paymentIntentId,
     Status: "Authorized",
     DateTime: "2026-05-04 19:06:00"
   };
@@ -128,7 +187,7 @@ async function run(): Promise<void> {
     ExternalId: "intent-1",
     Status: "Completed",
     Metadata: JSON.stringify({
-      paymentIntentId: "intent-1"
+      paymentIntentId
     }),
     DateTime: "2026-05-04 19:07:00"
   };
@@ -153,7 +212,7 @@ async function run(): Promise<void> {
     TransactionId: 123459,
     Amount: 99,
     Currency: "RUB",
-    InvoiceId: "intent-1",
+    InvoiceId: paymentIntentId,
     DateTime: "2026-05-04 19:08:00"
   };
   const encodedCheckRawBody = Buffer.from(
@@ -161,7 +220,7 @@ async function run(): Promise<void> {
       TransactionId: "123459",
       Amount: "99",
       Currency: "RUB",
-      InvoiceId: "intent-1",
+      InvoiceId: paymentIntentId,
       DateTime: "2026-05-04 19:08:00"
     }).toString(),
     "utf8"
@@ -181,10 +240,11 @@ async function run(): Promise<void> {
   });
 
   assert.deepEqual(encodedCheckResult, { status: "processed" });
-  assert.deepEqual(paymentIntentFindFirstCalls.at(-1)?.where, {
+  assert.deepEqual(paymentIntentFindManyCalls.at(-1)?.where, {
     OR: [
-      { providerPaymentRef: { in: ["intent-1", "123459"] } },
-      { providerSessionRef: { in: ["intent-1", "123459"] } }
+      { id: { in: [paymentIntentId] } },
+      { providerPaymentRef: { in: [paymentIntentId, "123459"] } },
+      { providerSessionRef: { in: [paymentIntentId, "123459"] } }
     ]
   });
 
@@ -197,6 +257,109 @@ async function run(): Promise<void> {
         "x-content-hmac": "invalid-signature"
       }
     })
+  );
+
+  subscriptionStatus = "grace_period";
+  const recurrentBody = {
+    TransactionId: 123460,
+    Amount: 99,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-1",
+    DateTime: "2026-05-04 19:09:00"
+  };
+  const recurrentRawBody = Buffer.from(JSON.stringify(recurrentBody), "utf8");
+  const recurrentHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(recurrentRawBody)
+    .digest("base64");
+  const recurrentResult = await service.handle({
+    notificationType: "recurrent",
+    body: recurrentBody,
+    rawBody: recurrentRawBody,
+    headers: {
+      "x-content-hmac": recurrentHmac
+    }
+  });
+  assert.deepEqual(recurrentResult, { status: "processed" });
+  assert.equal(appliedBillingEvents.at(-1)?.eventCode, "payment_recovered");
+  assert.equal(appliedBillingEvents.at(-1)?.providerSubscriptionRef, "sub-provider-1");
+  assert.equal(appliedBillingEvents.at(-1)?.workspaceId, "ws-1");
+
+  subscriptionStatus = "active";
+  const cancelBody = {
+    TransactionId: 123461,
+    Amount: 99,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-1",
+    DateTime: "2026-05-04 19:10:00"
+  };
+  const cancelRawBody = Buffer.from(JSON.stringify(cancelBody), "utf8");
+  const cancelHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(cancelRawBody)
+    .digest("base64");
+  const cancelResult = await service.handle({
+    notificationType: "cancel",
+    body: cancelBody,
+    rawBody: cancelRawBody,
+    headers: {
+      "x-content-hmac": cancelHmac
+    }
+  });
+  assert.deepEqual(cancelResult, { status: "processed" });
+  assert.equal(appliedBillingEvents.at(-1)?.eventCode, "subscription_cancel_scheduled");
+  assert.equal(appliedBillingEvents.at(-1)?.providerSubscriptionRef, "sub-provider-1");
+
+  allowAccountIdSubscriptionFallback = false;
+  const staleRenewalBody = {
+    TransactionId: 123462,
+    Amount: 99,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-stale",
+    DateTime: "2026-05-04 19:11:00"
+  };
+  const staleRenewalRawBody = Buffer.from(JSON.stringify(staleRenewalBody), "utf8");
+  const staleRenewalHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(staleRenewalRawBody)
+    .digest("base64");
+  const staleRenewalEventsBefore = appliedBillingEvents.length;
+  const staleRenewalResult = await service.handle({
+    notificationType: "recurrent",
+    body: staleRenewalBody,
+    rawBody: staleRenewalRawBody,
+    headers: {
+      "x-content-hmac": staleRenewalHmac
+    }
+  });
+  assert.deepEqual(staleRenewalResult, { status: "ignored" });
+  assert.equal(appliedBillingEvents.length, staleRenewalEventsBefore);
+  assert.deepEqual(subscriptionFindFirstCalls.at(-1)?.where, {
+    providerSubscriptionRef: "sub-provider-stale"
+  });
+
+  duplicateIntentMatches = true;
+  const ambiguousBody = {
+    TransactionId: 123463,
+    Amount: 99,
+    Currency: "RUB",
+    ExternalId: "intent-duplicate",
+    DateTime: "2026-05-04 19:12:00"
+  };
+  const ambiguousRawBody = Buffer.from(JSON.stringify(ambiguousBody), "utf8");
+  const ambiguousHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(ambiguousRawBody)
+    .digest("base64");
+  await assert.rejects(
+    service.handle({
+      notificationType: "pay",
+      body: ambiguousBody,
+      rawBody: ambiguousRawBody,
+      headers: {
+        "x-content-hmac": ambiguousHmac
+      }
+    }),
+    /matched multiple PersAI payment intents/
   );
 }
 

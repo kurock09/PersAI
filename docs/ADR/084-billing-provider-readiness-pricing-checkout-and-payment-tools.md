@@ -2,13 +2,14 @@
 
 ## Status
 
-Accepted; implementation completed through Slice 9 with CloudPayments constructor-based embedded checkout and recurring intentionally disabled until trusted lifecycle support lands.
+Accepted; implementation completed through Slice 9 plus the first production recurring-management slice.
 
 Current continuation state:
 
-- **Purpose:** finish the PersAI-owned billing/provider boundary so production checkout is embedded, subscription-oriented, and still lifecycle-owned by PersAI.
-- **Completed through:** Slice 9 — concrete CloudPayments embedded checkout contour on top of PersAI payment intents.
-- **Next active item:** live end-to-end payment + webhook validation, then recurring subscription-management follow-up only where PersAI product surfaces need it.
+- **Purpose:** keep the PersAI-owned billing/provider boundary embedded, subscription-oriented, and lifecycle-owned by PersAI.
+- **Completed through:** Slice 9 — concrete CloudPayments embedded checkout contour on top of PersAI payment intents, plus provider-backed recurring start, trusted recurring lifecycle projection, and first user-visible payment settings.
+- **Latest landed follow-through:** current supported recurring-start contour is CloudPayments constructor + `card`; user-visible payment settings now read server-truth recurring state and can disable auto-renew through PersAI API/provider cancellation.
+- **Next active item:** live end-to-end recurring validation in `persai-dev` and any evidence-driven hardening, not another billing-truth architecture rewrite.
 - **Do not implement before:** ADR-082 delivery-confirmed quota accounting and ADR-083 subscription lifecycle foundations are far enough that payment success can safely activate real plan/subscription state.
 - **Production posture:** no fake long-term billing mode. Test/manual adapters are for development and admin recovery only.
 
@@ -317,7 +318,7 @@ Slice 9 implementation note, 2026-05-05:
 
 - the default billing-provider adapter now builds a real `CloudPayments Payment Constructor` payload from the persisted PersAI payment intent, returns normalized `checkout.mode=embedded`, and keeps provider-specific detail inside the persisted payload schema instead of product truth
 - `/app/billing/checkout/:paymentIntentId` now renders an embedded premium payment form inside the existing PersAI checkout sheet instead of launching a popup widget, while still waiting for trusted server confirmation before activating paid access
-- the first payment contour now stays intentionally non-recurring in production until PersAI fully supports trusted recurring webhook/lifecycle projection; tokenization may remain available for future use, but checkout must not imply provider-managed renewals are active yet
+- the initial embedded constructor rollout started as intentionally non-recurring, but PersAI now also supports the bounded production recurring-start contour (`card` only) with trusted recurring webhook/lifecycle projection and user-visible payment settings
 - CloudPayments webhook resolution continues to accept `externalId` plus `metadata/data` in addition to the older `invoiceId` path so constructor-originated payments reconcile back to the correct PersAI payment intent
 - live provider smoke is still required before this slice can be treated as fully closed in production operations
 
@@ -401,7 +402,7 @@ Implement in production-grade slices.
 | 6. Immediate activation/materialization | Completed   | Ensure upgrades feel instant.                                                | subscription services, config generation, materialization/apply, runtime pre-turn safety | Trusted paid success now rematerializes/warms published assistants immediately enough that chat/bootstrap can pick up the activated plan without waiting for a later random refresh.  |
 | 7. Admin manual payment and Ops support | Completed   | Support manual/offline activation without pretending it is provider billing. | Ops Cockpit, admin APIs, audit/lifecycle events                                          | Admin can mark paid with explicit period/source; state shows manual/admin source and remains separate from provider invoices.                                                         |
 | 8. Assistant billing tool               | Completed   | Let assistant explain plans and create checkout link/QR from one quota surface. | tool catalog, runtime/API tool boundary, payment intent API, guardrails                  | Assistant uses `quota_status` for live plan comparison, limits, and guarded checkout-link creation without lexical confirmation matching, and still cannot mutate subscription directly. |
-| 9. Concrete provider adapter            | In progress | Wire real provider.                                                          | CloudPayments constructor adapter, admin billing secrets, webhook verification, live smoke | Embedded constructor payload is now created from persisted PersAI payment intents, recurring is intentionally disabled until lifecycle support is complete, and trusted webhooks still reconcile back to PersAI lifecycle truth; live smoke still remains. |
+| 9. Concrete provider adapter            | Completed   | Wire real provider.                                                          | CloudPayments constructor adapter, admin billing secrets, webhook verification, live smoke | Embedded constructor payload is created from persisted PersAI payment intents, bounded recurring-start support is live for supported methods, and trusted webhooks reconcile payment/recurring lifecycle back to PersAI truth. Ongoing work after Slice 9 is live validation and evidence-driven hardening, not a second provider-adapter architecture slice. |
 
 ### Execution rules
 

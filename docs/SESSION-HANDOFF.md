@@ -1,5 +1,192 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 recurring billing PROD hardening) — close the remaining backend P0s before live rollout
+
+### What changed
+
+- Took the founder escalation literally and closed the remaining code-side recurring billing P0/P1 seams as one stronger backend hardening pass instead of another narrow follow-up. This slice focused on trusted auth, webhook idempotency/matching, and recurring-management safety rather than more UI polish.
+- Fixed the missing auth guard on recurring-management endpoints. `GET /api/v1/assistant/billing/subscription` and `POST /api/v1/assistant/billing/subscription/disable-auto-renew` are now explicitly covered by `ClerkAuthMiddleware`, and the identity-access regression test now pins those routes so payment settings cannot silently fall back into `resolvedAppUser === undefined` again.
+- Hardened CloudPayments webhook identity and matching. Billing-event `eventRef` is now derived from a SHA-256 digest of the raw webhook body instead of placeholder-based `transaction/subscription` strings, which removes the earlier collision risk when provider ids were missing. Payment-intent resolution also no longer uses an undefined `findFirst` winner from a broad `OR`; it now matches deterministically by ranked candidates and fails loudly when the webhook ambiguously matches multiple PersAI intents.
+- Improved recurring cancellation safety and operator visibility. Payment-method labels remain scoped to the active recurring contract, and recurring-management reads now also detect a failed `cancel_api -> subscription_cancel_scheduled` sync attempt from durable billing events. If provider cancellation already succeeded but PersAI lifecycle apply failed, the product no longer shows auto-renew as definitely still on; it surfaces the state as synchronizing instead of silently lying.
+- Tightened webhook HTTP semantics too: the public CloudPayments controller now preserves real HTTP status classes from the underlying handler (`403`, `404`, `500`, etc.) instead of flattening every failure to `400 webhook_failed`, which is safer for production observability and provider retry analysis.
+
+### Verification
+
+- Focused recurring/backend checks:
+  - `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-webhook.controller.test.ts`
+  - `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- Full AGENTS gate on the final code tree:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The remaining meaningful work is now mostly outside code-hardening basics: live recurring validation in `persai-dev`, true provider-backed in-place subscription update, and future paid-by-day/proration accounting.
+- PersAI still derives paid-period windows from trusted webhook time plus billing-period policy rather than from a richer provider-native period snapshot. That is now the main remaining correctness tail if another backend billing pass is needed before or after live validation.
+
+### Next recommended step
+
+- Deploy this recurring-billing hardening pass and run one full live recurring validation in `persai-dev`: checkout start, payment settings read, disable auto-renew, renewal or renewal-failure recovery, and period-end fallback.
+
+## 2026-05-06 (ADR-084 recurring billing honesty hardening) — close the remaining post-audit UX/truth tails cleanly
+
+### What changed
+
+- Took the remaining recurring-billing audit tails as one coherent hardening slice instead of another micro-fix. The active recurring PROD contour is now stricter both on API truth and on what the user sees in web billing surfaces.
+- Embedded checkout no longer sends the user back to chat as `pending` just because they left the payment form. In the active embedded CloudPayments path, `pending` is now used only when there is real provider-backed evidence for it (`success` callback or persisted `pending_confirmation` state), while an abandoned in-form return degrades to the existing calm failed/retry path.
+- Billing-management truth is now more honest on both sides. `ManageAssistantBillingSubscriptionService` only derives `paymentMethodLabel` from provider events that belong to the active recurring contract (`providerSubscriptionRef`, plus customer ref when present) instead of scanning any recent provider event in the workspace. On the web, `Payment settings` no longer fabricates fallback facts like `Free`, `Off`, or a generic payment-method label when the refresh fails; the CTA stays reachable, but the modal explicitly shows billing details as unknown until the next successful sync.
+- `Limits & Plan` summary copy is now truthful for subscription-ending states: `canceled` uses `Access until` instead of `Next billing`, matching the real meaning of the remaining paid period after auto-renew is disabled.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- Full AGENTS gate rerun on the final tree:
+  - `corepack pnpm -r --if-present run lint`
+  - `corepack pnpm run format:check`
+  - `corepack pnpm --filter @persai/api run typecheck`
+  - `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The remaining larger recurring follow-through is now mostly outside truth/UX cleanup: live `persai-dev` validation of one real recurring cycle, true provider-backed in-place subscription update, and paid-by-day/proration accounting.
+- This slice intentionally does not redesign checkout outcome semantics beyond honesty. The chat return envelope is still `success | failed | pending`; the change is that `pending` is no longer used without evidence.
+
+### Next recommended step
+
+- Deploy this hardened recurring tree and run one full live recurring validation in `persai-dev`: recurring start, renewal or renewal-failure recovery, payment-settings refresh, and period-end cancellation/fallback.
+
+## 2026-05-06 (ADR-084 recurring webhook stale-subscription hardening) — block AccountId fallback corruption for old CloudPayments events
+
+### What changed
+
+- Kept this session bounded to the highest-severity remaining recurring PROD issue from the audit: stale or out-of-order CloudPayments recurring webhooks can no longer fall through from an unmatched `SubscriptionId` onto the current subscription via `AccountId` / `providerCustomerRef`.
+- `HandleCloudpaymentsWebhookService` now treats `SubscriptionId` as the stronger reconciliation key for subscription-owned provider events. When a webhook supplies `SubscriptionId` but PersAI cannot resolve that exact subscription, the handler no longer falls back to `AccountId`; it logs and ignores the webhook instead of mutating current subscription truth.
+- Added a second safety rail in `ApplyWorkspaceSubscriptionBillingEventService`: provider-origin billing events are now ignored when their provider customer/subscription refs conflict with the currently linked recurring contract on the workspace subscription. This protects against stale provider events even if a workspace was otherwise resolved.
+- Added focused API regressions for both layers and reconciled ADR wording: ADR-083 now reflects that global lifecycle settings already live in `Admin > Billing Settings`, and ADR-084 now marks the concrete provider-adapter slice as completed while keeping live recurring validation/evidence-driven hardening as the remaining follow-through.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice hardens the stale-subscription webhook seam only. The remaining audited product-honesty issues in checkout, billing settings, payment-method labeling, and canceled-state copy still need separate bounded follow-up slices.
+- Live production confidence still requires a fresh `persai-dev` recurring validation cycle after deploy, especially renewal/failure paths that prove only the active provider contract can move PersAI lifecycle truth.
+
+### Next recommended step
+
+- Take the next bounded post-audit slice on web billing honesty: stop showing `pending` after embedded-checkout abandonment and remove fabricated billing facts from `Payment settings` refresh-failure state while keeping the CTA reachable.
+
+## 2026-05-06 (ADR-084 PROD recurring hardening) — close audit tails before live rollout
+
+### What changed
+
+- Closed the highest-risk recurring billing truth issue from the audit: PersAI no longer opens a new recurring-start checkout on top of an already provider-managed recurring subscription. The current product posture is explicit and honest: in-place recurring subscription update is not implemented yet, so that upgrade path now fails fast instead of risking a second provider contract. This keeps the repo safe for PROD while leaving the future subscription-update slice clearly bounded.
+- Cleaned fallback truth so provider-managed recurring refs do not survive after fallback/cancel/reversal expiry paths. Paid grace expiry, period-end cancellation fallback, immediate payment reversal fallback, admin fallback-now, and expired-trial fallback now all clear provider linkage before the workspace becomes `expired_fallback`, which prevents stale recurring state from leaking into API/UI support surfaces.
+- Hardened billing-management projection honesty. Server billing management now treats provider-managed recurring only as an active paid recurring state (`active` / `grace_period` / `past_due`) and keeps the last known payment method label by scanning recent provider events instead of dropping to a generic fallback right after auto-renew disablement.
+- Closed the main web honesty tails too: `Assistant Settings` keeps the `Payment settings` entry reachable while billing-state refresh is still unknown/failed for likely paid recurring users, checkout help text now distinguishes true recurring-start from one-time fallback, and the web client now reads recurring-management endpoints through generated contracts instead of handwritten `fetch`.
+- Removed one lingering stale billing-read seam outside the checkout/UI path: subscription knowledge documents now resolve through `ResolveEffectiveSubscriptionStateService.executeReadOnly(...)` instead of scraping raw `workspace_subscription` plus manual default fallbacks, so assistant-facing subscription context follows the same effective-state truth as the rest of the product.
+- Reconciled the remaining contract/runtime/docs tails from the audit. `GET /assistant/billing/payment-intents/{paymentIntentId}` now documents its real `400` path for malformed ids, recurring fallback coverage was added to the runtime `quota_status` test, `DATA-MODEL` now names the recurring lifecycle events explicitly, and contracts were regenerated after the OpenAPI update.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- Full AGENTS gate was rerun successfully in the follow-up recurring webhook hardening slice: workspace lint, format check, API typecheck, and web typecheck are green on this tree
+
+### Risks / residuals
+
+- The recurring-update path is now safely blocked rather than falsely supported. A future bounded slice still needs true in-place subscription update at the provider/PersAI lifecycle boundary.
+- Daily paid accounting and subscription-update proration are still separate future work; this hardening only ensures the current recurring-start / renew / cancel truth is safe and honest before that later accounting layer lands.
+- Full production confidence still needs one fresh live recurring cycle in `persai-dev`, including renewal or renewal-failure recovery evidence.
+
+### Next recommended step
+
+- Run the full AGENTS verification gate on this hardened tree, then deploy and perform one live recurring validation in `persai-dev` before starting the separate subscription-update / paid-by-day accounting slice.
+
+## 2026-05-06 (ADR-084 PROD recurring billing) — provider-backed recurring start, trusted renewal/cancel lifecycle, and in-product payment settings
+
+### What changed
+
+- Completed the first production recurring billing slice on top of the already-landed embedded CloudPayments checkout. Payment-intent creation now decides explicitly between `one_time` and `recurring_start`, persists that recurring state in intent metadata, and opens the recurring-start contour only when the selected method is honestly supported. The active safe policy is `card -> recurring_start`; unsupported methods such as `sbp_qr` degrade to one-shot with explicit `unsupportedReason` instead of pretending auto-renew exists.
+- CloudPayments adapter and billing-provider port now support recurring start and provider-managed subscription operations. Checkout payload creation can include provider recurrent contract data, and API-side billing management can read/cancel a provider-managed subscription through one provider-neutral port.
+- Trusted lifecycle handling now includes recurring renewal/cancel reality rather than only first payment. CloudPayments webhook ingestion now maps `recurrent` to `renewal_succeeded` / `payment_recovered`, `fail` on renewal paths to `renewal_failed`, and `cancel` to `subscription_cancel_scheduled`. ADR-083 lifecycle services now support `cancelAtPeriodEnd`, append `auto_renew_disabled`, and apply fallback automatically when a canceled paid period ends.
+- Added a dedicated authenticated billing-management surface for product UI: `GET /api/v1/assistant/billing/subscription` and `POST /api/v1/assistant/billing/subscription/disable-auto-renew`. `Assistant Settings -> Limits & Plan` now swaps `Change plan` for `Payment settings` when the user has a paid recurring subscription and opens a quiet billing modal that reads server-truth current plan, auto-renew state, next charge / access-until, payment method label, disable-auto-renew, and provider-managed payment-method update action.
+- Updated assistant/runtime billing projection too: `quota_status` checkout output now includes `recurringCheckoutKind`, `recurringSupportedBySelectedMethod`, and `recurringUnsupportedReason`, so assistant plan guidance can explain whether a checkout really starts auto-renew or is only a one-time fallback.
+- Reconciled repo truth for this slice: OpenAPI now describes the recurring payment-intent state plus billing-subscription management endpoints, and recurring-focused regression coverage was added across API, runtime, and web.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-payment-intents.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- The active recurring method policy is intentionally conservative: `card` is treated as recurring-capable in the current CloudPayments constructor contour, while unsupported methods degrade honestly to one-shot until trusted provider lifecycle proof exists for them.
+- Payment-method update remains provider-managed. PersAI now exposes the correct entry point and current state, but it still depends on the provider portal / recovery flow rather than an in-app card-update form.
+- Full production confidence still needs one fresh live recurring cycle in `persai-dev`: first recurring-start checkout, one renewal or forced renewal failure/recovery path, and one provider-side cancel that lands back as `cancelAtPeriodEnd`.
+
+### Next recommended step
+
+- Deploy this recurring slice, run one live recurring subscription in `persai-dev`, and verify the full trusted chain end to end: recurring-start checkout, webhook-driven activation, visible `Payment settings` state, disable-auto-renew -> `cancelAtPeriodEnd`, and eventual period-end fallback.
+
+## 2026-05-06 (ADR-084 checkout theme + quota price-label hardening) — move CloudPayments theming into `PaymentBlocks` options and stop assistant tariff hallucinations from minor-unit prices
+
+### What changed
+
+- Re-checked live `persai-dev` billing truth before changing code again. The latest successful payment is now real on the PersAI side: `workspace_payment_intent 82315353-cbfe-4ce8-8b85-90d0fd42323a` reached `status=succeeded`, a matching `workspace_subscription_billing_event` was recorded as `payment_activated` with `applyStatus=applied`, and the target workspace subscription is now `basic / active`. The founder user's recent intents (`ad96...`) are still `checkout_ready`, so the successful payment belongs to a different user/session, not the founder checkout screenshots.
+- Found a stronger root-cause candidate for the remaining checkout theme bug than the earlier palette-only work: the web page was still passing CloudPayments appearance/components overrides as the second constructor argument, but the public PaymentBlocks docs and bundle shape expect real block options in the first `options` argument while the second slot is only general configuration. The checkout page now flattens PersAI initialization fields plus theme-aware `appearance/components` into one `PaymentBlocks` options object before mount.
+- Kept the theme slice bounded: no new billing lifecycle behavior was introduced. This change only targets the embedded form rendering path so the dark-theme white surface / receipt-row mismatch has one honest root-cause fix instead of more wrapper CSS guesswork.
+- Fixed the recurring tariff-display bug where the assistant sometimes answered `98000` instead of `980`: `quota_status` previously exposed only `visiblePlans[].amountMinor`, so the model could treat kopeks as rubles. Internal quota reads and the shared runtime contract now also expose `amountMajor` plus localized `priceLabel`, and the quota tool guidance explicitly tells the model to quote plan prices from `priceLabel`/`amountMajor`, not from `amountMinor`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/read-internal-runtime-quota-status.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- The checkout theme fix now aligns with the documented `PaymentBlocks` constructor shape, but final proof still requires one fresh live dark-theme checkout after deploy because the provider renders inside its own managed surface.
+- `quota_status` now gives the model honest major/display prices, but old conversations can still contain earlier assistant text that already quoted the wrong tariff; only new tool reads will benefit from the hardened payload.
+
+### Next recommended step
+
+- Deploy this web/runtime/API slice, reopen one live dark-theme checkout in `persai-dev`, and verify two things together: the inner CloudPayments surface is no longer stuck white, and the assistant now quotes tariffs from `priceLabel` (`560 / 980 / 2560`) instead of raw `amountMinor`.
+
 ## 2026-05-06 (ADR-084 checkout PaymentBlocks init hotfix) — remove the redundant post-mount `update()` call that could abort provider form startup
 
 ### What changed

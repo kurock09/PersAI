@@ -1,4 +1,4 @@
-import { Controller, Logger, Param, Post, Req, Res } from "@nestjs/common";
+import { Controller, HttpException, Logger, Param, Post, Req, Res } from "@nestjs/common";
 import {
   HandleCloudpaymentsWebhookService,
   type CloudpaymentsNotificationType
@@ -58,7 +58,8 @@ export class CloudpaymentsWebhookController {
       this.logger.error(
         `CloudPayments webhook handling failed for ${notificationType}: ${String(error)}`
       );
-      res.status(400).json({ code: 13, message: "webhook_failed" });
+      const status = error instanceof HttpException ? error.getStatus() : 500;
+      res.status(status).json({ code: 13, message: "webhook_failed" });
     }
   }
 }

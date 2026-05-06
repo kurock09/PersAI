@@ -8,7 +8,8 @@ export type WorkspaceSubscriptionBillingEventCode =
   | "renewal_succeeded"
   | "renewal_failed"
   | "payment_recovered"
-  | "payment_reversed";
+  | "payment_reversed"
+  | "subscription_cancel_scheduled";
 
 export type ApplyWorkspaceSubscriptionBillingEventInput = {
   workspaceId: string;
@@ -40,6 +41,7 @@ type CurrentSubscriptionSnapshot = {
     | "expired_fallback";
   currentPeriodStartedAt: Date | null;
   currentPeriodEndsAt: Date | null;
+  cancelAtPeriodEnd: boolean;
   billingProvider: string | null;
   providerCustomerRef: string | null;
   providerSubscriptionRef: string | null;
@@ -79,6 +81,7 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         status: true,
         currentPeriodStartedAt: true,
         currentPeriodEndsAt: true,
+        cancelAtPeriodEnd: true,
         billingProvider: true,
         providerCustomerRef: true,
         providerSubscriptionRef: true
@@ -211,6 +214,15 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
           eventCode: "payment_reversed"
         });
         return;
+      case "subscription_cancel_scheduled":
+        this.assertCurrentSubscriptionExists(current);
+        await this.manageWorkspaceSubscriptionLifecycleService.schedulePaidCancellationAtPeriodEnd({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          source: input.source,
+          refs
+        });
+        return;
       default: {
         const exhaustiveCheck: never = input.eventCode;
         return exhaustiveCheck;
@@ -222,6 +234,9 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
     current: CurrentSubscriptionSnapshot,
     input: ApplyWorkspaceSubscriptionBillingEventInput
   ): boolean {
+    if (this.hasConflictingProviderRefs(current, input)) {
+      return true;
+    }
     switch (input.eventCode) {
       case "renewal_failed":
         return current.status === "grace_period" || current.status === "expired_fallback";
@@ -239,6 +254,8 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
           (input.providerSubscriptionRef ?? current.providerSubscriptionRef) ===
             current.providerSubscriptionRef
         );
+      case "subscription_cancel_scheduled":
+        return current.cancelAtPeriodEnd;
       case "payment_reversed":
         return current.status === "expired_fallback";
       default: {
@@ -306,6 +323,32 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
 
   private sameIso(current: Date | null, next: string | null): boolean {
     return (current?.toISOString() ?? null) === (this.normalizeOptionalString(next) ?? null);
+  }
+
+  private hasConflictingProviderRefs(
+    current: CurrentSubscriptionSnapshot,
+    input: ApplyWorkspaceSubscriptionBillingEventInput
+  ): boolean {
+    if (input.source !== "provider") {
+      return false;
+    }
+    const nextCustomerRef = this.normalizeOptionalString(input.providerCustomerRef);
+    if (
+      nextCustomerRef !== null &&
+      current.providerCustomerRef !== null &&
+      nextCustomerRef !== current.providerCustomerRef
+    ) {
+      return true;
+    }
+    const nextSubscriptionRef = this.normalizeOptionalString(input.providerSubscriptionRef);
+    if (
+      nextSubscriptionRef !== null &&
+      current.providerSubscriptionRef !== null &&
+      nextSubscriptionRef !== current.providerSubscriptionRef
+    ) {
+      return true;
+    }
+    return false;
   }
 
   private resolveErrorCode(error: unknown): string {

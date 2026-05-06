@@ -11,6 +11,7 @@ async function run(): Promise<void> {
     workspaceId: string;
     planCode: string;
     status: "active";
+    cancelAtPeriodEnd: boolean;
     currentPeriodStartedAt: Date | null;
     currentPeriodEndsAt: Date | null;
     billingProvider: string | null;
@@ -21,6 +22,7 @@ async function run(): Promise<void> {
     workspaceId: "ws-1",
     planCode: "pro",
     status: "active" as const,
+    cancelAtPeriodEnd: false,
     currentPeriodStartedAt: new Date("2026-05-01T00:00:00.000Z"),
     currentPeriodEndsAt: new Date("2026-06-01T00:00:00.000Z"),
     billingProvider: "stripe",
@@ -75,6 +77,7 @@ async function run(): Promise<void> {
         workspaceId: "ws-1",
         planCode: "pro",
         status: "active",
+        cancelAtPeriodEnd: false,
         currentPeriodStartedAt: new Date("2026-06-01T00:00:00.000Z"),
         currentPeriodEndsAt: new Date("2026-07-01T00:00:00.000Z"),
         billingProvider: "stripe",
@@ -83,12 +86,25 @@ async function run(): Promise<void> {
       };
       lifecycleCalls.push({ kind: "activatePaidSubscription", eventCode: input.eventCode });
     },
+    async schedulePaidCancellationAtPeriodEnd() {
+      currentSubscription = currentSubscription
+        ? {
+            ...currentSubscription,
+            cancelAtPeriodEnd: true
+          }
+        : currentSubscription;
+      lifecycleCalls.push({ kind: "schedulePaidCancellationAtPeriodEnd" });
+    },
     async applyImmediatePaidFallback() {
       lifecycleCalls.push({ kind: "applyImmediatePaidFallback" });
     }
   } as Pick<
     ManageWorkspaceSubscriptionLifecycleService,
-    "startPaidGrace" | "recoverPayment" | "activatePaidSubscription" | "applyImmediatePaidFallback"
+    | "startPaidGrace"
+    | "recoverPayment"
+    | "activatePaidSubscription"
+    | "schedulePaidCancellationAtPeriodEnd"
+    | "applyImmediatePaidFallback"
   > as ManageWorkspaceSubscriptionLifecycleService);
 
   const renewalFailed = await service.apply({
@@ -179,6 +195,62 @@ async function run(): Promise<void> {
   ]);
   assert.equal(billingEvents[3]?.applyStatus, "applied");
   assert.equal(billingEvents[3]?.subscriptionId, "sub-created-1");
+
+  currentSubscription = {
+    id: "sub-1",
+    workspaceId: "ws-1",
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
+    currentPeriodStartedAt: new Date("2026-07-01T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-08-01T00:00:00.000Z"),
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-1"
+  };
+  const cancelScheduled = await service.apply({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    eventCode: "subscription_cancel_scheduled",
+    eventRef: "evt-cancel-scheduled",
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-1",
+    paidPlanCode: "pro"
+  });
+  assert.deepEqual(cancelScheduled, { status: "applied", billingEventId: "billing-event-5" });
+  assert.equal(currentSubscription.cancelAtPeriodEnd, true);
+  assert.deepEqual(lifecycleCalls.at(-1), { kind: "schedulePaidCancellationAtPeriodEnd" });
+
+  currentSubscription = {
+    id: "sub-1",
+    workspaceId: "ws-1",
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
+    currentPeriodStartedAt: new Date("2026-07-01T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-08-01T00:00:00.000Z"),
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-current"
+  };
+  const staleProviderEvent = await service.apply({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    eventCode: "renewal_succeeded",
+    eventRef: "evt-stale-renewal",
+    paidPlanCode: "pro",
+    billingProvider: "stripe",
+    providerCustomerRef: "cust-1",
+    providerSubscriptionRef: "sub-stale",
+    currentPeriodStartedAt: "2026-08-01T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-09-01T00:00:00.000Z"
+  });
+  assert.deepEqual(staleProviderEvent, { status: "ignored", billingEventId: "billing-event-6" });
+  assert.deepEqual(lifecycleCalls.at(-1), { kind: "schedulePaidCancellationAtPeriodEnd" });
+  assert.equal(billingEvents[5]?.applyStatus, "ignored");
 }
 
 void run();

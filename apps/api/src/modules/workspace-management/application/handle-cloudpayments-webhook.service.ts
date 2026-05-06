@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   BadRequestException,
   ForbiddenException,
@@ -89,6 +89,11 @@ type SubscriptionRecord = {
     | "expired_fallback";
   providerCustomerRef: string | null;
   providerSubscriptionRef: string | null;
+};
+
+type ResolvedSubscription = {
+  subscription: SubscriptionRecord | null;
+  blockedAccountFallback: boolean;
 };
 
 const paymentIntentSelect = {
@@ -219,9 +224,16 @@ export class HandleCloudpaymentsWebhookService {
     }
 
     const paymentIntent = await this.resolvePaymentIntent(payload);
-    const subscription = await this.resolveSubscription(payload, paymentIntent);
+    const subscriptionResolution = await this.resolveSubscription(payload, paymentIntent);
+    const subscription = subscriptionResolution.subscription;
 
     if (paymentIntent === null && subscription === null) {
+      if (subscriptionResolution.blockedAccountFallback) {
+        this.logger.warn(
+          "Ignoring CloudPayments webhook because SubscriptionId did not match any current PersAI subscription."
+        );
+        return { status: "ignored" };
+      }
       throw new NotFoundException("CloudPayments webhook does not match a PersAI billing subject.");
     }
 
@@ -232,6 +244,7 @@ export class HandleCloudpaymentsWebhookService {
     const lifecycleEvent = await this.deriveLifecycleEvent(
       input.notificationType,
       payload,
+      input.rawBody,
       paymentIntent,
       subscription
     );
@@ -356,30 +369,40 @@ export class HandleCloudpaymentsWebhookService {
     if (uuidCandidates.length > 0) {
       orClauses.unshift({ id: { in: uuidCandidates } });
     }
-    return (await this.prisma.workspacePaymentIntent.findFirst({
+    const matches = (await this.prisma.workspacePaymentIntent.findMany({
       where: {
         OR: orClauses
       },
       select: paymentIntentSelect
-    })) as PaymentIntentRecord | null;
+    })) as PaymentIntentRecord[];
+    return this.selectPaymentIntentMatch(matches, {
+      paymentIntentIdFromData,
+      externalId: payload.externalId,
+      invoiceId: payload.invoiceId,
+      transactionId: payload.transactionId,
+      originalTransactionId: payload.originalTransactionId
+    });
   }
 
   private async resolveSubscription(
     payload: CloudpaymentsPayload,
     paymentIntent: PaymentIntentRecord | null
-  ): Promise<SubscriptionRecord | null> {
+  ): Promise<ResolvedSubscription> {
     if (paymentIntent !== null) {
-      return (await this.prisma.workspaceSubscription.findUnique({
-        where: { workspaceId: paymentIntent.workspaceId },
-        select: {
-          id: true,
-          workspaceId: true,
-          planCode: true,
-          status: true,
-          providerCustomerRef: true,
-          providerSubscriptionRef: true
-        }
-      })) as SubscriptionRecord | null;
+      return {
+        subscription: (await this.prisma.workspaceSubscription.findUnique({
+          where: { workspaceId: paymentIntent.workspaceId },
+          select: {
+            id: true,
+            workspaceId: true,
+            planCode: true,
+            status: true,
+            providerCustomerRef: true,
+            providerSubscriptionRef: true
+          }
+        })) as SubscriptionRecord | null,
+        blockedAccountFallback: false
+      };
     }
     if (payload.subscriptionId !== null) {
       const bySubscriptionRef = await this.prisma.workspaceSubscription.findFirst({
@@ -394,23 +417,36 @@ export class HandleCloudpaymentsWebhookService {
         }
       });
       if (bySubscriptionRef !== null) {
-        return bySubscriptionRef as SubscriptionRecord;
+        return {
+          subscription: bySubscriptionRef as SubscriptionRecord,
+          blockedAccountFallback: false
+        };
       }
+      return {
+        subscription: null,
+        blockedAccountFallback: payload.accountId !== null
+      };
     }
     if (payload.accountId !== null) {
-      return (await this.prisma.workspaceSubscription.findFirst({
-        where: { providerCustomerRef: payload.accountId },
-        select: {
-          id: true,
-          workspaceId: true,
-          planCode: true,
-          status: true,
-          providerCustomerRef: true,
-          providerSubscriptionRef: true
-        }
-      })) as SubscriptionRecord | null;
+      return {
+        subscription: (await this.prisma.workspaceSubscription.findFirst({
+          where: { providerCustomerRef: payload.accountId },
+          select: {
+            id: true,
+            workspaceId: true,
+            planCode: true,
+            status: true,
+            providerCustomerRef: true,
+            providerSubscriptionRef: true
+          }
+        })) as SubscriptionRecord | null,
+        blockedAccountFallback: false
+      };
     }
-    return null;
+    return {
+      subscription: null,
+      blockedAccountFallback: false
+    };
   }
 
   private async updatePaymentIntent(
@@ -484,12 +520,28 @@ export class HandleCloudpaymentsWebhookService {
   private async deriveLifecycleEvent(
     notificationType: CloudpaymentsNotificationType,
     payload: CloudpaymentsPayload,
+    rawBody: Buffer,
     paymentIntent: PaymentIntentRecord | null,
     subscription: SubscriptionRecord | null
   ): Promise<Parameters<ApplyWorkspaceSubscriptionBillingEventService["apply"]>[0] | null> {
-    if (notificationType === "recurrent" || notificationType === "cancel") {
-      this.logger.log(`Ignoring CloudPayments ${notificationType} webhook for lifecycle mutation.`);
-      return null;
+    if (notificationType === "cancel") {
+      if (subscription === null) {
+        this.logger.log("Ignoring CloudPayments cancel webhook without a matched subscription.");
+        return null;
+      }
+      return {
+        workspaceId: subscription.workspaceId,
+        userId: paymentIntent?.userId ?? null,
+        source: "provider",
+        eventCode: "subscription_cancel_scheduled",
+        eventRef: this.buildEventRef(notificationType, rawBody),
+        paymentIntentRef: paymentIntent?.id ?? null,
+        billingProvider: "cloudpayments",
+        providerCustomerRef: subscription.providerCustomerRef ?? payload.accountId,
+        providerSubscriptionRef: payload.subscriptionId ?? subscription.providerSubscriptionRef,
+        paidPlanCode: subscription.planCode,
+        metadata: this.buildLifecycleMetadata(notificationType, payload)
+      };
     }
 
     if (notificationType === "fail") {
@@ -503,7 +555,7 @@ export class HandleCloudpaymentsWebhookService {
         userId: paymentIntent?.userId ?? null,
         source: "provider",
         eventCode: "renewal_failed",
-        eventRef: this.buildEventRef(notificationType, payload),
+        eventRef: this.buildEventRef(notificationType, rawBody),
         paymentIntentRef: paymentIntent?.id ?? null,
         billingProvider: "cloudpayments",
         providerCustomerRef: subscription.providerCustomerRef,
@@ -523,7 +575,7 @@ export class HandleCloudpaymentsWebhookService {
         userId: paymentIntent?.userId ?? null,
         source: "provider",
         eventCode: "payment_reversed",
-        eventRef: this.buildEventRef(notificationType, payload),
+        eventRef: this.buildEventRef(notificationType, rawBody),
         paymentIntentRef: paymentIntent?.id ?? null,
         billingProvider: "cloudpayments",
         providerCustomerRef: subscription?.providerCustomerRef ?? null,
@@ -538,7 +590,11 @@ export class HandleCloudpaymentsWebhookService {
       return null;
     }
 
-    if (notificationType !== "pay" && notificationType !== "confirm") {
+    if (
+      notificationType !== "pay" &&
+      notificationType !== "confirm" &&
+      notificationType !== "recurrent"
+    ) {
       return null;
     }
 
@@ -549,7 +605,9 @@ export class HandleCloudpaymentsWebhookService {
 
     const currentStatus = subscription?.status ?? null;
     const eventCode =
-      paymentIntent?.action === "renewal" || (paymentIntent === null && subscription !== null)
+      notificationType === "recurrent" ||
+      paymentIntent?.action === "renewal" ||
+      (paymentIntent === null && subscription !== null)
         ? currentStatus === "grace_period" || currentStatus === "past_due"
           ? "payment_recovered"
           : "renewal_succeeded"
@@ -565,10 +623,14 @@ export class HandleCloudpaymentsWebhookService {
       userId: paymentIntent?.userId ?? null,
       source: "provider",
       eventCode,
-      eventRef: this.buildEventRef(notificationType, payload),
+      eventRef: this.buildEventRef(notificationType, rawBody),
       paymentIntentRef: paymentIntent?.id ?? null,
       billingProvider: "cloudpayments",
-      providerCustomerRef: subscription?.providerCustomerRef ?? null,
+      providerCustomerRef:
+        subscription?.providerCustomerRef ??
+        payload.accountId ??
+        paymentIntent?.providerCustomerRef ??
+        null,
       providerSubscriptionRef:
         payload.subscriptionId ?? subscription?.providerSubscriptionRef ?? null,
       paidPlanCode,
@@ -602,17 +664,97 @@ export class HandleCloudpaymentsWebhookService {
     throw new BadRequestException("Billing period could not be derived from the active paid plan.");
   }
 
-  private buildEventRef(
-    notificationType: CloudpaymentsNotificationType,
-    payload: CloudpaymentsPayload
-  ): string {
-    return [
-      "cloudpayments",
-      notificationType,
-      payload.transactionId ?? "no-transaction",
-      payload.originalTransactionId ?? "no-original-transaction",
-      payload.subscriptionId ?? "no-subscription"
-    ].join(":");
+  private buildEventRef(notificationType: CloudpaymentsNotificationType, rawBody: Buffer): string {
+    const digest = createHash("sha256").update(rawBody).digest("hex");
+    return `cloudpayments:${notificationType}:${digest}`;
+  }
+
+  private selectPaymentIntentMatch(
+    matches: PaymentIntentRecord[],
+    candidates: {
+      paymentIntentIdFromData: string | null;
+      externalId: string | null;
+      invoiceId: string | null;
+      transactionId: string | null;
+      originalTransactionId: string | null;
+    }
+  ): PaymentIntentRecord | null {
+    if (matches.length === 0) {
+      return null;
+    }
+    const ranked = matches
+      .map((match) => ({
+        match,
+        rank: this.rankPaymentIntentMatch(match, candidates)
+      }))
+      .filter(
+        (
+          entry
+        ): entry is {
+          match: PaymentIntentRecord;
+          rank: [number, number];
+        } => entry.rank !== null
+      )
+      .sort((left, right) =>
+        left.rank[0] !== right.rank[0] ? left.rank[0] - right.rank[0] : left.rank[1] - right.rank[1]
+      );
+    if (ranked.length === 0) {
+      return null;
+    }
+    const best = ranked[0];
+    if (best === undefined) {
+      return null;
+    }
+    const ambiguous = ranked.some(
+      (entry) =>
+        entry.match.id !== best.match.id &&
+        entry.rank[0] === best.rank[0] &&
+        entry.rank[1] === best.rank[1]
+    );
+    if (ambiguous) {
+      throw new BadRequestException(
+        "CloudPayments webhook matched multiple PersAI payment intents."
+      );
+    }
+    return best.match;
+  }
+
+  private rankPaymentIntentMatch(
+    paymentIntent: PaymentIntentRecord,
+    candidates: {
+      paymentIntentIdFromData: string | null;
+      externalId: string | null;
+      invoiceId: string | null;
+      transactionId: string | null;
+      originalTransactionId: string | null;
+    }
+  ): [number, number] | null {
+    const byId = [candidates.paymentIntentIdFromData].filter(
+      (value): value is string => value !== null
+    );
+    const bySessionRef = [candidates.externalId, candidates.invoiceId].filter(
+      (value): value is string => value !== null
+    );
+    const byPaymentRef = [candidates.transactionId, candidates.originalTransactionId].filter(
+      (value): value is string => value !== null
+    );
+    const idIndex = byId.findIndex((candidate) => paymentIntent.id === candidate);
+    if (idIndex >= 0) {
+      return [0, idIndex];
+    }
+    const sessionIndex = bySessionRef.findIndex(
+      (candidate) => paymentIntent.providerSessionRef === candidate
+    );
+    if (sessionIndex >= 0) {
+      return [1, sessionIndex];
+    }
+    const paymentIndex = byPaymentRef.findIndex(
+      (candidate) => paymentIntent.providerPaymentRef === candidate
+    );
+    if (paymentIndex >= 0) {
+      return [2, paymentIndex];
+    }
+    return null;
   }
 
   private buildLifecycleMetadata(

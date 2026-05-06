@@ -4,11 +4,16 @@ import {
   ManageAssistantPaymentIntentsService,
   type AssistantPaymentIntentState
 } from "../../application/manage-assistant-payment-intents.service";
+import {
+  ManageAssistantBillingSubscriptionService,
+  type AssistantBillingSubscriptionManagementState
+} from "../../application/manage-assistant-billing-subscription.service";
 
 @Controller("api/v1/assistant/billing")
 export class AssistantBillingController {
   constructor(
-    private readonly manageAssistantPaymentIntentsService: ManageAssistantPaymentIntentsService
+    private readonly manageAssistantPaymentIntentsService: ManageAssistantPaymentIntentsService,
+    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService
   ) {}
 
   @Post("payment-intents")
@@ -45,6 +50,30 @@ export class AssistantBillingController {
         userId,
         paymentIntentId
       )
+    };
+  }
+
+  @Get("subscription")
+  async getSubscriptionState(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    subscription: AssistantBillingSubscriptionManagementState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    return {
+      requestId: req.requestId ?? null,
+      subscription: await this.manageAssistantBillingSubscriptionService.getState(userId)
+    };
+  }
+
+  @Post("subscription/disable-auto-renew")
+  async disableAutoRenew(@Req() req: RequestWithPlatformContext): Promise<{
+    requestId: string | null;
+    subscription: AssistantBillingSubscriptionManagementState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    return {
+      requestId: req.requestId ?? null,
+      subscription: await this.manageAssistantBillingSubscriptionService.disableAutoRenew(userId)
     };
   }
 

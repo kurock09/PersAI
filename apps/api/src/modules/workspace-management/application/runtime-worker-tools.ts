@@ -16,7 +16,7 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
   image_generate: {
     family: "media_generation",
     outcomeKind: "artifact_refs",
-    timeoutMs: 180_000,
+    timeoutMs: 300_000,
     confirmationRule: "none",
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
@@ -24,7 +24,7 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
   image_edit: {
     family: "media_generation",
     outcomeKind: "artifact_refs",
-    timeoutMs: 180_000,
+    timeoutMs: 300_000,
     confirmationRule: "none",
     supportsProviderRouting: true,
     failureBehavior: "surface_error"

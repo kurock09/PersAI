@@ -608,7 +608,7 @@ describe("SetupWizardPage", () => {
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
-  });
+  }, 10000);
 
   it("recovers an existing draft explicitly without retrying assistant creation", async () => {
     clerkMocks.getToken

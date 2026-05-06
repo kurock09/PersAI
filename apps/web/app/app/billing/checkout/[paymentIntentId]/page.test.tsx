@@ -75,6 +75,11 @@ describe("BillingCheckoutPage", () => {
       billingProvider: "manual_test",
       providerSessionRef: "manual-pi-1",
       providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "current_payment_action_is_not_recurring_start"
+      },
       checkout: {
         mode: "manual_test",
         expiresAt: "2099-05-04T18:15:00.000Z",
@@ -112,8 +117,8 @@ describe("BillingCheckoutPage", () => {
       }
     });
     const PaymentBlocksCtor = vi.fn(() => cloudpaymentsMocks.instance) as unknown as new (
-      initializationParams: unknown,
-      customizationParams?: unknown
+      options: unknown,
+      configuration?: unknown
     ) => {
       mount: (target: unknown) => void;
       unmount: () => void;
@@ -137,6 +142,11 @@ describe("BillingCheckoutPage", () => {
       billingProvider: "cloudpayments",
       providerSessionRef: "pi-2",
       providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "recurring_start",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null
+      },
       checkout: {
         mode: "embedded",
         expiresAt: "2099-05-05T00:45:00.000Z",
@@ -191,8 +201,8 @@ describe("BillingCheckoutPage", () => {
     document.documentElement.classList.add("light");
     navigationMocks.params = { paymentIntentId: "pi-light" };
     const PaymentBlocksCtor = vi.fn(() => cloudpaymentsMocks.instance) as unknown as new (
-      initializationParams: unknown,
-      customizationParams?: unknown
+      options: unknown,
+      configuration?: unknown
     ) => {
       mount: (target: unknown) => void;
       unmount: () => void;
@@ -216,6 +226,11 @@ describe("BillingCheckoutPage", () => {
       billingProvider: "cloudpayments",
       providerSessionRef: "pi-light",
       providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "recurring_start",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null
+      },
       checkout: {
         mode: "embedded",
         expiresAt: "2099-05-05T00:45:00.000Z",
@@ -258,8 +273,8 @@ describe("BillingCheckoutPage", () => {
     });
 
     expect(PaymentBlocksCtor).toHaveBeenCalledWith(
-      expect.anything(),
       expect.objectContaining({
+        amount: 560,
         appearance: expect.objectContaining({
           colors: expect.objectContaining({
             inputBackground: "#fcfaf5",
@@ -297,6 +312,11 @@ describe("BillingCheckoutPage", () => {
       billingProvider: "cloudpayments",
       providerSessionRef: "pi-3",
       providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "recurring_start",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null
+      },
       checkout: {
         mode: "embedded",
         expiresAt: "2099-05-05T00:45:00.000Z",
@@ -340,6 +360,69 @@ describe("BillingCheckoutPage", () => {
     );
   });
 
+  it("returns failed to chat when the embedded checkout is abandoned without provider success", async () => {
+    navigationMocks.params = { paymentIntentId: "pi-3a" };
+    (window as Window & { cp?: unknown }).cp = {
+      PaymentBlocks: vi.fn(() => cloudpaymentsMocks.instance)
+    };
+
+    apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "pi-3a",
+      targetPlanCode: "pro_plus",
+      action: "upgrade",
+      status: "checkout_ready",
+      paymentMethodClass: "card",
+      amountMinor: 2000,
+      currency: "RUB",
+      billingPeriod: "month",
+      returnUrl: "/app/chat",
+      billingProvider: "cloudpayments",
+      providerSessionRef: "pi-3a",
+      providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "recurring_start",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null
+      },
+      checkout: {
+        mode: "embedded",
+        expiresAt: "2099-05-05T00:45:00.000Z",
+        payload: {
+          schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
+          initializationParams: {
+            publicTerminalId: "test_api_00000000000000000000002",
+            amount: 20,
+            currency: "RUB",
+            externalId: "pi-3a",
+            paymentSchema: "Single",
+            description: "PersAI subscription PRO",
+            emailBehavior: "Optional",
+            language: "ru-RU",
+            metadata: {}
+          }
+        }
+      },
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-05T00:30:00.000Z",
+      updatedAt: "2026-05-05T00:30:01.000Z"
+    });
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <BillingCheckoutPage />
+      </NextIntlClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(cloudpaymentsMocks.instance.mount).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Return to chat" }));
+    expect(routerMocks.replace).toHaveBeenCalledWith(
+      "/app/chat?billingReturn=failed&billingPlan=pro_plus&billingPaymentIntentId=pi-3a"
+    );
+  });
+
   it("shows a closed checkout state for expired intents", async () => {
     navigationMocks.params = { paymentIntentId: "pi-4" };
     apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
@@ -355,6 +438,11 @@ describe("BillingCheckoutPage", () => {
       billingProvider: "cloudpayments",
       providerSessionRef: "pi-4",
       providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "selected_method_is_not_recurring_capable"
+      },
       checkout: {
         mode: "embedded",
         expiresAt: "2026-05-04T00:45:00.000Z",
@@ -389,5 +477,68 @@ describe("BillingCheckoutPage", () => {
       expect(screen.getByText("This checkout has expired")).toBeInTheDocument();
     });
     expect(cloudpaymentsMocks.instance.mount).not.toHaveBeenCalled();
+  });
+
+  it("shows one-time help copy when the checkout does not start recurring", async () => {
+    navigationMocks.params = { paymentIntentId: "pi-5" };
+    (window as Window & { cp?: unknown }).cp = {
+      PaymentBlocks: vi.fn(() => cloudpaymentsMocks.instance)
+    };
+    apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({
+      id: "pi-5",
+      targetPlanCode: "pro_plus",
+      action: "new_purchase",
+      status: "checkout_ready",
+      paymentMethodClass: "sbp_qr",
+      amountMinor: 2000,
+      currency: "RUB",
+      billingPeriod: "month",
+      returnUrl: "/app/chat",
+      billingProvider: "cloudpayments",
+      providerSessionRef: "pi-5",
+      providerPaymentRef: null,
+      recurring: {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "selected_method_is_not_recurring_capable"
+      },
+      checkout: {
+        mode: "embedded",
+        expiresAt: "2099-05-05T00:45:00.000Z",
+        payload: {
+          schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
+          initializationParams: {
+            publicTerminalId: "test_api_00000000000000000000002",
+            amount: 20,
+            currency: "RUB",
+            externalId: "pi-5",
+            paymentSchema: "Single",
+            description: "PersAI subscription PRO",
+            emailBehavior: "Optional",
+            language: "ru-RU",
+            metadata: {}
+          }
+        }
+      },
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      createdAt: "2026-05-05T00:30:00.000Z",
+      updatedAt: "2026-05-05T00:30:01.000Z"
+    });
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <BillingCheckoutPage />
+      </NextIntlClientProvider>
+    );
+
+    await waitFor(() => {
+      expect(cloudpaymentsMocks.instance.mount).toHaveBeenCalled();
+    });
+    expect(
+      screen.getByText(
+        "This checkout is one-time for the selected payment method. Auto-renewal will not start from this payment."
+      )
+    ).toBeInTheDocument();
   });
 });

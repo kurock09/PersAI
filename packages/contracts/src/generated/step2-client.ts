@@ -65,6 +65,7 @@ import type {
   GetAdminToolPromptMetadataResponse,
   GetAppBootstrapResponse,
   GetAssistantBillingPaymentIntentResponse,
+  GetAssistantBillingSubscriptionResponse,
   GetAssistantKnowledgeSourceResponse,
   GetAssistantKnowledgeSourcesResponse,
   GetAssistantMemoryItemsResponse,
@@ -113,6 +114,7 @@ import type {
   PostAdminSkillDocumentUploadResponse,
   PostAdminSkillKnowledgeCardResponse,
   PostAdminStepUpChallengeResponse,
+  PostAssistantBillingDisableAutoRenewResponse,
   PostAssistantBillingPaymentIntentRequest,
   PostAssistantBillingPaymentIntentResponse,
   PostAssistantKnowledgeSourceUploadBody,
@@ -4665,6 +4667,11 @@ export type getAssistantBillingPaymentIntentResponse200 = {
   status: 200;
 };
 
+export type getAssistantBillingPaymentIntentResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
 export type getAssistantBillingPaymentIntentResponse401 = {
   data: ErrorEnvelope;
   status: 401;
@@ -4685,6 +4692,7 @@ export type getAssistantBillingPaymentIntentResponseSuccess =
     headers: Headers;
   };
 export type getAssistantBillingPaymentIntentResponseError = (
+  | getAssistantBillingPaymentIntentResponse400
   | getAssistantBillingPaymentIntentResponse401
   | getAssistantBillingPaymentIntentResponse404
   | getAssistantBillingPaymentIntentResponse500
@@ -4709,6 +4717,116 @@ export const getAssistantBillingPaymentIntent = async (
     {
       ...options,
       method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Read recurring billing management state for the current user
+ */
+export type getAssistantBillingSubscriptionResponse200 = {
+  data: GetAssistantBillingSubscriptionResponse;
+  status: 200;
+};
+
+export type getAssistantBillingSubscriptionResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantBillingSubscriptionResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantBillingSubscriptionResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantBillingSubscriptionResponseSuccess =
+  getAssistantBillingSubscriptionResponse200 & {
+    headers: Headers;
+  };
+export type getAssistantBillingSubscriptionResponseError = (
+  | getAssistantBillingSubscriptionResponse401
+  | getAssistantBillingSubscriptionResponse404
+  | getAssistantBillingSubscriptionResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantBillingSubscriptionResponse =
+  | getAssistantBillingSubscriptionResponseSuccess
+  | getAssistantBillingSubscriptionResponseError;
+
+export const getGetAssistantBillingSubscriptionUrl = () => {
+  return `/assistant/billing/subscription`;
+};
+
+export const getAssistantBillingSubscription = async (
+  options?: RequestInit
+): Promise<getAssistantBillingSubscriptionResponse> => {
+  return customFetch<getAssistantBillingSubscriptionResponse>(
+    getGetAssistantBillingSubscriptionUrl(),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Disable auto-renew for the current provider-managed recurring subscription
+ */
+export type postAssistantBillingDisableAutoRenewResponse200 = {
+  data: PostAssistantBillingDisableAutoRenewResponse;
+  status: 200;
+};
+
+export type postAssistantBillingDisableAutoRenewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantBillingDisableAutoRenewResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantBillingDisableAutoRenewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantBillingDisableAutoRenewResponseSuccess =
+  postAssistantBillingDisableAutoRenewResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantBillingDisableAutoRenewResponseError = (
+  | postAssistantBillingDisableAutoRenewResponse401
+  | postAssistantBillingDisableAutoRenewResponse404
+  | postAssistantBillingDisableAutoRenewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantBillingDisableAutoRenewResponse =
+  | postAssistantBillingDisableAutoRenewResponseSuccess
+  | postAssistantBillingDisableAutoRenewResponseError;
+
+export const getPostAssistantBillingDisableAutoRenewUrl = () => {
+  return `/assistant/billing/subscription/disable-auto-renew`;
+};
+
+export const postAssistantBillingDisableAutoRenew = async (
+  options?: RequestInit
+): Promise<postAssistantBillingDisableAutoRenewResponse> => {
+  return customFetch<postAssistantBillingDisableAutoRenewResponse>(
+    getPostAssistantBillingDisableAutoRenewUrl(),
+    {
+      ...options,
+      method: "POST"
     }
   );
 };

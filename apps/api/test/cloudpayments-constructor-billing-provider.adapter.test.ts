@@ -29,6 +29,8 @@ async function run(): Promise<void> {
     paymentMethodClass: "card",
     returnUrl: "/app/chat",
     providerCustomerRef: "cust-1",
+    checkoutKind: "one_time",
+    recurringPlan: null,
     metadata: {
       currentPlanCode: "starter",
       currentSubscriptionStatus: "active"
@@ -75,6 +77,58 @@ async function run(): Promise<void> {
     ).recurringReady,
     false
   );
+  assert.equal(
+    (
+      (session.payload.initializationParams as Record<string, unknown>).metadata as Record<
+        string,
+        unknown
+      >
+    ).checkoutKind,
+    "one_time"
+  );
+
+  const recurringSession = await adapter.createCheckoutSession({
+    paymentIntentId: "pi-3",
+    workspaceId: "ws-1",
+    userId: "user-1",
+    planCode: "pro",
+    action: "new_purchase",
+    amountMinor: 98000,
+    currency: "RUB",
+    billingPeriod: "month",
+    paymentMethodClass: "card",
+    returnUrl: "/app/chat",
+    providerCustomerRef: "cust-1",
+    checkoutKind: "recurring_start",
+    recurringPlan: {
+      interval: "Month",
+      period: 1,
+      maxPeriods: null,
+      amountMinor: 98000,
+      startDate: "2026-05-05T12:00:00.000Z"
+    },
+    metadata: {}
+  });
+  const recurringData = (recurringSession.payload.initializationParams as Record<string, unknown>)
+    .data as Record<string, unknown>;
+  assert.deepEqual(recurringData, {
+    cloudPayments: {
+      recurrent: {
+        interval: "Month",
+        period: 1,
+        amount: 980,
+        startDate: "2026-05-05T12:00:00.000Z"
+      }
+    },
+    CloudPayments: {
+      recurrent: {
+        interval: "Month",
+        period: 1,
+        amount: 980,
+        startDate: "2026-05-05T12:00:00.000Z"
+      }
+    }
+  });
 
   const missingConfigAdapter = new CloudpaymentsConstructorBillingProviderAdapter({
     async resolveSecretValueByProviderKey(providerKey: string) {
@@ -96,6 +150,8 @@ async function run(): Promise<void> {
         paymentMethodClass: "card",
         returnUrl: "/app/chat",
         providerCustomerRef: null,
+        checkoutKind: "one_time",
+        recurringPlan: null,
         metadata: {}
       }),
     (error: unknown) =>

@@ -8,6 +8,7 @@ import type {
 } from "@persai/runtime-contract";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 import type {
+  InternalQuotaCheckoutOutcome,
   InternalQuotaStatusOutcome,
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
@@ -20,6 +21,10 @@ const KNOWLEDGE_ACCESS_EMPTY = {
   ragMode: "pattern_only",
   sources: []
 } satisfies RuntimeKnowledgeAccessConfig;
+
+function normalizeSpacing(value: string | null | undefined): string | null {
+  return typeof value === "string" ? value.replace(/\u00a0/g, " ") : null;
+}
 
 const WORKER_TOOLS_CONFIG = {
   tools: []
@@ -192,6 +197,18 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 class FakePersaiInternalApiClientService {
   readCalls: Array<Record<string, unknown>> = [];
   checkoutCalls: Array<Record<string, unknown>> = [];
+  checkoutOutcome: InternalQuotaCheckoutOutcome = {
+    paymentIntentId: "pi-1",
+    targetPlanCode: "paid",
+    paymentMethodClass: "card" as const,
+    recurringCheckoutKind: "recurring_start" as const,
+    recurringSupportedBySelectedMethod: true,
+    recurringUnsupportedReason: null,
+    checkoutMode: "embedded" as const,
+    checkoutPagePath: "/app/billing/checkout/pi-1",
+    checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
+    checkoutSignInUrl: "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
+  };
   outcome: InternalQuotaStatusOutcome = {
     planCode: "paid",
     currentPlan: {
@@ -206,8 +223,10 @@ class FakePersaiInternalApiClientService {
         highlighted: false,
         isCurrent: false,
         amountMinor: 99000,
+        amountMajor: 990,
         currency: "RUB",
         billingPeriod: "month",
+        priceLabel: { ru: "990 ₽ / месяц", en: "RUB 990 / month" },
         enabledToolCodes: ["web_search"],
         title: { ru: "Старт", en: "Starter" },
         subtitle: { ru: "Для начала", en: "For getting started" },
@@ -233,8 +252,10 @@ class FakePersaiInternalApiClientService {
         highlighted: true,
         isCurrent: true,
         amountMinor: 199000,
+        amountMajor: 1990,
         currency: "RUB",
         billingPeriod: "month",
+        priceLabel: { ru: "1 990 ₽ / месяц", en: "RUB 1,990 / month" },
         enabledToolCodes: ["web_search", "image_generate"],
         title: { ru: "Платный", en: "Paid" },
         subtitle: { ru: "Для работы", en: "For work" },
@@ -312,16 +333,7 @@ class FakePersaiInternalApiClientService {
     if (this.error !== null) {
       throw this.error;
     }
-    return {
-      paymentIntentId: "pi-1",
-      targetPlanCode: "paid",
-      paymentMethodClass: "card" as const,
-      checkoutMode: "embedded" as const,
-      checkoutPagePath: "/app/billing/checkout/pi-1",
-      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
-      checkoutSignInUrl:
-        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
-    };
+    return this.checkoutOutcome;
   }
 }
 
@@ -358,6 +370,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(success.payload.currentPlan.displayName, "Paid");
   assert.equal(success.payload.visiblePlans[0]?.code, "starter");
   assert.equal(success.payload.visiblePlans[0]?.title.ru, "Старт");
+  assert.equal(success.payload.visiblePlans[0]?.amountMajor, 990);
+  assert.equal(normalizeSpacing(success.payload.visiblePlans[1]?.priceLabel.ru), "1 990 ₽ / месяц");
   assert.equal(success.payload.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
   assert.equal(success.payload.tools[0]?.toolCode, "web_search");
   assert.equal(success.payload.buckets[0]?.bucketCode, "token_budget");
@@ -427,6 +441,8 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(checkout.payload.action, "checkout_created");
   assert.equal(checkout.payload.checkout?.paymentIntentId, "pi-1");
   assert.equal(checkout.payload.checkout?.checkoutPagePath, "/app/billing/checkout/pi-1");
+  assert.equal(checkout.payload.checkout?.recurringCheckoutKind, "recurring_start");
+  assert.equal(checkout.payload.checkout?.recurringSupportedBySelectedMethod, true);
   assert.equal(
     checkout.payload.checkout?.checkoutPageUrl,
     "https://persai.dev/app/billing/checkout/pi-1"
@@ -438,6 +454,38 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
     paymentMethodClass: "card",
     confirmed: true
   });
+
+  internalApi.checkoutOutcome = {
+    paymentIntentId: "pi-2",
+    targetPlanCode: "paid",
+    paymentMethodClass: "sbp_qr",
+    recurringCheckoutKind: "one_time",
+    recurringSupportedBySelectedMethod: false,
+    recurringUnsupportedReason: "selected_method_is_not_recurring_capable",
+    checkoutMode: "embedded",
+    checkoutPagePath: "/app/billing/checkout/pi-2",
+    checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-2",
+    checkoutSignInUrl: "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-2"
+  };
+  const oneTimeCheckout = await service.executeToolCall({
+    bundle,
+    requestId: "request-5b",
+    currentUserText: "Да, через СБП",
+    toolCall: createToolCall({
+      action: "create_checkout",
+      targetPlanCode: "paid",
+      paymentMethodClass: "sbp_qr",
+      confirmed: true
+    })
+  });
+  assert.equal(oneTimeCheckout.payload.action, "checkout_created");
+  assert.equal(oneTimeCheckout.payload.checkout?.paymentIntentId, "pi-2");
+  assert.equal(oneTimeCheckout.payload.checkout?.recurringCheckoutKind, "one_time");
+  assert.equal(oneTimeCheckout.payload.checkout?.recurringSupportedBySelectedMethod, false);
+  assert.equal(
+    oneTimeCheckout.payload.checkout?.recurringUnsupportedReason,
+    "selected_method_is_not_recurring_capable"
+  );
 
   const confirmationRequired = await service.executeToolCall({
     bundle,

@@ -36,6 +36,12 @@ export type AssistantPaymentCheckoutMode =
   | "qr_code"
   | "manual_test";
 
+export type AssistantPaymentIntentRecurringState = {
+  checkoutKind: "one_time" | "recurring_start";
+  supportedBySelectedMethod: boolean;
+  unsupportedReason: string | null;
+};
+
 export type CreateAssistantPaymentIntentInput = {
   planCode: string;
   paymentMethodClass: AssistantPaymentMethodClass;
@@ -56,6 +62,7 @@ export type AssistantPaymentIntentState = {
   billingProvider: string | null;
   providerSessionRef: string | null;
   providerPaymentRef: string | null;
+  recurring: AssistantPaymentIntentRecurringState;
   checkout: {
     mode: AssistantPaymentCheckoutMode | null;
     expiresAt: string | null;
@@ -98,6 +105,16 @@ type StoredPlanPrice = {
   amountMinor: number;
   currency: string;
   billingPeriod: AssistantPaymentIntentBillingPeriod;
+};
+
+type ResolvedRecurringCheckout = AssistantPaymentIntentRecurringState & {
+  recurringPlan: {
+    interval: "Day" | "Week" | "Month";
+    period: number;
+    maxPeriods: number | null;
+    amountMinor: number | null;
+    startDate: string | null;
+  } | null;
 };
 
 function toMinorCurrencyUnits(amountMajor: number): number {
@@ -221,6 +238,16 @@ function parseStoredPlanPrice(billingProviderHints: unknown): StoredPlanPrice | 
   };
 }
 
+function asRecurringState(value: unknown): AssistantPaymentIntentRecurringState {
+  const row = asObject(value);
+  const checkoutKind = row?.checkoutKind === "recurring_start" ? "recurring_start" : "one_time";
+  return {
+    checkoutKind,
+    supportedBySelectedMethod: row?.supportedBySelectedMethod !== false,
+    unsupportedReason: toNullableString(row?.unsupportedReason)
+  };
+}
+
 @Injectable()
 export class ManageAssistantPaymentIntentsService {
   constructor(
@@ -277,6 +304,15 @@ export class ManageAssistantPaymentIntentsService {
       currency: targetPrice.currency,
       billingPeriod: targetPrice.billingPeriod
     });
+    if (action === "upgrade") {
+      this.assertRecurringUpgradeIsSupported(context);
+    }
+    const recurring = this.resolveRecurringCheckout({
+      action,
+      paymentMethodClass: input.paymentMethodClass,
+      billingPeriod: targetPrice.billingPeriod,
+      amountMinor: toMinorCurrencyUnits(targetPrice.amount)
+    });
 
     const existing = await this.prisma.workspacePaymentIntent.findUnique({
       where: {
@@ -309,7 +345,12 @@ export class ManageAssistantPaymentIntentsService {
           schema: "persai.paymentIntent.v1",
           effectivePlanCode: context.subscription.planCode,
           effectiveSubscriptionStatus: context.subscription.status,
-          sourceSurface: "assistant_billing_api"
+          sourceSurface: "assistant_billing_api",
+          recurring: {
+            checkoutKind: recurring.checkoutKind,
+            supportedBySelectedMethod: recurring.supportedBySelectedMethod,
+            unsupportedReason: recurring.unsupportedReason
+          }
         }
       },
       select: paymentIntentSelect
@@ -328,9 +369,13 @@ export class ManageAssistantPaymentIntentsService {
         paymentMethodClass: input.paymentMethodClass,
         returnUrl: input.returnUrl,
         providerCustomerRef: context.providerCustomerRef,
+        checkoutKind: recurring.checkoutKind,
+        recurringPlan: recurring.recurringPlan,
         metadata: {
           currentPlanCode: context.subscription.planCode,
-          currentSubscriptionStatus: context.subscription.status
+          currentSubscriptionStatus: context.subscription.status,
+          recurringSupportedBySelectedMethod: recurring.supportedBySelectedMethod,
+          recurringUnsupportedReason: recurring.unsupportedReason
         }
       });
       const updated = (await this.prisma.workspacePaymentIntent.update({
@@ -391,7 +436,12 @@ export class ManageAssistantPaymentIntentsService {
 
   private async resolveBillingContext(userId: string): Promise<{
     assistant: { id: string; workspaceId: string };
-    subscription: { planCode: string | null; status: string };
+    subscription: {
+      planCode: string | null;
+      status: string;
+      billingProvider: string | null;
+      providerSubscriptionRef: string | null;
+    };
     currentPlanPrice: StoredPlanPrice | null;
     providerCustomerRef: string | null;
   }> {
@@ -421,7 +471,9 @@ export class ManageAssistantPaymentIntentsService {
     const currentSnapshot = await this.prisma.workspaceSubscription.findUnique({
       where: { workspaceId: assistant.workspaceId },
       select: {
-        providerCustomerRef: true
+        providerCustomerRef: true,
+        billingProvider: true,
+        providerSubscriptionRef: true
       }
     });
     return {
@@ -431,7 +483,9 @@ export class ManageAssistantPaymentIntentsService {
       },
       subscription: {
         planCode: subscription.planCode,
-        status: subscription.status
+        status: subscription.status,
+        billingProvider: currentSnapshot?.billingProvider ?? null,
+        providerSubscriptionRef: currentSnapshot?.providerSubscriptionRef ?? null
       },
       currentPlanPrice: parseStoredPlanPrice(currentPlan?.billingProviderHints ?? null),
       providerCustomerRef: currentSnapshot?.providerCustomerRef ?? null
@@ -465,6 +519,25 @@ export class ManageAssistantPaymentIntentsService {
     );
   }
 
+  private assertRecurringUpgradeIsSupported(context: {
+    subscription: {
+      status: string;
+      billingProvider: string | null;
+      providerSubscriptionRef: string | null;
+    };
+  }): void {
+    const hasActiveProviderManagedRecurring =
+      context.subscription.billingProvider === "cloudpayments" &&
+      context.subscription.providerSubscriptionRef !== null &&
+      ["active", "grace_period", "past_due"].includes(context.subscription.status);
+    if (!hasActiveProviderManagedRecurring) {
+      return;
+    }
+    throw new BadRequestException(
+      "Changing an existing recurring subscription in place is not supported yet. Disable auto-renew or wait for the paid period to end before switching plans."
+    );
+  }
+
   private assertExistingIntentMatches(
     existing: PaymentIntentRecord,
     input: CreateAssistantPaymentIntentInput,
@@ -495,6 +568,7 @@ export class ManageAssistantPaymentIntentsService {
       billingProvider: record.billingProvider,
       providerSessionRef: record.providerSessionRef,
       providerPaymentRef: record.providerPaymentRef,
+      recurring: asRecurringState(asObject(record.metadata)?.recurring),
       checkout: {
         mode: record.checkoutMode,
         expiresAt: record.expiresAt?.toISOString() ?? null,
@@ -504,6 +578,42 @@ export class ManageAssistantPaymentIntentsService {
       lastErrorMessage: record.lastErrorMessage,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString()
+    };
+  }
+
+  private resolveRecurringCheckout(input: {
+    action: AssistantPaymentIntentAction;
+    paymentMethodClass: AssistantPaymentMethodClass;
+    billingPeriod: AssistantPaymentIntentBillingPeriod;
+    amountMinor: number;
+  }): ResolvedRecurringCheckout {
+    if (input.paymentMethodClass !== "card") {
+      return {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "selected_method_is_not_recurring_capable",
+        recurringPlan: null
+      };
+    }
+    if (input.action !== "new_purchase" && input.action !== "upgrade") {
+      return {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "current_payment_action_is_not_recurring_start",
+        recurringPlan: null
+      };
+    }
+    return {
+      checkoutKind: "recurring_start",
+      supportedBySelectedMethod: true,
+      unsupportedReason: null,
+      recurringPlan: {
+        interval: "Month",
+        period: input.billingPeriod === "year" ? 12 : 1,
+        maxPeriods: null,
+        amountMinor: input.amountMinor,
+        startDate: null
+      }
     };
   }
 }
