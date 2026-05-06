@@ -259,6 +259,16 @@ function FeedbackLine({ fb }: { fb: ActionFeedback }) {
   );
 }
 
+function hasPaidBillingSettings(
+  subscription: AssistantBillingSubscriptionManagementState | null
+): boolean {
+  return (
+    subscription !== null &&
+    subscription.currentPeriodEndsAt !== null &&
+    ["active", "grace_period", "past_due", "canceled"].includes(subscription.subscriptionStatus)
+  );
+}
+
 const AVATAR_EMOJIS = ["🌟", "🧠", "⚡", "🧘", "🤖", "🌙", "🔥", "🔮", "🌊", "💎", "✨", "🪐"];
 
 function ActionButton({
@@ -792,13 +802,15 @@ export function AssistantSettings({
     }
     window.open(url, "_blank", "noopener,noreferrer");
   }, [billingSubscription]);
-  const shouldShowPaymentSettings = isPaidRecurringSubscription(billingSubscription);
+  const shouldShowRecurringBillingControls = isPaidRecurringSubscription(billingSubscription);
+  const shouldShowPaymentSettings = hasPaidBillingSettings(billingSubscription);
   const shouldPreferBillingSettingsEntry =
     shouldShowPaymentSettings ||
     ((!billingSubscriptionLoaded || billingSubscriptionFb?.type === "err") &&
-      ["active", "grace_period", "past_due"].includes(
+      ["active", "grace_period", "past_due", "canceled"].includes(
         data.plan?.effectivePlan.subscriptionStatus ?? "unconfigured"
-      ));
+      ) &&
+      data.plan?.effectivePlan.currentPeriodEndsAt !== null);
   const nextChargeLabel = formatBillingDate(billingSubscription?.nextChargeAt ?? null);
   const currentPeriodEndsLabel = formatBillingDate(
     billingSubscription?.currentPeriodEndsAt ?? null
@@ -839,6 +851,9 @@ export function AssistantSettings({
     billingSubscription !== null
       ? (billingSubscription.warning ?? t("billingSettingsQuietHint"))
       : t("billingSettingsUnknownHint");
+  const billingSettingsDescription = shouldShowRecurringBillingControls
+    ? t("paymentSettingsDescription")
+    : t("paymentSettingsNonRecurringDescription");
 
   useEffect(() => {
     setNativeShell(isNativeShell());
@@ -2567,17 +2582,24 @@ export function AssistantSettings({
                 <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-subtle">
                   {t("currentPlan")}
                 </p>
-                <button
-                  type="button"
-                  onClick={() =>
-                    shouldPreferBillingSettingsEntry
-                      ? void openBillingSettings()
-                      : onOpenPricingPage?.()
-                  }
-                  className="inline-flex min-h-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                >
-                  {shouldPreferBillingSettingsEntry ? t("paymentSettings") : t("changePlan")}
-                </button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onOpenPricingPage?.()}
+                    className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                  >
+                    {shouldPreferBillingSettingsEntry ? t("buySubscription") : t("changePlan")}
+                  </button>
+                  {shouldPreferBillingSettingsEntry ? (
+                    <button
+                      type="button"
+                      onClick={() => void openBillingSettings()}
+                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 px-3.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                    >
+                      {t("paymentSettings")}
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               <div className="mt-3 flex items-end justify-between gap-3">
@@ -2746,7 +2768,7 @@ export function AssistantSettings({
                   <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
                     {t("paymentSettings")}
                   </h3>
-                  <p className="mt-1 text-sm text-text-muted">{t("paymentSettingsDescription")}</p>
+                  <p className="mt-1 text-sm text-text-muted">{billingSettingsDescription}</p>
                 </div>
                 <button
                   type="button"
@@ -2805,41 +2827,40 @@ export function AssistantSettings({
                     </div>
                   </div>
                   <div className="grid gap-2">
-                    <button
-                      type="button"
-                      onClick={handleManagePaymentMethod}
-                      disabled={!billingSubscription?.managePaymentMethodUrl}
-                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span>{t("billingManagePaymentMethod")}</span>
-                      <ExternalLink className="h-4 w-4" />
-                    </button>
+                    {billingSubscription?.managePaymentMethodUrl ? (
+                      <button
+                        type="button"
+                        onClick={handleManagePaymentMethod}
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-surface-raised/60 px-4 text-sm font-medium text-text transition-colors hover:bg-surface-hover"
+                      >
+                        <span>{t("billingManagePaymentMethod")}</span>
+                        <ExternalLink className="h-4 w-4" />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onOpenPricingPage?.()}
                       className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
-                      {t("changePlan")}
+                      {t("buySubscription")}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDisableAutoRenew()}
-                      disabled={
-                        disableAutoRenewPending ||
-                        !billingSubscription?.canDisableAutoRenew ||
-                        !billingSubscription?.autoRenewEnabled
-                      }
-                      className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {disableAutoRenewPending ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          {t("billingDisabling")}
-                        </span>
-                      ) : (
-                        t("billingDisableAutoRenew")
-                      )}
-                    </button>
+                    {billingSubscription?.canDisableAutoRenew ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDisableAutoRenew()}
+                        disabled={disableAutoRenewPending || !billingSubscription.autoRenewEnabled}
+                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {disableAutoRenewPending ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t("billingDisabling")}
+                          </span>
+                        ) : (
+                          t("billingDisableAutoRenew")
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                   <FeedbackLine fb={billingSubscriptionFb} />
                 </>

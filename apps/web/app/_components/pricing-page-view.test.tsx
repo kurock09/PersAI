@@ -136,6 +136,55 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
   });
 
+  it("uses the same card background for current and highlighted plans while accenting them with a premium border", () => {
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null }
+            }
+          }),
+          makePlan({
+            code: "pro",
+            displayName: "Pro"
+          }),
+          makePlan({
+            code: "ultima",
+            displayName: "Ultima",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Ultima", en: "Ultima" },
+              badge: { ru: null, en: null }
+            }
+          })
+        ]}
+        currentPlanCode="free"
+        signedIn
+      />
+    );
+
+    const currentCard = screen.getByText("Free").closest("section");
+    const highlightedCard = screen.getByText("Pro").closest("section");
+    const regularCard = screen.getByText("Ultima").closest("section");
+
+    expect(currentCard?.className).toContain("border-transparent");
+    expect(currentCard?.className).toContain(
+      "[background:linear-gradient(var(--surface),var(--surface))_padding-box"
+    );
+    expect(highlightedCard?.className).toContain("border-transparent");
+    expect(highlightedCard?.className).toContain(
+      "[background:linear-gradient(var(--surface),var(--surface))_padding-box"
+    );
+    expect(regularCard?.className).toContain("border-border/80");
+  });
+
   it("uses Connect as the signed-in fallback CTA when plan copy is missing", () => {
     renderView(
       <PricingPageView

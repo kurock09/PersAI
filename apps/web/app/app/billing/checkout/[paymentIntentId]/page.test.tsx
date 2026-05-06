@@ -274,7 +274,9 @@ describe("BillingCheckoutPage", () => {
 
     expect(PaymentBlocksCtor).toHaveBeenCalledWith(
       expect.objectContaining({
-        amount: 560,
+        amount: 560
+      }),
+      expect.objectContaining({
         appearance: expect.objectContaining({
           colors: expect.objectContaining({
             inputBackground: "#fcfaf5",

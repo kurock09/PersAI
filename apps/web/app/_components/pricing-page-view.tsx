@@ -183,6 +183,7 @@ export function PricingPageView({
                 const highlights = pickLocalizedList(locale, plan.presentation.highlightItems);
                 const facts = derivePlanFacts(plan, t);
                 const isCurrent = currentPlanCode === plan.code;
+                const isEmphasized = plan.presentation.highlighted || isCurrent;
                 const signUpHref = "/sign-up" as const;
                 const isSubmitting = submittingPlanKey === plan.code;
                 const planError = planErrors[plan.code] ?? null;
@@ -191,13 +192,18 @@ export function PricingPageView({
                   <section
                     key={plan.code}
                     className={cn(
-                      "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:border-accent/35 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] sm:p-6 lg:min-h-[40rem]",
-                      plan.presentation.highlighted || isCurrent
-                        ? "border-accent/40 bg-surface-raised/90"
-                        : "border-border/80"
+                      "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] sm:p-6 lg:min-h-[40rem]",
+                      isEmphasized
+                        ? "border-transparent [background:linear-gradient(var(--surface),var(--surface))_padding-box,linear-gradient(135deg,rgba(255,228,153,0.68),rgba(214,170,70,0.42),rgba(255,244,214,0.2),rgba(176,132,33,0.55))_border-box] hover:[background:linear-gradient(var(--surface),var(--surface))_padding-box,linear-gradient(135deg,rgba(255,235,179,0.84),rgba(219,178,84,0.56),rgba(255,248,230,0.28),rgba(186,141,39,0.68))_border-box]"
+                        : "border-border/80 hover:border-accent/35"
                     )}
                   >
-                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
+                    <div
+                      className={cn(
+                        "absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent",
+                        isEmphasized ? "via-[#f0d48a]/70" : "via-accent/40"
+                      )}
+                    />
 
                     {badge || isCurrent ? (
                       <div className="flex min-h-8 items-center gap-2">

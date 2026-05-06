@@ -60,10 +60,9 @@ type CloudpaymentsConstructorPayload = {
   expiresAt?: string;
 };
 
-type CloudpaymentsBlocksOptions = CloudpaymentsConstructorPayload["initializationParams"] & {
-  appearance?: NonNullable<CloudpaymentsConstructorPayload["customizationParams"]>["appearance"];
-  components?: NonNullable<CloudpaymentsConstructorPayload["customizationParams"]>["components"];
-};
+type CloudpaymentsBlocksCustomization = NonNullable<
+  CloudpaymentsConstructorPayload["customizationParams"]
+>;
 
 type LegacyCloudpaymentsWidgetPayload = {
   schema: "persai.billing.cloudpaymentsWidgetCheckout.v1";
@@ -73,8 +72,8 @@ declare global {
   interface Window {
     cp?: {
       PaymentBlocks: new (
-        options: CloudpaymentsBlocksOptions,
-        configuration?: Record<string, unknown>
+        initializationParams: CloudpaymentsConstructorPayload["initializationParams"],
+        customizationParams?: CloudpaymentsBlocksCustomization
       ) => {
         mount: (target: HTMLElement) => void;
         unmount: () => void;
@@ -230,10 +229,10 @@ function resolveCheckoutTheme(): CheckoutResolvedTheme {
   return document.documentElement.classList.contains("light") ? "light" : "dark";
 }
 
-function buildThemeAwareBlocksOptions(
+function buildThemeAwareCustomizationParams(
   payload: CloudpaymentsConstructorPayload,
   resolvedTheme: CheckoutResolvedTheme
-): CloudpaymentsBlocksOptions {
+): CloudpaymentsBlocksCustomization {
   const themeColors =
     resolvedTheme === "light"
       ? {
@@ -266,7 +265,6 @@ function buildThemeAwareBlocksOptions(
         };
 
   return {
-    ...payload.initializationParams,
     ...payload.customizationParams,
     appearance: {
       ...payload.customizationParams?.appearance,
@@ -275,7 +273,9 @@ function buildThemeAwareBlocksOptions(
         ...themeColors
       }
     },
-    components: payload.customizationParams?.components
+    ...(payload.customizationParams?.components !== undefined
+      ? { components: payload.customizationParams.components }
+      : {})
   };
 }
 
@@ -464,7 +464,8 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
         }
 
         blocksApp = new PaymentBlocks(
-          buildThemeAwareBlocksOptions(constructorPayload, resolvedTheme)
+          constructorPayload.initializationParams,
+          buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme)
         );
         blocksApp.mount(embeddedContainerRef.current);
         revealTimer = window.setTimeout(() => {

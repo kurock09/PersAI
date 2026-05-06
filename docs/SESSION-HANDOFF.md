@@ -1,5 +1,78 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 CloudPayments constructor customization-arg fix) — return checkout theming to the documented `PaymentBlocks` API shape
+
+### What changed
+
+- Re-checked the live checkout-theme regression against the current CloudPayments constructor docs instead of guessing from stale assumptions.
+- Found a real integration drift in `apps/web`: the checkout page had been flattening `appearance/components` into the first `new cp.PaymentBlocks(...)` argument, even though the current CloudPayments documentation still defines customization as the second constructor argument.
+- The checkout page now passes `initializationParams` first and theme-aware `customizationParams` second again. The focused checkout regression test was updated to lock this constructor call shape, so provider-supported theming keys such as the form/background-related appearance colors go back through the argument slot CloudPayments documents.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This restores the documented constructor contract, but the final rendered inner surface still depends on which exact appearance keys CloudPayments currently maps inside their hosted iframe. If they no longer apply a given color key to the full receipt/container background, that remaining visual gap still has to be validated live.
+
+### Next recommended step
+
+- Open one live dark-theme checkout and confirm whether the inner CloudPayments surface background now follows the intended theme again after returning `customizationParams` to the documented second constructor argument.
+
+## 2026-05-06 (pricing card premium-border polish) — make the current and recommended tariffs distinct without loud fill
+
+### What changed
+
+- Polished the public/in-app pricing cards after founder visual feedback that the current tariff and the recommended `PRO` card were reading too similarly.
+- `PricingPageView` no longer gives emphasized cards a different filled background from the rest of the grid. The shared card surface now stays consistent, while `current` and admin-highlighted cards are accented by a thin restrained gold gradient border and matching top line that stays premium but quiet in both light and dark themes.
+- Added a focused regression so the current card and highlighted card both keep the shared background treatment while the premium border remains reserved for emphasized cards.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice intentionally tunes only the card chrome. It does not change plan ordering, pricing copy, or the separate checkout visual language.
+
+### Next recommended step
+
+- Re-open `/pricing` and `/app/pricing` in both themes and visually confirm the gold border feels premium but still quiet on real screens, especially on the `FREE` current state and the highlighted `PRO` card side by side.
+
+## 2026-05-06 (ADR-084 paid billing settings follow-through) — keep `Payment settings` available for one-time paid subscriptions
+
+### What changed
+
+- Closed the founder-reported live gap after successful non-recurring payment: `Assistant Settings -> Limits & Plan` no longer ties the `Payment settings` entry strictly to provider-managed recurring state.
+- The web now treats paid access itself as the entry condition for billing settings when the user still has a real paid period (`currentPeriodEndsAt` plus active/grace/past-due/canceled lifecycle). This keeps billing details reachable for one-time paid subscriptions while preserving the stricter recurring-only rules for auto-renew and provider payment-method management.
+- The top CTA layout is now explicit instead of overloading one button: paid users see `Buy subscription` plus `Payment settings`. Inside the modal, recurring-only actions are hidden when unavailable, and one-time paid subscriptions get honest non-recurring copy plus access-period details instead of a misleading recurring-management shell.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice intentionally does not add new backend billing-management fields because the existing subscription-management response already carries enough truth to distinguish paid access from recurring controls. If product later wants richer one-time payment-method provenance, that should be a separate bounded API slice.
+- CloudPayments embedded-form theming remains provider-surface validation work, not part of this UI truth fix.
+
+### Next recommended step
+
+- Re-run one live paid checkout in `persai-dev` for a non-recurring method and confirm the post-payment state now stays stable as `Buy subscription` plus `Payment settings`, with the modal showing `Access until` and no fake recurring controls.
+
 ## 2026-05-06 (ADR-084 recurring billing PROD hardening) — close the remaining backend P0s before live rollout
 
 ### What changed

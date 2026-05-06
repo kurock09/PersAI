@@ -1005,6 +1005,7 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy subscription" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
@@ -1026,6 +1027,86 @@ describe("AssistantSettings limits", () => {
       await screen.findByText("Auto-renew was turned off for the current paid period.")
     ).toBeInTheDocument();
     expect(openPricingPage).not.toHaveBeenCalled();
+  });
+
+  it("keeps payment settings available for one-time paid access without recurring controls", async () => {
+    const openPricingPage = vi.fn();
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: null,
+      autoRenewEnabled: false,
+      canDisableAutoRenew: false,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: null,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      warning: null
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits",
+      { onOpenPricingPage: openPricingPage }
+    );
+
+    expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Buy subscription" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
+
+    expect(
+      await screen.findByText(
+        "View payment details and access period from server-truth billing state."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText("Access until")).toBeInTheDocument();
+    expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
+    expect(screen.getByText("Off")).toBeInTheDocument();
+    expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
   });
 
   it("keeps payment settings entry reachable when recurring state refresh fails", async () => {
