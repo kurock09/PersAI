@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 checkout localhost API-base hotfix) — generated contracts fetch no longer trusts browser localhost and dev web deploy now pins same-origin `/api/v1`
+
+### What changed
+
+- Investigated the founder-reported live `persai-dev` checkout regression where the billing screen now showed `Оплата сейчас недоступна / Connection error` right after the latest billing deploy even though the checkout flow had been working earlier.
+- Confirmed from live GKE evidence that the payment-intent backend itself was healthy: `api` returned `200` for the active `GET /api/v1/assistant/billing/payment-intents/:paymentIntentId` request, ingress was healthy, and `web` was not crashing.
+- Found the real root cause in the client transport seam, not in the billing UI shell fix: the generated contracts mutator in `packages/contracts/src/mutator/custom-fetch.ts` still trusted `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1` in the browser, while the main `assistant-api-client.ts` had already been hardened earlier to ignore localhost and fall back to same-origin `/api/v1`.
+- Confirmed the live `web` deployment in `persai-dev` still carried that bad public env value across multiple ReplicaSet revisions, even though current repo-truth Helm values no longer relied on it implicitly.
+- Fixed both layers: the contracts mutator now ignores browser localhost just like the main web API client, and the dev Helm values now explicitly set `web.env.NEXT_PUBLIC_API_BASE_URL=/api/v1` so the deployed checkout path stays browser-safe even if stale live env drift reappears.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml`
+
+### Risks / residuals
+
+- The live cluster was demonstrably carrying a drifted `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001/api/v1` in the deployed `web` manifest, so after this repo fix lands the environment should be re-synced and re-checked in GKE to confirm the old deployment template is gone.
+- This closes the browser localhost transport seam for generated contracts calls, but any other future client transport helper that reads `NEXT_PUBLIC_API_BASE_URL` directly without the same localhost guard could recreate the same class of bug.
+
+### Next recommended step
+
+- Deploy the updated `web` and re-open one live checkout in `persai-dev`; verify that the browser now calls same-origin `/api/v1/...` instead of device-local `localhost`, then continue the separate live billing webhook verification path.
+
 ## 2026-05-06 (ADR-084 live `check` UUID lookup hotfix) — CloudPayments short refs no longer crash Prisma before intent matching
 
 ### What changed
