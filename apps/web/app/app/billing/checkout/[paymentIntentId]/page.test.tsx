@@ -25,7 +25,6 @@ const apiMocks = vi.hoisted(() => ({
 const cloudpaymentsMocks = vi.hoisted(() => ({
   instance: {
     mount: vi.fn(),
-    update: vi.fn(),
     unmount: vi.fn(),
     on: vi.fn(),
     off: vi.fn()
@@ -54,7 +53,6 @@ afterEach(() => {
   navigationMocks.params = { paymentIntentId: "pi-1" };
   apiMocks.getAssistantBillingPaymentIntent.mockReset();
   cloudpaymentsMocks.instance.mount.mockReset();
-  cloudpaymentsMocks.instance.update.mockReset();
   cloudpaymentsMocks.instance.unmount.mockReset();
   cloudpaymentsMocks.instance.on.mockReset();
   cloudpaymentsMocks.instance.off.mockReset();
@@ -118,7 +116,6 @@ describe("BillingCheckoutPage", () => {
       customizationParams?: unknown
     ) => {
       mount: (target: unknown) => void;
-      update: (customizationParams: unknown) => void;
       unmount: () => void;
       on: (event: string, callback: () => void) => void;
       off: (event: string) => void;
@@ -198,7 +195,6 @@ describe("BillingCheckoutPage", () => {
       customizationParams?: unknown
     ) => {
       mount: (target: unknown) => void;
-      update: (customizationParams: unknown) => void;
       unmount: () => void;
       on: (event: string, callback: () => void) => void;
       off: (event: string) => void;
@@ -263,18 +259,6 @@ describe("BillingCheckoutPage", () => {
 
     expect(PaymentBlocksCtor).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({
-        appearance: expect.objectContaining({
-          colors: expect.objectContaining({
-            inputBackground: "#fcfaf5",
-            inputColor: "#1f1a12",
-            textColor: "#1f1a12",
-            titleColor: "#1f1a12"
-          })
-        })
-      })
-    );
-    expect(cloudpaymentsMocks.instance.update).toHaveBeenCalledWith(
       expect.objectContaining({
         appearance: expect.objectContaining({
           colors: expect.objectContaining({

@@ -72,9 +72,6 @@ declare global {
         customizationParams?: CloudpaymentsConstructorPayload["customizationParams"]
       ) => {
         mount: (target: HTMLElement) => void;
-        update: (
-          customizationParams: CloudpaymentsConstructorPayload["customizationParams"]
-        ) => void;
         unmount: () => void;
         on: (event: "success" | "fail" | "destroy", callback: (result?: unknown) => void) => void;
         off: (event: "success" | "fail" | "destroy") => void;
@@ -464,7 +461,6 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
           buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme)
         );
         blocksApp.mount(embeddedContainerRef.current);
-        blocksApp.update(buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme));
         revealTimer = window.setTimeout(() => {
           if (!cancelled) {
             setPaymentFormVisible(true);

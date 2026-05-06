@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-05-06 (ADR-084 checkout PaymentBlocks init hotfix) — remove the redundant post-mount `update()` call that could abort provider form startup
+
+### What changed
+
+- Re-investigated the live founder checkout failure after the earlier localhost API-base diagnosis because the billing screen still showed `Оплата сейчас недоступна / Connection error`.
+- The decisive live evidence was in the `api` logs: during the same failing browser session, `GET /api/v1/assistant/billing/payment-intents/:paymentIntentId` returned `200` twice, which disproved the idea that this specific error state was still coming from a failed payment-intent fetch.
+- That narrowed the failure to the next client-side phase: `CloudPayments PaymentBlocks` initialization inside the checkout page.
+- The recent checkout shell fix had added an immediate `blocksApp.update(...)` call right after `blocksApp.mount(...)`, but that step was redundant because the page effect already tears down and recreates the full constructor whenever the resolved theme changes.
+- Removed the post-mount `update()` call and the matching test mock expectations, leaving the theme-aware customization payload applied only through the initial constructor call.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This hotfix removes the newest redundant provider-init step, which is the strongest code-level suspect now that live logs prove payment-intent fetches were succeeding. Final proof still requires a fresh live checkout after deploy because CloudPayments provider-side behavior is not directly observable from server logs.
+- The separate localhost API-base hardening fix should still be kept; it closes a real client transport risk even though it was not the immediate cause of the latest failing screenshot.
+
+### Next recommended step
+
+- Deploy the updated `web`, reopen one live billing checkout in `persai-dev`, and confirm that the CloudPayments form now mounts instead of falling into the generic `Connection error` shell.
+
 ## 2026-05-06 (ADR-084 checkout localhost API-base hotfix) — generated contracts fetch no longer trusts browser localhost and dev web deploy now pins same-origin `/api/v1`
 
 ### What changed
