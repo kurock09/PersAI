@@ -114,7 +114,11 @@ import type {
   PostAdminSkillDocumentUploadResponse,
   PostAdminSkillKnowledgeCardResponse,
   PostAdminStepUpChallengeResponse,
+  PostAssistantBillingChangePlanRequest,
+  PostAssistantBillingChangePlanResponse,
   PostAssistantBillingDisableAutoRenewResponse,
+  PostAssistantBillingEnableAutoRenewRequest,
+  PostAssistantBillingEnableAutoRenewResponse,
   PostAssistantBillingPaymentIntentRequest,
   PostAssistantBillingPaymentIntentResponse,
   PostAssistantKnowledgeSourceUploadBody,
@@ -4827,6 +4831,140 @@ export const postAssistantBillingDisableAutoRenew = async (
     {
       ...options,
       method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Resume recurring billing or start a card-bind checkout for the current subscription
+ */
+export type postAssistantBillingEnableAutoRenewResponse200 = {
+  data: PostAssistantBillingEnableAutoRenewResponse;
+  status: 200;
+};
+
+export type postAssistantBillingEnableAutoRenewResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantBillingEnableAutoRenewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantBillingEnableAutoRenewResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantBillingEnableAutoRenewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantBillingEnableAutoRenewResponseSuccess =
+  postAssistantBillingEnableAutoRenewResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantBillingEnableAutoRenewResponseError = (
+  | postAssistantBillingEnableAutoRenewResponse400
+  | postAssistantBillingEnableAutoRenewResponse401
+  | postAssistantBillingEnableAutoRenewResponse404
+  | postAssistantBillingEnableAutoRenewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantBillingEnableAutoRenewResponse =
+  | postAssistantBillingEnableAutoRenewResponseSuccess
+  | postAssistantBillingEnableAutoRenewResponseError;
+
+export const getPostAssistantBillingEnableAutoRenewUrl = () => {
+  return `/assistant/billing/subscription/enable-auto-renew`;
+};
+
+export const postAssistantBillingEnableAutoRenew = async (
+  postAssistantBillingEnableAutoRenewRequest: PostAssistantBillingEnableAutoRenewRequest,
+  options?: RequestInit
+): Promise<postAssistantBillingEnableAutoRenewResponse> => {
+  return customFetch<postAssistantBillingEnableAutoRenewResponse>(
+    getPostAssistantBillingEnableAutoRenewUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postAssistantBillingEnableAutoRenewRequest)
+    }
+  );
+};
+
+/**
+ * @summary Change the current billing plan through management or checkout-aware flow
+ */
+export type postAssistantBillingChangePlanResponse200 = {
+  data: PostAssistantBillingChangePlanResponse;
+  status: 200;
+};
+
+export type postAssistantBillingChangePlanResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantBillingChangePlanResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantBillingChangePlanResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantBillingChangePlanResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantBillingChangePlanResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantBillingChangePlanResponseSuccess =
+  postAssistantBillingChangePlanResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantBillingChangePlanResponseError = (
+  | postAssistantBillingChangePlanResponse400
+  | postAssistantBillingChangePlanResponse401
+  | postAssistantBillingChangePlanResponse404
+  | postAssistantBillingChangePlanResponse409
+  | postAssistantBillingChangePlanResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantBillingChangePlanResponse =
+  | postAssistantBillingChangePlanResponseSuccess
+  | postAssistantBillingChangePlanResponseError;
+
+export const getPostAssistantBillingChangePlanUrl = () => {
+  return `/assistant/billing/subscription/change-plan`;
+};
+
+export const postAssistantBillingChangePlan = async (
+  postAssistantBillingChangePlanRequest: PostAssistantBillingChangePlanRequest,
+  options?: RequestInit
+): Promise<postAssistantBillingChangePlanResponse> => {
+  return customFetch<postAssistantBillingChangePlanResponse>(
+    getPostAssistantBillingChangePlanUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(postAssistantBillingChangePlanRequest)
     }
   );
 };

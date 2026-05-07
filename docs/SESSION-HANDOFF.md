@@ -1,5 +1,95 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-084 recurring-management PROD cleanup) — harden paid-downgrade continuation, bind enablement, and managed-upgrade idempotency
+
+### What changed
+
+- Kept the session bounded to the already-landed ADR-084 recurring-management slice and cleaned the remaining billing-truth regressions instead of expanding the billing surface.
+- Reworked cheaper paid downgrade target truth. PersAI no longer finalizes `paid -> cheaper paid` through period-end cancellation fallback, because that produced fake paid access without a next charge. Scheduled cheaper-paid downgrade is now only available when an active provider-managed recurring contract exists; PersAI persists the downgrade marker before touching CloudPayments, retries the same marker idempotently, and then switches to the target paid plan only on the next trusted renewal path whose provider amount/currency actually matches the cheaper scheduled plan. If provider sync fails partway through, PersAI still knows the downgrade was requested, but renewal/webhook reconciliation will not silently grant cheaper entitlements unless the provider really charged the cheaper cycle.
+- Fixed bind-only `Enable auto-renew` truth for paid/no-provider workspaces. CloudPayments bind success now maps to a dedicated `auto_renew_enabled` billing/lifecycle path instead of reusing `subscription_resumed`, so PersAI materializes `billingProvider` / `providerSubscriptionRef` / auto-renew truth even when `cancelAtPeriodEnd` was already false and there was nothing to resume.
+- Moved managed recurring-upgrade provider mutation behind PersAI billing-event idempotency. The webhook now only records the required `managedRecurringSubscriptionUpdate` instruction inside billing-event metadata; `ApplyWorkspaceSubscriptionBillingEventService` performs `subscriptions/update` only after event dedupe/ignore checks, persists the applied provider subscription ref, and replay after partial failure now reuses that persisted ref instead of letting stale provider refs back into PersAI lifecycle truth.
+- Re-enable auto-renew now clears stale scheduled free/downgrade markers in both `resumePaidAutoRenew(...)` and `enablePaidAutoRenew(...)`, and paid renewal success also clears any marker whose effective boundary has already passed so server/UI truth cannot keep advertising an old scheduled change forever.
+- Cross-period / cross-currency paid changes are now explicitly rejected in the recurring-management path instead of being half-classified as cheaper-paid downgrade.
+- Refreshed focused API/web regressions around these branches (`workspace-subscription-lifecycle`, billing-event apply, webhook, billing subscription management, pricing/settings truth).
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/workspace-subscription-lifecycle.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/apply-workspace-subscription-billing-event.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- Scheduled cheaper-paid downgrade is now honest only when a live provider-managed recurring contract exists. Non-recurring paid access still does not get an automatic cheaper-paid rollover; product surfaces now stop advertising that path as a managed downgrade, but a future founder-approved slice would still be needed if PersAI ever wants a first-class non-recurring downgrade-after-expiry journey.
+- Managed recurring upgrade idempotency now protects duplicate/retry webhook delivery before provider mutation, but it still needs one live recurring-upgrade check in `persai-dev` to validate the current CloudPayments in-place update contour end to end.
+
+### Next recommended step
+
+- Run one live `persai-dev` validation pass for the three hardened branches: cheaper-paid downgrade on an active recurring contract through the next successful renewal, bind-only auto-renew enable on paid/no-provider state, and duplicate-safe recurring upgrade webhook replay.
+
+## 2026-05-07 (ADR-084 full recurring-management slice) — enable controlled auto-renew recovery, scheduled downgrades, and recurring-safe upgrades
+
+### What changed
+
+- Finished the bounded ADR-084 recurring-management follow-through that the current code and plan still left incomplete: billing subscription state now exposes `canEnableAutoRenew`, `enableAutoRenewMode`, scheduled plan-change preview, and downgrade/free management truth instead of only `canDisableAutoRenew`.
+- Added mode-aware billing-management endpoints on the active PersAI path: `POST /api/v1/assistant/billing/subscription/enable-auto-renew` can either resume an existing provider subscription or return a bind-only checkout intent, and `POST /api/v1/assistant/billing/subscription/change-plan` now routes free/downgrade as management while still returning checkout for paid purchase/upgrade paths.
+- Completed the backend recurring-control branches:
+  - `createAutoRenewBindPaymentIntent(...)` for paid access without a provider subscription
+  - `createManagedRecurringUpgradePaymentIntent(...)` for full-payment recurring upgrades without creating a second recurring contract
+  - webhook purpose handling so bind success resumes auto-renew without restarting access and managed recurring upgrades update the provider subscription anchor/amount for the new cycle
+  - scheduled downgrade/free persistence through `pendingPlanChange` metadata and lifecycle events
+- Refreshed the public contract and generated clients/models so payment intents expose `purpose`, billing subscription state exposes recurring-management preview fields, and the new enable-auto-renew / change-plan endpoints are first-class contract truth.
+- Updated the web product flow around that backend truth:
+  - pricing cards now call the management-aware plan-change endpoint instead of always forcing the raw purchase flow
+  - `FREE` / cheaper paid changes now use explicit confirm step copy before scheduling the next-cycle switch
+  - checkout copy distinguishes normal purchase vs bind-only auto-renew setup vs managed recurring upgrade
+  - `Assistant Settings -> Payment settings` now requires explicit confirm before disabling auto-renew and can start enable-auto-renew recovery from the same server-truth billing state
+- Added/updated focused regressions for the new management flow surface in API and web billing tests.
+
+### Verification
+
+- Focused recurring-management checks:
+  - `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+  - `corepack pnpm --filter @persai/api exec tsx test/handle-cloudpayments-webhook.service.test.ts`
+  - `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx app/app/_components/assistant-settings.test.tsx`
+
+### Risks / residuals
+
+- The pricing/settings confirm step currently uses the browser confirm dialog for the explicit modal requirement. The product flow is now honest and localized, but a custom in-app modal would still be a cleaner UI follow-up if the founder wants branded dialog chrome.
+- The managed recurring-upgrade path assumes CloudPayments `subscriptions/update` remains the safe in-place replacement contour for amount/anchor changes. This is now coded/tested against the current provider shape, but it still needs one live paid recurring upgrade in `persai-dev` before calling the path production-proven.
+
+### Next recommended step
+
+- Deploy this slice to `persai-dev` and run one end-to-end live check for each branch: resume existing auto-renew, bind-only auto-renew enable on paid/no-provider state, paid->FREE scheduling, paid->cheaper paid scheduling, and recurring-safe paid upgrade with a new billing anchor.
+
+## 2026-05-07 (registration lifecycle init fix) — initialize PersAI subscription truth when the first assistant is created
+
+### What changed
+
+- Investigated the live founder-reported registration gap using `strokovamasa7@gmail.com` in `persai-dev` and confirmed the path split in evidence, not theory: `app_user`, workspace membership, and assistant were created around `11:39Z`, but `workspace_subscription` only appeared later at `11:43Z` with lifecycle event `trial_started` and `source=admin`, matching a manual repair rather than normal registration.
+- Re-read the actual code path and confirmed the gap: `ResolveAppUserService` only creates `app_user`, `UpsertOnboardingService` only creates/updates workspace membership, and `ResolveEffectiveSubscriptionStateService.initializeLifecycleNow(...)` was only reachable from the admin billing-support action path.
+- Fixed the active product path in `CreateAssistantService`: when the first assistant is created for a workspace that still has no `workspace_subscription`, PersAI now immediately initializes lifecycle truth from the current default registration plan before proceeding with assistant creation. This keeps the fix bounded to the assistant-creation path and avoids overlapping with unrelated billing UI / recurring-management work.
+- Added a focused regression `apps/api/test/create-assistant.service.test.ts` that locks both cases: lifecycle is initialized before assistant creation when no subscription exists, and skipped when a workspace subscription is already present.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/create-assistant.service.test.ts`
+
+### Risks / residuals
+
+- This fix closes the confirmed gap for the active “onboarding -> create assistant” product path, but it does not backfill older users/workspaces that already exist without lifecycle truth; those still need the existing admin repair path or a separate bounded backfill slice.
+- Full `@persai/api` typecheck is currently blocked by a pre-existing unrelated repo issue: `apps/api/src/modules/workspace-management/application/manage-assistant-billing-subscription.service.ts` fails to resolve `@persai/contracts` in the current working tree.
+
+### Next recommended step
+
+- Deploy this fix to `persai-dev`, register one fresh user end to end, and verify that `workspace_subscriptions` plus a `trial_started` lifecycle event now appear automatically without manual admin initialization.
+
 ## 2026-05-07 (ADR-084 CloudPayments `culture` follow-up) — align constructor locale key with current PaymentBlocks docs
 
 ### What changed

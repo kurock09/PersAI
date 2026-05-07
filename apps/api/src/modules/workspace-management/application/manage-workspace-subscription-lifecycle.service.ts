@@ -38,6 +38,17 @@ type SubscriptionSnapshot = {
   metadata: Prisma.JsonValue | null;
 };
 
+type PendingPlanChange = {
+  targetPlanCode: string;
+  targetPlanDisplayName: string;
+  amountMinor: number | null;
+  currency: string | null;
+  billingPeriod: "month" | "year" | null;
+  effectiveAt: string;
+  nextChargeAt: string | null;
+  changeKind: "free" | "downgrade";
+};
+
 @Injectable()
 export class ManageWorkspaceSubscriptionLifecycleService {
   constructor(
@@ -64,6 +75,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     userId: string | null;
     source: WorkspaceSubscriptionLifecycleEventSource;
     refs?: LifecycleEventRefs;
+    paidPlanCodeOverride?: string | null;
   }): Promise<void> {
     const settings = await this.billingLifecycleSettingsService.resolveSettings();
     const now = new Date();
@@ -75,9 +87,18 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       if (current.status !== "active" && current.status !== "past_due") {
         throw new BadRequestException("Paid renewal failure can only start grace from paid state.");
       }
+      const paidPlanCode =
+        typeof input.paidPlanCodeOverride === "string" &&
+        input.paidPlanCodeOverride.trim().length > 0
+          ? input.paidPlanCodeOverride.trim()
+          : current.planCode;
+      if (paidPlanCode !== current.planCode) {
+        await this.assertPaidPlanIsActive(paidPlanCode);
+      }
       const updated = await tx.workspaceSubscription.update({
         where: { workspaceId: input.workspaceId },
         data: {
+          planCode: paidPlanCode,
           status: "grace_period",
           graceStartedAt: now,
           graceEndsAt,
@@ -85,7 +106,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
             schema: "persai.subscriptionLifecycle.v1",
             lifecycleState: "grace_period",
             lifecycleReason: "paid_renewal_failed",
-            paidPlanCode: current.planCode,
+            paidPlanCode,
             graceStartedAt: now.toISOString(),
             graceEndsAt: graceEndsAt.toISOString()
           })
@@ -474,6 +495,183 @@ export class ManageWorkspaceSubscriptionLifecycleService {
     });
   }
 
+  async resumePaidAutoRenew(input: {
+    workspaceId: string;
+    userId: string | null;
+    source: WorkspaceSubscriptionLifecycleEventSource;
+    refs?: LifecycleEventRefs;
+    billingProvider?: string | null;
+    providerCustomerRef?: string | null;
+    providerSubscriptionRef?: string | null;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      if (
+        current.status !== "active" &&
+        current.status !== "grace_period" &&
+        current.status !== "past_due" &&
+        current.status !== "canceled"
+      ) {
+        throw new BadRequestException("Auto-renew can only be resumed for a paid subscription.");
+      }
+      if (!current.cancelAtPeriodEnd) {
+        return;
+      }
+      const pendingPlanChange = this.readPendingPlanChange(current.metadata);
+      const updated = await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          cancelAtPeriodEnd: false,
+          billingProvider: input.billingProvider ?? current.billingProvider,
+          providerCustomerRef: input.providerCustomerRef ?? current.providerCustomerRef,
+          providerSubscriptionRef: input.providerSubscriptionRef ?? current.providerSubscriptionRef,
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            lifecycleState: current.status,
+            lifecycleReason: "subscription_resumed",
+            cancelAtPeriodEnd: false,
+            autoRenewResumedAt: new Date().toISOString(),
+            ...(pendingPlanChange !== null ? { pendingPlanChange: null } : {})
+          })
+        }
+      });
+      await this.appendLifecycleEvent(tx, {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subscriptionId: current.id,
+        eventCode: "subscription_resumed",
+        previous: current,
+        next: updated,
+        source: input.source,
+        refs: input.refs
+      });
+    });
+  }
+
+  async enablePaidAutoRenew(input: {
+    workspaceId: string;
+    userId: string | null;
+    source: WorkspaceSubscriptionLifecycleEventSource;
+    refs?: LifecycleEventRefs;
+    billingProvider: string | null;
+    providerCustomerRef: string | null;
+    providerSubscriptionRef: string;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      if (
+        current.status !== "active" &&
+        current.status !== "grace_period" &&
+        current.status !== "past_due" &&
+        current.status !== "canceled"
+      ) {
+        throw new BadRequestException("Auto-renew can only be enabled for a paid subscription.");
+      }
+      if (
+        !current.cancelAtPeriodEnd &&
+        current.billingProvider === input.billingProvider &&
+        current.providerCustomerRef === input.providerCustomerRef &&
+        current.providerSubscriptionRef === input.providerSubscriptionRef
+      ) {
+        return;
+      }
+      const pendingPlanChange = this.readPendingPlanChange(current.metadata);
+      const updated = await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          cancelAtPeriodEnd: false,
+          billingProvider: input.billingProvider,
+          providerCustomerRef: input.providerCustomerRef,
+          providerSubscriptionRef: input.providerSubscriptionRef,
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            lifecycleState: current.status,
+            lifecycleReason: "auto_renew_enabled",
+            cancelAtPeriodEnd: false,
+            autoRenewEnabledAt: new Date().toISOString(),
+            ...(pendingPlanChange !== null ? { pendingPlanChange: null } : {})
+          })
+        }
+      });
+      await this.appendLifecycleEvent(tx, {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subscriptionId: current.id,
+        eventCode: "auto_renew_enabled",
+        previous: current,
+        next: updated,
+        source: input.source,
+        refs: input.refs
+      });
+    });
+  }
+
+  async schedulePlanChangeAtPeriodEnd(input: {
+    workspaceId: string;
+    userId: string | null;
+    source: WorkspaceSubscriptionLifecycleEventSource;
+    refs?: LifecycleEventRefs;
+    pendingPlanChange: PendingPlanChange;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      const existingPendingPlanChange = this.readPendingPlanChange(current.metadata);
+      if (
+        existingPendingPlanChange !== null &&
+        this.samePendingPlanChange(existingPendingPlanChange, input.pendingPlanChange)
+      ) {
+        return;
+      }
+      const updated = await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            pendingPlanChange: input.pendingPlanChange
+          })
+        }
+      });
+      await this.appendLifecycleEvent(tx, {
+        workspaceId: input.workspaceId,
+        userId: input.userId,
+        subscriptionId: current.id,
+        eventCode: "plan_change_scheduled",
+        previous: current,
+        next: updated,
+        source: input.source,
+        refs: {
+          ...(input.refs ?? {}),
+          metadata: {
+            ...(input.refs?.metadata ?? {}),
+            pendingPlanChange: input.pendingPlanChange
+          }
+        }
+      });
+    });
+  }
+
+  async clearScheduledPlanChange(input: {
+    workspaceId: string;
+    userId: string | null;
+    source: WorkspaceSubscriptionLifecycleEventSource;
+  }): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      if (this.readPendingPlanChange(current.metadata) === null) {
+        return;
+      }
+      await tx.workspaceSubscription.update({
+        where: { workspaceId: input.workspaceId },
+        data: {
+          metadata: this.mergeMetadata(current.metadata, {
+            schema: "persai.subscriptionLifecycle.v1",
+            pendingPlanChange: null
+          })
+        }
+      });
+    });
+  }
+
   async applyCancelledPaidPeriodEndFallback(input: {
     workspaceId: string;
     userId: string | null;
@@ -487,6 +685,7 @@ export class ManageWorkspaceSubscriptionLifecycleService {
 
     await this.prisma.$transaction(async (tx) => {
       const current = await this.requireWorkspaceSubscription(tx, input.workspaceId);
+      const pendingPlanChange = this.readPendingPlanChange(current.metadata);
       if (!current.cancelAtPeriodEnd) {
         return;
       }
@@ -496,10 +695,15 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       ) {
         return;
       }
-      const fallbackPlanCode = await this.resolvePaidFallbackPlanCode(
-        current.planCode,
-        settings.globalFallbackPlanCode
-      );
+      const scheduledFreeChange =
+        pendingPlanChange?.changeKind === "free" ? pendingPlanChange : null;
+      const fallbackPlanCode =
+        scheduledFreeChange !== null
+          ? scheduledFreeChange.targetPlanCode
+          : await this.resolvePaidFallbackPlanCode(
+              current.planCode,
+              settings.globalFallbackPlanCode
+            );
       const updated = await tx.workspaceSubscription.update({
         where: { workspaceId: input.workspaceId },
         data: {
@@ -514,10 +718,14 @@ export class ManageWorkspaceSubscriptionLifecycleService {
           metadata: this.mergeMetadata(current.metadata, {
             schema: "persai.subscriptionLifecycle.v1",
             lifecycleState: "expired_fallback",
-            lifecycleReason: "canceled_paid_period_ended",
+            lifecycleReason:
+              scheduledFreeChange !== null
+                ? "scheduled_free_change_applied"
+                : "canceled_paid_period_ended",
             previousPaidPlanCode: current.planCode,
             fallbackPlanCode,
-            paidPeriodEndedAt: current.currentPeriodEndsAt.toISOString()
+            paidPeriodEndedAt: current.currentPeriodEndsAt.toISOString(),
+            pendingPlanChange: null
           })
         }
       });
@@ -592,7 +800,8 @@ export class ManageWorkspaceSubscriptionLifecycleService {
             lifecycleReason: input.lifecycleReason,
             previousPaidPlanCode: current.planCode,
             fallbackPlanCode,
-            reversedAt: now.toISOString()
+            reversedAt: now.toISOString(),
+            pendingPlanChange: null
           })
         }
       });
@@ -670,7 +879,8 @@ export class ManageWorkspaceSubscriptionLifecycleService {
             fallbackPlanCode,
             previousPaidPlanCode: current.status === "trialing" ? null : current.planCode,
             trialPlanCode: current.status === "trialing" ? current.planCode : null,
-            appliedAt: now.toISOString()
+            appliedAt: now.toISOString(),
+            pendingPlanChange: null
           })
         }
       });
@@ -846,7 +1056,16 @@ export class ManageWorkspaceSubscriptionLifecycleService {
                   paidPlanCode: input.paidPlanCode,
                   currentPeriodStartedAt: periodStartedAt.toISOString(),
                   currentPeriodEndsAt: periodEndsAt.toISOString(),
-                  transitionedAt: transitionedAt.toISOString()
+                  transitionedAt: transitionedAt.toISOString(),
+                  ...(current !== null &&
+                  this.shouldClearPendingPlanChangeAfterPaidTransition(
+                    this.readPendingPlanChange(current.metadata),
+                    current.planCode,
+                    input.paidPlanCode,
+                    periodStartedAt
+                  )
+                    ? { pendingPlanChange: null }
+                    : {})
                 })
               }
             });
@@ -957,6 +1176,68 @@ export class ManageWorkspaceSubscriptionLifecycleService {
       ...base,
       ...patch
     } as Prisma.InputJsonValue;
+  }
+
+  private readPendingPlanChange(value: Prisma.JsonValue | null): PendingPlanChange | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const candidate = (value as Record<string, unknown>).pendingPlanChange;
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return null;
+    }
+    const row = candidate as Record<string, unknown>;
+    if (
+      typeof row.targetPlanCode !== "string" ||
+      typeof row.targetPlanDisplayName !== "string" ||
+      typeof row.effectiveAt !== "string" ||
+      (row.changeKind !== "free" && row.changeKind !== "downgrade")
+    ) {
+      return null;
+    }
+    return {
+      targetPlanCode: row.targetPlanCode,
+      targetPlanDisplayName: row.targetPlanDisplayName,
+      amountMinor: typeof row.amountMinor === "number" ? row.amountMinor : null,
+      currency: typeof row.currency === "string" ? row.currency : null,
+      billingPeriod:
+        row.billingPeriod === "month" || row.billingPeriod === "year" ? row.billingPeriod : null,
+      effectiveAt: row.effectiveAt,
+      nextChargeAt: typeof row.nextChargeAt === "string" ? row.nextChargeAt : null,
+      changeKind: row.changeKind
+    };
+  }
+
+  private samePendingPlanChange(current: PendingPlanChange, next: PendingPlanChange): boolean {
+    return (
+      current.targetPlanCode === next.targetPlanCode &&
+      current.targetPlanDisplayName === next.targetPlanDisplayName &&
+      current.amountMinor === next.amountMinor &&
+      current.currency === next.currency &&
+      current.billingPeriod === next.billingPeriod &&
+      current.effectiveAt === next.effectiveAt &&
+      current.nextChargeAt === next.nextChargeAt &&
+      current.changeKind === next.changeKind
+    );
+  }
+
+  private shouldClearPendingPlanChangeAfterPaidTransition(
+    pendingPlanChange: PendingPlanChange | null,
+    currentPlanCode: string,
+    nextPlanCode: string,
+    nextPeriodStartedAt: Date
+  ): boolean {
+    if (pendingPlanChange === null) {
+      return false;
+    }
+    if (pendingPlanChange.targetPlanCode === nextPlanCode || currentPlanCode !== nextPlanCode) {
+      return true;
+    }
+    const effectiveAt = new Date(pendingPlanChange.effectiveAt);
+    if (Number.isNaN(effectiveAt.getTime())) {
+      return true;
+    }
+    return effectiveAt.getTime() <= nextPeriodStartedAt.getTime();
   }
 
   private async markWorkspaceAssistantsConfigDirty(workspaceId: string): Promise<void> {

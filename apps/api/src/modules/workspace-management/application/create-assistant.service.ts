@@ -13,6 +13,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
 import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
+import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
 
 @Injectable()
 export class CreateAssistantService {
@@ -24,7 +25,8 @@ export class CreateAssistantService {
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
     private readonly assistantMaterializedSpecRepository: AssistantMaterializedSpecRepository,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService
+    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
   ) {}
 
   async execute(userId: string): Promise<AssistantLifecycleState> {
@@ -52,6 +54,18 @@ export class CreateAssistantService {
       throw new BadRequestException(
         "Cannot create assistant without workspace membership. Complete onboarding first."
       );
+    }
+
+    const workspaceSubscription = await this.prisma.workspaceSubscription.findUnique({
+      where: { workspaceId: membership.workspaceId },
+      select: { id: true }
+    });
+    if (workspaceSubscription === null) {
+      await this.resolveEffectiveSubscriptionStateService.initializeLifecycleNow({
+        workspaceId: membership.workspaceId,
+        userId,
+        source: "system"
+      });
     }
 
     const assistant = await this.assistantRepository.create(userId, membership.workspaceId);

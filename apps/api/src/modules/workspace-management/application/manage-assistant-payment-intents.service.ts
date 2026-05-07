@@ -42,6 +42,11 @@ export type AssistantPaymentIntentRecurringState = {
   unsupportedReason: string | null;
 };
 
+export type AssistantPaymentIntentPurpose =
+  | "plan_purchase"
+  | "managed_recurring_upgrade"
+  | "autopay_enable_bind";
+
 export type CreateAssistantPaymentIntentInput = {
   planCode: string;
   paymentMethodClass: AssistantPaymentMethodClass;
@@ -53,6 +58,7 @@ export type AssistantPaymentIntentState = {
   id: string;
   targetPlanCode: string;
   action: AssistantPaymentIntentAction;
+  purpose: AssistantPaymentIntentPurpose;
   status: AssistantPaymentIntentStatus;
   paymentMethodClass: AssistantPaymentMethodClass;
   amountMinor: number;
@@ -248,6 +254,13 @@ function asRecurringState(value: unknown): AssistantPaymentIntentRecurringState 
   };
 }
 
+function asPaymentIntentPurpose(value: unknown): AssistantPaymentIntentPurpose {
+  if (value === "managed_recurring_upgrade" || value === "autopay_enable_bind") {
+    return value;
+  }
+  return "plan_purchase";
+}
+
 @Injectable()
 export class ManageAssistantPaymentIntentsService {
   constructor(
@@ -307,49 +320,249 @@ export class ManageAssistantPaymentIntentsService {
     if (action === "upgrade") {
       this.assertRecurringUpgradeIsSupported(context);
     }
-    const recurring = this.resolveRecurringCheckout({
+    return this.createIntentWithCheckout({
+      userId,
+      context,
+      targetPlanCode: targetPlan.code,
       action,
+      purpose: "plan_purchase",
       paymentMethodClass: input.paymentMethodClass,
+      amountMinor: toMinorCurrencyUnits(targetPrice.amount),
+      currency: targetPrice.currency,
       billingPeriod: targetPrice.billingPeriod,
-      amountMinor: toMinorCurrencyUnits(targetPrice.amount)
+      idempotencyKey: input.idempotencyKey,
+      returnUrl: input.returnUrl,
+      recurring: this.resolveRecurringCheckout({
+        action,
+        paymentMethodClass: input.paymentMethodClass,
+        billingPeriod: targetPrice.billingPeriod,
+        amountMinor: toMinorCurrencyUnits(targetPrice.amount)
+      }),
+      metadata: {
+        effectivePlanCode: context.subscription.planCode,
+        effectiveSubscriptionStatus: context.subscription.status,
+        sourceSurface: "assistant_billing_api",
+        purpose: "plan_purchase"
+      }
     });
+  }
 
+  async createAutoRenewBindPaymentIntent(
+    userId: string,
+    input: Omit<CreateAssistantPaymentIntentInput, "planCode"> & {
+      paymentMethodClass: "card";
+    }
+  ): Promise<AssistantPaymentIntentState> {
+    const context = await this.resolveBillingContext(userId);
+    if (
+      context.subscription.planCode === null ||
+      context.currentPlanPrice === null ||
+      !["active", "grace_period", "past_due", "canceled"].includes(context.subscription.status)
+    ) {
+      throw new BadRequestException("Auto-renew can only be enabled for an active paid plan.");
+    }
+    if (context.subscription.providerSubscriptionRef !== null) {
+      throw new BadRequestException(
+        "This workspace already has a provider-managed recurring subscription."
+      );
+    }
+    return this.createIntentWithCheckout({
+      userId,
+      context,
+      targetPlanCode: context.subscription.planCode,
+      action: "new_purchase",
+      purpose: "autopay_enable_bind",
+      paymentMethodClass: "card",
+      amountMinor: 100,
+      currency: context.currentPlanPrice.currency,
+      billingPeriod: context.currentPlanPrice.billingPeriod,
+      idempotencyKey: input.idempotencyKey,
+      returnUrl: input.returnUrl,
+      recurring: {
+        checkoutKind: "recurring_start",
+        supportedBySelectedMethod: true,
+        unsupportedReason: null,
+        recurringPlan: {
+          interval: "Month",
+          period: context.currentPlanPrice.billingPeriod === "year" ? 12 : 1,
+          maxPeriods: null,
+          amountMinor: context.currentPlanPrice.amountMinor,
+          startDate: context.subscription.currentPeriodEndsAt
+        }
+      },
+      metadata: {
+        effectivePlanCode: context.subscription.planCode,
+        effectiveSubscriptionStatus: context.subscription.status,
+        sourceSurface: "assistant_billing_management",
+        purpose: "autopay_enable_bind",
+        bindSetupAmountMinor: 100,
+        bindTargetAmountMinor: context.currentPlanPrice.amountMinor,
+        bindTargetCurrency: context.currentPlanPrice.currency,
+        bindTargetBillingPeriod: context.currentPlanPrice.billingPeriod,
+        currentPeriodEndsAt: context.subscription.currentPeriodEndsAt
+      }
+    });
+  }
+
+  async createManagedRecurringUpgradePaymentIntent(
+    userId: string,
+    input: CreateAssistantPaymentIntentInput
+  ): Promise<AssistantPaymentIntentState> {
+    const context = await this.resolveBillingContext(userId);
+    if (
+      context.subscription.planCode === null ||
+      context.currentPlanPrice === null ||
+      context.subscription.billingProvider !== "cloudpayments" ||
+      context.subscription.providerSubscriptionRef === null ||
+      !["active", "grace_period", "past_due", "canceled"].includes(context.subscription.status)
+    ) {
+      throw new BadRequestException(
+        "A provider-managed recurring subscription is required for this upgrade flow."
+      );
+    }
+    const publicPlans = await this.manageAdminPlansService.listPublicPricingPlans();
+    const targetPlan = publicPlans.find((plan) => plan.code === input.planCode) ?? null;
+    if (targetPlan === null) {
+      throw new NotFoundException("Visible purchasable plan was not found.");
+    }
+    const targetPrice = targetPlan.presentation.price;
+    if (
+      typeof targetPrice.amount !== "number" ||
+      targetPrice.amount <= 0 ||
+      targetPrice.currency === null ||
+      (targetPrice.billingPeriod !== "month" && targetPrice.billingPeriod !== "year")
+    ) {
+      throw new BadRequestException("Selected plan is not purchasable in the billing flow.");
+    }
+    if (context.subscription.planCode === targetPlan.code) {
+      throw new BadRequestException("Selected plan is already active for this workspace.");
+    }
+    const targetMinor = toMinorCurrencyUnits(targetPrice.amount);
+    if (
+      context.currentPlanPrice.currency !== targetPrice.currency ||
+      context.currentPlanPrice.billingPeriod !== targetPrice.billingPeriod ||
+      targetMinor <= context.currentPlanPrice.amountMinor
+    ) {
+      throw new BadRequestException(
+        "Managed recurring upgrades only support a more expensive paid plan."
+      );
+    }
+    return this.createIntentWithCheckout({
+      userId,
+      context,
+      targetPlanCode: targetPlan.code,
+      action: "upgrade",
+      purpose: "managed_recurring_upgrade",
+      paymentMethodClass: input.paymentMethodClass,
+      amountMinor: targetMinor,
+      currency: targetPrice.currency,
+      billingPeriod: targetPrice.billingPeriod,
+      idempotencyKey: input.idempotencyKey,
+      returnUrl: input.returnUrl,
+      recurring: {
+        checkoutKind: "one_time",
+        supportedBySelectedMethod: false,
+        unsupportedReason: "managed_recurring_upgrade_uses_existing_subscription",
+        recurringPlan: null
+      },
+      metadata: {
+        effectivePlanCode: context.subscription.planCode,
+        effectiveSubscriptionStatus: context.subscription.status,
+        sourceSurface: "assistant_billing_management",
+        purpose: "managed_recurring_upgrade",
+        existingProviderSubscriptionRef: context.subscription.providerSubscriptionRef,
+        existingProviderCustomerRef: context.providerCustomerRef,
+        existingPlanAmountMinor: context.currentPlanPrice.amountMinor,
+        nextRecurringAmountMinor: targetMinor,
+        nextRecurringCurrency: targetPrice.currency,
+        nextRecurringBillingPeriod: targetPrice.billingPeriod
+      }
+    });
+  }
+
+  async getPaymentIntent(
+    userId: string,
+    paymentIntentId: string
+  ): Promise<AssistantPaymentIntentState> {
+    if (!isUuid(paymentIntentId)) {
+      throw new BadRequestException("paymentIntentId must be a valid UUID.");
+    }
+    const assistant = await this.assistantRepository.findByUserId(userId);
+    if (assistant === null) {
+      throw new NotFoundException("Assistant does not exist for this user.");
+    }
+    const paymentIntent = (await this.prisma.workspacePaymentIntent.findFirst({
+      where: {
+        id: paymentIntentId,
+        workspaceId: assistant.workspaceId,
+        userId
+      },
+      select: paymentIntentSelect
+    })) as PaymentIntentRecord | null;
+    if (paymentIntent === null) {
+      throw new NotFoundException("Payment intent was not found.");
+    }
+    return this.toState(paymentIntent);
+  }
+
+  private async createIntentWithCheckout(input: {
+    userId: string;
+    context: Awaited<ReturnType<ManageAssistantPaymentIntentsService["resolveBillingContext"]>>;
+    targetPlanCode: string;
+    action: AssistantPaymentIntentAction;
+    purpose: AssistantPaymentIntentPurpose;
+    paymentMethodClass: AssistantPaymentMethodClass;
+    amountMinor: number;
+    currency: string;
+    billingPeriod: AssistantPaymentIntentBillingPeriod;
+    idempotencyKey: string;
+    returnUrl: string;
+    recurring: ResolvedRecurringCheckout;
+    metadata: Record<string, unknown>;
+  }): Promise<AssistantPaymentIntentState> {
     const existing = await this.prisma.workspacePaymentIntent.findUnique({
       where: {
         workspaceId_idempotencyKey: {
-          workspaceId: context.assistant.workspaceId,
+          workspaceId: input.context.assistant.workspaceId,
           idempotencyKey: input.idempotencyKey
         }
       },
       select: paymentIntentSelect
     });
     if (existing !== null) {
-      this.assertExistingIntentMatches(existing as PaymentIntentRecord, input, targetPlan.code);
+      this.assertExistingIntentMatches(
+        existing as PaymentIntentRecord,
+        {
+          planCode: input.targetPlanCode,
+          paymentMethodClass: input.paymentMethodClass,
+          idempotencyKey: input.idempotencyKey,
+          returnUrl: input.returnUrl
+        },
+        input.targetPlanCode
+      );
       return this.toState(existing as PaymentIntentRecord);
     }
 
     const created = (await this.prisma.workspacePaymentIntent.create({
       data: {
-        workspace: { connect: { id: context.assistant.workspaceId } },
-        user: { connect: { id: userId } },
-        targetPlanCode: targetPlan.code,
-        action,
+        workspace: { connect: { id: input.context.assistant.workspaceId } },
+        user: { connect: { id: input.userId } },
+        targetPlanCode: input.targetPlanCode,
+        action: input.action,
         paymentMethodClass: input.paymentMethodClass,
-        amountMinor: toMinorCurrencyUnits(targetPrice.amount),
-        currency: targetPrice.currency,
-        billingPeriod: targetPrice.billingPeriod,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        billingPeriod: input.billingPeriod,
         idempotencyKey: input.idempotencyKey,
         returnUrl: input.returnUrl,
-        providerCustomerRef: context.providerCustomerRef,
+        providerCustomerRef: input.context.providerCustomerRef,
         metadata: {
           schema: "persai.paymentIntent.v1",
-          effectivePlanCode: context.subscription.planCode,
-          effectiveSubscriptionStatus: context.subscription.status,
-          sourceSurface: "assistant_billing_api",
+          ...input.metadata,
           recurring: {
-            checkoutKind: recurring.checkoutKind,
-            supportedBySelectedMethod: recurring.supportedBySelectedMethod,
-            unsupportedReason: recurring.unsupportedReason
+            checkoutKind: input.recurring.checkoutKind,
+            supportedBySelectedMethod: input.recurring.supportedBySelectedMethod,
+            unsupportedReason: input.recurring.unsupportedReason
           }
         }
       },
@@ -359,23 +572,24 @@ export class ManageAssistantPaymentIntentsService {
     try {
       const session = await this.billingProviderPort.createCheckoutSession({
         paymentIntentId: created.id,
-        workspaceId: context.assistant.workspaceId,
-        userId,
-        planCode: targetPlan.code,
-        action,
-        amountMinor: toMinorCurrencyUnits(targetPrice.amount),
-        currency: targetPrice.currency,
-        billingPeriod: targetPrice.billingPeriod,
+        workspaceId: input.context.assistant.workspaceId,
+        userId: input.userId,
+        planCode: input.targetPlanCode,
+        action: input.action,
+        amountMinor: input.amountMinor,
+        currency: input.currency,
+        billingPeriod: input.billingPeriod,
         paymentMethodClass: input.paymentMethodClass,
         returnUrl: input.returnUrl,
-        providerCustomerRef: context.providerCustomerRef,
-        checkoutKind: recurring.checkoutKind,
-        recurringPlan: recurring.recurringPlan,
+        providerCustomerRef: input.context.providerCustomerRef,
+        checkoutKind: input.recurring.checkoutKind,
+        recurringPlan: input.recurring.recurringPlan,
         metadata: {
-          currentPlanCode: context.subscription.planCode,
-          currentSubscriptionStatus: context.subscription.status,
-          recurringSupportedBySelectedMethod: recurring.supportedBySelectedMethod,
-          recurringUnsupportedReason: recurring.unsupportedReason
+          currentPlanCode: input.context.subscription.planCode,
+          currentSubscriptionStatus: input.context.subscription.status,
+          recurringSupportedBySelectedMethod: input.recurring.supportedBySelectedMethod,
+          recurringUnsupportedReason: input.recurring.unsupportedReason,
+          purpose: input.purpose
         }
       });
       const updated = (await this.prisma.workspacePaymentIntent.update({
@@ -409,31 +623,6 @@ export class ManageAssistantPaymentIntentsService {
     }
   }
 
-  async getPaymentIntent(
-    userId: string,
-    paymentIntentId: string
-  ): Promise<AssistantPaymentIntentState> {
-    if (!isUuid(paymentIntentId)) {
-      throw new BadRequestException("paymentIntentId must be a valid UUID.");
-    }
-    const assistant = await this.assistantRepository.findByUserId(userId);
-    if (assistant === null) {
-      throw new NotFoundException("Assistant does not exist for this user.");
-    }
-    const paymentIntent = (await this.prisma.workspacePaymentIntent.findFirst({
-      where: {
-        id: paymentIntentId,
-        workspaceId: assistant.workspaceId,
-        userId
-      },
-      select: paymentIntentSelect
-    })) as PaymentIntentRecord | null;
-    if (paymentIntent === null) {
-      throw new NotFoundException("Payment intent was not found.");
-    }
-    return this.toState(paymentIntent);
-  }
-
   private async resolveBillingContext(userId: string): Promise<{
     assistant: { id: string; workspaceId: string };
     subscription: {
@@ -441,6 +630,7 @@ export class ManageAssistantPaymentIntentsService {
       status: string;
       billingProvider: string | null;
       providerSubscriptionRef: string | null;
+      currentPeriodEndsAt: string | null;
     };
     currentPlanPrice: StoredPlanPrice | null;
     providerCustomerRef: string | null;
@@ -485,7 +675,8 @@ export class ManageAssistantPaymentIntentsService {
         planCode: subscription.planCode,
         status: subscription.status,
         billingProvider: currentSnapshot?.billingProvider ?? null,
-        providerSubscriptionRef: currentSnapshot?.providerSubscriptionRef ?? null
+        providerSubscriptionRef: currentSnapshot?.providerSubscriptionRef ?? null,
+        currentPeriodEndsAt: subscription.currentPeriodEndsAt
       },
       currentPlanPrice: parseStoredPlanPrice(currentPlan?.billingProviderHints ?? null),
       providerCustomerRef: currentSnapshot?.providerCustomerRef ?? null
@@ -559,6 +750,7 @@ export class ManageAssistantPaymentIntentsService {
       id: record.id,
       targetPlanCode: record.targetPlanCode,
       action: record.action,
+      purpose: asPaymentIntentPurpose(asObject(record.metadata)?.purpose),
       status: record.status,
       paymentMethodClass: record.paymentMethodClass,
       amountMinor: record.amountMinor,

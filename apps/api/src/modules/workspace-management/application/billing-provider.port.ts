@@ -77,6 +77,17 @@ export type BillingProviderManagedSubscription = {
   raw: Record<string, unknown>;
 };
 
+export type BillingProviderManagedSubscriptionUpdateInput = {
+  providerSubscriptionRef: string;
+  description?: string | null;
+  amountMinor?: number | null;
+  currency?: string | null;
+  startDate?: string | null;
+  interval?: "Day" | "Week" | "Month" | null;
+  period?: number | null;
+  maxPeriods?: number | null;
+};
+
 /**
  * Provider-agnostic billing boundary for PersAI-owned payment intents.
  * Current production checkout uses a concrete CloudPayments embedded adapter,
@@ -96,4 +107,12 @@ export interface BillingProviderPort {
     providerSubscriptionRef: string;
     canceledAt: string;
   }>;
+
+  resumeManagedSubscription(
+    input: BillingProviderManagedSubscriptionUpdateInput
+  ): Promise<BillingProviderManagedSubscription>;
+
+  updateManagedSubscription(
+    input: BillingProviderManagedSubscriptionUpdateInput
+  ): Promise<BillingProviderManagedSubscription>;
 }

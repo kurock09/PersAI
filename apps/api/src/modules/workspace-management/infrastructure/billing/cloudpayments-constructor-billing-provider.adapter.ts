@@ -3,6 +3,7 @@ import type {
   BillingProviderCheckoutSession,
   BillingProviderCheckoutSessionRequest,
   BillingProviderManagedSubscription,
+  BillingProviderManagedSubscriptionUpdateInput,
   BillingProviderPort
 } from "../../application/billing-provider.port";
 import {
@@ -83,8 +84,11 @@ type CloudpaymentsSubscriptionModel = {
   Status?: string;
   Amount?: number;
   Currency?: string;
+  Description?: string;
   Interval?: "Day" | "Week" | "Month" | string;
   Period?: number;
+  MaxPeriods?: number | null;
+  StartDateIso?: string | null;
   NextTransactionDateIso?: string | null;
 };
 
@@ -223,30 +227,7 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
     if (response.Model === undefined || response.Model === null) {
       return null;
     }
-    const model = response.Model;
-    const intervalCandidate = model.Interval ?? null;
-    const interval = isSupportedRecurringInterval(intervalCandidate) ? intervalCandidate : null;
-    return {
-      providerKey: "cloudpayments",
-      providerSubscriptionRef: String(model.Id ?? input.providerSubscriptionRef),
-      status: typeof model.Status === "string" ? model.Status : "Unknown",
-      nextChargeAt:
-        typeof model.NextTransactionDateIso === "string" &&
-        model.NextTransactionDateIso.trim().length > 0
-          ? model.NextTransactionDateIso
-          : null,
-      amountMinor: typeof model.Amount === "number" ? toMinorCurrencyUnits(model.Amount) : null,
-      currency: typeof model.Currency === "string" ? model.Currency : null,
-      interval,
-      period:
-        typeof model.Period === "number" && Number.isInteger(model.Period) && model.Period > 0
-          ? model.Period
-          : null,
-      customerPortalUrl: "https://my.cloudpayments.ru/",
-      paymentMethodUpdateUrl: "https://my.cloudpayments.ru/",
-      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
-      raw: response.Model as Record<string, unknown>
-    };
+    return this.toManagedSubscription(response.Model, input.providerSubscriptionRef);
   }
 
   async cancelManagedSubscription(input: { providerSubscriptionRef: string }): Promise<{
@@ -262,6 +243,52 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
       providerSubscriptionRef: input.providerSubscriptionRef,
       canceledAt: new Date().toISOString()
     };
+  }
+
+  async resumeManagedSubscription(
+    input: BillingProviderManagedSubscriptionUpdateInput
+  ): Promise<BillingProviderManagedSubscription> {
+    return this.updateManagedSubscription(input);
+  }
+
+  async updateManagedSubscription(
+    input: BillingProviderManagedSubscriptionUpdateInput
+  ): Promise<BillingProviderManagedSubscription> {
+    const response = await this.callCloudpaymentsApi<CloudpaymentsSubscriptionModel>(
+      "subscriptions/update",
+      {
+        Id: input.providerSubscriptionRef,
+        ...(typeof input.description === "string" && input.description.trim().length > 0
+          ? { Description: input.description.trim() }
+          : {}),
+        ...(typeof input.amountMinor === "number"
+          ? { Amount: toMajorCurrencyUnits(input.amountMinor) }
+          : {}),
+        ...(typeof input.currency === "string" && input.currency.trim().length > 0
+          ? { Currency: input.currency.trim().toUpperCase() }
+          : {}),
+        ...(typeof input.startDate === "string" && input.startDate.trim().length > 0
+          ? { StartDate: input.startDate.trim() }
+          : {}),
+        ...(input.interval !== undefined && input.interval !== null
+          ? { Interval: input.interval }
+          : {}),
+        ...(typeof input.period === "number" && Number.isInteger(input.period) && input.period > 0
+          ? { Period: input.period }
+          : {}),
+        ...(typeof input.maxPeriods === "number" &&
+        Number.isInteger(input.maxPeriods) &&
+        input.maxPeriods > 0
+          ? { MaxPeriods: input.maxPeriods }
+          : {})
+      }
+    );
+    if (response.Model === undefined || response.Model === null) {
+      throw new ServiceUnavailableException(
+        "CloudPayments subscriptions/update returned no subscription snapshot."
+      );
+    }
+    return this.toManagedSubscription(response.Model, input.providerSubscriptionRef);
   }
 
   private async resolveCloudpaymentsCredentials(): Promise<{
@@ -310,5 +337,36 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
       );
     }
     return payload ?? { Success: true };
+  }
+
+  private toManagedSubscription(
+    model: CloudpaymentsSubscriptionModel,
+    fallbackSubscriptionRef: string
+  ): BillingProviderManagedSubscription {
+    const intervalCandidate = model.Interval ?? null;
+    const interval = isSupportedRecurringInterval(intervalCandidate) ? intervalCandidate : null;
+    return {
+      providerKey: "cloudpayments",
+      providerSubscriptionRef: String(model.Id ?? fallbackSubscriptionRef),
+      status: typeof model.Status === "string" ? model.Status : "Unknown",
+      nextChargeAt:
+        typeof model.NextTransactionDateIso === "string" &&
+        model.NextTransactionDateIso.trim().length > 0
+          ? model.NextTransactionDateIso
+          : typeof model.StartDateIso === "string" && model.StartDateIso.trim().length > 0
+            ? model.StartDateIso
+            : null,
+      amountMinor: typeof model.Amount === "number" ? toMinorCurrencyUnits(model.Amount) : null,
+      currency: typeof model.Currency === "string" ? model.Currency : null,
+      interval,
+      period:
+        typeof model.Period === "number" && Number.isInteger(model.Period) && model.Period > 0
+          ? model.Period
+          : null,
+      customerPortalUrl: "https://my.cloudpayments.ru/",
+      paymentMethodUpdateUrl: "https://my.cloudpayments.ru/",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      raw: model as Record<string, unknown>
+    };
   }
 }

@@ -3283,6 +3283,98 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/subscription/enable-auto-renew:
+    post:
+      operationId: postAssistantBillingEnableAutoRenew
+      summary: Resume recurring billing or start a card-bind checkout for the current subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssistantBillingEnableAutoRenewRequest"
+      responses:
+        "200":
+          description: Updated subscription state or checkout session for recurring setup
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantBillingEnableAutoRenewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Paid subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/billing/subscription/change-plan:
+    post:
+      operationId: postAssistantBillingChangePlan
+      summary: Change the current billing plan through management or checkout-aware flow
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssistantBillingChangePlanRequest"
+      responses:
+        "200":
+          description: Updated subscription state or checkout session for the selected plan change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAssistantBillingChangePlanResponse"
+        "400":
+          description: Validation error or unsupported plan change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or plan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Idempotency key conflicts with a different request shape
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/knowledge-indexing/jobs:
     get:
       operationId: getAdminKnowledgeIndexingJobs
@@ -7154,6 +7246,12 @@ components:
         - upgrade
         - renewal
         - manual_admin
+    AssistantBillingPaymentIntentPurpose:
+      type: string
+      enum:
+        - plan_purchase
+        - managed_recurring_upgrade
+        - autopay_enable_bind
     AssistantBillingPaymentIntentStatus:
       type: string
       enum:
@@ -7222,6 +7320,7 @@ components:
         - id
         - targetPlanCode
         - action
+        - purpose
         - status
         - paymentMethodClass
         - amountMinor
@@ -7244,6 +7343,8 @@ components:
           type: string
         action:
           $ref: "#/components/schemas/AssistantBillingPaymentIntentAction"
+        purpose:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentPurpose"
         status:
           $ref: "#/components/schemas/AssistantBillingPaymentIntentStatus"
         paymentMethodClass:
@@ -7326,6 +7427,50 @@ components:
         - provider_portal
         - provider_managed_recovery
         - unavailable
+    AssistantBillingEnableAutoRenewMode:
+      type: string
+      enum:
+        - resume_existing
+        - bind_checkout
+        - unavailable
+    AssistantBillingScheduledPlanChangePreview:
+      type: object
+      required:
+        - targetPlanCode
+        - targetPlanDisplayName
+        - amountMinor
+        - currency
+        - billingPeriod
+        - effectiveAt
+        - nextChargeAt
+        - changeKind
+      properties:
+        targetPlanCode:
+          type: string
+        targetPlanDisplayName:
+          type: string
+        amountMinor:
+          type: integer
+          nullable: true
+        currency:
+          type: string
+          nullable: true
+        billingPeriod:
+          allOf:
+            - $ref: "#/components/schemas/AssistantBillingPaymentIntentBillingPeriod"
+          nullable: true
+        effectiveAt:
+          type: string
+          format: date-time
+        nextChargeAt:
+          type: string
+          format: date-time
+          nullable: true
+        changeKind:
+          type: string
+          enum:
+            - free
+            - downgrade
     AssistantBillingSubscriptionManagementState:
       type: object
       required:
@@ -7335,9 +7480,14 @@ components:
         - billingProvider
         - providerSubscriptionRef
         - autoRenewEnabled
+        - canEnableAutoRenew
+        - enableAutoRenewMode
         - canDisableAutoRenew
+        - canScheduleDowngrade
+        - canSwitchToFree
         - nextChargeAt
         - currentPeriodEndsAt
+        - scheduledPlanChange
         - paymentMethodLabel
         - managePaymentMethodUrl
         - managePaymentMethodMode
@@ -7370,7 +7520,15 @@ components:
           nullable: true
         autoRenewEnabled:
           type: boolean
+        canEnableAutoRenew:
+          type: boolean
+        enableAutoRenewMode:
+          $ref: "#/components/schemas/AssistantBillingEnableAutoRenewMode"
         canDisableAutoRenew:
+          type: boolean
+        canScheduleDowngrade:
+          type: boolean
+        canSwitchToFree:
           type: boolean
         nextChargeAt:
           type: string
@@ -7379,6 +7537,10 @@ components:
         currentPeriodEndsAt:
           type: string
           format: date-time
+          nullable: true
+        scheduledPlanChange:
+          allOf:
+            - $ref: "#/components/schemas/AssistantBillingScheduledPlanChangePreview"
           nullable: true
         paymentMethodLabel:
           type: string
@@ -7416,6 +7578,89 @@ components:
           nullable: true
         subscription:
           $ref: "#/components/schemas/AssistantBillingSubscriptionManagementState"
+    PostAssistantBillingEnableAutoRenewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - paymentMethodClass
+        - idempotencyKey
+        - returnUrl
+      properties:
+        paymentMethodClass:
+          type: string
+          enum:
+            - card
+        idempotencyKey:
+          type: string
+        returnUrl:
+          type: string
+    PostAssistantBillingChangePlanRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - planCode
+        - paymentMethodClass
+        - idempotencyKey
+        - returnUrl
+      properties:
+        planCode:
+          type: string
+        paymentMethodClass:
+          $ref: "#/components/schemas/AssistantBillingPaymentMethodClass"
+        idempotencyKey:
+          type: string
+        returnUrl:
+          type: string
+    AssistantBillingSubscriptionActionResult:
+      oneOf:
+        - $ref: "#/components/schemas/AssistantBillingSubscriptionActionSubscriptionUpdatedResult"
+        - $ref: "#/components/schemas/AssistantBillingSubscriptionActionCheckoutResult"
+    AssistantBillingSubscriptionActionSubscriptionUpdatedResult:
+      type: object
+      required:
+        - mode
+        - subscription
+      properties:
+        mode:
+          type: string
+          enum:
+            - subscription_updated
+        subscription:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionManagementState"
+    AssistantBillingSubscriptionActionCheckoutResult:
+      type: object
+      required:
+        - mode
+        - paymentIntent
+      properties:
+        mode:
+          type: string
+          enum:
+            - checkout
+        paymentIntent:
+          $ref: "#/components/schemas/AssistantBillingPaymentIntentState"
+    PostAssistantBillingEnableAutoRenewResponse:
+      type: object
+      required:
+        - requestId
+        - result
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        result:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionActionResult"
+    PostAssistantBillingChangePlanResponse:
+      type: object
+      required:
+        - requestId
+        - result
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        result:
+          $ref: "#/components/schemas/AssistantBillingSubscriptionActionResult"
     GetKnowledgeIndexingJobsResponse:
       type: object
       required:

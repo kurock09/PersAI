@@ -70,7 +70,9 @@ import {
   searchWorkspaceMemory,
   uploadAssistantAvatar,
   getAssistantBillingSubscription,
+  postAssistantBillingEnableAutoRenew,
   postAssistantBillingDisableAutoRenew,
+  type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState,
   type WorkspaceMemoryItem,
   type AssistantSkillsState
@@ -230,6 +232,46 @@ function isPaidRecurringSubscription(
     return false;
   }
   return ["active", "grace_period", "past_due"].includes(subscription.subscriptionStatus);
+}
+
+function resolveBillingManagementErrorMessage(
+  error: unknown,
+  t: ReturnType<typeof useTranslations>
+): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("Session expired")) {
+    return t("billingSessionExpired");
+  }
+  if (
+    message.includes("Only card binding is supported") ||
+    message.includes("paymentMethodClass")
+  ) {
+    return t("billingPaymentMethodUnavailable");
+  }
+  if (message.includes("not found") || message.includes("required")) {
+    return t("billingManagementUnavailable");
+  }
+  return t("billingActionFailed");
+}
+
+function applyBillingActionResult(
+  result: AssistantBillingSubscriptionActionResult,
+  router: ReturnType<typeof useRouter>,
+  setBillingSubscription: (value: AssistantBillingSubscriptionManagementState) => void
+): void {
+  if (result.mode === "checkout") {
+    router.push(`/app/billing/checkout/${result.paymentIntent.id}` as Route);
+    return;
+  }
+  setBillingSubscription(result.subscription);
+}
+
+function showBrowserConfirm(message: string): boolean {
+  try {
+    return window.confirm(message) !== false;
+  } catch {
+    return true;
+  }
 }
 
 function FeedbackLine({ fb }: { fb: ActionFeedback }) {
@@ -519,6 +561,7 @@ export function AssistantSettings({
   const [billingSubscriptionLoading, setBillingSubscriptionLoading] = useState(false);
   const [billingSubscriptionFb, setBillingSubscriptionFb] = useState<ActionFeedback>(null);
   const [billingSubscriptionLoaded, setBillingSubscriptionLoaded] = useState(false);
+  const [enableAutoRenewPending, setEnableAutoRenewPending] = useState(false);
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const assistant = data.assistant;
   const statusLabel = t(
@@ -776,9 +819,42 @@ export function AssistantSettings({
     }
     void loadBillingSubscription("silent");
   }, [billingSubscription, billingSubscriptionLoaded, loadBillingSubscription]);
+  const handleEnableAutoRenew = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+    setEnableAutoRenewPending(true);
+    setBillingSubscriptionFb(null);
+    try {
+      const result = await postAssistantBillingEnableAutoRenew(token, {
+        paymentMethodClass: "card",
+        idempotencyKey: `settings:enable-auto-renew:${Date.now()}`,
+        returnUrl: "/app/chat"
+      });
+      applyBillingActionResult(result, router, setBillingSubscription);
+      setBillingSubscriptionFb({
+        type: "ok",
+        text:
+          result.mode === "checkout"
+            ? t("billingAutoRenewBindStarted")
+            : t("billingAutoRenewEnabled")
+      });
+    } catch (error) {
+      setBillingSubscriptionFb({
+        type: "err",
+        text: resolveBillingManagementErrorMessage(error, t)
+      });
+    } finally {
+      setEnableAutoRenewPending(false);
+    }
+  }, [getToken, router, t]);
   const handleDisableAutoRenew = useCallback(async () => {
     const token = await getToken();
     if (!token) {
+      return;
+    }
+    if (!showBrowserConfirm(t("billingDisableAutoRenewConfirm"))) {
       return;
     }
     setDisableAutoRenewPending(true);
@@ -793,7 +869,7 @@ export function AssistantSettings({
     } catch (error) {
       setBillingSubscriptionFb({
         type: "err",
-        text: error instanceof Error ? error.message : t("billingAutoRenewDisableFailed")
+        text: resolveBillingManagementErrorMessage(error, t)
       });
     } finally {
       setDisableAutoRenewPending(false);
@@ -2856,6 +2932,23 @@ export function AssistantSettings({
                     >
                       {t("changePlan")}
                     </button>
+                    {billingSubscription?.canEnableAutoRenew ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleEnableAutoRenew()}
+                        disabled={enableAutoRenewPending}
+                        className="inline-flex min-h-11 items-center justify-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {enableAutoRenewPending ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t("billingEnabling")}
+                          </span>
+                        ) : (
+                          t("billingEnableAutoRenew")
+                        )}
+                      </button>
+                    ) : null}
                     {billingSubscription?.canDisableAutoRenew ? (
                       <button
                         type="button"

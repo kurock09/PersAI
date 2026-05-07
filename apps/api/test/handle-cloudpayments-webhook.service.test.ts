@@ -9,6 +9,9 @@ async function run(): Promise<void> {
   const paymentIntentFindManyCalls: Array<Record<string, unknown>> = [];
   const subscriptionFindFirstCalls: Array<Record<string, unknown>> = [];
   let subscriptionStatus: "trialing" | "active" | "grace_period" = "trialing";
+  let subscriptionPlanCode = "starter";
+  let subscriptionProviderSubscriptionRef: string | null = "sub-provider-1";
+  let subscriptionMetadata: Record<string, unknown> | null = null;
   let allowAccountIdSubscriptionFallback = true;
   let duplicateIntentMatches = false;
 
@@ -68,32 +71,35 @@ async function run(): Promise<void> {
         findUnique: async () => ({
           id: "sub-1",
           workspaceId: "ws-1",
-          planCode: "starter",
+          planCode: subscriptionPlanCode,
           status: subscriptionStatus,
           providerCustomerRef: null,
-          providerSubscriptionRef: "sub-provider-1"
+          providerSubscriptionRef: subscriptionProviderSubscriptionRef,
+          metadata: subscriptionMetadata
         }),
         findFirst: async (args: { where: Record<string, unknown> }) => {
           subscriptionFindFirstCalls.push(args);
           const providerSubscriptionRef = args.where.providerSubscriptionRef;
-          if (providerSubscriptionRef === "sub-provider-1") {
+          if (providerSubscriptionRef === subscriptionProviderSubscriptionRef) {
             return {
               id: "sub-1",
               workspaceId: "ws-1",
-              planCode: "starter",
+              planCode: subscriptionPlanCode,
               status: subscriptionStatus,
               providerCustomerRef: "acct-1",
-              providerSubscriptionRef: "sub-provider-1"
+              providerSubscriptionRef: subscriptionProviderSubscriptionRef,
+              metadata: subscriptionMetadata
             };
           }
           if (allowAccountIdSubscriptionFallback && args.where.providerCustomerRef === "acct-1") {
             return {
               id: "sub-1",
               workspaceId: "ws-1",
-              planCode: "starter",
+              planCode: subscriptionPlanCode,
               status: subscriptionStatus,
               providerCustomerRef: "acct-1",
-              providerSubscriptionRef: "sub-provider-1"
+              providerSubscriptionRef: subscriptionProviderSubscriptionRef,
+              metadata: subscriptionMetadata
             };
           }
           return null;
@@ -131,6 +137,8 @@ async function run(): Promise<void> {
     Currency: "RUB",
     InvoiceId: paymentIntentId,
     Status: "Completed",
+    CardType: "Visa",
+    CardLastFour: "4242",
     DateTime: "2026-05-04 19:05:00"
   };
   const completedPayRawBody = Buffer.from(JSON.stringify(completedPayBody), "utf8");
@@ -154,6 +162,8 @@ async function run(): Promise<void> {
   assert.equal(appliedBillingEvents[0]?.paidPlanCode, "pro");
   assert.equal(appliedBillingEvents[0]?.currentPeriodStartedAt, "2026-05-04T19:05:00.000Z");
   assert.equal(appliedBillingEvents[0]?.currentPeriodEndsAt, "2026-06-04T19:05:00.000Z");
+  assert.equal(appliedBillingEvents[0]?.metadata?.providerCardType, "Visa");
+  assert.equal(appliedBillingEvents[0]?.metadata?.providerCardLastFour, "4242");
 
   const authorizedPayBody = {
     TransactionId: 123457,
@@ -207,6 +217,38 @@ async function run(): Promise<void> {
 
   assert.deepEqual(metadataResult, { status: "processed" });
   assert.equal(paymentIntentUpdates[2]?.providerPaymentRef, "123458");
+
+  paymentIntent.metadata = { purpose: "autopay_enable_bind" };
+  subscriptionStatus = "active";
+  subscriptionPlanCode = "starter";
+  subscriptionProviderSubscriptionRef = null;
+  const bindBody = {
+    TransactionId: 1234581,
+    Amount: 1,
+    Currency: "RUB",
+    InvoiceId: paymentIntentId,
+    AccountId: "acct-1",
+    SubscriptionId: "sub-bound-1",
+    Status: "Completed",
+    DateTime: "2026-05-04 19:07:30"
+  };
+  const bindRawBody = Buffer.from(JSON.stringify(bindBody), "utf8");
+  const bindHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(bindRawBody)
+    .digest("base64");
+  const bindResult = await service.handle({
+    notificationType: "pay",
+    body: bindBody,
+    rawBody: bindRawBody,
+    headers: {
+      "x-content-hmac": bindHmac
+    }
+  });
+  assert.deepEqual(bindResult, { status: "processed" });
+  assert.equal(appliedBillingEvents.at(-1)?.eventCode, "auto_renew_enabled");
+  assert.equal(appliedBillingEvents.at(-1)?.providerSubscriptionRef, "sub-bound-1");
+  paymentIntent.metadata = {};
+  subscriptionProviderSubscriptionRef = "sub-provider-1";
 
   const encodedCheckBody = {
     TransactionId: 123459,
@@ -284,6 +326,73 @@ async function run(): Promise<void> {
   assert.equal(appliedBillingEvents.at(-1)?.eventCode, "payment_recovered");
   assert.equal(appliedBillingEvents.at(-1)?.providerSubscriptionRef, "sub-provider-1");
   assert.equal(appliedBillingEvents.at(-1)?.workspaceId, "ws-1");
+
+  subscriptionStatus = "active";
+  subscriptionPlanCode = "pro";
+  subscriptionMetadata = {
+    pendingPlanChange: {
+      targetPlanCode: "starter",
+      targetPlanDisplayName: "Starter",
+      effectiveAt: "2026-06-04T19:09:00.000Z",
+      nextChargeAt: "2026-06-04T19:09:00.000Z",
+      amountMinor: 4900,
+      currency: "RUB",
+      billingPeriod: "month",
+      changeKind: "downgrade"
+    }
+  };
+  const scheduledDowngradeBody = {
+    TransactionId: 1234601,
+    Amount: 49,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-1",
+    DateTime: "2026-06-04 19:09:00"
+  };
+  const scheduledDowngradeRawBody = Buffer.from(JSON.stringify(scheduledDowngradeBody), "utf8");
+  const scheduledDowngradeHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(scheduledDowngradeRawBody)
+    .digest("base64");
+  const scheduledDowngradeResult = await service.handle({
+    notificationType: "recurrent",
+    body: scheduledDowngradeBody,
+    rawBody: scheduledDowngradeRawBody,
+    headers: {
+      "x-content-hmac": scheduledDowngradeHmac
+    }
+  });
+  assert.deepEqual(scheduledDowngradeResult, { status: "processed" });
+  assert.equal(appliedBillingEvents.at(-1)?.eventCode, "renewal_succeeded");
+  assert.equal(appliedBillingEvents.at(-1)?.paidPlanCode, "starter");
+
+  const staleScheduledDowngradeBody = {
+    TransactionId: 1234602,
+    Amount: 99,
+    Currency: "RUB",
+    AccountId: "acct-1",
+    SubscriptionId: "sub-provider-1",
+    DateTime: "2026-07-04 19:09:00"
+  };
+  const staleScheduledDowngradeRawBody = Buffer.from(
+    JSON.stringify(staleScheduledDowngradeBody),
+    "utf8"
+  );
+  const staleScheduledDowngradeHmac = createHmac("sha256", "cloudpayments-api-secret")
+    .update(staleScheduledDowngradeRawBody)
+    .digest("base64");
+  const staleScheduledDowngradeResult = await service.handle({
+    notificationType: "recurrent",
+    body: staleScheduledDowngradeBody,
+    rawBody: staleScheduledDowngradeRawBody,
+    headers: {
+      "x-content-hmac": staleScheduledDowngradeHmac
+    }
+  });
+  assert.deepEqual(staleScheduledDowngradeResult, { status: "processed" });
+  assert.equal(appliedBillingEvents.at(-1)?.eventCode, "renewal_succeeded");
+  assert.equal(appliedBillingEvents.at(-1)?.paidPlanCode, "pro");
+  subscriptionMetadata = null;
+  subscriptionPlanCode = "starter";
 
   subscriptionStatus = "active";
   const cancelBody = {

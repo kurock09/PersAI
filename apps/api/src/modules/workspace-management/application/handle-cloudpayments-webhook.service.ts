@@ -43,6 +43,8 @@ type CloudpaymentsPayload = {
   reason: string | null;
   reasonCode: string | null;
   paymentMethod: string | null;
+  cardType: string | null;
+  cardLastFour: string | null;
   eventTimeIso: string;
   data: Record<string, unknown> | null;
   raw: Record<string, unknown>;
@@ -89,6 +91,7 @@ type SubscriptionRecord = {
     | "expired_fallback";
   providerCustomerRef: string | null;
   providerSubscriptionRef: string | null;
+  metadata: Prisma.JsonValue | null;
 };
 
 type ResolvedSubscription = {
@@ -189,6 +192,53 @@ function mergeMetadata(
     ...base,
     ...patch
   } as Prisma.InputJsonValue;
+}
+
+function readPaymentIntentPurpose(value: Prisma.JsonValue): string {
+  const row = isObject(value) ? value : null;
+  return asTrimmedString(row?.purpose) ?? "plan_purchase";
+}
+
+function readPendingPlanChange(
+  value: Prisma.JsonValue | null
+): { targetPlanCode: string; changeKind: "free" | "downgrade" } | null {
+  const row = isObject(value) ? value : null;
+  const pending = isObject(row?.pendingPlanChange) ? row.pendingPlanChange : null;
+  const targetPlanCode = asTrimmedString(pending?.targetPlanCode);
+  const changeKind =
+    pending?.changeKind === "free" || pending?.changeKind === "downgrade"
+      ? pending.changeKind
+      : null;
+  if (targetPlanCode === null || changeKind === null) {
+    return null;
+  }
+  return {
+    targetPlanCode,
+    changeKind
+  };
+}
+
+function scheduledDowngradeMatchesProviderCharge(
+  pendingPlanChange: { changeKind: "free" | "downgrade"; targetPlanCode: string } | null,
+  payload: CloudpaymentsPayload,
+  subscription: SubscriptionRecord | null
+): boolean {
+  if (pendingPlanChange?.changeKind !== "downgrade" || subscription === null) {
+    return false;
+  }
+  const metadata = isObject(subscription.metadata) ? subscription.metadata : null;
+  const pending = isObject(metadata?.pendingPlanChange) ? metadata.pendingPlanChange : null;
+  const amountMinor =
+    typeof pending?.amountMinor === "number" && Number.isFinite(pending.amountMinor)
+      ? pending.amountMinor
+      : null;
+  const currency = asTrimmedString(pending?.currency);
+  if (amountMinor === null || currency === null) {
+    return false;
+  }
+  return (
+    payload.amountMinor === amountMinor && (payload.currency?.toUpperCase() ?? null) === currency
+  );
 }
 
 @Injectable()
@@ -310,6 +360,8 @@ export class HandleCloudpaymentsWebhookService {
       reason: asTrimmedString(body.Reason),
       reasonCode: asTrimmedString(body.ReasonCode),
       paymentMethod: asTrimmedString(body.PaymentMethod),
+      cardType: asTrimmedString(body.CardType),
+      cardLastFour: asTrimmedString(body.CardLastFour),
       eventTimeIso:
         parseCloudpaymentsDate(body.DateTime ?? body.LastTransactionDate ?? body.StartDate) ??
         new Date().toISOString(),
@@ -398,7 +450,8 @@ export class HandleCloudpaymentsWebhookService {
             planCode: true,
             status: true,
             providerCustomerRef: true,
-            providerSubscriptionRef: true
+            providerSubscriptionRef: true,
+            metadata: true
           }
         })) as SubscriptionRecord | null,
         blockedAccountFallback: false
@@ -413,7 +466,8 @@ export class HandleCloudpaymentsWebhookService {
           planCode: true,
           status: true,
           providerCustomerRef: true,
-          providerSubscriptionRef: true
+          providerSubscriptionRef: true,
+          metadata: true
         }
       });
       if (bySubscriptionRef !== null) {
@@ -437,7 +491,8 @@ export class HandleCloudpaymentsWebhookService {
             planCode: true,
             status: true,
             providerCustomerRef: true,
-            providerSubscriptionRef: true
+            providerSubscriptionRef: true,
+            metadata: true
           }
         })) as SubscriptionRecord | null,
         blockedAccountFallback: false
@@ -550,6 +605,14 @@ export class HandleCloudpaymentsWebhookService {
       if (!renewalTarget || subscription === null) {
         return null;
       }
+      const scheduledPlanChange = readPendingPlanChange(subscription.metadata);
+      const scheduledPaidPlanCode = scheduledDowngradeMatchesProviderCharge(
+        scheduledPlanChange,
+        payload,
+        subscription
+      )
+        ? (scheduledPlanChange?.targetPlanCode ?? null)
+        : null;
       return {
         workspaceId: subscription.workspaceId,
         userId: paymentIntent?.userId ?? null,
@@ -561,7 +624,10 @@ export class HandleCloudpaymentsWebhookService {
         providerCustomerRef: subscription.providerCustomerRef,
         providerSubscriptionRef: payload.subscriptionId ?? subscription.providerSubscriptionRef,
         paidPlanCode: subscription.planCode,
-        metadata: this.buildLifecycleMetadata(notificationType, payload)
+        metadata: {
+          ...this.buildLifecycleMetadata(notificationType, payload),
+          ...(scheduledPaidPlanCode !== null ? { scheduledPaidPlanCode } : {})
+        }
       };
     }
 
@@ -603,6 +669,32 @@ export class HandleCloudpaymentsWebhookService {
       return null;
     }
 
+    const paymentIntentPurpose =
+      paymentIntent === null ? "plan_purchase" : readPaymentIntentPurpose(paymentIntent.metadata);
+    if (paymentIntentPurpose === "autopay_enable_bind") {
+      if (subscription === null) {
+        return null;
+      }
+      return {
+        workspaceId,
+        userId: paymentIntent?.userId ?? null,
+        source: "provider",
+        eventCode: "auto_renew_enabled",
+        eventRef: this.buildEventRef(notificationType, rawBody),
+        paymentIntentRef: paymentIntent?.id ?? null,
+        billingProvider: "cloudpayments",
+        providerCustomerRef:
+          payload.accountId ??
+          subscription.providerCustomerRef ??
+          paymentIntent?.providerCustomerRef ??
+          null,
+        providerSubscriptionRef:
+          payload.subscriptionId ?? subscription.providerSubscriptionRef ?? null,
+        paidPlanCode: subscription.planCode,
+        metadata: this.buildLifecycleMetadata(notificationType, payload)
+      };
+    }
+
     const currentStatus = subscription?.status ?? null;
     const eventCode =
       notificationType === "recurrent" ||
@@ -613,10 +705,26 @@ export class HandleCloudpaymentsWebhookService {
           : "renewal_succeeded"
         : "payment_activated";
 
-    const paidPlanCode = paymentIntent?.targetPlanCode ?? subscription?.planCode ?? null;
+    const scheduledPlanChange = readPendingPlanChange(subscription?.metadata ?? null);
+    const scheduledDowngradeApplied = scheduledDowngradeMatchesProviderCharge(
+      scheduledPlanChange,
+      payload,
+      subscription
+    );
+    const paidPlanCode =
+      paymentIntent?.targetPlanCode ??
+      (scheduledDowngradeApplied
+        ? (scheduledPlanChange?.targetPlanCode ?? subscription?.planCode ?? null)
+        : (subscription?.planCode ?? null));
     const billingPeriod = await this.resolveBillingPeriod(paymentIntent, subscription);
     const currentPeriodStartedAt = payload.eventTimeIso;
     const currentPeriodEndsAt = addBillingPeriod(currentPeriodStartedAt, billingPeriod);
+    const providerSubscriptionRef = await this.resolveProviderSubscriptionRef({
+      payload,
+      paymentIntent,
+      subscription,
+      paymentIntentPurpose
+    });
 
     return {
       workspaceId,
@@ -631,13 +739,58 @@ export class HandleCloudpaymentsWebhookService {
         payload.accountId ??
         paymentIntent?.providerCustomerRef ??
         null,
-      providerSubscriptionRef:
-        payload.subscriptionId ?? subscription?.providerSubscriptionRef ?? null,
+      providerSubscriptionRef,
       paidPlanCode,
       currentPeriodStartedAt,
       currentPeriodEndsAt,
-      metadata: this.buildLifecycleMetadata(notificationType, payload)
+      metadata: {
+        ...this.buildLifecycleMetadata(notificationType, payload),
+        ...(paymentIntentPurpose === "managed_recurring_upgrade"
+          ? {
+              managedRecurringSubscriptionUpdate: {
+                providerSubscriptionRef: this.requireProviderSubscriptionRef(
+                  providerSubscriptionRef,
+                  "Managed recurring upgrade webhook is missing the provider subscription reference."
+                ),
+                amountMinor: paymentIntent?.amountMinor ?? null,
+                currency: paymentIntent?.currency ?? null,
+                startDate: currentPeriodEndsAt,
+                interval: "Month",
+                period: paymentIntent?.billingPeriod === "year" ? 12 : 1,
+                maxPeriods: null
+              }
+            }
+          : {})
+      }
     };
+  }
+
+  private async resolveProviderSubscriptionRef(input: {
+    payload: CloudpaymentsPayload;
+    paymentIntent: PaymentIntentRecord | null;
+    subscription: SubscriptionRecord | null;
+    paymentIntentPurpose: string;
+  }): Promise<string | null> {
+    if (input.paymentIntentPurpose !== "managed_recurring_upgrade") {
+      return input.payload.subscriptionId ?? input.subscription?.providerSubscriptionRef ?? null;
+    }
+    return (
+      input.payload.subscriptionId ??
+      asTrimmedString(
+        isObject(input.paymentIntent?.metadata)
+          ? input.paymentIntent.metadata.existingProviderSubscriptionRef
+          : null
+      ) ??
+      input.subscription?.providerSubscriptionRef ??
+      null
+    );
+  }
+
+  private requireProviderSubscriptionRef(value: string | null, message: string): string {
+    if (value === null || value.trim().length === 0) {
+      throw new BadRequestException(message);
+    }
+    return value;
   }
 
   private async resolveBillingPeriod(
@@ -770,6 +923,8 @@ export class HandleCloudpaymentsWebhookService {
       providerAccountId: payload.accountId,
       providerPaymentStatus: payload.status,
       providerPaymentMethod: payload.paymentMethod,
+      providerCardType: payload.cardType,
+      providerCardLastFour: payload.cardLastFour,
       providerReason: payload.reason,
       providerReasonCode: payload.reasonCode,
       eventTimeIso: payload.eventTimeIso

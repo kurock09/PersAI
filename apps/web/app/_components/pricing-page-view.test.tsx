@@ -16,7 +16,8 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 const billingMocks = vi.hoisted(() => ({
-  postAssistantBillingPaymentIntent: vi.fn()
+  getAssistantBillingSubscription: vi.fn(),
+  postAssistantBillingChangePlan: vi.fn()
 }));
 
 vi.mock("next/navigation", () => ({
@@ -30,14 +31,16 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("../app/assistant-api-client", () => ({
-  postAssistantBillingPaymentIntent: billingMocks.postAssistantBillingPaymentIntent
+  getAssistantBillingSubscription: billingMocks.getAssistantBillingSubscription,
+  postAssistantBillingChangePlan: billingMocks.postAssistantBillingChangePlan
 }));
 
 afterEach(() => {
   cleanup();
   navigationMocks.push.mockReset();
   authMocks.getToken.mockClear();
-  billingMocks.postAssistantBillingPaymentIntent.mockReset();
+  billingMocks.getAssistantBillingSubscription.mockReset();
+  billingMocks.postAssistantBillingChangePlan.mockReset();
 });
 
 function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricingPlanState {
@@ -109,8 +112,11 @@ describe("PricingPageView", () => {
   });
 
   it("marks the current plan and lets signed-in users start checkout", async () => {
-    billingMocks.postAssistantBillingPaymentIntent.mockResolvedValue({
-      id: "pi-1"
+    billingMocks.postAssistantBillingChangePlan.mockResolvedValue({
+      mode: "checkout",
+      paymentIntent: {
+        id: "pi-1"
+      }
     });
     renderView(
       <PricingPageView
@@ -124,7 +130,7 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Current plan")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Choose" }));
     await waitFor(() => {
-      expect(billingMocks.postAssistantBillingPaymentIntent).toHaveBeenCalledWith(
+      expect(billingMocks.postAssistantBillingChangePlan).toHaveBeenCalledWith(
         "token-1",
         expect.objectContaining({
           planCode: "team",
@@ -137,7 +143,7 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
   });
 
-  it("gives current plans a subtle background and keeps recommended plans premium without dark-theme fill", () => {
+  it("gives current plans a subtle background and keeps the PRO premium fill only in light theme", () => {
     renderView(
       <PricingPageView
         plans={[
@@ -181,9 +187,9 @@ describe("PricingPageView", () => {
     expect(highlightedCard?.className).toContain(
       "[background:linear-gradient(180deg,rgba(255,238,190,0.16)"
     );
-    expect(highlightedCard?.className).toContain(
-      "dark:[background:linear-gradient(180deg,rgba(24,22,20,0.92)"
-    );
+    expect(highlightedCard?.className).toContain("dark:bg-surface/80");
+    expect(highlightedCard?.className).toContain("dark:border-[rgba(212,168,66,0.55)]");
+    expect(highlightedCard?.className).not.toContain("dark:[background:");
     expect(regularCard?.className).toContain("border-border/80");
   });
 

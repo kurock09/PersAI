@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantBillingSubscriptionManagementStateSubscriptionStatus } from "./assistantBillingSubscriptionManagementStateSubscriptionStatus";
+import type { AssistantBillingEnableAutoRenewMode } from "./assistantBillingEnableAutoRenewMode";
+import type { AssistantBillingSubscriptionManagementStateScheduledPlanChange } from "./assistantBillingSubscriptionManagementStateScheduledPlanChange";
 import type { AssistantBillingSubscriptionManagementMode } from "./assistantBillingSubscriptionManagementMode";
 
 export interface AssistantBillingSubscriptionManagementState {
@@ -18,11 +20,17 @@ export interface AssistantBillingSubscriptionManagementState {
   /** @nullable */
   providerSubscriptionRef: string | null;
   autoRenewEnabled: boolean;
+  canEnableAutoRenew: boolean;
+  enableAutoRenewMode: AssistantBillingEnableAutoRenewMode;
   canDisableAutoRenew: boolean;
+  canScheduleDowngrade: boolean;
+  canSwitchToFree: boolean;
   /** @nullable */
   nextChargeAt: string | null;
   /** @nullable */
   currentPeriodEndsAt: string | null;
+  /** @nullable */
+  scheduledPlanChange: AssistantBillingSubscriptionManagementStateScheduledPlanChange;
   /** @nullable */
   paymentMethodLabel: string | null;
   /** @nullable */

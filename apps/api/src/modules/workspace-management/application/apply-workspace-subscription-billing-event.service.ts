@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma, WorkspaceSubscriptionLifecycleEventSource } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { BILLING_PROVIDER_PORT, type BillingProviderPort } from "./billing-provider.port";
 import { ManageWorkspaceSubscriptionLifecycleService } from "./manage-workspace-subscription-lifecycle.service";
 
 export type WorkspaceSubscriptionBillingEventCode =
@@ -9,7 +10,9 @@ export type WorkspaceSubscriptionBillingEventCode =
   | "renewal_failed"
   | "payment_recovered"
   | "payment_reversed"
-  | "subscription_cancel_scheduled";
+  | "subscription_cancel_scheduled"
+  | "subscription_resumed"
+  | "auto_renew_enabled";
 
 export type ApplyWorkspaceSubscriptionBillingEventInput = {
   workspaceId: string;
@@ -51,7 +54,9 @@ type CurrentSubscriptionSnapshot = {
 export class ApplyWorkspaceSubscriptionBillingEventService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService
+    private readonly manageWorkspaceSubscriptionLifecycleService: ManageWorkspaceSubscriptionLifecycleService,
+    @Inject(BILLING_PROVIDER_PORT)
+    private readonly billingProviderPort: BillingProviderPort
   ) {}
 
   async apply(
@@ -107,7 +112,8 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         });
         return { status: "ignored", billingEventId: billingEvent.id };
       }
-      await this.applyToLifecycle(current, input, billingEvent.id);
+      const lifecycleInput = await this.applyManagedSubscriptionUpdateIfNeeded(billingEvent, input);
+      await this.applyToLifecycle(current, lifecycleInput, billingEvent.id);
       const appliedSubscription = await this.prisma.workspaceSubscription.findUnique({
         where: { workspaceId: input.workspaceId },
         select: { id: true }
@@ -161,7 +167,8 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
           workspaceId: input.workspaceId,
           userId: input.userId,
           source: input.source,
-          refs
+          refs,
+          paidPlanCodeOverride: this.readScheduledPaidPlanCode(input.metadata)
         });
         return;
       case "payment_recovered":
@@ -223,6 +230,34 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
           refs
         });
         return;
+      case "subscription_resumed":
+        this.assertCurrentSubscriptionExists(current);
+        await this.manageWorkspaceSubscriptionLifecycleService.resumePaidAutoRenew({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          source: input.source,
+          refs,
+          billingProvider: input.billingProvider ?? current.billingProvider ?? null,
+          providerCustomerRef: input.providerCustomerRef ?? current.providerCustomerRef ?? null,
+          providerSubscriptionRef:
+            input.providerSubscriptionRef ?? current.providerSubscriptionRef ?? null
+        });
+        return;
+      case "auto_renew_enabled":
+        this.assertCurrentSubscriptionExists(current);
+        await this.manageWorkspaceSubscriptionLifecycleService.enablePaidAutoRenew({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          source: input.source,
+          refs,
+          billingProvider: input.billingProvider ?? current.billingProvider ?? null,
+          providerCustomerRef: input.providerCustomerRef ?? current.providerCustomerRef ?? null,
+          providerSubscriptionRef: this.requireString(
+            input.providerSubscriptionRef ?? current.providerSubscriptionRef,
+            "providerSubscriptionRef"
+          )
+        });
+        return;
       default: {
         const exhaustiveCheck: never = input.eventCode;
         return exhaustiveCheck;
@@ -256,6 +291,18 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
         );
       case "subscription_cancel_scheduled":
         return current.cancelAtPeriodEnd;
+      case "subscription_resumed":
+        return !current.cancelAtPeriodEnd;
+      case "auto_renew_enabled":
+        return (
+          !current.cancelAtPeriodEnd &&
+          current.providerSubscriptionRef !== null &&
+          (input.billingProvider ?? current.billingProvider) === current.billingProvider &&
+          (input.providerCustomerRef ?? current.providerCustomerRef) ===
+            current.providerCustomerRef &&
+          (input.providerSubscriptionRef ?? current.providerSubscriptionRef) ===
+            current.providerSubscriptionRef
+        );
       case "payment_reversed":
         return current.status === "expired_fallback";
       default: {
@@ -325,6 +372,149 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
     return (current?.toISOString() ?? null) === (this.normalizeOptionalString(next) ?? null);
   }
 
+  private async applyManagedSubscriptionUpdateIfNeeded(
+    billingEvent: { id: string; metadata?: Prisma.JsonValue | null },
+    input: ApplyWorkspaceSubscriptionBillingEventInput
+  ): Promise<ApplyWorkspaceSubscriptionBillingEventInput> {
+    const update = this.readManagedSubscriptionUpdate(input.metadata);
+    if (update === null) {
+      return input;
+    }
+    const appliedAt = this.readManagedSubscriptionUpdateAppliedAt(billingEvent.metadata);
+    const persistedProviderSubscriptionRef = this.readManagedSubscriptionUpdateProviderRef(
+      billingEvent.metadata
+    );
+    if (appliedAt !== null) {
+      const metadata = this.mergeMetadata((input.metadata ?? null) as Prisma.JsonValue, {
+        ...(persistedProviderSubscriptionRef !== null
+          ? { managedRecurringSubscriptionRef: persistedProviderSubscriptionRef }
+          : {}),
+        managedRecurringSubscriptionUpdateAppliedAt: appliedAt
+      }) as unknown as Record<string, unknown>;
+      return {
+        ...input,
+        providerSubscriptionRef:
+          persistedProviderSubscriptionRef ?? input.providerSubscriptionRef ?? null,
+        metadata
+      };
+    }
+
+    const managedSubscription = await this.billingProviderPort.updateManagedSubscription(update);
+    const appliedAtIso = new Date().toISOString();
+    await this.prisma.workspaceSubscriptionBillingEvent.update({
+      where: { id: billingEvent.id },
+      data: {
+        metadata: this.mergeMetadata(billingEvent.metadata, {
+          managedRecurringSubscriptionUpdateAppliedAt: appliedAtIso,
+          managedRecurringSubscriptionRef: managedSubscription.providerSubscriptionRef
+        })
+      }
+    });
+
+    return {
+      ...input,
+      providerSubscriptionRef: managedSubscription.providerSubscriptionRef,
+      metadata: this.mergeMetadata((input.metadata ?? null) as Prisma.JsonValue, {
+        managedRecurringSubscriptionUpdateAppliedAt: appliedAtIso,
+        managedRecurringSubscriptionRef: managedSubscription.providerSubscriptionRef
+      }) as unknown as Record<string, unknown>
+    };
+  }
+
+  private readManagedSubscriptionUpdate(metadata: Record<string, unknown> | undefined): {
+    providerSubscriptionRef: string;
+    amountMinor: number;
+    currency: string;
+    startDate: string;
+    interval: "Day" | "Week" | "Month";
+    period: number;
+    maxPeriods: number | null;
+  } | null {
+    if (metadata === undefined) {
+      return null;
+    }
+    const candidate = metadata.managedRecurringSubscriptionUpdate;
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return null;
+    }
+    const row = candidate as Record<string, unknown>;
+    if (
+      typeof row.providerSubscriptionRef !== "string" ||
+      typeof row.amountMinor !== "number" ||
+      typeof row.currency !== "string" ||
+      typeof row.startDate !== "string" ||
+      (row.interval !== "Day" && row.interval !== "Week" && row.interval !== "Month") ||
+      typeof row.period !== "number"
+    ) {
+      return null;
+    }
+    return {
+      providerSubscriptionRef: row.providerSubscriptionRef,
+      amountMinor: row.amountMinor,
+      currency: row.currency,
+      startDate: row.startDate,
+      interval: row.interval,
+      period: row.period,
+      maxPeriods: typeof row.maxPeriods === "number" ? row.maxPeriods : null
+    };
+  }
+
+  private readManagedSubscriptionUpdateAppliedAt(
+    value: Prisma.JsonValue | null | undefined
+  ): string | null {
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value !== "object" ||
+      Array.isArray(value)
+    ) {
+      return null;
+    }
+    const candidate = (value as Record<string, unknown>)
+      .managedRecurringSubscriptionUpdateAppliedAt;
+    return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : null;
+  }
+
+  private readManagedSubscriptionUpdateProviderRef(
+    value: Prisma.JsonValue | null | undefined
+  ): string | null {
+    if (
+      value === null ||
+      value === undefined ||
+      typeof value !== "object" ||
+      Array.isArray(value)
+    ) {
+      return null;
+    }
+    const candidate = (value as Record<string, unknown>).managedRecurringSubscriptionRef;
+    return typeof candidate === "string" && candidate.trim().length > 0 ? candidate : null;
+  }
+
+  private readScheduledPaidPlanCode(metadata: Record<string, unknown> | undefined): string | null {
+    if (metadata === undefined) {
+      return null;
+    }
+    const candidate = metadata.scheduledPaidPlanCode;
+    return typeof candidate === "string" && candidate.trim().length > 0 ? candidate.trim() : null;
+  }
+
+  private mergeMetadata(
+    current: Prisma.JsonValue | null | undefined,
+    patch: Record<string, unknown>
+  ): Prisma.InputJsonValue {
+    const base =
+      current !== null &&
+      current !== undefined &&
+      typeof current === "object" &&
+      !Array.isArray(current)
+        ? (current as Record<string, unknown>)
+        : {};
+    return {
+      ...base,
+      ...patch
+    } as Prisma.InputJsonValue;
+  }
+
   private hasConflictingProviderRefs(
     current: CurrentSubscriptionSnapshot,
     input: ApplyWorkspaceSubscriptionBillingEventInput
@@ -341,10 +531,14 @@ export class ApplyWorkspaceSubscriptionBillingEventService {
       return true;
     }
     const nextSubscriptionRef = this.normalizeOptionalString(input.providerSubscriptionRef);
+    const persistedManagedSubscriptionRef = this.readManagedSubscriptionUpdateProviderRef(
+      input.metadata as Prisma.JsonValue | undefined
+    );
     if (
       nextSubscriptionRef !== null &&
       current.providerSubscriptionRef !== null &&
-      nextSubscriptionRef !== current.providerSubscriptionRef
+      nextSubscriptionRef !== current.providerSubscriptionRef &&
+      nextSubscriptionRef !== persistedManagedSubscriptionRef
     ) {
       return true;
     }

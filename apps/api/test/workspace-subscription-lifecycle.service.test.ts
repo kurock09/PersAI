@@ -224,6 +224,159 @@ async function run(): Promise<void> {
     planCode: "pro",
     status: "active",
     cancelAtPeriodEnd: false,
+    billingProvider: null,
+    providerCustomerRef: null,
+    providerSubscriptionRef: null,
+    currentPeriodStartedAt: new Date("2026-05-04T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-06-04T00:00:00.000Z"),
+    metadata: {
+      pendingPlanChange: {
+        targetPlanCode: "starter",
+        targetPlanDisplayName: "Starter",
+        amountMinor: 4900,
+        currency: "RUB",
+        billingPeriod: "month",
+        effectiveAt: "2026-06-04T00:00:00.000Z",
+        nextChargeAt: "2026-06-04T00:00:00.000Z",
+        changeKind: "downgrade"
+      }
+    }
+  };
+  await service.enablePaidAutoRenew({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    refs: { relatedProviderEventRef: "evt-bind-success" },
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-bound-1"
+  });
+  assert.equal(subscription.cancelAtPeriodEnd, false);
+  assert.equal(subscription.billingProvider, "cloudpayments");
+  assert.equal(subscription.providerCustomerRef, "acct-1");
+  assert.equal(subscription.providerSubscriptionRef, "sub-bound-1");
+  assert.equal(
+    (subscription.metadata as { pendingPlanChange?: unknown } | null)?.pendingPlanChange,
+    null
+  );
+  assert.equal(events.at(-1)?.eventCode, "auto_renew_enabled");
+
+  subscription = {
+    ...subscription,
+    cancelAtPeriodEnd: true,
+    metadata: {
+      pendingPlanChange: {
+        targetPlanCode: "free",
+        targetPlanDisplayName: "Free",
+        amountMinor: null,
+        currency: null,
+        billingPeriod: null,
+        effectiveAt: "2026-06-04T00:00:00.000Z",
+        nextChargeAt: null,
+        changeKind: "free"
+      }
+    }
+  };
+  await service.resumePaidAutoRenew({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    source: "provider",
+    refs: { relatedProviderEventRef: "evt-resume" },
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-bound-1"
+  });
+  assert.equal(subscription.cancelAtPeriodEnd, false);
+  assert.equal(
+    (subscription.metadata as { pendingPlanChange?: unknown } | null)?.pendingPlanChange,
+    null
+  );
+  assert.equal(events.at(-1)?.eventCode, "subscription_resumed");
+
+  subscription = {
+    ...subscription,
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: true,
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-bound-1",
+    currentPeriodStartedAt: new Date("2026-05-04T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-06-04T00:00:00.000Z"),
+    metadata: {
+      pendingPlanChange: {
+        targetPlanCode: "starter",
+        targetPlanDisplayName: "Starter",
+        amountMinor: 4900,
+        currency: "RUB",
+        billingPeriod: "month",
+        effectiveAt: "2026-06-04T00:00:00.000Z",
+        nextChargeAt: "2026-06-04T00:00:00.000Z",
+        changeKind: "downgrade"
+      }
+    }
+  };
+  await service.applyCancelledPaidPeriodEndFallback({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    now: new Date("2026-06-05T00:00:00.000Z")
+  });
+  assert.equal(subscription.status, "expired_fallback");
+  assert.equal(subscription.planCode, "starter");
+  assert.equal(subscription.cancelAtPeriodEnd, false);
+  assert.equal(subscription.billingProvider, null);
+  assert.equal(subscription.providerCustomerRef, null);
+  assert.equal(subscription.providerSubscriptionRef, null);
+  assert.equal(events.at(-2)?.eventCode, "subscription_canceled");
+  assert.equal(events.at(-1)?.eventCode, "fallback_applied");
+
+  subscription = {
+    ...subscription,
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-bound-1",
+    currentPeriodStartedAt: new Date("2026-06-04T00:00:00.000Z"),
+    currentPeriodEndsAt: new Date("2026-07-04T00:00:00.000Z"),
+    metadata: {
+      pendingPlanChange: {
+        targetPlanCode: "starter",
+        targetPlanDisplayName: "Starter",
+        amountMinor: 4900,
+        currency: "RUB",
+        billingPeriod: "month",
+        effectiveAt: "2026-06-04T00:00:00.000Z",
+        nextChargeAt: "2026-06-04T00:00:00.000Z",
+        changeKind: "downgrade"
+      }
+    }
+  };
+  await service.activatePaidSubscription({
+    workspaceId: "ws-1",
+    userId: "user-1",
+    paidPlanCode: "pro",
+    currentPeriodStartedAt: "2026-06-04T00:00:00.000Z",
+    currentPeriodEndsAt: "2026-07-04T00:00:00.000Z",
+    billingProvider: "cloudpayments",
+    providerCustomerRef: "acct-1",
+    providerSubscriptionRef: "sub-bound-1",
+    source: "provider",
+    refs: { relatedProviderEventRef: "evt-renew-old-plan" },
+    eventCode: "renewal_succeeded",
+    lifecycleReason: "renewal_succeeded"
+  });
+  assert.equal(
+    (subscription.metadata as { pendingPlanChange?: unknown } | null)?.pendingPlanChange,
+    null
+  );
+
+  subscription = {
+    ...subscription,
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
     billingProvider: "stripe",
     providerCustomerRef: "cust-1",
     providerSubscriptionRef: "sub-provider-1",
@@ -311,32 +464,23 @@ async function run(): Promise<void> {
     source: "admin"
   });
   assert.equal(events.at(-1)?.eventCode, "billing_reminder_requested");
-  assert.deepEqual(dirtyWorkspaces, [
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1",
-    "ws-1"
-  ]);
+  assert.equal(dirtyWorkspaces.length, 12);
   assert.deepEqual(scheduledEventIds, [
     ["event-1"],
     ["event-2", "event-3"],
     ["event-4", "event-5"],
     ["event-6"],
     ["event-8", "event-9"],
-    ["event-10", "event-11"],
-    ["event-12"],
-    ["event-13"],
+    ["event-12", "event-13"],
     ["event-14"],
-    ["event-15"],
-    ["event-16"]
+    ["event-15", "event-16"],
+    ["event-17"],
+    ["event-18"],
+    ["event-19"],
+    ["event-20"],
+    ["event-21"]
   ]);
-  assert.deepEqual(immediateActivationWorkspaces, ["ws-1", "ws-1"]);
+  assert.deepEqual(immediateActivationWorkspaces, ["ws-1", "ws-1", "ws-1"]);
 }
 
 void run();

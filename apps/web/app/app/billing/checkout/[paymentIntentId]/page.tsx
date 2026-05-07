@@ -210,6 +210,19 @@ function formatSubscriptionPrice(
     : t("pricePerMonth", { price: formatted });
 }
 
+function resolveCheckoutSubtitle(
+  paymentIntent: AssistantBillingPaymentIntentState | null,
+  t: ReturnType<typeof useTranslations>
+): string {
+  if (paymentIntent?.purpose === "autopay_enable_bind") {
+    return t("subtitleBind");
+  }
+  if (paymentIntent?.purpose === "managed_recurring_upgrade") {
+    return t("subtitleManagedUpgrade");
+  }
+  return t("subtitle");
+}
+
 function isTerminalPaymentIntentStatus(
   status: AssistantBillingPaymentIntentState["status"]
 ): boolean {
@@ -558,7 +571,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
             <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text">
               {paymentIntent ? t("titleWithPlan", { plan: planLabel ?? "" }) : t("title")}
             </h1>
-            <p className="mt-3 text-sm leading-6 text-text-muted">{t("subtitle")}</p>
+            <p className="mt-3 text-sm leading-6 text-text-muted">
+              {resolveCheckoutSubtitle(paymentIntent, t)}
+            </p>
 
             {loading ? (
               <div className="mt-8 flex items-center gap-3 rounded-2xl border border-border/70 bg-bg/60 px-4 py-4 text-sm text-text-muted">
@@ -674,7 +689,13 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       </summary>
                       <div className="mt-3 space-y-2 leading-6">
                         <p>{t("paymentHelpBodyCloudpayments")}</p>
-                        <p>{t("paymentHelpBodyActivation")}</p>
+                        <p>
+                          {paymentIntent.purpose === "autopay_enable_bind"
+                            ? t("paymentHelpBodyBind")
+                            : paymentIntent.purpose === "managed_recurring_upgrade"
+                              ? t("paymentHelpBodyManagedUpgrade")
+                              : t("paymentHelpBodyActivation")}
+                        </p>
                         <p>
                           {paymentIntent.recurring.checkoutKind === "recurring_start" &&
                           paymentIntent.recurring.supportedBySelectedMethod

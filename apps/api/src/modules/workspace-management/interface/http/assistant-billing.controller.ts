@@ -6,6 +6,7 @@ import {
 } from "../../application/manage-assistant-payment-intents.service";
 import {
   ManageAssistantBillingSubscriptionService,
+  type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState
 } from "../../application/manage-assistant-billing-subscription.service";
 
@@ -74,6 +75,38 @@ export class AssistantBillingController {
     return {
       requestId: req.requestId ?? null,
       subscription: await this.manageAssistantBillingSubscriptionService.disableAutoRenew(userId)
+    };
+  }
+
+  @Post("subscription/enable-auto-renew")
+  async enableAutoRenew(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    result: AssistantBillingSubscriptionActionResult;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAssistantBillingSubscriptionService.parseEnableAutoRenewInput(body);
+    return {
+      requestId: req.requestId ?? null,
+      result: await this.manageAssistantBillingSubscriptionService.enableAutoRenew(userId, input)
+    };
+  }
+
+  @Post("subscription/change-plan")
+  async changePlan(
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
+  ): Promise<{
+    requestId: string | null;
+    result: AssistantBillingSubscriptionActionResult;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const input = this.manageAssistantBillingSubscriptionService.parseChangePlanInput(body);
+    return {
+      requestId: req.requestId ?? null,
+      result: await this.manageAssistantBillingSubscriptionService.changePlan(userId, input)
     };
   }
 

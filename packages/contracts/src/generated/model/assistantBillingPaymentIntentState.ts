@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantBillingPaymentIntentAction } from "./assistantBillingPaymentIntentAction";
+import type { AssistantBillingPaymentIntentPurpose } from "./assistantBillingPaymentIntentPurpose";
 import type { AssistantBillingPaymentIntentStatus } from "./assistantBillingPaymentIntentStatus";
 import type { AssistantBillingPaymentMethodClass } from "./assistantBillingPaymentMethodClass";
 import type { AssistantBillingPaymentIntentBillingPeriod } from "./assistantBillingPaymentIntentBillingPeriod";
@@ -15,6 +16,7 @@ export interface AssistantBillingPaymentIntentState {
   id: string;
   targetPlanCode: string;
   action: AssistantBillingPaymentIntentAction;
+  purpose: AssistantBillingPaymentIntentPurpose;
   status: AssistantBillingPaymentIntentStatus;
   paymentMethodClass: AssistantBillingPaymentMethodClass;
   amountMinor: number;
