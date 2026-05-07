@@ -241,25 +241,25 @@ export class ResolvePlanVisibilityService {
       active: boolean;
     }>
   > {
-    const active = toolActivations.filter(
-      (t) =>
-        t.policyClass === "plan_managed" &&
-        t.activationStatus === "active" &&
-        !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(t.toolCode)
-    );
+    const visiblePlanManagedTools = toolActivations.filter((t) => t.policyClass === "plan_managed");
     return Promise.all(
-      active.map(async (tool) => {
-        const check = await this.trackWorkspaceQuotaUsageService.checkToolDailyLimit({
-          workspaceId,
-          toolCode: tool.toolCode,
-          dailyCallLimit: tool.dailyCallLimit
-        });
+      visiblePlanManagedTools.map(async (tool) => {
+        const isActive = tool.activationStatus === "active";
+        const shouldResolveDailyUsage =
+          isActive && !MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(tool.toolCode);
+        const check = shouldResolveDailyUsage
+          ? await this.trackWorkspaceQuotaUsageService.checkToolDailyLimit({
+              workspaceId,
+              toolCode: tool.toolCode,
+              dailyCallLimit: tool.dailyCallLimit
+            })
+          : { currentCount: 0 };
         return {
           toolCode: tool.toolCode,
           displayName: tool.displayName,
           dailyCallLimit: tool.dailyCallLimit,
           dailyCallsUsed: check.currentCount,
-          active: true
+          active: isActive
         };
       })
     );

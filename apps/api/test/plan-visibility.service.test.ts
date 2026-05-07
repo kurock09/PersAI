@@ -382,7 +382,7 @@ async function run(): Promise<void> {
     usageAvailable: true,
     status: "ok"
   });
-  assert.equal(visibility.limits.toolDailyLimits.length, 1);
+  assert.equal(visibility.limits.toolDailyLimits.length, 2);
   assert.equal(visibility.limits.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.deepEqual(visibility.limits.toolDailyLimits[0], {
     toolCode: "memory_search",
@@ -390,6 +390,13 @@ async function run(): Promise<void> {
     dailyCallLimit: 25,
     dailyCallsUsed: 3,
     active: true
+  });
+  assert.deepEqual(visibility.limits.toolDailyLimits[1], {
+    toolCode: "image_generate",
+    displayName: "Image Generate",
+    dailyCallLimit: 3,
+    dailyCallsUsed: 0,
+    active: false
   });
 
   const adminVisibility = await service.getAdminVisibility("user-1");

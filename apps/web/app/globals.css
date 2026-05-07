@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/*
+ * Tailwind v4 defaults `dark:*` to `prefers-color-scheme`, but PersAI resolves
+ * theme via `html.light` + cookie (ADR-076). On Capacitor / mobile WebViews the
+ * OS scheme often disagrees with the in-app palette, so premium pricing cards
+ * could keep the light-theme gold fill while tokens were dark. Align `dark:*`
+ * with the actual document theme instead of the OS media query.
+ */
+@custom-variant dark (&:where(html:not(.light), html:not(.light) *));
+
 /* ──────────────────────────────────────────────────────────
    Theme tokens — CSS custom properties for dark/light swap
    ────────────────────────────────────────────────────────── */

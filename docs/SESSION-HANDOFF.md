@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 (Tailwind `dark` variant ↔ PersAI theme) — fix premium pricing gold fill on Capacitor when OS scheme ≠ app palette
+
+### What changed
+
+- Founder saw PRO pricing cards keep the light-theme gold panel treatment on Capacitor/mobile in both app light and app dark, while desktop web looked neutral on dark palette.
+- Root cause: Tailwind v4 defaults `dark:*` to `prefers-color-scheme`, but PersAI resolves theme via `html.light` / cookie (ADR-076), not `html.dark`. Many phones keep a light OS appearance while the in-app theme is dark (or vice versa), so `dark:[background:var(--surface)]` on highlighted pricing cards often failed to apply on WebViews.
+- Added `@custom-variant dark (&:where(html:not(.light), html:not(.light) *));` immediately after `@import "tailwindcss"` in `apps/web/app/globals.css` so **all** `dark:*` utilities follow the real document theme.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx --config vitest.config.ts`
+
+### Risks / residuals
+
+- This is a global Tailwind behavior change: anything that intentionally depended on OS scheme instead of PersAI theme for `dark:*` will now follow `html.light`. That matches product intent (cookie-driven theme).
+
+### Next recommended step
+
+- Ship web + re-check pricing on Capacitor with app dark + OS light and app light + OS dark to confirm highlighted PRO uses surface + gold border only, not gold fill, under dark app theme.
+
+## 2026-05-08 (settings media availability truth fix) — stop disabled video quota cards from rendering as `0/1`
+
+### What changed
+
+- Kept the session bounded to the founder-reported post-deploy regression where `Assistant Settings -> Limits & Plan` still showed the video monthly card as `0/1` even though `video_generate` was `OFF`, while the assistant-facing `quota_status` tool was already honest.
+- Root cause was the user plan-visibility projection, not the settings component itself: `ResolvePlanVisibilityService` excluded all monthly-media tools from `limits.toolDailyLimits`, but `AssistantSettings` used that array as the availability source of truth for media cards. When `video_generate` was missing entirely, the web UI fell back to "available" and rendered the technical quota value.
+- `ResolvePlanVisibilityService.resolveToolDailyLimitsWithUsage(...)` now returns all `plan_managed` tools, including monthly media ones, and marks them with truthful `active` state. Non-media active tools still resolve real daily usage counts; media and inactive tools now stay visible with `dailyCallsUsed = 0` purely so the web surface can read availability truth without guessing.
+- Updated the focused plan-visibility regression to lock the new inactive media-tool entry and keep the settings-side `Unavailable` behavior backed by real API truth.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm exec prettier --check "apps/api/src/modules/workspace-management/application/resolve-plan-visibility.service.ts" "apps/api/test/plan-visibility.service.test.ts"`
+
+### Risks / residuals
+
+- This fixes the source-of-truth seam for the settings surface, but the live product will keep showing `0/1` until the updated `api` build is deployed; the web bundle alone cannot correct missing media availability data from the server response.
+
+### Next recommended step
+
+- Deploy the updated `api` build, then re-open `Assistant Settings -> Limits & Plan` on a workspace where `video_generate` is disabled and confirm the video card now renders `Unavailable` / `Недоступно` instead of `0/1`.
+
 ## 2026-05-08 (public pricing page scroll fix) — remove the inner scroll container from `persai.dev/pricing`
 
 ### What changed
