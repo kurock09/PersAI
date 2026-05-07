@@ -219,6 +219,29 @@ Interpretation rules:
 2. The action must still write through PersAI lifecycle truth with `source=admin`, not through raw subscription row mutation or fake provider invoice state.
 3. Ops Cockpit should show manual/admin paid activation as a visible source in current support detail, so operators can distinguish it from provider-driven billing events.
 
+## Chat-length and plan quota UX focused checks
+
+When a change touches plan quota fields such as internal active-web-chat admission or per-chat length policy, add focused checks before broad verification:
+
+```bash
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts
+corepack pnpm --filter @persai/runtime test -- runtime-quota-status-tool.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/admin/ops/page.test.tsx app/admin/plans/page.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. `messagesPerChat` must be plan-owned truth and enforce before the next user message is persisted into an existing chat.
+2. `activeWebChatsLimit` remains an internal new-thread admission cap; user-facing pricing and chat UX must not market it as a tariff fact.
+3. `0` on `messagesPerChat` and `activeWebChatsLimit` means unlimited, while blank/null preserves the existing default/fallback behavior where applicable.
+4. Hitting the per-chat limit should surface a calm product-shaped UX that nudges the user toward a new chat or a paid plan, not a raw technical quota error.
+5. Admin Ops quota presentation should emphasize compact monthly media limits/usage and not elevate active-web-chat count as a primary progress bar.
+
 ## ADR-084 pre-Slice-8 billing hardening focused checks
 
 When a change touches payment-intent billing truth or provider billing-event application hardening ahead of the assistant billing tool, add focused checks before broad verification:

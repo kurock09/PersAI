@@ -1247,6 +1247,7 @@ class FakePersaiInternalApiClientService {
         limits: {
           tokenBudgetLimit: 5000,
           activeWebChatsLimit: 10,
+          messagesPerChat: null,
           imageGenerateMonthlyUnitsLimit: 30,
           imageEditMonthlyUnitsLimit: 10,
           videoGenerateMonthlyUnitsLimit: 5
@@ -2568,7 +2569,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /file-ref-alias-1/
+    /file-ref-alias-1|fileRef|artifactId|objectKey|attachmentId/
   );
   turnContextHydrationService.availableWorkingFileRefsOverride = [];
 

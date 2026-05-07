@@ -260,6 +260,10 @@ export class ResolveAdminOpsCockpitService {
       await this.trackWorkspaceQuotaUsageService.resolveAssistantTokenBudgetQuotaSnapshot(
         assistant
       );
+    const monthlyMediaQuotas =
+      await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
+        assistant
+      );
 
     const activeWebChats = await this.prisma.assistantChat.count({
       where: { workspaceId, surface: "web", archivedAt: null }
@@ -280,7 +284,13 @@ export class ResolveAdminOpsCockpitService {
       activeWebChatsLimit:
         limits.activeWebChatsLimit !== null && limits.activeWebChatsLimit !== undefined
           ? limits.activeWebChatsLimit
-          : null
+          : null,
+      monthlyMediaTools: monthlyMediaQuotas.tools.map((tool) => ({
+        toolCode: tool.toolCode,
+        displayName: tool.displayName,
+        usedUnits: tool.usedUnits,
+        limitUnits: tool.limitUnits
+      }))
     };
   }
 

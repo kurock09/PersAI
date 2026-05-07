@@ -12,6 +12,12 @@ export type AdminOpsCockpitQuotaUsage = {
   mediaStorageBytesLimit: number | null;
   activeWebChats: number;
   activeWebChatsLimit: number | null;
+  monthlyMediaTools: Array<{
+    toolCode: "image_generate" | "image_edit" | "video_generate";
+    displayName: string;
+    usedUnits: number;
+    limitUnits: number | null;
+  }>;
 };
 
 export type AdminOpsCockpitBillingLifecycleEvent = {

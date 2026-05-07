@@ -132,6 +132,7 @@ export type AdminPlanInput = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     activeWebChatsLimit: number | null;
+    messagesPerChat: number | null;
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
     videoGenerateMonthlyUnitsLimit: number | null;
@@ -191,6 +192,7 @@ export type AdminPlanState = {
   quotaLimits: {
     tokenBudgetLimit: number | null;
     activeWebChatsLimit: number | null;
+    messagesPerChat: number | null;
     imageGenerateMonthlyUnitsLimit: number | null;
     imageEditMonthlyUnitsLimit: number | null;
     videoGenerateMonthlyUnitsLimit: number | null;

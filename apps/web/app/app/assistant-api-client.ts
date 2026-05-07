@@ -328,6 +328,7 @@ export type WebChatUxIssueClass =
   | "voice_transcription_empty"
   | "assistant_not_live"
   | "active_chat_cap"
+  | "chat_message_limit"
   | "quota_limit_reached"
   | "media_storage_full"
   | "knowledge_storage_full"
@@ -476,8 +477,17 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (code === "active_chat_cap_reached") {
     return {
       classId: "active_chat_cap",
-      message: "You reached the active chat limit for new threads.",
-      guidance: "Archive an active chat or continue in an existing thread."
+      message: "You already have the maximum number of active chats for this plan.",
+      guidance:
+        "Continue in an existing chat, archive one you no longer need, or upgrade for fewer limits."
+    };
+  }
+
+  if (code === "chat_message_limit_reached") {
+    return {
+      classId: "chat_message_limit",
+      message: "This chat has reached its message limit.",
+      guidance: "Continue in a new chat, or upgrade if you want longer ongoing conversations."
     };
   }
 
@@ -665,8 +675,17 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
   if (normalized.includes("active web chats cap reached")) {
     return {
       classId: "active_chat_cap",
-      message: "You reached the active chat limit for new threads.",
-      guidance: "Archive an active chat or continue in an existing thread."
+      message: "You already have the maximum number of active chats for this plan.",
+      guidance:
+        "Continue in an existing chat, archive one you no longer need, or upgrade for fewer limits."
+    };
+  }
+
+  if (normalized.includes("chat reached its message limit")) {
+    return {
+      classId: "chat_message_limit",
+      message: "This chat has reached its message limit.",
+      guidance: "Continue in a new chat, or upgrade if you want longer ongoing conversations."
     };
   }
 

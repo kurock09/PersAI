@@ -17,6 +17,10 @@ import {
 import { SyncTelegramChatTargetService } from "./sync-telegram-chat-target.service";
 import { SyncTelegramGroupMembershipService } from "./sync-telegram-group-membership.service";
 import {
+  ASSISTANT_CHAT_REPOSITORY,
+  type AssistantChatRepository
+} from "../domain/assistant-chat.repository";
+import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
   type AssistantChannelSurfaceBindingRepository
 } from "../domain/assistant-channel-surface-binding.repository";
@@ -398,6 +402,8 @@ export class TelegramChannelAdapterService {
     private readonly syncTelegramChatTargetService: SyncTelegramChatTargetService,
     private readonly syncTelegramGroupMembershipService: SyncTelegramGroupMembershipService,
     private readonly renderAssistantInboundSurfaceMessageService: RenderAssistantInboundSurfaceMessageService,
+    @Inject(ASSISTANT_CHAT_REPOSITORY)
+    private readonly assistantChatRepository: AssistantChatRepository,
     @Inject(ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY)
     private readonly bindingRepository: AssistantChannelSurfaceBindingRepository
   ) {}
@@ -635,17 +641,39 @@ export class TelegramChannelAdapterService {
           );
         }
         if (deliveredAttachmentCount === 0) {
-          outboundTurnResult = {
-            ...turnResult,
-            assistantMessage: applyFinalDeliveryHonestyCorrection({
-              assistantText: turnResult.assistantMessage,
-              attemptedArtifactCount: turnResult.media.length,
-              deliveredAttachmentCount,
-              deliveredAttachmentFilenames,
-              locale: config.locale
-            }),
-            media: []
-          };
+          outboundTurnResult = { ...turnResult, media: [] };
+        }
+      }
+
+      const finalAssistantMessage = applyFinalDeliveryHonestyCorrection({
+        assistantText: turnResult.assistantMessage,
+        attemptedArtifactCount: turnResult.media.length,
+        deliveredAttachmentCount,
+        deliveredAttachmentFilenames,
+        locale: config.locale
+      });
+      if (
+        finalAssistantMessage !== turnResult.assistantMessage ||
+        (turnResult.media.length > 0 && deliveredAttachmentCount === 0)
+      ) {
+        outboundTurnResult = {
+          ...outboundTurnResult,
+          assistantMessage: finalAssistantMessage
+        };
+      }
+      if (
+        finalAssistantMessage !== turnResult.assistantMessage &&
+        turnResult.assistantMessageId.trim().length > 0
+      ) {
+        const updated = await this.assistantChatRepository.updateMessageContent(
+          turnResult.assistantMessageId,
+          config.assistantId,
+          finalAssistantMessage
+        );
+        if (updated === null) {
+          this.logger.warn(
+            `Failed to persist final delivery-honesty correction for Telegram assistant message "${turnResult.assistantMessageId}".`
+          );
         }
       }
 

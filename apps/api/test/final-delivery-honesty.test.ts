@@ -129,6 +129,39 @@ async function run(): Promise<void> {
     }),
     "Here you go."
   );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Готово, вот готовое фото.",
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "ru"
+    }),
+    "Готово, вот готовое фото.\n\nПоправка: изображение или другое медиа не было реально доставлено в этот чат в рамках этого ответа."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: "Your image is ready.",
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "en"
+    }),
+    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: 'Assistant sent an attachment: image "mansion_photo_edit.png".',
+      attemptedArtifactCount: 0,
+      deliveredAttachmentCount: 0,
+      deliveredAttachmentFilenames: [],
+      locale: "en"
+    }),
+    "Correction: no file was actually delivered in this reply."
+  );
 }
 
 void run();

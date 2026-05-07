@@ -20,7 +20,7 @@ export type CreateAssistantChatInput = {
 };
 
 export type GetOrCreateWebChatUnderCapInput = CreateAssistantChatInput & {
-  activeWebChatsLimit: number;
+  activeWebChatsLimit: number | null;
 };
 
 export type GetOrCreateWebChatUnderCapResult =

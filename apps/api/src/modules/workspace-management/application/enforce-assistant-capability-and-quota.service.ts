@@ -22,7 +22,7 @@ import { resolveRecurringQuotaPeriod } from "./recurring-quota-period";
 
 type ResolvedQuotaLimits = {
   tokenBudgetLimit: bigint | null;
-  activeWebChatsLimit: number;
+  activeWebChatsLimit: number | null;
 };
 
 export type AssistantInboundQuotaDecision =
@@ -42,7 +42,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
 }
 
 function asInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
 function readLimitFromEntitlementLimits(items: unknown[] | undefined, key: string): number | null {
@@ -122,6 +122,8 @@ export class EnforceAssistantCapabilityAndQuotaService {
     if (
       params.surface === "web_chat" &&
       params.isNewThread &&
+      limits.activeWebChatsLimit !== null &&
+      limits.activeWebChatsLimit > 0 &&
       params.activeSurfaceChatsCount >= limits.activeWebChatsLimit
     ) {
       throw createAssistantInboundConflict(

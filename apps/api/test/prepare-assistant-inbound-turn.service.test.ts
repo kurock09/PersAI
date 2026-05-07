@@ -73,6 +73,12 @@ async function run(): Promise<void> {
           content: input.content,
           createdAt: new Date("2026-04-06T00:00:00.000Z")
         };
+      },
+      async getChatListMetadata() {
+        return {
+          messageCount: 0,
+          lastMessagePreview: null
+        };
       }
     } as never,
     {
@@ -88,6 +94,9 @@ async function run(): Promise<void> {
     {
       async resolveActiveWebChatsLimit() {
         return 20;
+      },
+      async resolveMessagesPerChatLimit() {
+        return null;
       },
       async refreshActiveWebChatsUsage() {
         return;
@@ -187,6 +196,9 @@ async function run(): Promise<void> {
         {
           async resolveActiveWebChatsLimit() {
             return 20;
+          },
+          async resolveMessagesPerChatLimit() {
+            return null;
           }
         } as never,
         {} as never,
@@ -215,6 +227,96 @@ async function run(): Promise<void> {
       error.errorObject !== null &&
       "code" in error.errorObject &&
       error.errorObject.code === "active_chat_cap_reached"
+  );
+
+  await assert.rejects(
+    () =>
+      new PrepareAssistantInboundTurnService(
+        {
+          async findChatBySurfaceThread() {
+            return {
+              id: "chat-2",
+              assistantId: assistant.id,
+              userId: assistant.userId,
+              workspaceId: assistant.workspaceId,
+              surface: "web" as const,
+              surfaceThreadKey: "thread-2",
+              title: "Existing chat",
+              archivedAt: null,
+              lastMessageAt: null,
+              createdAt: new Date("2026-04-06T00:00:00.000Z"),
+              updatedAt: new Date("2026-04-06T00:00:00.000Z")
+            };
+          },
+          async countActiveChatsByAssistantIdAndSurface() {
+            return 1;
+          },
+          async getChatListMetadata() {
+            return {
+              messageCount: 12,
+              lastMessagePreview: "latest"
+            };
+          }
+        } as never,
+        {
+          async enforceInboundTurn() {
+            return { mode: "allow" as const };
+          }
+        } as never,
+        {
+          async enforceAndRegisterAttempt() {
+            return;
+          }
+        } as never,
+        {
+          async resolveMessagesPerChatLimit() {
+            return 12;
+          },
+          async refreshActiveWebChatsUsage() {
+            return;
+          }
+        } as never,
+        {
+          runtimeSession: {
+            findMany: async () => []
+          },
+          workspace: {
+            findUnique: async () => ({ timezone: "UTC" })
+          }
+        } as never,
+        {
+          async resolveByUserId() {
+            return {
+              assistant,
+              publishedVersionId: "version-1",
+              runtimeTier: "free_shared_restricted",
+              quotaDegradeModelOverride: null
+            };
+          }
+        } as never,
+        {
+          async mergeIntoUserMessage() {
+            return;
+          }
+        } as never,
+        {
+          async listByMessageId() {
+            return [];
+          }
+        } as never
+      ).execute({
+        userId: "user-1",
+        surface: "web_chat",
+        surfaceThreadKey: "thread-2",
+        message: "blocked by per-chat limit"
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "errorObject" in error &&
+      typeof error.errorObject === "object" &&
+      error.errorObject !== null &&
+      "code" in error.errorObject &&
+      error.errorObject.code === "chat_message_limit_reached"
   );
 }
 

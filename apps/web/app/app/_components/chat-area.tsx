@@ -286,6 +286,8 @@ export function ChatArea({
   const issueIsWarning =
     chat.issue?.classId === "input_validation" ||
     chat.issue?.classId === "voice_transcription_empty";
+  const showChatLimitBanner =
+    chat.issue?.classId === "active_chat_cap" || chat.issue?.classId === "chat_message_limit";
   const issueContainerClass = issueIsWarning
     ? "border-amber-200 bg-amber-50"
     : "border-destructive/20 bg-destructive/5";
@@ -561,7 +563,7 @@ export function ChatArea({
       )}
 
       {/* Issue banner */}
-      {chat.issue && (
+      {chat.issue && !showChatLimitBanner && (
         <div
           className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${issueContainerClass}`}
         >
@@ -756,6 +758,57 @@ export function ChatArea({
               <button
                 type="button"
                 onClick={() => setDismissedBillingReturnKey(billingReturnKey)}
+                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showChatLimitBanner ? (
+        <div className="px-3 md:px-4">
+          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-warning/20 bg-surface px-3 py-2">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-warning/25 bg-warning/10 text-warning">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-text">
+                  {chat.issue?.classId === "chat_message_limit"
+                    ? t("chatMessageLimitTitle")
+                    : t("chatActiveLimitTitle")}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                  {chat.issue?.classId === "chat_message_limit"
+                    ? t("chatMessageLimitBody")
+                    : t("chatActiveLimitBody")}
+                </p>
+                <p className="mt-1 text-[11px] text-text-muted">
+                  {chat.issue?.classId === "chat_message_limit"
+                    ? t("chatMessageLimitDetail")
+                    : t("chatActiveLimitDetail")}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {chat.issue?.classId === "chat_message_limit" ? (
+                    <Link
+                      href={"/app/chat" as Route}
+                      className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                    >
+                      {t("chatMessageLimitNewChat")}
+                    </Link>
+                  ) : null}
+                  <Link
+                    href={"/app/pricing" as Route}
+                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                  >
+                    {t("chatLimitOpenPricing")}
+                  </Link>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={chat.clearIssue}
                 className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
               >
                 <X className="h-3.5 w-3.5" />

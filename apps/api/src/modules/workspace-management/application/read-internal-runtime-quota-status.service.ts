@@ -134,6 +134,7 @@ export class ReadInternalRuntimeQuotaStatusService {
       limits: {
         tokenBudgetLimit: number | null;
         activeWebChatsLimit: number | null;
+        messagesPerChat: number | null;
         imageGenerateMonthlyUnitsLimit: number | null;
         imageEditMonthlyUnitsLimit: number | null;
         videoGenerateMonthlyUnitsLimit: number | null;
@@ -243,6 +244,7 @@ export class ReadInternalRuntimeQuotaStatusService {
           limits: {
             tokenBudgetLimit: plan.quotaLimits.tokenBudgetLimit,
             activeWebChatsLimit: plan.quotaLimits.activeWebChatsLimit,
+            messagesPerChat: plan.quotaLimits.messagesPerChat,
             imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
             imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
             videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit

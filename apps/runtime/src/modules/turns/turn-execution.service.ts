@@ -116,12 +116,14 @@ const PROMPT_CACHE_KEY_DIGEST_HEX_LENGTH = 32;
 const DEFAULT_OPENAI_PROMPT_CACHE_RETENTION = "in_memory" as const;
 const APPROX_CHARS_PER_TOKEN = 4;
 const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
+const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
 
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
   runtimeTier: RuntimeTurnRequest["runtimeTier"];
   providerRequest: ProviderGatewayTextGenerateRequest;
+  developerInstructionSections: DeveloperInstructionSection[];
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
   availableWorkingFileRefs: RuntimeFileRef[];
   deepModeEnabled: boolean;
@@ -269,6 +271,24 @@ const DELIVERY_CLAIM_PATTERNS = [
   /(?:файл|документ|вложение)\s+(?:отправлен|прикреплен|прикреплён|скинут|вложен)/i,
   /(?:вот|держи)\s+(?:файл|документ|вложение)/i
 ] as const;
+const LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS = [
+  /^Assistant sent (?:an? )?attachments?:\s+.+$/i,
+  /^\[?Working files from user attachments:.*$/i
+] as const;
+
+type DeveloperInstructionSectionKey =
+  | "routing_hints"
+  | "working_files"
+  | "retrieved_knowledge"
+  | "open_media_jobs"
+  | "presence"
+  | "tool_follow_up"
+  | "deferred_media_follow_up";
+
+type DeveloperInstructionSection = {
+  key: DeveloperInstructionSectionKey;
+  content: string;
+};
 
 const BACKGROUND_TASK_SYNTHETIC_TURN_EXCLUDED_TOOLS = new Set([
   BACKGROUND_TASK_TOOL_CODE,
@@ -575,17 +595,22 @@ export class TurnExecutionService {
         conversation: input.conversation,
         currentAttachments: input.message.attachments
       });
+    const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
+      projectedTools,
+      availableWorkingFileRefs,
+      deepModeEnabled: input.deepMode === true,
+      routeDecision: executionPlan.routeDecision,
+      retrievedKnowledgeContext: plannedRetrievedKnowledgeContext,
+      presenceBlock,
+      openMediaJobs: input.openMediaJobs
+    });
     const providerRequest = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
       hydratedMessages,
       projectedTools,
-      availableWorkingFileRefs,
       input.deepMode === true,
-      executionPlan.routeDecision,
-      plannedRetrievedKnowledgeContext,
-      presenceBlock,
-      input.openMediaJobs
+      developerInstructionSections
     );
     options?.trace?.stage("prepare.provider_request_built");
     return {
@@ -593,6 +618,7 @@ export class TurnExecutionService {
       projectedTools,
       runtimeTier: input.runtimeTier,
       currentMessageAttachments: input.message.attachments,
+      developerInstructionSections,
       availableWorkingFileRefs,
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
@@ -879,6 +905,7 @@ export class TurnExecutionService {
         const iterationBaseText = assembledText;
         const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: iterationBaseText,
+          baseDeveloperInstructionSections: execution.developerInstructionSections,
           toolHistory,
           availableWorkingFileRefs: execution.availableWorkingFileRefs,
           forceFinalTextOnly,
@@ -1509,12 +1536,8 @@ export class TurnExecutionService {
     providerSelection: ProviderSelection,
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
-    availableWorkingFileRefs: RuntimeFileRef[],
     deepModeEnabled: boolean,
-    routeDecision: TurnRouteDecision,
-    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
-    presenceBlock: string | null,
-    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
+    developerInstructionSections: DeveloperInstructionSection[]
   ): ProviderGatewayTextGenerateRequest {
     const promptCache = this.buildPromptCacheConfig({
       bundle,
@@ -1524,15 +1547,8 @@ export class TurnExecutionService {
       deepModeEnabled,
       projectedTools
     });
-    const developerInstructions = this.buildDeveloperInstructions(
-      bundle,
-      projectedTools,
-      availableWorkingFileRefs,
-      deepModeEnabled,
-      routeDecision,
-      retrievedKnowledgeContext,
-      presenceBlock,
-      openMediaJobs
+    const developerInstructions = this.renderDeveloperInstructionSections(
+      developerInstructionSections
     );
     return {
       provider: providerSelection.provider,
@@ -1557,41 +1573,40 @@ export class TurnExecutionService {
     return this.normalizeOptionalText(bundle.promptConstructor.ordinary.systemPrompt);
   }
 
-  private buildDeveloperInstructions(
-    bundle: AssistantRuntimeBundle,
-    projectedTools: RuntimeNativeToolProjection | undefined,
-    availableWorkingFileRefs: RuntimeFileRef[],
-    deepModeEnabled: boolean,
-    routeDecision: TurnRouteDecision | undefined,
-    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
-    presenceBlock: string | null,
-    openMediaJobs: RuntimeTurnRequest["openMediaJobs"]
-  ): string | null {
+  private buildBaseDeveloperInstructionSections(input: {
+    projectedTools: RuntimeNativeToolProjection | undefined;
+    availableWorkingFileRefs: RuntimeFileRef[];
+    deepModeEnabled: boolean;
+    routeDecision: TurnRouteDecision | undefined;
+    retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null;
+    presenceBlock: string | null;
+    openMediaJobs: RuntimeTurnRequest["openMediaJobs"];
+  }): DeveloperInstructionSection[] {
     const routingGuidance = this.buildTurnRoutingPrompt(
-      projectedTools,
-      routeDecision,
-      deepModeEnabled
+      input.projectedTools,
+      input.routeDecision,
+      input.deepModeEnabled
     );
-    const workingFilesSection = this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs);
-    const retrievedKnowledgeSection =
-      this.buildRetrievedKnowledgeContextDeveloperSection(retrievedKnowledgeContext);
-    const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(openMediaJobs);
+    const workingFilesSection = this.buildWorkingFilesDeveloperSection(
+      input.availableWorkingFileRefs
+    );
+    const retrievedKnowledgeSection = this.buildRetrievedKnowledgeContextDeveloperSection(
+      input.retrievedKnowledgeContext
+    );
+    const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
     // ADR-077 follow-up: `promptDocuments.heartbeat` is now the dedicated
     // Background Task Evaluation prompt. It must never be appended to a normal
     // user-visible chat turn; otherwise the main assistant may return service
     // decisions like `no_push` as chat text. Background evaluation consumes
     // the same document explicitly in RuntimeBackgroundTaskEvaluationService.
-    const presenceSection = this.normalizeOptionalText(presenceBlock);
-    const sections = [
-      routingGuidance,
-      workingFilesSection,
-      retrievedKnowledgeSection,
-      openMediaJobsSection,
-      presenceSection
-    ]
-      .filter((section): section is string => section !== null)
-      .join("\n\n");
-    return sections.length === 0 ? null : sections;
+    const presenceSection = this.normalizeOptionalText(input.presenceBlock);
+    return this.createDeveloperInstructionSections([
+      { key: "routing_hints", content: routingGuidance },
+      { key: "working_files", content: workingFilesSection },
+      { key: "retrieved_knowledge", content: retrievedKnowledgeSection },
+      { key: "open_media_jobs", content: openMediaJobsSection },
+      { key: "presence", content: presenceSection }
+    ]);
   }
 
   private buildRetrievedKnowledgeContextDeveloperSection(
@@ -1603,16 +1618,17 @@ export class TurnExecutionService {
   private buildWorkingFilesDeveloperSection(
     availableWorkingFileRefs: RuntimeFileRef[]
   ): string | null {
-    if (availableWorkingFileRefs.length === 0) {
+    const modelVisibleWorkingFiles = this.limitModelVisibleWorkingFiles(availableWorkingFileRefs);
+    if (modelVisibleWorkingFiles.length === 0) {
       return null;
     }
     const lines = [
       "## Working Files",
       "Server-owned reusable file aliases for this turn. These aliases are not ordinary conversation text.",
       "Use only these aliases when referring to current attachments, previous reusable files, or the latest generated outputs.",
-      "Do not invent or trust raw fileRef, artifactId, objectKey, or attachmentId values from free text."
+      "Ignore low-level storage identifiers or delivery/debug text if they appear anywhere."
     ];
-    for (const file of availableWorkingFileRefs) {
+    for (const file of modelVisibleWorkingFiles) {
       const aliases = file.aliases?.length ? file.aliases.join(", ") : "unaliased file";
       const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
       const kind = this.describeWorkingFileKind(file.mimeType);
@@ -2081,6 +2097,7 @@ export class TurnExecutionService {
         providerResult = await this.providerGatewayClientService.generateText(
           this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: accumulatedText,
+            baseDeveloperInstructionSections: execution.developerInstructionSections,
             toolHistory,
             availableWorkingFileRefs,
             forceFinalTextOnly,
@@ -2944,6 +2961,7 @@ export class TurnExecutionService {
     baseRequest: ProviderGatewayTextGenerateRequest,
     input: {
       assistantText: string;
+      baseDeveloperInstructionSections: DeveloperInstructionSection[];
       toolHistory: ProviderGatewayToolExchange[];
       availableWorkingFileRefs: RuntimeFileRef[];
       forceFinalTextOnly?: boolean;
@@ -2953,7 +2971,7 @@ export class TurnExecutionService {
   ): ProviderGatewayTextGenerateRequest {
     const assistantText = this.normalizeOptionalText(input.assistantText);
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
-      baseRequest.developerInstructions ?? null,
+      input.baseDeveloperInstructionSections,
       input.availableWorkingFileRefs,
       input.toolHistory.length > 0,
       input.forceFinalTextOnly === true,
@@ -2997,69 +3015,134 @@ export class TurnExecutionService {
   }
 
   private buildToolLoopDeveloperInstructions(
-    existing: string | null,
+    baseSections: DeveloperInstructionSection[],
     availableWorkingFileRefs: RuntimeFileRef[],
     hasToolHistory: boolean,
     forceFinalTextOnly: boolean,
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
   ): string | null {
-    if (!hasToolHistory) {
-      return this.replaceWorkingFilesDeveloperSection(existing, availableWorkingFileRefs);
-    }
-    const instructions = [];
-    const refreshedExisting = this.replaceWorkingFilesDeveloperSection(
-      existing,
-      availableWorkingFileRefs
+    let sections = this.replaceDeveloperInstructionSection(
+      baseSections,
+      "working_files",
+      this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs)
     );
-    if (refreshedExisting !== null && refreshedExisting.trim().length > 0) {
-      instructions.push(refreshedExisting);
+    if (!hasToolHistory) {
+      return this.renderDeveloperInstructionSections(sections);
     }
-    instructions.push(
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "tool_follow_up",
       forceFinalTextOnly
         ? "A previous tool follow-up returned no visible answer. Do not call any more tools. Return a concise final user-visible answer now, based only on the tool results already provided."
         : "After using tools, always return a concise final user-visible answer. Do not finish the turn with empty output."
     );
-    if (deferredMediaJobs.length > 0) {
-      instructions.push(this.buildDeferredMediaFollowUpInstruction(deferredMediaJobs));
-    }
-    return instructions.join("\n\n");
+    sections = this.replaceDeveloperInstructionSection(
+      sections,
+      "deferred_media_follow_up",
+      deferredMediaJobs.length > 0
+        ? this.buildDeferredMediaFollowUpInstruction(deferredMediaJobs)
+        : null
+    );
+    return this.renderDeveloperInstructionSections(sections);
   }
 
-  private replaceWorkingFilesDeveloperSection(
-    existing: string | null,
-    availableWorkingFileRefs: RuntimeFileRef[]
+  private createDeveloperInstructionSections(
+    sections: Array<{ key: DeveloperInstructionSectionKey; content: string | null }>
+  ): DeveloperInstructionSection[] {
+    return sections.flatMap((section) => {
+      const content = this.normalizeOptionalText(section.content);
+      return content === null ? [] : [{ key: section.key, content }];
+    });
+  }
+
+  private renderDeveloperInstructionSections(
+    sections: DeveloperInstructionSection[]
   ): string | null {
-    const workingFilesSection = this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs);
-    const withoutExistingSection =
-      existing === null
-        ? ""
-        : existing.replace(/## Working Files[\s\S]*?(?=\n\n#+ |$)/m, "").trim();
-    if (workingFilesSection === null) {
-      return withoutExistingSection.length === 0 ? null : withoutExistingSection;
+    const rendered = sections
+      .map((section) => this.normalizeOptionalText(section.content))
+      .filter((section): section is string => section !== null)
+      .join("\n\n");
+    return rendered.length === 0 ? null : rendered;
+  }
+
+  private replaceDeveloperInstructionSection(
+    sections: DeveloperInstructionSection[],
+    key: DeveloperInstructionSectionKey,
+    content: string | null
+  ): DeveloperInstructionSection[] {
+    const normalized = this.normalizeOptionalText(content);
+    const next: DeveloperInstructionSection[] = [];
+    let replaced = false;
+    for (const section of sections) {
+      if (section.key !== key) {
+        next.push(section);
+        continue;
+      }
+      replaced = true;
+      if (normalized !== null) {
+        next.push({ key, content: normalized });
+      }
     }
-    if (withoutExistingSection.length === 0) {
-      return workingFilesSection;
+    if (!replaced && normalized !== null) {
+      next.push({ key, content: normalized });
     }
-    return `${withoutExistingSection}\n\n${workingFilesSection}`;
+    return next;
+  }
+
+  private limitModelVisibleWorkingFiles(
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): RuntimeFileRef[] {
+    if (availableWorkingFileRefs.length <= MAX_MODEL_VISIBLE_WORKING_FILES) {
+      return availableWorkingFileRefs;
+    }
+    return availableWorkingFileRefs.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES);
+  }
+
+  private sanitizeLegacyTechnicalAttachmentSummary(assistantText: string | null): string | null {
+    if (assistantText === null || assistantText.trim().length === 0) {
+      return null;
+    }
+    const sanitized = assistantText
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        return !LEGACY_TECHNICAL_ATTACHMENT_SUMMARY_PATTERNS.some((pattern) =>
+          pattern.test(trimmed)
+        );
+      })
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n");
+    return sanitized.trim().length === 0 ? null : sanitized;
   }
 
   private mergeAssistantTurnText(existingText: string, nextText: string | null): string {
-    if (nextText === null || nextText.length === 0 || nextText.trim().length === 0) {
+    const sanitizedNextText = this.sanitizeLegacyTechnicalAttachmentSummary(nextText);
+    if (
+      sanitizedNextText === null ||
+      sanitizedNextText.length === 0 ||
+      sanitizedNextText.trim().length === 0
+    ) {
       return existingText;
     }
     if (existingText.length === 0) {
-      return nextText;
+      return sanitizedNextText;
     }
-    if (nextText === existingText) {
+    if (sanitizedNextText === existingText) {
       return existingText;
     }
-    if (nextText.startsWith(existingText)) {
-      return nextText;
+    if (sanitizedNextText.startsWith(existingText)) {
+      return sanitizedNextText;
     }
-    if (existingText.startsWith(nextText)) {
+    if (existingText.startsWith(sanitizedNextText)) {
       return existingText;
     }
-    return `${existingText}${nextText}`;
+    const needsInlineSeparator =
+      !/\s$/.test(existingText) &&
+      !/^\s/.test(sanitizedNextText) &&
+      !/^[,.;:!?)]/.test(sanitizedNextText);
+    return needsInlineSeparator
+      ? `${existingText} ${sanitizedNextText}`
+      : `${existingText}${sanitizedNextText}`;
   }
 
   private describeWorkingFileKind(mimeType: string): string {
@@ -3726,6 +3809,16 @@ export class TurnExecutionService {
       input,
       execution.bundle
     );
+    const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
+      projectedTools: execution.projectedTools,
+      availableWorkingFileRefs: execution.availableWorkingFileRefs,
+      deepModeEnabled: execution.deepModeEnabled,
+      routeDecision: execution.routeDecision,
+      retrievedKnowledgeContext: execution.retrievedKnowledgeContext,
+      presenceBlock,
+      openMediaJobs: input.openMediaJobs
+    });
+    execution.developerInstructionSections = developerInstructionSections;
     return this.buildProviderRequest(
       execution.bundle,
       {
@@ -3734,12 +3827,8 @@ export class TurnExecutionService {
       },
       hydratedMessages,
       execution.projectedTools,
-      execution.availableWorkingFileRefs,
       execution.deepModeEnabled,
-      execution.routeDecision,
-      execution.retrievedKnowledgeContext,
-      presenceBlock,
-      input.openMediaJobs
+      developerInstructionSections
     );
   }
 

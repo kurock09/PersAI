@@ -240,6 +240,7 @@ class FakePersaiInternalApiClientService {
         limits: {
           tokenBudgetLimit: 100,
           activeWebChatsLimit: 2,
+          messagesPerChat: 40,
           imageGenerateMonthlyUnitsLimit: 0,
           imageEditMonthlyUnitsLimit: 0,
           videoGenerateMonthlyUnitsLimit: 0
@@ -269,6 +270,7 @@ class FakePersaiInternalApiClientService {
         limits: {
           tokenBudgetLimit: 500,
           activeWebChatsLimit: 10,
+          messagesPerChat: null,
           imageGenerateMonthlyUnitsLimit: 30,
           imageEditMonthlyUnitsLimit: 10,
           videoGenerateMonthlyUnitsLimit: 5

@@ -40,6 +40,7 @@ type PlanQuotaHints = {
   tokenBudgetLimit: bigint | null;
   costOrTokenDrivingToolClassUnitsLimit: number | null;
   activeWebChatsLimit: number | null;
+  messagesPerChat: number | null;
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
   videoGenerateMonthlyUnitsLimit: number | null;
@@ -226,8 +227,10 @@ function parsePlanQuotaHints(
     );
 
   const activeWebChatsLimit =
-    asPositiveInteger(quotaHints?.activeWebChatsLimit) ??
+    asInteger(quotaHints?.activeWebChatsLimit) ??
     readQuotaHintFromLimitsPermissions(limitsPermissions, "active_web_chats_limit");
+
+  const messagesPerChat = asInteger(quotaHints?.messagesPerChat);
 
   const imageGenerateMonthlyUnitsLimit =
     asPositiveInteger(quotaHints?.imageGenerateMonthlyUnitsLimit) ??
@@ -257,6 +260,7 @@ function parsePlanQuotaHints(
     tokenBudgetLimit: tokenBudgetLimit === null ? null : BigInt(tokenBudgetLimit),
     costOrTokenDrivingToolClassUnitsLimit: toolClassLimit,
     activeWebChatsLimit,
+    messagesPerChat,
     imageGenerateMonthlyUnitsLimit,
     imageEditMonthlyUnitsLimit,
     videoGenerateMonthlyUnitsLimit,
@@ -1129,10 +1133,24 @@ export class TrackWorkspaceQuotaUsageService {
     return { limitBytes };
   }
 
-  async resolveActiveWebChatsLimit(assistant: Assistant): Promise<number> {
+  async resolveActiveWebChatsLimit(assistant: Assistant): Promise<number | null> {
     const governance = await this.resolveGovernance(assistant.id);
     const limits = await this.resolveLimits(assistant, governance);
-    return limits.activeWebChatsLimit ?? loadApiConfig(process.env).WEB_ACTIVE_CHATS_CAP;
+    const defaultLimit = loadApiConfig(process.env).WEB_ACTIVE_CHATS_CAP;
+    if (limits.activeWebChatsLimit === null) {
+      return defaultLimit > 0 ? defaultLimit : null;
+    }
+    return limits.activeWebChatsLimit > 0 ? limits.activeWebChatsLimit : null;
+  }
+
+  async resolveMessagesPerChatLimit(assistant: Assistant): Promise<number | null> {
+    const governance = await this.resolveGovernance(assistant.id);
+    const { planQuotaHints } = await this.resolveQuotaContext(assistant, governance);
+    const configuredLimit = planQuotaHints.messagesPerChat;
+    if (configuredLimit === null || configuredLimit <= 0) {
+      return null;
+    }
+    return configuredLimit;
   }
 
   private async resolveMonthlyMediaQuotaAccountingContext(
@@ -1247,7 +1265,14 @@ export class TrackWorkspaceQuotaUsageService {
       costOrTokenDrivingToolClassUnitsLimit:
         planQuotaHints.costOrTokenDrivingToolClassUnitsLimit ??
         config.QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT,
-      activeWebChatsLimit: planQuotaHints.activeWebChatsLimit ?? config.WEB_ACTIVE_CHATS_CAP,
+      activeWebChatsLimit:
+        planQuotaHints.activeWebChatsLimit === null
+          ? config.WEB_ACTIVE_CHATS_CAP > 0
+            ? config.WEB_ACTIVE_CHATS_CAP
+            : null
+          : planQuotaHints.activeWebChatsLimit <= 0
+            ? null
+            : planQuotaHints.activeWebChatsLimit,
       mediaStorageBytesLimit:
         planQuotaHints.mediaStorageBytesLimit ?? BigInt(config.QUOTA_MEDIA_STORAGE_BYTES_DEFAULT),
       knowledgeStorageBytesLimit:

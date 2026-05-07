@@ -98,7 +98,11 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
               }
             });
 
-            if (activeCount >= input.activeWebChatsLimit) {
+            if (
+              input.activeWebChatsLimit !== null &&
+              input.activeWebChatsLimit > 0 &&
+              activeCount >= input.activeWebChatsLimit
+            ) {
               return {
                 outcome: "cap_reached",
                 activeCount,

@@ -11,6 +11,8 @@ export interface AdminPlanQuotaLimits {
   /** @nullable */
   activeWebChatsLimit?: number | null;
   /** @nullable */
+  messagesPerChat?: number | null;
+  /** @nullable */
   imageGenerateMonthlyUnitsLimit?: number | null;
   /** @nullable */
   imageEditMonthlyUnitsLimit?: number | null;

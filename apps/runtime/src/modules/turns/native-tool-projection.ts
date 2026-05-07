@@ -702,13 +702,14 @@ function createImageGenerateToolDefinition(
 function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "image_edit",
-    description: resolveToolDefinitionDescription(
+    description: resolveToolDefinitionDescriptionWithHint(
       policy,
       appendPerTurnCapHint(
         "Edit an existing user-referenced image according to the requested changes.",
         "image_edit",
         policy
-      )
+      ),
+      "Do not claim the edit is done, ready, visible, attached, or sent unless this same turn actually called image_edit and got a successful result or explicit delivered artifact/result."
     ),
     inputSchema: {
       type: "object",

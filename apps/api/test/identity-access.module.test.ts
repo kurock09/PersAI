@@ -179,6 +179,14 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/assistant/billing/subscription/disable-auto-renew",
       method: RequestMethod.POST
     },
+    {
+      path: "api/v1/assistant/billing/subscription/enable-auto-renew",
+      method: RequestMethod.POST
+    },
+    {
+      path: "api/v1/assistant/billing/subscription/change-plan",
+      method: RequestMethod.POST
+    },
     { path: "api/v1/admin/knowledge-indexing/jobs", method: RequestMethod.GET },
     { path: "api/v1/assistant/knowledge-indexing/jobs", method: RequestMethod.GET },
     { path: "api/v1/assistant/chat/web/stage-attachment", method: RequestMethod.POST },

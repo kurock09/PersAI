@@ -9499,6 +9499,9 @@ components:
         activeWebChatsLimit:
           type: integer
           nullable: true
+        messagesPerChat:
+          type: integer
+          nullable: true
         imageGenerateMonthlyUnitsLimit:
           type: integer
           nullable: true
@@ -10481,6 +10484,7 @@ components:
         - mediaStorageBytesLimit
         - activeWebChats
         - activeWebChatsLimit
+        - monthlyMediaTools
       properties:
         tokenBudgetUsed:
           type: integer
@@ -10511,6 +10515,29 @@ components:
         activeWebChatsLimit:
           type: integer
           nullable: true
+        monthlyMediaTools:
+          type: array
+          items:
+            type: object
+            required:
+              - toolCode
+              - displayName
+              - usedUnits
+              - limitUnits
+            properties:
+              toolCode:
+                type: string
+                enum:
+                  - image_generate
+                  - image_edit
+                  - video_generate
+              displayName:
+                type: string
+              usedUnits:
+                type: integer
+              limitUnits:
+                type: integer
+                nullable: true
     AdminOpsCockpitBillingSupport:
       type: object
       required:

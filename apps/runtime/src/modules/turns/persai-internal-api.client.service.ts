@@ -117,6 +117,7 @@ export type InternalQuotaStatusOutcome = {
     limits: {
       tokenBudgetLimit: number | null;
       activeWebChatsLimit: number | null;
+      messagesPerChat: number | null;
       imageGenerateMonthlyUnitsLimit: number | null;
       imageEditMonthlyUnitsLimit: number | null;
       videoGenerateMonthlyUnitsLimit: number | null;
@@ -1810,6 +1811,7 @@ export class PersaiInternalApiClientService {
       (limits.tokenBudgetLimit === null || this.isNonNegativeInteger(limits.tokenBudgetLimit)) &&
       (limits.activeWebChatsLimit === null ||
         this.isNonNegativeInteger(limits.activeWebChatsLimit)) &&
+      (limits.messagesPerChat === null || this.isNonNegativeInteger(limits.messagesPerChat)) &&
       (limits.imageGenerateMonthlyUnitsLimit === null ||
         this.isNonNegativeInteger(limits.imageGenerateMonthlyUnitsLimit)) &&
       (limits.imageEditMonthlyUnitsLimit === null ||

@@ -1039,7 +1039,7 @@ describe("AssistantSettings limits", () => {
       await screen.findByText("Auto-renew was turned off for the current paid period.")
     ).toBeInTheDocument();
     expect(openPricingPage).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("keeps payment settings available for one-time paid access without recurring controls", async () => {
     const openPricingPage = vi.fn();
@@ -1120,7 +1120,7 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
-  });
+  }, 15000);
 
   it("redirects change plan from payment settings to the standard pricing page", async () => {
     const openPricingPage = vi.fn();

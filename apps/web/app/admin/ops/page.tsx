@@ -83,6 +83,12 @@ type QuotaUsageData = {
   mediaStorageBytesLimit: number | null;
   activeWebChats: number;
   activeWebChatsLimit: number | null;
+  monthlyMediaTools: Array<{
+    toolCode: "image_generate" | "image_edit" | "video_generate";
+    displayName: string;
+    usedUnits: number;
+    limitUnits: number | null;
+  }>;
 };
 
 type BillingSupportData = {
@@ -400,6 +406,10 @@ function formatTokens(tokens: number): string {
 
 function formatStorageMb(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function formatQuotaCount(value: number | null): string {
+  return value === null ? "Unlimited" : String(value);
 }
 
 function formatBytesCompact(value: number | null | undefined): string {
@@ -1885,12 +1895,24 @@ export default function AdminOpsPage() {
                     limit={qu.mediaStorageBytesLimit}
                     formatValue={formatStorageMb}
                   />
-                  <QuotaBar
-                    label="Active Web Chats"
-                    used={qu.activeWebChats}
-                    limit={qu.activeWebChatsLimit}
-                    formatValue={String}
-                  />
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      Media limits
+                    </p>
+                    <div className="space-y-1.5">
+                      {qu.monthlyMediaTools.map((tool) => (
+                        <div
+                          key={tool.toolCode}
+                          className="flex items-center justify-between rounded border border-border/60 bg-surface-raised px-2 py-1.5 text-[10px]"
+                        >
+                          <span className="text-text-muted">{tool.displayName}</span>
+                          <span className="font-medium tabular-nums text-text">
+                            {tool.usedUnits} / {formatQuotaCount(tool.limitUnits)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </CardShell>
             );

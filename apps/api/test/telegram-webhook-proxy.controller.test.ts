@@ -10,6 +10,7 @@ async function run(): Promise<void> {
   let syncedGroups = 0;
   const mediaDeliveryCalls: Array<Record<string, unknown>> = [];
   const sendReplyPayloads: Array<Record<string, unknown>> = [];
+  const persistedCorrections: Array<Record<string, string>> = [];
 
   const service = new TelegramChannelAdapterService(
     {
@@ -90,6 +91,12 @@ async function run(): Promise<void> {
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
     {
+      async updateMessageContent(messageId: string, _assistantId: string, content: string) {
+        persistedCorrections.push({ messageId, content });
+        return { id: messageId, content };
+      }
+    } as never,
+    {
       async patchMetadata() {
         return undefined;
       }
@@ -150,6 +157,12 @@ async function run(): Promise<void> {
       ?.assistantMessage,
     "native reply\n\nCorrection: no file was actually delivered in this reply."
   );
+  assert.deepEqual(persistedCorrections, [
+    {
+      messageId: "assistant-msg-1",
+      content: "native reply\n\nCorrection: no file was actually delivered in this reply."
+    }
+  ]);
 
   const unauthorized = await service.handleWebhook({
     assistantId: "assistant-1",
@@ -157,6 +170,112 @@ async function run(): Promise<void> {
     payload: {}
   });
   assert.deepEqual(unauthorized, { statusCode: 401, body: { ok: false, error: "unauthorized" } });
+
+  const noMediaReplyPayloads: Array<Record<string, unknown>> = [];
+  const noMediaCorrections: Array<Record<string, string>> = [];
+  const noMediaClaimService = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 777,
+          botUsername: "persai_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          accessMode: "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 42,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "42",
+          runtimeHealth: "ok",
+          webhookSecret: "tg-secret"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        return undefined;
+      },
+      async sendAssistantTurnReply(params: Record<string, unknown>) {
+        noMediaReplyPayloads.push(params);
+      },
+      async downloadInboundFile() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "Your image is ready.",
+          respondedAt: "2026-04-12T10:00:00.000Z",
+          media: [],
+          assistantMessageId: "assistant-msg-2",
+          chatId: "chat-1",
+          workspaceId: "workspace-1"
+        };
+      }
+    } as never,
+    {
+      async deliver() {
+        throw new Error("not expected");
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async updateMessageContent(messageId: string, _assistantId: string, content: string) {
+        noMediaCorrections.push({ messageId, content });
+        return { id: messageId, content };
+      }
+    } as never,
+    {
+      async patchMetadata() {
+        return undefined;
+      }
+    } as never
+  );
+
+  const noMediaClaimResult = await noMediaClaimService.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "tg-secret",
+    payload: {
+      update_id: 124,
+      message: {
+        text: "make a photo",
+        chat: { id: 42, type: "private" },
+        from: { id: 42, username: "alex" }
+      }
+    }
+  });
+  assert.deepEqual(noMediaClaimResult, { statusCode: 200, body: { ok: true } });
+  assert.equal(
+    (noMediaReplyPayloads[0]?.turnResult as { assistantMessage?: string } | undefined)
+      ?.assistantMessage,
+    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+  );
+  assert.deepEqual(noMediaCorrections, [
+    {
+      messageId: "assistant-msg-2",
+      content:
+        "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+    }
+  ]);
 
   const claimSyncCalls: Array<Record<string, unknown>> = [];
   const claimReplies: string[] = [];
@@ -218,6 +337,11 @@ async function run(): Promise<void> {
       }
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async updateMessageContent() {
+        return null;
+      }
+    } as never,
     {
       async patchMetadata() {
         return undefined;
@@ -318,6 +442,11 @@ async function run(): Promise<void> {
       }
     } as never,
     new RenderAssistantInboundSurfaceMessageService() as never,
+    {
+      async updateMessageContent() {
+        return null;
+      }
+    } as never,
     {
       async completeTelegramUpdateProcessing(
         _assistantId: string,

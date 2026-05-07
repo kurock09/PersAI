@@ -127,10 +127,61 @@ function createService(prisma: WorkspaceManagementPrismaService): ResolveAdminOp
           periodEndsAt: "2026-06-01T00:00:00.000Z",
           periodSource: "subscription_period"
         };
+      },
+      async resolveAssistantMonthlyMediaQuotaSnapshot() {
+        return {
+          planCode: "pro",
+          periodStartedAt: "2026-05-01T00:00:00.000Z",
+          periodEndsAt: "2026-06-01T00:00:00.000Z",
+          periodSource: "subscription_period" as const,
+          tools: [
+            {
+              toolCode: "image_generate" as const,
+              displayName: "Image generation",
+              usedUnits: 4,
+              reservedUnits: 0,
+              settledUnits: 4,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: 20,
+              remainingUnits: 16,
+              usageAvailable: true,
+              status: "ok" as const
+            },
+            {
+              toolCode: "image_edit" as const,
+              displayName: "Image editing",
+              usedUnits: 2,
+              reservedUnits: 0,
+              settledUnits: 2,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: 10,
+              remainingUnits: 8,
+              usageAvailable: true,
+              status: "ok" as const
+            },
+            {
+              toolCode: "video_generate" as const,
+              displayName: "Video generation",
+              usedUnits: 1,
+              reservedUnits: 0,
+              settledUnits: 1,
+              releasedUnits: 0,
+              reconciliationRequiredUnits: 0,
+              limitUnits: 5,
+              remainingUnits: 4,
+              usageAvailable: true,
+              status: "ok" as const
+            }
+          ]
+        };
       }
     } as Pick<
       TrackWorkspaceQuotaUsageService,
-      "resolveEffectiveLimitsForAssistant" | "resolveAssistantTokenBudgetQuotaSnapshot"
+      | "resolveEffectiveLimitsForAssistant"
+      | "resolveAssistantTokenBudgetQuotaSnapshot"
+      | "resolveAssistantMonthlyMediaQuotaSnapshot"
     > as TrackWorkspaceQuotaUsageService,
     prisma
   );
@@ -374,6 +425,26 @@ async function run(): Promise<void> {
     assert.equal(result.assistant.exists, true);
     assert.equal(result.quotaUsage?.tokenBudgetUsed, 3200);
     assert.equal(result.quotaUsage?.tokenBudgetPeriodSource, "subscription_period");
+    assert.deepEqual(result.quotaUsage?.monthlyMediaTools, [
+      {
+        toolCode: "image_generate",
+        displayName: "Image generation",
+        usedUnits: 4,
+        limitUnits: 20
+      },
+      {
+        toolCode: "image_edit",
+        displayName: "Image editing",
+        usedUnits: 2,
+        limitUnits: 10
+      },
+      {
+        toolCode: "video_generate",
+        displayName: "Video generation",
+        usedUnits: 1,
+        limitUnits: 5
+      }
+    ]);
     assert.equal(result.billingSupport?.subscription.status, "grace_period");
     assert.equal(result.billingSupport?.quotaPeriod.startedAt, "2026-05-01T00:00:00.000Z");
     assert.equal(result.billingSupport?.latestPaidActivation?.source, "admin");

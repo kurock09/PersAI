@@ -78,11 +78,14 @@ function createService({
 async function run(): Promise<void> {
   {
     const imageGenerate = TOOL_CATALOG.find((entry) => entry.code === "image_generate");
+    const imageEdit = TOOL_CATALOG.find((entry) => entry.code === "image_edit");
     const videoGenerate = TOOL_CATALOG.find((entry) => entry.code === "video_generate");
 
     assert.ok(imageGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
     assert.ok(imageGenerate?.modelUsageGuidance?.includes("Never print `image_generate(...)`"));
     assert.ok(imageGenerate?.modelUsageGuidance?.includes('`action="deferred"`'));
+    assert.ok(imageEdit?.modelUsageGuidance?.includes("Never claim the edit is done"));
+    assert.ok(imageEdit?.modelUsageGuidance?.includes("If you have not called `image_edit`"));
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("call this tool immediately"));
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("Never print `video_generate(...)`"));
     assert.ok(videoGenerate?.modelUsageGuidance?.includes('`action="deferred"`'));

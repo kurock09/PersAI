@@ -123,6 +123,8 @@ export class PrepareAssistantInboundTurnService {
       });
     }
 
+    await this.enforceMessagesPerChatLimit({ assistant, chatId: chat.id });
+
     const userMessage = await this.assistantChatRepository.createMessage({
       chatId: chat.id,
       assistantId: assistant.id,
@@ -237,6 +239,26 @@ export class PrepareAssistantInboundTurnService {
     }
 
     return result.chat;
+  }
+
+  private async enforceMessagesPerChatLimit(params: {
+    assistant: Assistant;
+    chatId: string;
+  }): Promise<void> {
+    const messagesPerChatLimit =
+      await this.trackWorkspaceQuotaUsageService.resolveMessagesPerChatLimit(params.assistant);
+    if (messagesPerChatLimit === null || messagesPerChatLimit <= 0) {
+      return;
+    }
+    const metadata = await this.assistantChatRepository.getChatListMetadata(params.chatId);
+    if (metadata.messageCount < messagesPerChatLimit) {
+      return;
+    }
+    throw createAssistantInboundConflict(
+      "chat_message_limit_reached",
+      `This chat reached its message limit (${messagesPerChatLimit}). Continue in a new chat or upgrade for longer conversations.`,
+      { limit: messagesPerChatLimit }
+    );
   }
 
   private async deleteStaleWebRuntimeThreadState(params: {

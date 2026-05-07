@@ -91,6 +91,7 @@ export type PlanDraft = {
   channelMax: boolean;
   tokenBudgetLimit: string;
   activeWebChatsLimit: string;
+  messagesPerChat: string;
   imageGenerateMonthlyUnitsLimit: string;
   imageEditMonthlyUnitsLimit: string;
   videoGenerateMonthlyUnitsLimit: string;
@@ -166,6 +167,7 @@ type NumericDraftField =
   | "presentationPriceAmount"
   | "tokenBudgetLimit"
   | "activeWebChatsLimit"
+  | "messagesPerChat"
   | "imageGenerateMonthlyUnitsLimit"
   | "imageEditMonthlyUnitsLimit"
   | "videoGenerateMonthlyUnitsLimit"
@@ -431,7 +433,8 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   { field: "presentationDisplayOrder", label: "Pricing display order", min: 0 },
   { field: "presentationPriceAmount", label: "Pricing amount", min: 0, allowBlank: true },
   { field: "tokenBudgetLimit", label: "Token budget", min: 1, allowBlank: true },
-  { field: "activeWebChatsLimit", label: "Active web chats", min: 1, allowBlank: true },
+  { field: "activeWebChatsLimit", label: "Active web chats", min: 0, allowBlank: true },
+  { field: "messagesPerChat", label: "Messages per chat", min: 0, allowBlank: true },
   {
     field: "imageGenerateMonthlyUnitsLimit",
     label: "Monthly image generations",
@@ -648,6 +651,7 @@ function emptyDraft(): PlanDraft {
     channelMax: false,
     tokenBudgetLimit: "",
     activeWebChatsLimit: "",
+    messagesPerChat: "",
     imageGenerateMonthlyUnitsLimit: "",
     imageEditMonthlyUnitsLimit: "",
     videoGenerateMonthlyUnitsLimit: "",
@@ -745,6 +749,7 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     channelMax: plan.entitlements.channelsAndSurfaces.max,
     tokenBudgetLimit: plan.quotaLimits?.tokenBudgetLimit?.toString() ?? "",
     activeWebChatsLimit: plan.quotaLimits?.activeWebChatsLimit?.toString() ?? "",
+    messagesPerChat: plan.quotaLimits?.messagesPerChat?.toString() ?? "",
     imageGenerateMonthlyUnitsLimit:
       plan.quotaLimits?.imageGenerateMonthlyUnitsLimit?.toString() ?? "",
     imageEditMonthlyUnitsLimit: plan.quotaLimits?.imageEditMonthlyUnitsLimit?.toString() ?? "",
@@ -872,7 +877,12 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
   });
   const activeWebChatsLimit = parseStrictIntegerDraft(draft.activeWebChatsLimit, {
     label: "Active web chats",
-    min: 1,
+    min: 0,
+    allowBlank: true
+  });
+  const messagesPerChat = parseStrictIntegerDraft(draft.messagesPerChat, {
+    label: "Messages per chat",
+    min: 0,
     allowBlank: true
   });
   const imageGenerateMonthlyUnitsLimit = parseStrictIntegerDraft(
@@ -996,6 +1006,7 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     quotaLimits: {
       tokenBudgetLimit,
       activeWebChatsLimit,
+      messagesPerChat,
       imageGenerateMonthlyUnitsLimit,
       imageEditMonthlyUnitsLimit,
       videoGenerateMonthlyUnitsLimit,
@@ -2276,7 +2287,7 @@ function PlanForm({
                 </label>
                 <FieldError message={validationErrors.tokenBudgetLimit} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                  <span title="Maximum active web chat threads allowed for this plan. Blank = platform default.">
+                  <span title="Internal cap for simultaneously active web chat threads. Blank = platform default. 0 = unlimited.">
                     Active web chats
                   </span>
                   <input
@@ -2294,6 +2305,25 @@ function PlanForm({
                   />
                 </label>
                 <FieldError message={validationErrors.activeWebChatsLimit} />
+                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
+                  <span title="Soft per-chat message ceiling used for calm product UX on trial/free-like plans. Blank = unlimited. 0 = unlimited.">
+                    Messages per chat
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.messagesPerChat}
+                    onChange={(e) => onPatch({ messagesPerChat: e.target.value })}
+                    placeholder="unlimited"
+                    className={cn(
+                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
+                      validationErrors.messagesPerChat
+                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
+                        : "border-border focus:border-accent focus:ring-accent/50"
+                    )}
+                  />
+                </label>
+                <FieldError message={validationErrors.messagesPerChat} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="Monthly image generation units for the subscription period. Blank = unlimited. Reserved before provider work and settled only after delivery succeeds.">
                     Monthly image generations
@@ -3202,7 +3232,11 @@ function PlanCardReadOnly({
               <Sec label="Quota limits">
                 <div className="space-y-0.5 text-[10px] text-text-subtle">
                   <div>Token budget: {plan.quotaLimits?.tokenBudgetLimit ?? "default"}</div>
-                  <div>Active web chats: {plan.quotaLimits?.activeWebChatsLimit ?? "default"}</div>
+                  <div>
+                    Active web chats (internal):{" "}
+                    {plan.quotaLimits?.activeWebChatsLimit ?? "default"}
+                  </div>
+                  <div>Messages per chat: {plan.quotaLimits?.messagesPerChat ?? "unlimited"}</div>
                   <div>
                     Media upload budget:{" "}
                     {plan.quotaLimits?.mediaStorageBytesLimit != null

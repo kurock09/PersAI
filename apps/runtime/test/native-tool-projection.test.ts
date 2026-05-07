@@ -343,6 +343,11 @@ async function run(): Promise<void> {
       properties?: { background?: { enum?: unknown[]; description?: string } };
     }
   )?.properties?.background;
+  assert.match(
+    imageEdit?.description ?? "",
+    /Do not claim the edit is done, ready, visible, attached, or sent/
+  );
+  assert.match(imageEdit?.description ?? "", /actually called image_edit/);
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
   const scheduledActionKindDescription = (

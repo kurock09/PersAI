@@ -1,5 +1,146 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (PROD false media-claim honesty hardening) — block “image ready / sent attachment” hallucinations when no delivery happened
+
+### What changed
+
+- Took the session as a bounded PROD follow-up on the founder-reported Telegram/web regression where the assistant could claim it had made or sent an image even when the turn never called a media tool and no attachment was actually delivered.
+- Root cause was not another `Working Files` prompt issue. The shared delivery-honesty layer only knew how to strip technical attachment summaries and local file links; it did not classify plain-text “image/photo/video ready” claims as a delivery promise when `attemptedArtifactCount === 0`.
+- Hardened `final-delivery-honesty.ts` so the same post-runtime gate now catches positive media-delivery / media-ready wording (`Your image is ready`, `вот готовое фото`, similar file/document variants) and emits an explicit correction whenever no real delivery happened.
+- Fixed the Telegram adapter seam so the corrected text is now applied for **all** Telegram turns after delivery outcome is known, not only for the `turnResult.media.length > 0` path. When Telegram delivery truth forces a correction, the service also persists that corrected assistant text back into the saved chat message instead of leaving the raw hallucinated claim in history.
+- Added focused regressions for three critical cases: false media claim with zero media artifacts, pure technical `Assistant sent an attachment ...` text with no delivery, and Telegram webhook handling that now rewrites both outbound reply text and persisted assistant-message content.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/final-delivery-honesty.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/telegram-webhook-proxy.controller.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` — still fails only on pre-existing unrelated web formatting drift in:
+  - `apps/web/app/_components/landing-android-app-download.tsx`
+  - `apps/web/app/app/_components/sidebar.tsx`
+  - `apps/web/app/app/_components/sidebar.test.tsx`
+
+### Risks / residuals
+
+- This slice hardens the final honesty/delivery seam for Telegram and the shared correction utility used by web, but live validation is still required after deploy to confirm the exact founder repro no longer emits “сделал фото / Your image is ready / Assistant sent an attachment ...” when no artifact exists.
+- Telegram quota analytics for a turn are still recorded before the adapter’s final post-delivery rewrite; this does not affect user-visible output or persisted chat history, but analytics text may still reflect the raw runtime reply for those rare corrected turns.
+- Repo formatting is still not globally clean because of the unrelated pre-existing web files listed above.
+
+### Next recommended step
+
+- Deploy the updated `api` build, then reproduce the founder’s exact no-tool-call media hallucination on both Telegram and web: confirm the user-visible reply is corrected, no fake attachment/media is sent, and the stored assistant message no longer retains the hallucinated delivery text for later runtime hydration.
+
+## 2026-05-07 (ADR-081 Working Files prompt assembly hardening) — replace mutable developer-string refresh with typed sections and stop legacy attachment-summary reinjection
+
+### What changed
+
+- Took the session as a bounded live regression follow-up on ADR-081 for the founder-reported runtime/Telegram file-context path instead of reopening broader Files or media architecture.
+- Root cause 1 was architectural rather than a single bad regex: `TurnExecutionService` rendered developer instructions into one mutable string and then refreshed `## Working Files` later via string replacement. That made the prompt state non-deterministic across tool loops and allowed the `Working Files` block to duplicate or eat neighboring sections such as `# Sense of Time` and `## Open Media Jobs`.
+- Replaced that path with typed developer-instruction sections held in runtime state and re-rendered deterministically on each loop. `Working Files`, routing hints, retrieved knowledge, open media jobs, and presence are now assembled as keyed sections first and only then rendered into the provider-facing string.
+- Root cause 2 was a model self-conditioning seam inside the tool loop: if a provider turn emitted a legacy technical line like `Assistant sent an attachment ... fileRef ...` before the final answer, runtime merged that text into `assembledText` and fed it back into the next provider call as an ordinary assistant message. Added runtime-side stripping of those legacy technical attachment-summary lines before reinjection so the model cannot keep amplifying stale technical delivery text mid-turn.
+- The model-visible `Working Files` section is now hard-capped to the latest 20 rendered entries, which stops the prompt from growing to hundreds of aliases while preserving the full internal runtime file state for actual tool execution.
+- The `Working Files` developer guidance no longer prints raw `fileRef` / `artifactId` / `objectKey` / `attachmentId` vocabulary into the prompt. It now tells the model to ignore low-level storage/debug identifiers generically, which reduces the chance of the model parroting those terms into user-visible replies.
+- Added focused runtime regressions for the new section assembly, the 20-item cap, and legacy technical attachment-summary stripping; refreshed the runtime integration assertion so `developerInstructions` no longer carry raw technical identifier wording.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` — now fails only on pre-existing unrelated web formatting drift in:
+  - `apps/web/app/_components/landing-android-app-download.tsx`
+  - `apps/web/app/app/_components/sidebar.tsx`
+  - `apps/web/app/app/_components/sidebar.test.tsx`
+
+### Risks / residuals
+
+- This slice hardens the runtime prompt path and removes the known self-reinforcing technical-text seam, but it does not by itself deploy to `persai-dev`; the live assistant-specific regression still needs one post-deploy validation pass.
+- The model-visible `Working Files` list is now capped at 20 at the developer-prompt render boundary, not by trimming the internal runtime file registry state. That is intentional so tool execution can stay canonical while the model sees only the bounded working set.
+- Repository-wide formatting is still not fully clean because of the unrelated pre-existing web files listed above.
+
+### Next recommended step
+
+- Deploy the updated `runtime` build to `persai-dev`, then reproduce the exact founder scenario on assistant `8b27ed67-b9dc-4c9e-b1dc-8b09852eaaee`: confirm `developerInstructions` contains one bounded `## Working Files` block, `## Open Media Jobs` survives refresh intact, and the model no longer emits legacy `Assistant sent an attachment ... fileRef ...` text on the file/media path.
+
+## 2026-05-07 (plan chat-length policy + quiet web gating) — add `messagesPerChat`, hide active-chat cap from pricing UX, and replace Ops quota bar with media rows
+
+### What changed
+
+- Kept the session bounded to the founder-requested plan/chat-limit slice instead of reopening broader billing or runtime work.
+- Added plan-level `messagesPerChat` through the active admin plan write/read path, generated contracts, and runtime quota-status visible-plan metadata so chat-length policy is now first-class rather than hidden in ad hoc UI logic.
+- Unified `0 = unlimited` semantics for the chat-limit fields that needed it: `messagesPerChat=0` is unlimited, and `activeWebChatsLimit=0` now means "no internal cap" instead of being discarded as invalid/missing. Blank/null still preserves the existing platform-default fallback behavior for the internal active-chat cap.
+- `PrepareAssistantInboundTurnService` now enforces the effective `messagesPerChat` limit before persisting the next user web-chat message, returning a product-shaped `chat_message_limit_reached` conflict instead of writing another message and discovering the limit later.
+- The web product surface no longer markets `Active web chats` as a pricing fact. Pricing fact chips now omit it entirely, while web chat maps both per-chat limit hits and rare new-thread active-cap hits into quiet above-composer banners with calm copy plus a soft pricing CTA.
+- `Admin > Plans` now shows both fields with the intended semantics: `Messages per chat` as the primary conversation-length control, and `Active web chats` reframed as an internal technical cap. `Admin > Ops` now replaces the old active-chat quota progress bar with a compact monthly media usage block (`image_generate`, `image_edit`, `video_generate`) per user.
+- Updated `API-BOUNDARY`, `DATA-MODEL`, and `TEST-PLAN` to reflect the new plan-owned `messagesPerChat` field, internal-only role of `activeWebChatsLimit`, and the focused verification contour for future chat-limit slices.
+
+### Verification
+
+- `corepack pnpm --filter @persai/contracts run generate`
+- `corepack pnpm --filter @persai/contracts run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/resolve-admin-ops-cockpit.service.test.ts`
+- `corepack pnpm --filter @persai/runtime test -- runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/admin/ops/page.test.tsx app/admin/plans/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run test`
+- `corepack pnpm run format:check` — still fails only on pre-existing unrelated formatting drift in:
+  - `apps/web/app/_components/landing-android-app-download.tsx`
+  - `apps/web/app/app/_components/sidebar.tsx`
+  - `apps/web/app/app/_components/sidebar.test.tsx`
+
+### Risks / residuals
+
+- `messagesPerChat` is enforced on the durable chat message count that exists before the next user message is written. This keeps the gate honest and simple, but one live product pass is still recommended to confirm the exact limit feels right for the chosen free/trial plan values.
+- The rare internal active-chat-cap banner is now product-shaped, but the app still relies on the backend admission check rather than a separate preflight endpoint when the user presses `New chat`; that is intentional to avoid adding another stateful admission API for a rare edge case.
+- Repo formatting is still not globally clean because of the unrelated pre-existing web files listed above.
+
+### Next recommended step
+
+- Run one live `persai-dev` pass on the exact founder flows: hit a `messagesPerChat` limit in web chat and confirm the above-composer banner plus `New chat` / pricing CTA feel correct, then verify that attempting to start another thread beyond the internal active-chat cap does not create a new durable chat and shows the same calm product-shaped guidance.
+
+## 2026-05-07 (ADR-084 billing mutation auth route fix) — register the missing Clerk middleware for `enable-auto-renew` and `change-plan`
+
+### What changed
+
+- Re-investigated the founder-reported post-deploy billing failure directly from fresh `persai-dev` logs and compared it with the current `apps/api` auth wiring instead of assuming the already-local web proxy fix was the full explanation.
+- Live evidence was decisive:
+  - `GET /api/v1/assistant/billing/subscription` reached `api` with a real `userId` and returned `200`
+  - the immediately following `POST /api/v1/assistant/billing/subscription/enable-auto-renew` still returned `401 userId=null`
+  - `api` emitted no `Clerk verifyToken failed ...` warnings for that request, which ruled out another invalid-bearer path and pointed to a missing middleware registration instead
+- Root cause: `apps/api/src/modules/identity-access/identity-access.module.ts` guarded billing reads, payment intents, and `disable-auto-renew`, but it never added the newer recurring-management mutations `POST /api/v1/assistant/billing/subscription/enable-auto-renew` and `POST /api/v1/assistant/billing/subscription/change-plan` to `ClerkAuthMiddleware`.
+- Those two requests were therefore reaching `AssistantBillingController` with `req.resolvedAppUser === undefined` and failing instantly as `Authenticated user context is missing.` despite a live session.
+- Added both missing billing mutation routes to the middleware allowlist and extended the existing `identity-access.module.test.ts` regression coverage so future billing-route additions fail loudly if auth wiring is forgotten.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/identity-access.module.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` — still fails on pre-existing unrelated formatting drift in:
+  - `apps/web/app/_components/landing-android-app-download.tsx`
+  - `apps/web/app/app/_components/sidebar.tsx`
+  - `apps/web/app/app/_components/sidebar.test.tsx`
+
+### Risks / residuals
+
+- This fix is local until a fresh `api` build is rolled out to `persai-dev`; the current cluster will keep returning `401 userId=null` on those two POST routes until that deploy happens.
+- The separate web-side proxy preference change remains in the tree, but the missing API middleware registration was the concrete root cause for the still-live founder repro captured in cluster logs.
+- The Clerk warning about cookie tokens missing `azp` is still visible in `web` logs and should be tracked separately, but it is not needed to explain this specific `enable-auto-renew` / `change-plan` 401.
+
+### Next recommended step
+
+- Deploy the updated `api` build to `persai-dev`, then re-run the exact founder flows live: `Payment settings -> Enable auto-renew` and `Payment settings -> Change plan -> FREE`, confirming that both POST routes now resolve a real `userId` and no longer surface `Session expired`.
+
 ## 2026-05-07 (ADR-081 alias follow-up regressions) — restore async media alias resolution and stabilize Working Files developer refresh
 
 ### What changed

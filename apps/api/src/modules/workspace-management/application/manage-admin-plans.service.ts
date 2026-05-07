@@ -754,7 +754,8 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaLimitsRaw.tokenBudgetLimit),
-        activeWebChatsLimit: toNullablePositiveInt(quotaLimitsRaw.activeWebChatsLimit),
+        activeWebChatsLimit: toNullableNonNegativeInt(quotaLimitsRaw.activeWebChatsLimit),
+        messagesPerChat: toNullableNonNegativeInt(quotaLimitsRaw.messagesPerChat),
         imageGenerateMonthlyUnitsLimit: toNullablePositiveInt(
           quotaLimitsRaw.imageGenerateMonthlyUnitsLimit
         ),
@@ -877,6 +878,9 @@ export class ManageAdminPlansService {
     }
     if (input.quotaLimits.activeWebChatsLimit !== null) {
       quotaAccounting.activeWebChatsLimit = input.quotaLimits.activeWebChatsLimit;
+    }
+    if (input.quotaLimits.messagesPerChat !== null) {
+      quotaAccounting.messagesPerChat = input.quotaLimits.messagesPerChat;
     }
     if (input.quotaLimits.imageGenerateMonthlyUnitsLimit !== null) {
       quotaAccounting.imageGenerateMonthlyUnitsLimit =
@@ -1211,7 +1215,8 @@ export class ManageAdminPlansService {
       },
       quotaLimits: {
         tokenBudgetLimit: toNullablePositiveInt(quotaAccountingRaw.tokenBudgetLimit),
-        activeWebChatsLimit: toNullablePositiveInt(quotaAccountingRaw.activeWebChatsLimit),
+        activeWebChatsLimit: toNullableNonNegativeInt(quotaAccountingRaw.activeWebChatsLimit),
+        messagesPerChat: toNullableNonNegativeInt(quotaAccountingRaw.messagesPerChat),
         imageGenerateMonthlyUnitsLimit: toNullablePositiveInt(
           quotaAccountingRaw.imageGenerateMonthlyUnitsLimit
         ),

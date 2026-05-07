@@ -36,6 +36,7 @@ import { useTheme } from "./use-theme";
 import { useClerkAvatar } from "./use-clerk-avatar";
 import { useNetworkOnline } from "./use-network-online";
 import { resolveBillingSummaryCopy } from "./billing-summary";
+import { AndroidAppDownloadBanner } from "../../_components/android-app-download-banner";
 import {
   patchAssistantWebChat,
   postAssistantWebChatArchive,
@@ -126,6 +127,24 @@ function groupChatsByDate(
   return groups.filter((g) => g.items.length > 0);
 }
 
+function shouldShowAndroidSidebarDownload(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const maybeNative = window as unknown as {
+    PersaiNative?: unknown;
+    Capacitor?: { isNativePlatform?: () => boolean };
+  };
+  if (
+    maybeNative.PersaiNative ||
+    (typeof maybeNative.Capacitor?.isNativePlatform === "function" &&
+      maybeNative.Capacitor.isNativePlatform())
+  ) {
+    return false;
+  }
+  return /Android/i.test(window.navigator.userAgent);
+}
+
 export function Sidebar({
   onClose,
   onAssistantCardClick,
@@ -138,7 +157,11 @@ export function Sidebar({
   const { isOnline, recheck } = useNetworkOnline();
   const activeThread = searchParams.get("thread");
   const [mounted, setMounted] = useState(false);
+  const [showAndroidSidebarDownload, setShowAndroidSidebarDownload] = useState(false);
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setShowAndroidSidebarDownload(shouldShowAndroidSidebarDownload());
+  }, []);
 
   const t = useTranslations("sidebar");
   const ts = useTranslations("settings");
@@ -301,6 +324,14 @@ export function Sidebar({
 
       {/* Bottom: single account row, everything else lives behind the popup */}
       <div className="shrink-0 border-t border-border p-2" suppressHydrationWarning>
+        {mounted && onClose && showAndroidSidebarDownload ? (
+          <div className="px-1 pb-2">
+            <AndroidAppDownloadBanner
+              className="flex w-full justify-center"
+              copy={{ cta: ts("androidAppCta") }}
+            />
+          </div>
+        ) : null}
         {mounted && (
           <AccountFooter
             data={data}

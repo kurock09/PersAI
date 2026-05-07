@@ -5,6 +5,8 @@ import { Sidebar } from "./sidebar";
 import { OfflineGate } from "./offline-gate";
 import type { AppData } from "./use-app-data";
 
+const ORIGINAL_USER_AGENT = window.navigator.userAgent;
+
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn()
@@ -52,6 +54,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
+  Object.defineProperty(window.navigator, "userAgent", {
+    configurable: true,
+    value: ORIGINAL_USER_AGENT
+  });
 });
 
 function makeAppData(overrides: Partial<AppData>): AppData {
@@ -228,6 +234,33 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     await waitFor(() => {
       expect(screen.getByText("billingDateTrialEnds")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the Android APK button above the account card in the mobile sidebar", async () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36"
+    });
+
+    render(<Sidebar data={makeAppData({})} onClose={vi.fn()} />);
+
+    const apkLink = await screen.findByRole("link", { name: "androidAppCta" });
+    expect(apkLink).toHaveAttribute("href", "/mobile/persai-android-release.apk");
+  });
+
+  it("does not show the Android APK button for non-Android mobile sidebar sessions", async () => {
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
+    });
+
+    render(<Sidebar data={makeAppData({})} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("link", { name: "androidAppCta" })).toBeNull();
     });
   });
 });

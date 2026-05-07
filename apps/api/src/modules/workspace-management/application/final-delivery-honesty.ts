@@ -9,9 +9,36 @@ function buildUndeliveredAttachmentCorrection(text: string, locale?: string | nu
   return "Correction: no file was actually delivered in this reply.";
 }
 
+function buildUndeliveredMediaCorrection(text: string, locale?: string | null): string {
+  if (locale?.toLowerCase().startsWith("ru") || containsCyrillic(text)) {
+    return "Поправка: изображение или другое медиа не было реально доставлено в этот чат в рамках этого ответа.";
+  }
+  return "Correction: no image or other media was actually delivered in this reply.";
+}
+
 function buildDeliveredAttachmentFallback(locale?: string | null): string {
   return locale?.toLowerCase().startsWith("ru") ? "Файл отправлен." : "File sent.";
 }
+
+type UndeliveredClaimKind = "file" | "media";
+
+const POSITIVE_MEDIA_DELIVERY_CLAIM_PATTERNS = [
+  /\b(?:your|the)\s+(?:image|photo|picture|video|clip|render|edit)\s+(?:is|was)\s+ready\b/i,
+  /\bhere(?:'s| is)\s+(?:your|the)\s+(?:image|photo|picture|video|clip|render|edit)\b/i,
+  /\b(?:i|we)\s+(?:generated|created|edited|made|rendered|prepared|attached|sent|uploaded)\s+(?:your|the|an?\s+)?(?:image|photo|picture|video|clip|render|edit)\b/i,
+  /(?:^|[\s,.:;!?-])вот\s+(?:готов[ао]е?\s+)?(?:фото|изображение|картинк[ауыеи]?|видео)(?:$|[\s,.:;!?-])/i,
+  /(?:^|[\s,.:;!?-])(?:фото|изображение|картинк[ауыеи]?|видео)\s+готов[ао](?:$|[\s,.:;!?-])/i,
+  /(?<!не\s)(?:^|[\s,.:;!?-])(?:сделал|сделала|сгенерировал|сгенерировала|создал|создала|отредактировал|отредактировала|прикрепил|прикрепила|отправил|отправила)\s+(?:вам\s+|тебе\s+)?(?:фото|изображение|картинку|видео)(?:$|[\s,.:;!?-])/i
+];
+
+const POSITIVE_FILE_DELIVERY_CLAIM_PATTERNS = [
+  /\b(?:file|document|attachment)\s+(?:is|was)\s+ready\b/i,
+  /\bhere(?:'s| is)\s+(?:your|the)\s+(?:file|document|attachment)\b/i,
+  /\b(?:i|we)\s+(?:attached|sent|uploaded|delivered)\s+(?:your|the|an?\s+)?(?:file|document|attachment)\b/i,
+  /(?:^|[\s,.:;!?-])вот\s+(?:готов[ао]й?\s+)?(?:файл|документ)(?:$|[\s,.:;!?-])/i,
+  /(?:^|[\s,.:;!?-])(?:файл|документ)\s+готов(?:$|[\s,.:;!?-])/i,
+  /(?<!не\s)(?:^|[\s,.:;!?-])(?:прикрепил|прикрепила|отправил|отправила)\s+(?:вам\s+|тебе\s+)?(?:файл|документ|вложение)(?:$|[\s,.:;!?-])/i
+];
 
 function normalizeFilename(value: string): string {
   const trimmed = value.trim();
@@ -175,6 +202,37 @@ function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
   return { assistantText, strippedTechnicalAttachmentSummary };
 }
 
+function detectUndeliveredClaimKind(input: {
+  assistantText: string;
+  strippedTechnicalAttachmentSummary: boolean;
+  strippedLocalFileLink: boolean;
+  attemptedArtifactCount: number;
+}): UndeliveredClaimKind | null {
+  const normalized = input.assistantText.replace(/\s+/g, " ").trim();
+  if (normalized.length > 0) {
+    if (POSITIVE_MEDIA_DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return "media";
+    }
+    if (POSITIVE_FILE_DELIVERY_CLAIM_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return "file";
+    }
+  }
+  if (input.strippedLocalFileLink || input.strippedTechnicalAttachmentSummary) {
+    return "file";
+  }
+  return input.attemptedArtifactCount > 0 ? "file" : null;
+}
+
+function buildUndeliveredCorrection(
+  kind: UndeliveredClaimKind,
+  text: string,
+  locale?: string | null
+): string {
+  return kind === "media"
+    ? buildUndeliveredMediaCorrection(text, locale)
+    : buildUndeliveredAttachmentCorrection(text, locale);
+}
+
 export function applyFinalDeliveryHonestyCorrection(input: {
   assistantText: string;
   attemptedArtifactCount: number;
@@ -194,20 +252,23 @@ export function applyFinalDeliveryHonestyCorrection(input: {
     stripUndeliveredLocalFileMarkdownLinks({
       assistantText: deliveredNormalizedText
     });
+  const undeliveredClaimKind = detectUndeliveredClaimKind({
+    assistantText: normalizedText.length > 0 ? normalizedText : input.assistantText,
+    strippedTechnicalAttachmentSummary,
+    strippedLocalFileLink,
+    attemptedArtifactCount: input.attemptedArtifactCount
+  });
   if (normalizedText.length === 0) {
     return input.deliveredAttachmentCount > 0
       ? buildDeliveredAttachmentFallback(input.locale)
-      : normalizedText;
+      : undeliveredClaimKind === null
+        ? normalizedText
+        : buildUndeliveredCorrection(undeliveredClaimKind, input.assistantText, input.locale);
   }
-  if (
-    input.deliveredAttachmentCount > 0 ||
-    (input.attemptedArtifactCount <= 0 &&
-      strippedLocalFileLink === false &&
-      strippedTechnicalAttachmentSummary === false)
-  ) {
+  if (input.deliveredAttachmentCount > 0 || undeliveredClaimKind === null) {
     return normalizedText;
   }
-  const correction = buildUndeliveredAttachmentCorrection(normalizedText, input.locale);
+  const correction = buildUndeliveredCorrection(undeliveredClaimKind, normalizedText, input.locale);
   return normalizedText.includes(correction)
     ? normalizedText
     : `${normalizedText}\n\n${correction}`;

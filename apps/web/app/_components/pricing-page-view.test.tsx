@@ -596,9 +596,9 @@ describe("PricingPageView", () => {
     expect(highlightedCard?.className).toContain(
       "[background:linear-gradient(180deg,rgba(255,238,190,0.16)"
     );
-    expect(highlightedCard?.className).toContain("dark:bg-surface/80");
+    expect(highlightedCard?.className).toContain("dark:[background:var(--surface)]");
     expect(highlightedCard?.className).toContain("dark:border-[rgba(212,168,66,0.55)]");
-    expect(highlightedCard?.className).not.toContain("dark:[background:");
+    expect(highlightedCard?.className).toContain("dark:hover:[background:var(--surface)]");
     expect(regularCard?.className).toContain("border-border/80");
   });
 
@@ -655,8 +655,6 @@ describe("PricingPageView", () => {
           return `${values?.count} videos / month`;
         case "factSkills":
           return `${values?.count} skills`;
-        case "factChats":
-          return `${values?.count} active chats`;
         default:
           return key;
       }
@@ -681,8 +679,6 @@ describe("PricingPageView", () => {
           return `${values?.count} videos / month`;
         case "factSkills":
           return `${values?.count} skills`;
-        case "factChats":
-          return `${values?.count} active chats`;
         default:
           return key;
       }

@@ -846,6 +846,7 @@ export interface RuntimeQuotaStatusLocalizedTextList {
 export interface RuntimeQuotaStatusVisiblePlanLimits {
   tokenBudgetLimit: number | null;
   activeWebChatsLimit: number | null;
+  messagesPerChat: number | null;
   imageGenerateMonthlyUnitsLimit: number | null;
   imageEditMonthlyUnitsLimit: number | null;
   videoGenerateMonthlyUnitsLimit: number | null;
