@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from "@nestjs/common";
-import { ManageAssistantPaymentIntentsService } from "./manage-assistant-payment-intents.service";
+import { ManageAssistantBillingSubscriptionService } from "./manage-assistant-billing-subscription.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 
 export type CreateInternalRuntimeQuotaCheckoutRequest = {
@@ -44,7 +44,7 @@ function resolvePublicWebBaseUrl(): string | null {
 export class CreateInternalRuntimeQuotaCheckoutService {
   constructor(
     private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
-    private readonly manageAssistantPaymentIntentsService: ManageAssistantPaymentIntentsService
+    private readonly manageAssistantBillingSubscriptionService: ManageAssistantBillingSubscriptionService
   ) {}
 
   parseInput(payload: unknown): CreateInternalRuntimeQuotaCheckoutRequest {
@@ -63,16 +63,26 @@ export class CreateInternalRuntimeQuotaCheckoutService {
 
   async execute(input: CreateInternalRuntimeQuotaCheckoutRequest): Promise<{
     ok: true;
-    paymentIntentId: string;
-    targetPlanCode: string;
-    paymentMethodClass: "card" | "sbp_qr";
-    checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
-    recurringCheckoutKind: "one_time" | "recurring_start";
-    recurringSupportedBySelectedMethod: boolean;
-    recurringUnsupportedReason: string | null;
-    checkoutPagePath: string;
-    checkoutPageUrl: string | null;
-    checkoutSignInUrl: string | null;
+    action: "checkout_created" | "subscription_updated";
+    checkout: {
+      paymentIntentId: string;
+      targetPlanCode: string;
+      paymentMethodClass: "card" | "sbp_qr";
+      checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+      recurringCheckoutKind: "one_time" | "recurring_start";
+      recurringSupportedBySelectedMethod: boolean;
+      recurringUnsupportedReason: string | null;
+      checkoutPagePath: string;
+      checkoutPageUrl: string | null;
+      checkoutSignInUrl: string | null;
+    } | null;
+    subscriptionUpdate: {
+      targetPlanCode: string;
+      targetPlanDisplayName: string | null;
+      effectiveAt: string | null;
+      nextChargeAt: string | null;
+      changeKind: "free" | "downgrade" | null;
+    } | null;
   }> {
     this.assertCheckoutRequested(input.confirmed);
     const resolved = await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
@@ -83,7 +93,7 @@ export class CreateInternalRuntimeQuotaCheckoutService {
         0,
         128
       );
-    const paymentIntent = await this.manageAssistantPaymentIntentsService.createPaymentIntent(
+    const result = await this.manageAssistantBillingSubscriptionService.changePlan(
       resolved.userId,
       {
         planCode: input.targetPlanCode,
@@ -92,6 +102,27 @@ export class CreateInternalRuntimeQuotaCheckoutService {
         returnUrl: "/app/chat"
       }
     );
+    if (result.mode === "subscription_updated") {
+      const scheduledPlanChange = result.subscription.scheduledPlanChange;
+      if (scheduledPlanChange === null) {
+        throw new ServiceUnavailableException(
+          "Billing plan change completed without a checkout link, but no follow-up billing state was returned."
+        );
+      }
+      return {
+        ok: true,
+        action: "subscription_updated",
+        checkout: null,
+        subscriptionUpdate: {
+          targetPlanCode: scheduledPlanChange.targetPlanCode,
+          targetPlanDisplayName: scheduledPlanChange.targetPlanDisplayName,
+          effectiveAt: scheduledPlanChange.effectiveAt,
+          nextChargeAt: scheduledPlanChange.nextChargeAt,
+          changeKind: scheduledPlanChange.changeKind
+        }
+      };
+    }
+    const paymentIntent = result.paymentIntent;
     if (paymentIntent.status !== "checkout_ready" || paymentIntent.checkout.mode === null) {
       throw new ServiceUnavailableException(
         paymentIntent.lastErrorMessage?.trim().length
@@ -114,16 +145,20 @@ export class CreateInternalRuntimeQuotaCheckoutService {
         : null;
     return {
       ok: true,
-      paymentIntentId: paymentIntent.id,
-      targetPlanCode: paymentIntent.targetPlanCode,
-      paymentMethodClass: paymentIntent.paymentMethodClass,
-      checkoutMode: paymentIntent.checkout.mode,
-      recurringCheckoutKind: paymentIntent.recurring.checkoutKind,
-      recurringSupportedBySelectedMethod: paymentIntent.recurring.supportedBySelectedMethod,
-      recurringUnsupportedReason: paymentIntent.recurring.unsupportedReason,
-      checkoutPagePath,
-      checkoutPageUrl,
-      checkoutSignInUrl
+      action: "checkout_created",
+      checkout: {
+        paymentIntentId: paymentIntent.id,
+        targetPlanCode: paymentIntent.targetPlanCode,
+        paymentMethodClass: paymentIntent.paymentMethodClass,
+        checkoutMode: paymentIntent.checkout.mode,
+        recurringCheckoutKind: paymentIntent.recurring.checkoutKind,
+        recurringSupportedBySelectedMethod: paymentIntent.recurring.supportedBySelectedMethod,
+        recurringUnsupportedReason: paymentIntent.recurring.unsupportedReason,
+        checkoutPagePath,
+        checkoutPageUrl,
+        checkoutSignInUrl
+      },
+      subscriptionUpdate: null
     };
   }
 

@@ -18,6 +18,7 @@ import type {
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
   RuntimeMonthlyMediaQuotaStatus,
+  RuntimeQuotaStatusSubscriptionUpdate,
   RuntimeQuotaStatusCheckout,
   RuntimeQuotaStatusBucket,
   RuntimeQuotaStatusCurrentPlan,
@@ -128,7 +129,17 @@ export type InternalQuotaStatusOutcome = {
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
 };
 
-export type InternalQuotaCheckoutOutcome = RuntimeQuotaStatusCheckout;
+export type InternalQuotaCheckoutOutcome =
+  | {
+      action: "checkout_created";
+      checkout: RuntimeQuotaStatusCheckout;
+      subscriptionUpdate: null;
+    }
+  | {
+      action: "subscription_updated";
+      checkout: null;
+      subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate;
+    };
 
 export type InternalScheduledActionItem = {
   id: string;
@@ -805,19 +816,8 @@ export class PersaiInternalApiClientService {
 
     if (response.ok) {
       const payload = this.asObject(response.body);
-      if (payload?.ok === true && this.isQuotaStatusCheckout(payload)) {
-        return {
-          paymentIntentId: payload.paymentIntentId,
-          targetPlanCode: payload.targetPlanCode,
-          paymentMethodClass: payload.paymentMethodClass,
-          checkoutMode: payload.checkoutMode,
-          recurringCheckoutKind: payload.recurringCheckoutKind,
-          recurringSupportedBySelectedMethod: payload.recurringSupportedBySelectedMethod,
-          recurringUnsupportedReason: payload.recurringUnsupportedReason,
-          checkoutPagePath: payload.checkoutPagePath,
-          checkoutPageUrl: payload.checkoutPageUrl,
-          checkoutSignInUrl: payload.checkoutSignInUrl
-        };
+      if (this.isQuotaStatusCheckoutOutcome(payload)) {
+        return payload;
       }
       throw new BadGatewayException(
         "PersAI internal API returned an invalid quota checkout response."
@@ -1857,7 +1857,7 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  private isQuotaStatusCheckout(value: unknown): value is InternalQuotaCheckoutOutcome {
+  private isQuotaStatusCheckout(value: unknown): value is RuntimeQuotaStatusCheckout {
     const row = this.asObject(value);
     return (
       row !== null &&
@@ -1878,6 +1878,34 @@ export class PersaiInternalApiClientService {
       typeof row.checkoutPagePath === "string" &&
       (row.checkoutPageUrl === null || typeof row.checkoutPageUrl === "string") &&
       (row.checkoutSignInUrl === null || typeof row.checkoutSignInUrl === "string")
+    );
+  }
+
+  private isQuotaStatusSubscriptionUpdate(
+    value: unknown
+  ): value is RuntimeQuotaStatusSubscriptionUpdate {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      typeof row.targetPlanCode === "string" &&
+      (row.targetPlanDisplayName === null || typeof row.targetPlanDisplayName === "string") &&
+      (row.effectiveAt === null || typeof row.effectiveAt === "string") &&
+      (row.nextChargeAt === null || typeof row.nextChargeAt === "string") &&
+      (row.changeKind === null || row.changeKind === "free" || row.changeKind === "downgrade")
+    );
+  }
+
+  private isQuotaStatusCheckoutOutcome(value: unknown): value is InternalQuotaCheckoutOutcome {
+    const row = this.asObject(value);
+    return (
+      row !== null &&
+      row.ok === true &&
+      ((row.action === "checkout_created" &&
+        this.isQuotaStatusCheckout(row.checkout) &&
+        row.subscriptionUpdate === null) ||
+        (row.action === "subscription_updated" &&
+          row.checkout === null &&
+          this.isQuotaStatusSubscriptionUpdate(row.subscriptionUpdate)))
     );
   }
 

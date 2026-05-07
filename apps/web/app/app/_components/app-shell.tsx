@@ -51,7 +51,7 @@ const AppDataContext = createContext<AppData | null>(null);
 
 export interface ShellActions {
   openSidebar: () => void;
-  openSettings: () => void;
+  openSettings: (section?: string) => void;
   openTelegram: () => void;
 }
 
@@ -113,7 +113,10 @@ export function AppShell({
 
   const shellActions: ShellActions = {
     openSidebar: () => setSidebarOpen(true),
-    openSettings: () => setSettingsOpen(true),
+    openSettings: (section) => {
+      setSettingsInitialSection(section);
+      setSettingsOpen(true);
+    },
     openTelegram: () => setTelegramOpen(true)
   };
 

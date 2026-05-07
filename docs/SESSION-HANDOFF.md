@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-05-08 (public pricing page scroll fix) — remove the inner scroll container from `persai.dev/pricing`
+
+### What changed
+
+- Took the session as one bounded public-UI polish on the founder-reported pricing-page scrollbar placement.
+- Root cause was `apps/web/app/pricing/page.tsx` opting into `PricingPageView containedScroll`, which enabled an inner `overflow-y-auto` container inside the pricing surface.
+- Removed that flag for the public pricing route, so `https://persai.dev/pricing` now uses ordinary page scrolling again and the scrollbar sits at the edge of the page instead of hugging the rightmost pricing card.
+- Left the signed-in `/app/pricing` route unchanged.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This is a narrow presentation/layout fix only; pricing logic and card content are unchanged.
+
+### Next recommended step
+
+- Deploy the updated `web` build and quickly re-open `https://persai.dev/pricing` on desktop to confirm the scrollbar now belongs to the page, not the card grid.
+
+## 2026-05-08 (`quota_status` billing-management parity) — stop assistant checkout creation from using stale pre-management payment-intent rules
+
+### What changed
+
+- Kept the session bounded to the founder-reported assistant/tool seam: `quota_status` plan checkout still routed through the older `ManageAssistantPaymentIntentsService.createPaymentIntent()` path, so the assistant could wrongly refuse a real `BASIC -> PRO` upgrade with the stale message `Changing an existing recurring subscription in place is not supported yet...` even though the main billing UI already used the newer recurring-management flow.
+- `CreateInternalRuntimeQuotaCheckoutService` now routes quota-tool plan changes through `ManageAssistantBillingSubscriptionService.changePlan(...)`, which is the same active management truth already used by pricing/settings.
+- As a result, assistant-triggered paid upgrades now create the same checkout path as the product UI, including managed recurring upgrade checkout when appropriate, instead of hitting the legacy recurring-upgrade block in the raw payment-intent service.
+- The same quota-tool `create_checkout` action now also handles paid downgrade / `FREE` honestly: when billing management schedules a period-end change instead of opening checkout, the internal quota-checkout boundary returns a dedicated `subscription_updated` outcome with the scheduled target/effectiveAt/changeKind rather than a fake checkout failure.
+- Extended the runtime quota tool contract/result shape with `subscriptionUpdate` plus the new `action="subscription_updated"` branch, refreshed runtime prompt guidance so the model knows `create_checkout` may schedule a change instead of returning a payment page, and added focused API/runtime regressions for both checkout and scheduled-change outcomes.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/create-internal-runtime-quota-checkout.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-quota-status-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-assistant-billing-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+
+### Risks / residuals
+
+- This slice fixes the assistant/tool seam, not the already-landed pricing/settings UX. Live validation is still needed after deploy to confirm the model actually uses the new `subscription_updated` quota-tool outcome cleanly in natural language rather than defaulting to older boilerplate phrasing.
+- Prompt guidance for `quota_status` was updated in the current bootstrap defaults, but already-materialized runtime bundles may still reflect older wording until the normal bundle/materialization refresh path picks up the updated prompt metadata.
+
+### Next recommended step
+
+- Deploy updated `api` + `runtime`, then reproduce the founder tool flow on a paid recurring workspace: ask the assistant to open checkout for `PRO` from `BASIC` and confirm it now produces a payment link; separately ask for a downgrade/FREE change and confirm the assistant reports the scheduled period-end change instead of claiming checkout is unsupported.
+
 ## 2026-05-07 (web chat limit banner minimalism polish) — remove the justificatory detail line from the message-limit banner
 
 ### What changed

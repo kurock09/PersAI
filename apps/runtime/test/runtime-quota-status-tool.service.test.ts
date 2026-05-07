@@ -198,16 +198,21 @@ class FakePersaiInternalApiClientService {
   readCalls: Array<Record<string, unknown>> = [];
   checkoutCalls: Array<Record<string, unknown>> = [];
   checkoutOutcome: InternalQuotaCheckoutOutcome = {
-    paymentIntentId: "pi-1",
-    targetPlanCode: "paid",
-    paymentMethodClass: "card" as const,
-    recurringCheckoutKind: "recurring_start" as const,
-    recurringSupportedBySelectedMethod: true,
-    recurringUnsupportedReason: null,
-    checkoutMode: "embedded" as const,
-    checkoutPagePath: "/app/billing/checkout/pi-1",
-    checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
-    checkoutSignInUrl: "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
+    action: "checkout_created",
+    checkout: {
+      paymentIntentId: "pi-1",
+      targetPlanCode: "paid",
+      paymentMethodClass: "card" as const,
+      recurringCheckoutKind: "recurring_start" as const,
+      recurringSupportedBySelectedMethod: true,
+      recurringUnsupportedReason: null,
+      checkoutMode: "embedded" as const,
+      checkoutPagePath: "/app/billing/checkout/pi-1",
+      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
+      checkoutSignInUrl:
+        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
+    },
+    subscriptionUpdate: null
   };
   outcome: InternalQuotaStatusOutcome = {
     planCode: "paid",
@@ -445,6 +450,7 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   assert.equal(checkout.payload.checkout?.checkoutPagePath, "/app/billing/checkout/pi-1");
   assert.equal(checkout.payload.checkout?.recurringCheckoutKind, "recurring_start");
   assert.equal(checkout.payload.checkout?.recurringSupportedBySelectedMethod, true);
+  assert.equal(checkout.payload.subscriptionUpdate, null);
   assert.equal(
     checkout.payload.checkout?.checkoutPageUrl,
     "https://persai.dev/app/billing/checkout/pi-1"
@@ -458,16 +464,21 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
   });
 
   internalApi.checkoutOutcome = {
-    paymentIntentId: "pi-2",
-    targetPlanCode: "paid",
-    paymentMethodClass: "sbp_qr",
-    recurringCheckoutKind: "one_time",
-    recurringSupportedBySelectedMethod: false,
-    recurringUnsupportedReason: "selected_method_is_not_recurring_capable",
-    checkoutMode: "embedded",
-    checkoutPagePath: "/app/billing/checkout/pi-2",
-    checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-2",
-    checkoutSignInUrl: "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-2"
+    action: "checkout_created",
+    checkout: {
+      paymentIntentId: "pi-2",
+      targetPlanCode: "paid",
+      paymentMethodClass: "sbp_qr",
+      recurringCheckoutKind: "one_time",
+      recurringSupportedBySelectedMethod: false,
+      recurringUnsupportedReason: "selected_method_is_not_recurring_capable",
+      checkoutMode: "embedded",
+      checkoutPagePath: "/app/billing/checkout/pi-2",
+      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-2",
+      checkoutSignInUrl:
+        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-2"
+    },
+    subscriptionUpdate: null
   };
   const oneTimeCheckout = await service.executeToolCall({
     bundle,
@@ -488,6 +499,33 @@ export async function runRuntimeQuotaStatusToolServiceTest(): Promise<void> {
     oneTimeCheckout.payload.checkout?.recurringUnsupportedReason,
     "selected_method_is_not_recurring_capable"
   );
+
+  internalApi.checkoutOutcome = {
+    action: "subscription_updated",
+    checkout: null,
+    subscriptionUpdate: {
+      targetPlanCode: "starter",
+      targetPlanDisplayName: "Starter",
+      effectiveAt: "2026-06-01T00:00:00.000Z",
+      nextChargeAt: null,
+      changeKind: "downgrade"
+    }
+  };
+  const scheduledChange = await service.executeToolCall({
+    bundle,
+    requestId: "request-5c",
+    currentUserText: "Да, переключи в конце периода",
+    toolCall: createToolCall({
+      action: "create_checkout",
+      targetPlanCode: "starter",
+      paymentMethodClass: "card",
+      confirmed: true
+    })
+  });
+  assert.equal(scheduledChange.payload.action, "subscription_updated");
+  assert.equal(scheduledChange.payload.checkout, null);
+  assert.equal(scheduledChange.payload.subscriptionUpdate?.targetPlanCode, "starter");
+  assert.equal(scheduledChange.payload.subscriptionUpdate?.changeKind, "downgrade");
 
   const confirmationRequired = await service.executeToolCall({
     bundle,

@@ -156,7 +156,11 @@ export class ReadInternalRuntimeQuotaStatusService {
     );
 
     const tools: ToolDailyQuotaStatusRow[] = [];
+    const activeToolCodes = new Set<string>();
     for (const act of resolved.tools) {
+      if (act.activationStatus === "active") {
+        activeToolCodes.add(act.toolCode);
+      }
       if (MONTHLY_MEDIA_QUOTA_TOOL_CODES.has(act.toolCode)) {
         // ADR-082: media paid-usage truth is monthly and delivery-confirmed, so
         // quota_status should expose those tools only via monthlyMediaQuotas.
@@ -191,10 +195,14 @@ export class ReadInternalRuntimeQuotaStatusService {
     const snapshot = await this.trackWorkspaceQuotaUsageService.resolveAssistantQuotaSnapshot(
       resolved.assistant
     );
-    const monthlyMediaQuotas =
+    const monthlyMediaQuotasRaw =
       await this.trackWorkspaceQuotaUsageService.resolveAssistantMonthlyMediaQuotaSnapshot(
         resolved.assistant
       );
+    const monthlyMediaQuotas = {
+      ...monthlyMediaQuotasRaw,
+      tools: monthlyMediaQuotasRaw.tools.filter((tool) => activeToolCodes.has(tool.toolCode))
+    };
     const visiblePlans = await this.manageAdminPlansService.listPublicPricingPlans();
     const currentVisiblePlan = visiblePlans.find((plan) => plan.code === resolved.planCode) ?? null;
 
@@ -245,9 +253,15 @@ export class ReadInternalRuntimeQuotaStatusService {
             tokenBudgetLimit: plan.quotaLimits.tokenBudgetLimit,
             activeWebChatsLimit: plan.quotaLimits.activeWebChatsLimit,
             messagesPerChat: plan.quotaLimits.messagesPerChat,
-            imageGenerateMonthlyUnitsLimit: plan.quotaLimits.imageGenerateMonthlyUnitsLimit,
-            imageEditMonthlyUnitsLimit: plan.quotaLimits.imageEditMonthlyUnitsLimit,
-            videoGenerateMonthlyUnitsLimit: plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+            imageGenerateMonthlyUnitsLimit: plan.enabledToolCodes.includes("image_generate")
+              ? plan.quotaLimits.imageGenerateMonthlyUnitsLimit
+              : null,
+            imageEditMonthlyUnitsLimit: plan.enabledToolCodes.includes("image_edit")
+              ? plan.quotaLimits.imageEditMonthlyUnitsLimit
+              : null,
+            videoGenerateMonthlyUnitsLimit: plan.enabledToolCodes.includes("video_generate")
+              ? plan.quotaLimits.videoGenerateMonthlyUnitsLimit
+              : null
           }
         };
       }),

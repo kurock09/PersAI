@@ -42,7 +42,7 @@ import {
   postAssistantWebChatArchive,
   deleteAssistantWebChat
 } from "../assistant-api-client";
-import { useIsThreadStreaming } from "./streaming-threads";
+import { useHasThreadActiveMediaJobs, useIsThreadStreaming } from "./streaming-threads";
 
 interface SidebarProps {
   onClose?: () => void;
@@ -67,10 +67,10 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
  * The list is already grouped by Today / Yesterday / This week / Older, so
  * per-row timestamps repeat the group label when shown unconditionally. To
  * keep the row readable we collapse to the smallest informative unit per
- * group: HH:MM for today, weekday short for this week, "d MMM" for older.
- * Yesterday returns "" because the group label already says it.
+ * group: HH:MM for today and yesterday, weekday short for this week, "d MMM"
+ * for older.
  */
-function formatChatRowTimestamp(iso: string | null, locale: string): string {
+export function formatChatRowTimestamp(iso: string | null, locale: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -78,14 +78,13 @@ function formatChatRowTimestamp(iso: string | null, locale: string): string {
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterdayStart = new Date(todayStart.getTime() - 86_400_000);
   const weekStart = new Date(todayStart.getTime() - 7 * 86_400_000);
-  if (d >= todayStart) {
+  if (d >= yesterdayStart) {
     return new Intl.DateTimeFormat(locale, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false
     }).format(d);
   }
-  if (d >= yesterdayStart) return "";
   if (d >= weekStart) {
     return new Intl.DateTimeFormat(locale, { weekday: "short" }).format(d);
   }
@@ -737,6 +736,8 @@ function ChatListItem({
   // flight. Pure read of the shared registry — no work happens here when
   // the thread is idle.
   const isThreadStreaming = useIsThreadStreaming(item.chat.surfaceThreadKey);
+  const hasThreadActiveMediaJobs = useHasThreadActiveMediaJobs(item.chat.surfaceThreadKey);
+  const showLiveIndicator = isThreadStreaming || hasThreadActiveMediaJobs;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -888,7 +889,7 @@ function ChatListItem({
             <span className="min-w-0 truncate text-xs font-medium">
               {item.chat.title ?? item.chat.surfaceThreadKey}
             </span>
-            {isThreadStreaming && (
+            {showLiveIndicator && (
               <span
                 title={t("streamingIndicator")}
                 aria-label={t("streamingIndicator")}

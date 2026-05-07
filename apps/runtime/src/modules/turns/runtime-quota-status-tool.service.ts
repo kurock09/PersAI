@@ -69,8 +69,9 @@ export class RuntimeQuotaStatusToolService {
             tools: quotaStatus.tools,
             buckets: quotaStatus.buckets,
             monthlyMediaQuotas: quotaStatus.monthlyMediaQuotas,
-            checkout: outcome,
-            action: "checkout_created",
+            checkout: outcome.checkout,
+            subscriptionUpdate: outcome.subscriptionUpdate,
+            action: outcome.action,
             reason: null,
             warning: null
           },
@@ -93,6 +94,7 @@ export class RuntimeQuotaStatusToolService {
           buckets: outcome.buckets,
           monthlyMediaQuotas: outcome.monthlyMediaQuotas,
           checkout: null,
+          subscriptionUpdate: null,
           action: "reported",
           reason: null,
           warning: null
@@ -198,6 +200,7 @@ export class RuntimeQuotaStatusToolService {
       buckets: [],
       monthlyMediaQuotas: null,
       checkout: null,
+      subscriptionUpdate: null,
       action: "skipped",
       reason,
       warning

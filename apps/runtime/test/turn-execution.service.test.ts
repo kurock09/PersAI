@@ -1347,14 +1347,21 @@ class FakePersaiInternalApiClientService {
       throw this.quotaStatusError;
     }
     return {
-      paymentIntentId: "pi-1",
-      targetPlanCode: "paid",
-      paymentMethodClass: "card" as const,
-      checkoutMode: "embedded" as const,
-      checkoutPagePath: "/app/billing/checkout/pi-1",
-      checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
-      checkoutSignInUrl:
-        "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
+      action: "checkout_created" as const,
+      checkout: {
+        paymentIntentId: "pi-1",
+        targetPlanCode: "paid",
+        paymentMethodClass: "card" as const,
+        checkoutMode: "embedded" as const,
+        recurringCheckoutKind: "recurring_start" as const,
+        recurringSupportedBySelectedMethod: true,
+        recurringUnsupportedReason: null,
+        checkoutPagePath: "/app/billing/checkout/pi-1",
+        checkoutPageUrl: "https://persai.dev/app/billing/checkout/pi-1",
+        checkoutSignInUrl:
+          "https://persai.dev/sign-in?redirect_url=%2Fapp%2Fbilling%2Fcheckout%2Fpi-1"
+      },
+      subscriptionUpdate: null
     };
   }
 

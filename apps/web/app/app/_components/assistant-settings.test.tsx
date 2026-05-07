@@ -972,6 +972,99 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Off")).toBeInTheDocument();
   });
 
+  it("shows unavailable for media cards when the tool is disabled but a technical limit still exists", () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "basic",
+            displayName: "Basic",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 560, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "basic",
+              periodStartedAt: "2026-05-01T00:00:00.000Z",
+              periodEndsAt: "2026-06-01T00:00:00.000Z",
+              periodSource: "subscription_period",
+              tools: [
+                {
+                  toolCode: "image_generate",
+                  displayName: "Image generation",
+                  usedUnits: 4,
+                  reservedUnits: 0,
+                  settledUnits: 4,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 20,
+                  remainingUnits: 16,
+                  usageAvailable: true,
+                  status: "ok"
+                },
+                {
+                  toolCode: "video_generate",
+                  displayName: "Video generation",
+                  usedUnits: 0,
+                  reservedUnits: 0,
+                  settledUnits: 0,
+                  releasedUnits: 0,
+                  reconciliationRequiredUnits: 0,
+                  limitUnits: 1,
+                  remainingUnits: 1,
+                  usageAvailable: true,
+                  status: "ok"
+                }
+              ]
+            },
+            toolDailyLimits: [
+              {
+                toolCode: "image_generate",
+                displayName: "Image generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                active: true
+              },
+              {
+                toolCode: "video_generate",
+                displayName: "Video generation",
+                dailyCallLimit: null,
+                dailyCallsUsed: 0,
+                active: false
+              }
+            ]
+          },
+          updatedAt: "2026-05-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(screen.getByText("Image generations")).toBeInTheDocument();
+    expect(screen.getByText("4/20")).toBeInTheDocument();
+    expect(screen.getByText("Video generations")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("0/1")).toBeNull();
+  });
+
   it("opens payment settings for recurring subscribers and disables auto-renew", async () => {
     const openPricingPage = vi.fn();
     assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({

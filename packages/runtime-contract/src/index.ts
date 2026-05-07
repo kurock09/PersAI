@@ -886,6 +886,14 @@ export interface RuntimeQuotaStatusCheckout {
   checkoutSignInUrl: string | null;
 }
 
+export interface RuntimeQuotaStatusSubscriptionUpdate {
+  targetPlanCode: string;
+  targetPlanDisplayName: string | null;
+  effectiveAt: string | null;
+  nextChargeAt: string | null;
+  changeKind: "free" | "downgrade" | null;
+}
+
 export interface RuntimeQuotaStatusToolResult {
   toolCode: "quota_status";
   executionMode: "inline";
@@ -897,7 +905,8 @@ export interface RuntimeQuotaStatusToolResult {
   buckets: RuntimeQuotaStatusBucket[];
   monthlyMediaQuotas: RuntimeMonthlyMediaQuotaStatus | null;
   checkout: RuntimeQuotaStatusCheckout | null;
-  action: "reported" | "checkout_created" | "skipped";
+  subscriptionUpdate: RuntimeQuotaStatusSubscriptionUpdate | null;
+  action: "reported" | "checkout_created" | "subscription_updated" | "skipped";
   reason: string | null;
   warning: string | null;
 }

@@ -42,6 +42,7 @@ interface ChatAreaProps {
   assistantCreatedAt?: string | undefined;
   showShadowRoutingBadge?: boolean | undefined;
   onTitleChanged?: (() => void) | undefined;
+  onUserSend?: (() => void) | undefined;
   billingReturnKind?: "success" | "failed" | "pending" | undefined;
   billingPlanCode?: string | undefined;
   billingPaymentIntentId?: string | undefined;
@@ -68,6 +69,7 @@ export function ChatArea({
   assistantCreatedAt,
   showShadowRoutingBadge = false,
   onTitleChanged,
+  onUserSend,
   billingReturnKind,
   billingPlanCode,
   billingPaymentIntentId
@@ -817,12 +819,13 @@ export function ChatArea({
       ) : null}
       <ChatInput
         ref={chatInputRef}
-        onSend={(text, files, options) =>
-          void chat.send(text, files, {
+        onSend={(text, files, options) => {
+          onUserSend?.();
+          return void chat.send(text, files, {
             ...(options ?? {}),
             ...(deepMode ? { deepModeEnabled: true } : {})
-          })
-        }
+          });
+        }}
         onTranscribeVoice={async (blob, filename) => {
           const token = await getToken();
           if (!token) throw new Error("Not authenticated.");

@@ -25,18 +25,25 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 export interface StreamingThreadsRegistry {
   /** Set of `threadKey`s with a stream currently in flight. */
   readonly activeThreads: ReadonlySet<string>;
+  /** Set of `threadKey`s with background media jobs currently in flight. */
+  readonly activeMediaThreads: ReadonlySet<string>;
   /**
    * Mark a `threadKey` as streaming (`active: true`) or idle (`active: false`).
    * Idempotent — repeated calls with the same value do not trigger a
    * re-render of subscribers.
    */
   markStreaming(threadKey: string, active: boolean): void;
+  /** Mark a `threadKey` as having active media jobs or not. */
+  markMediaActive(threadKey: string, active: boolean): void;
 }
 
 const StreamingThreadsContext = createContext<StreamingThreadsRegistry | null>(null);
 
 function useRegistryState(): StreamingThreadsRegistry {
   const [activeThreads, setActiveThreads] = useState<ReadonlySet<string>>(() => new Set());
+  const [activeMediaThreads, setActiveMediaThreads] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
 
   const markStreaming = useCallback((threadKey: string, active: boolean) => {
     setActiveThreads((prev) => {
@@ -53,7 +60,25 @@ function useRegistryState(): StreamingThreadsRegistry {
     });
   }, []);
 
-  return useMemo(() => ({ activeThreads, markStreaming }), [activeThreads, markStreaming]);
+  const markMediaActive = useCallback((threadKey: string, active: boolean) => {
+    setActiveMediaThreads((prev) => {
+      if (active) {
+        if (prev.has(threadKey)) return prev;
+        const next = new Set(prev);
+        next.add(threadKey);
+        return next;
+      }
+      if (!prev.has(threadKey)) return prev;
+      const next = new Set(prev);
+      next.delete(threadKey);
+      return next;
+    });
+  }, []);
+
+  return useMemo(
+    () => ({ activeThreads, activeMediaThreads, markStreaming, markMediaActive }),
+    [activeMediaThreads, activeThreads, markMediaActive, markStreaming]
+  );
 }
 
 export function StreamingThreadsProvider({ children }: { children: ReactNode }) {
@@ -80,4 +105,9 @@ export function useStreamingThreadsRegistry(): StreamingThreadsRegistry {
 export function useIsThreadStreaming(threadKey: string): boolean {
   const { activeThreads } = useStreamingThreadsRegistry();
   return activeThreads.has(threadKey);
+}
+
+export function useHasThreadActiveMediaJobs(threadKey: string): boolean {
+  const { activeMediaThreads } = useStreamingThreadsRegistry();
+  return activeMediaThreads.has(threadKey);
 }

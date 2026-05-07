@@ -7,8 +7,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale } from "next-intl";
 import { ChatArea } from "../_components/chat-area";
 import { useChat } from "../_components/use-chat";
-import { useAppDataContext } from "../_components/app-shell";
-import { getAssistantBillingPaymentIntent, WELCOME_THREAD_KEY } from "../assistant-api-client";
+import { useAppDataContext, useShellActions } from "../_components/app-shell";
+import {
+  getAssistantBillingPaymentIntent,
+  getAssistantPlanVisibility,
+  WELCOME_THREAD_KEY
+} from "../assistant-api-client";
 
 const DRAFT_THREAD_STORAGE_KEY = "persai.draft-chat-thread.v1";
 
@@ -70,8 +74,46 @@ function buildChatHrefWithoutBillingParams(
   next.delete("billingReturn");
   next.delete("billingPlan");
   next.delete("billingPaymentIntentId");
+  next.delete("settings");
   const query = next.toString();
   return (query.length > 0 ? `/app/chat?${query}` : "/app/chat") as Route;
+}
+
+function shouldWaitForImmediatePlanRefresh(purpose: string): boolean {
+  return purpose === "plan_purchase" || purpose === "managed_recurring_upgrade";
+}
+
+export async function waitForPurchasedPlanTruth({
+  token,
+  targetPlanCode,
+  reload,
+  fetchPlanVisibility,
+  isCancelled,
+  sleep,
+  now,
+  deadlineMs = 12_000
+}: {
+  token: string;
+  targetPlanCode: string;
+  reload: () => Promise<void> | void;
+  fetchPlanVisibility: typeof getAssistantPlanVisibility;
+  isCancelled: () => boolean;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+  deadlineMs?: number;
+}): Promise<void> {
+  const truthDeadline = now() + deadlineMs;
+  while (!isCancelled()) {
+    const visibility = await fetchPlanVisibility(token);
+    await reload();
+    if (visibility.effectivePlan.code === targetPlanCode) {
+      return;
+    }
+    if (now() >= truthDeadline) {
+      return;
+    }
+    await sleep(1_500);
+  }
 }
 
 export default function ChatPage() {
@@ -86,8 +128,10 @@ function ChatPageInner() {
   const { userId, getToken } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { openSettings } = useShellActions();
   const threadFromUrl = searchParams.get("thread");
   const welcomeFromUrl = searchParams.get("welcome") === "1";
+  const settingsFromUrl = searchParams.get("settings");
   const [billingBanner, setBillingBanner] = useState<BillingReturnBannerState>(() =>
     readBillingReturnBannerState(searchParams)
   );
@@ -178,6 +222,14 @@ function ChatPageInner() {
   }, [router, searchParams]);
 
   useEffect(() => {
+    if (settingsFromUrl !== "limits") {
+      return;
+    }
+    openSettings("limits");
+    router.replace(buildChatHrefWithoutBillingParams(searchParams));
+  }, [openSettings, router, searchParams, settingsFromUrl]);
+
+  useEffect(() => {
     if (billingBanner.kind !== "success" && billingBanner.kind !== "pending") {
       billingTruthRefreshKeyRef.current = null;
       return;
@@ -190,7 +242,7 @@ function ChatPageInner() {
     billingTruthRefreshKeyRef.current = refreshKey;
 
     let cancelled = false;
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
     void (async () => {
       if (!billingBanner.paymentIntentId) {
@@ -226,6 +278,21 @@ function ChatPageInner() {
                   }
                 : current
             );
+            if (
+              paymentIntent.status === "succeeded" &&
+              shouldWaitForImmediatePlanRefresh(paymentIntent.purpose)
+            ) {
+              await waitForPurchasedPlanTruth({
+                token,
+                targetPlanCode: paymentIntent.targetPlanCode,
+                reload: appData.reload,
+                fetchPlanVisibility: getAssistantPlanVisibility,
+                isCancelled: () => cancelled,
+                sleep,
+                now: () => Date.now()
+              });
+              return;
+            }
             await appData.reload();
             return;
           }
@@ -259,6 +326,7 @@ function ChatPageInner() {
       assistantReady={appData.assistantStatus !== "none"}
       showShadowRoutingBadge={canSeeShadowRoutingBadge}
       onTitleChanged={appData.reloadChats}
+      onUserSend={() => appData.markChatListActivity(threadKey)}
       billingReturnKind={billingBanner.kind}
       billingPlanCode={billingBanner.planCode}
       billingPaymentIntentId={billingBanner.paymentIntentId}

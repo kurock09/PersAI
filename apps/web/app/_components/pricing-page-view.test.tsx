@@ -177,7 +177,7 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
   });
 
-  it("keeps FREE downgrade review flow when bootstrap current plan is unavailable", async () => {
+  it("routes paid users to settings for FREE even when bootstrap current plan is unavailable", async () => {
     billingMocks.getAssistantBillingSubscription.mockResolvedValue({
       planCode: "pro",
       planDisplayName: "Pro",
@@ -197,34 +197,6 @@ describe("PricingPageView", () => {
       scheduledPlanChange: null,
       warning: null
     });
-    billingMocks.postAssistantBillingChangePlan.mockResolvedValue({
-      mode: "subscription_updated",
-      subscription: {
-        planCode: "pro",
-        planDisplayName: "Pro",
-        subscriptionStatus: "active",
-        billingProvider: "cloudpayments",
-        providerSubscriptionRef: "sub-1",
-        autoRenewEnabled: true,
-        canDisableAutoRenew: true,
-        canScheduleDowngrade: true,
-        canSwitchToFree: true,
-        nextChargeAt: "2026-05-12T00:00:00.000Z",
-        currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
-        paymentMethodLabel: "Bank card",
-        managePaymentMethodUrl: null,
-        managePaymentMethodMode: "unavailable",
-        cancelUrl: null,
-        scheduledPlanChange: {
-          changeKind: "free",
-          targetPlanCode: "free",
-          targetPlanDisplayName: "Free",
-          effectiveAt: "2026-05-12T00:00:00.000Z"
-        },
-        warning: null
-      }
-    });
-
     renderView(
       <PricingPageView
         plans={[
@@ -247,25 +219,14 @@ describe("PricingPageView", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: "Choose" })).toHaveLength(1);
+      expect(screen.getByText("Switch to FREE is available in")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
-    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
-    expect(screen.getByText(/Your current paid access stays active until/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Confirm change" }));
-
-    await waitFor(() => {
-      expect(billingMocks.postAssistantBillingChangePlan).toHaveBeenCalledWith(
-        "token-1",
-        expect.objectContaining({
-          planCode: "free"
-        })
-      );
-    });
-    expect(
-      await screen.findByText("FREE is scheduled for the next billing date.")
-    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/app/chat?settings=limits"
+    );
+    expect(screen.queryByText("Review plan change")).toBeNull();
+    expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();
   });
 
   it("reviews a cheaper paid downgrade before scheduling it", async () => {
@@ -472,9 +433,18 @@ describe("PricingPageView", () => {
 
     const freeCard = screen.getAllByText("Free")[0]?.closest("section");
     expect(freeCard).not.toBeNull();
-    fireEvent.click(within(freeCard as HTMLElement).getByRole("button", { name: "Choose" }));
-    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(
+        within(freeCard as HTMLElement).getByText("Switch to FREE is available in")
+      ).toBeInTheDocument();
+    });
+    expect(
+      within(freeCard as HTMLElement).queryByRole("button", { name: "Cancel subscription" })
+    ).toBeNull();
+    expect(within(freeCard as HTMLElement).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/app/chat?settings=limits"
+    );
 
     const basicCard = screen.getAllByText("Basic")[0]?.closest("section");
     expect(basicCard).not.toBeNull();
@@ -489,6 +459,67 @@ describe("PricingPageView", () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it("shows explanatory FREE copy for trial subscriptions without an action button", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "trialing",
+      billingProvider: null,
+      providerSubscriptionRef: null,
+      autoRenewEnabled: false,
+      canDisableAutoRenew: false,
+      canScheduleDowngrade: false,
+      canSwitchToFree: false,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: null,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про", en: "Pro" },
+              price: { amount: 49, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Your current plan is TRIAL. If you do not start a paid subscription, FREE will be enabled after the trial ends."
+        )
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Cancel subscription" })).toBeNull();
+    expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();
   });
 
   it("blocks unsupported cross-period plan changes before raw submit", async () => {

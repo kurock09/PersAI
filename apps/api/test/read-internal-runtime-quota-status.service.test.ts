@@ -28,6 +28,11 @@ async function run(): Promise<void> {
               toolCode: "image_generate",
               activationStatus: "active" as const,
               dailyCallLimit: null
+            },
+            {
+              toolCode: "video_generate",
+              activationStatus: "inactive" as const,
+              dailyCallLimit: null
             }
           ]
         };
@@ -183,17 +188,20 @@ async function run(): Promise<void> {
   assert.deepEqual(result.visiblePlans[1]?.enabledToolCodes, ["web_search", "image_generate"]);
   assert.equal(result.visiblePlans[1]?.title.ru, "Про");
   assert.equal(result.visiblePlans[1]?.highlightItems.ru[0], "Больше лимитов");
-  assert.equal(result.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, 5);
+  assert.equal(result.visiblePlans[1]?.limits.videoGenerateMonthlyUnitsLimit, null);
   assert.equal(result.tools.find((tool) => tool.toolCode === "web_search")?.currentCount, 2);
   assert.equal(
     result.tools.some((tool) => tool.toolCode === "image_generate"),
     false
   );
+  assert.equal(
+    result.tools.some((tool) => tool.toolCode === "video_generate"),
+    false
+  );
   assert.equal(result.monthlyMediaQuotas.tools[0]?.toolCode, "image_generate");
   assert.equal(result.monthlyMediaQuotas.tools[0]?.usedUnits, 3);
   assert.equal(result.monthlyMediaQuotas.tools[0]?.limitUnits, 30);
-  assert.equal(result.monthlyMediaQuotas.tools[1]?.toolCode, "video_generate");
-  assert.equal(result.monthlyMediaQuotas.tools[1]?.remainingUnits, 5);
+  assert.equal(result.monthlyMediaQuotas.tools[1], undefined);
 }
 
 void run();

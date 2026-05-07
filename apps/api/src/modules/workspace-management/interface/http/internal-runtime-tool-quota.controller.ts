@@ -181,13 +181,26 @@ export class InternalRuntimeToolQuotaController {
     @Body() body: unknown
   ): Promise<{
     ok: true;
-    paymentIntentId: string;
-    targetPlanCode: string;
-    paymentMethodClass: "card" | "sbp_qr";
-    checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
-    checkoutPagePath: string;
-    checkoutPageUrl: string | null;
-    checkoutSignInUrl: string | null;
+    action: "checkout_created" | "subscription_updated";
+    checkout: {
+      paymentIntentId: string;
+      targetPlanCode: string;
+      paymentMethodClass: "card" | "sbp_qr";
+      checkoutMode: "embedded" | "redirect" | "payment_link" | "qr_code" | "manual_test" | null;
+      recurringCheckoutKind: "one_time" | "recurring_start";
+      recurringSupportedBySelectedMethod: boolean;
+      recurringUnsupportedReason: string | null;
+      checkoutPagePath: string;
+      checkoutPageUrl: string | null;
+      checkoutSignInUrl: string | null;
+    } | null;
+    subscriptionUpdate: {
+      targetPlanCode: string;
+      targetPlanDisplayName: string | null;
+      effectiveAt: string | null;
+      nextChargeAt: string | null;
+      changeKind: "free" | "downgrade" | null;
+    } | null;
   }> {
     this.assertAuthorized(req);
     const input = this.createInternalRuntimeQuotaCheckoutService.parseInput(body);

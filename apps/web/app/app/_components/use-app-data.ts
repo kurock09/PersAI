@@ -68,6 +68,7 @@ export interface AppData {
   error: string | null;
   reload: () => Promise<void>;
   reloadChats: () => Promise<void>;
+  markChatListActivity: (surfaceThreadKey: string) => void;
 }
 
 interface SeededState {
@@ -215,6 +216,27 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     }
   }, [getToken]);
 
+  const markChatListActivity = useCallback((surfaceThreadKey: string) => {
+    const nextLastMessageAt = new Date().toISOString();
+    setChats((prev) => {
+      let changed = false;
+      const next = prev.map((item) => {
+        if (item.chat.surfaceThreadKey !== surfaceThreadKey) {
+          return item;
+        }
+        changed = true;
+        return {
+          ...item,
+          chat: {
+            ...item.chat,
+            lastMessageAt: nextLastMessageAt
+          }
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
   useEffect(() => {
     if (initialData === null) {
       void loadAll();
@@ -246,6 +268,7 @@ export function useAppData(initialData: AppBootstrapInitialData | null): AppData
     isReloadingChats,
     error,
     reload: loadAll,
-    reloadChats
+    reloadChats,
+    markChatListActivity
   };
 }

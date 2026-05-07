@@ -616,6 +616,11 @@ export function AssistantSettings({
         bucket.bucketCode
       )
     ) ?? [];
+  const mediaToolActiveByCode = new Map(
+    (data.plan?.limits.toolDailyLimits ?? []).map((tool) => [tool.toolCode, tool.active])
+  );
+  const isMonthlyMediaQuotaToolAvailable = (tool: MonthlyMediaQuotaToolState): boolean =>
+    mediaToolActiveByCode.get(tool.toolCode) ?? true;
   const visibleMonthlyMediaQuotas =
     data.plan?.limits.monthlyMediaQuotas.tools.filter(
       (tool) => tool.limitUnits !== null && tool.limitUnits > 0
@@ -654,11 +659,17 @@ export function AssistantSettings({
     return bucket.limit === null ? usedLabel : `${usedLabel}/${limitLabel}`;
   };
   const formatMonthlyMediaQuotaValue = (tool: MonthlyMediaQuotaToolState): string => {
+    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
+      return t("limitUnavailable");
+    }
     return tool.limitUnits === null
       ? String(tool.usedUnits)
       : `${tool.usedUnits}/${tool.limitUnits}`;
   };
   const toMonthlyMediaQuotaPercent = (tool: MonthlyMediaQuotaToolState): number | null => {
+    if (!isMonthlyMediaQuotaToolAvailable(tool)) {
+      return null;
+    }
     if (tool.limitUnits === null || tool.limitUnits <= 0) {
       return null;
     }

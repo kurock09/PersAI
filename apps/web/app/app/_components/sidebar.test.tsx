@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
-import { Sidebar } from "./sidebar";
+import { Sidebar, formatChatRowTimestamp } from "./sidebar";
 import { OfflineGate } from "./offline-gate";
 import type { AppData } from "./use-app-data";
 
@@ -10,6 +10,11 @@ const ORIGINAL_USER_AGENT = window.navigator.userAgent;
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn()
+}));
+
+const liveThreadMocks = vi.hoisted(() => ({
+  streamingThreads: new Set<string>(),
+  mediaThreads: new Set<string>()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -36,6 +41,11 @@ vi.mock("./assistant-avatar", () => ({
   AssistantAvatar: () => <div data-testid="assistant-avatar" />
 }));
 
+vi.mock("./streaming-threads", () => ({
+  useIsThreadStreaming: (threadKey: string) => liveThreadMocks.streamingThreads.has(threadKey),
+  useHasThreadActiveMediaJobs: (threadKey: string) => liveThreadMocks.mediaThreads.has(threadKey)
+}));
+
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
@@ -58,6 +68,8 @@ afterEach(() => {
     configurable: true,
     value: ORIGINAL_USER_AGENT
   });
+  liveThreadMocks.streamingThreads.clear();
+  liveThreadMocks.mediaThreads.clear();
 });
 
 function makeAppData(overrides: Partial<AppData>): AppData {
@@ -76,6 +88,7 @@ function makeAppData(overrides: Partial<AppData>): AppData {
     error: null,
     reload: vi.fn(),
     reloadChats: vi.fn(),
+    markChatListActivity: vi.fn(),
     ...overrides
   };
 }
@@ -145,6 +158,34 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     await waitFor(() => {
       expect(navigationMocks.push).toHaveBeenCalledWith("/app/chat?thread=thread-a");
     });
+  });
+
+  it("shows a time badge for yesterday chats on the right edge", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-04-26T18:00:00.000Z"));
+      const yesterdayIso = "2026-04-25T12:34:00.000Z";
+      const expected = new Intl.DateTimeFormat("en", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).format(new Date(yesterdayIso));
+      expect(formatChatRowTimestamp(yesterdayIso, "en")).toBe(expected);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the pulsing live indicator for chats with active background media jobs", () => {
+    liveThreadMocks.mediaThreads.add("thread-a");
+    const data = makeAppData({
+      chats: [makeChat("thread-a")]
+    });
+
+    render(<Sidebar data={data} />);
+
+    const indicator = screen.getByLabelText("streamingIndicator");
+    expect(indicator).toHaveClass("animate-pulse");
   });
 
   it("blocks chat navigation and exposes the offline overlay when health recheck fails", async () => {

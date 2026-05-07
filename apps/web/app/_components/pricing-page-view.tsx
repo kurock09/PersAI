@@ -433,7 +433,7 @@ export function PricingPageView({
                     pickLocalizedText(locale, plan.presentation.subtitle) ?? plan.description;
                   const notes = pickLocalizedText(locale, plan.presentation.notes);
                   const badge = pickLocalizedText(locale, plan.presentation.badge);
-                  const ctaLabel =
+                  const localizedPlanCtaLabel =
                     pickLocalizedText(locale, plan.presentation.ctaLabel) ??
                     (signedIn ? t("connect") : t("signUp"));
                   const highlights = pickLocalizedList(locale, plan.presentation.highlightItems);
@@ -441,8 +441,24 @@ export function PricingPageView({
                   const isCurrent = effectiveCurrentPlanCode === plan.code;
                   const isPremiumHighlighted = plan.presentation.highlighted && !isCurrent;
                   const signUpHref = "/sign-up" as const;
+                  const freeSettingsHref = "/app/chat?settings=limits" as const;
                   const isSubmitting = submittingPlanKey === plan.code;
                   const planError = planErrors[plan.code] ?? null;
+                  const currentPlan = plans.find(
+                    (candidate) => candidate.code === effectiveCurrentPlanCode
+                  );
+                  const currentPrice = readPaidPlanPrice(currentPlan ?? null);
+                  const targetPrice = readPaidPlanPrice(plan);
+                  const isTrialingSubscription =
+                    billingSubscription?.subscriptionStatus === "trialing";
+                  const showFreeSettingsHint =
+                    signedIn &&
+                    currentPrice !== null &&
+                    targetPrice === null &&
+                    !isTrialingSubscription;
+                  const showTrialFreeHint =
+                    signedIn && targetPrice === null && isTrialingSubscription === true;
+                  const ctaLabel = localizedPlanCtaLabel;
 
                   return (
                     <section
@@ -539,6 +555,20 @@ export function PricingPageView({
                           <div className="flex min-h-12 items-center justify-center rounded-2xl border border-border bg-bg/70 px-4 text-sm font-medium text-text-muted">
                             {t("alreadyActive")}
                           </div>
+                        ) : showFreeSettingsHint ? (
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                            {t("freePlanSettingsHint")}{" "}
+                            <Link
+                              href={freeSettingsHref}
+                              className="font-medium text-text underline decoration-border underline-offset-4 transition-colors hover:text-accent"
+                            >
+                              {t("freePlanSettingsLink")}
+                            </Link>
+                          </p>
+                        ) : showTrialFreeHint ? (
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                            {t("trialFreePlanHint")}
+                          </p>
                         ) : signedIn ? (
                           <div className="space-y-2.5">
                             <button

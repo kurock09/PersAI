@@ -907,6 +907,7 @@ export function useChat(threadKey: string): UseChatReturn {
   const [activeMediaJobs, setActiveMediaJobs] = useState<WebChatActiveMediaJobState[]>([]);
   /* Slice 1.1 ��� per-thread streaming flag. */ /*  */ /* `isStreaming` used to be a single `useState(false)` local to this hook. */ /* That meant Chat A's in-flight stream blocked the composer in Chat B as */ /* soon as the user switched threads. We now lift "which threads are */ /* streaming?" into a shared registry keyed by `surfaceThreadKey`, so each */ /* thread has its own independent boolean and AbortController. */ /* See `streaming-threads.tsx`. */ const {
     activeThreads,
+    markMediaActive,
     markStreaming
   } = useStreamingThreadsRegistry();
   const isStreaming = activeThreads.has(threadKey);
@@ -1101,10 +1102,14 @@ export function useChat(threadKey: string): UseChatReturn {
     },
     []
   );
-  const replaceActiveMediaJobs = useCallback((next: WebChatActiveMediaJobState[]) => {
-    activeMediaJobsRef.current = next;
-    setActiveMediaJobs(next);
-  }, []);
+  const replaceActiveMediaJobs = useCallback(
+    (next: WebChatActiveMediaJobState[]) => {
+      activeMediaJobsRef.current = next;
+      setActiveMediaJobs(next);
+      markMediaActive(currentThreadKeyRef.current, next.length > 0);
+    },
+    [markMediaActive]
+  );
   const clearSoftDetachReconcileTimer = useCallback((targetThreadKey: string) => {
     const timer = softDetachReconcileTimersByThreadRef.current.get(targetThreadKey);
     if (timer !== undefined) {
@@ -1502,6 +1507,7 @@ export function useChat(threadKey: string): UseChatReturn {
             activeMediaJobs: nextActiveMediaJobs
           });
         }
+        markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
         historyLoadedRef.current.add(targetChatId);
         void refreshCompactionState(targetChatId);
         if (
@@ -2884,6 +2890,7 @@ export function useChat(threadKey: string): UseChatReturn {
                 activeMediaJobs: nextActiveMediaJobs
               });
             }
+            markMediaActive(cachedThreadKey, nextActiveMediaJobs.length > 0);
           }
           if (resolvedChatId) {
             void refreshCompactionState(resolvedChatId, {

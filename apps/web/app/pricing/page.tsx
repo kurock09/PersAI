@@ -15,12 +15,7 @@ export default async function PricingPage() {
   return (
     <>
       <BackButtonBridge />
-      <PricingPageView
-        plans={plans}
-        currentPlanCode={currentPlanCode}
-        signedIn={signedIn}
-        containedScroll
-      />
+      <PricingPageView plans={plans} currentPlanCode={currentPlanCode} signedIn={signedIn} />
     </>
   );
 }
