@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-084 CloudPayments `culture` follow-up) — align constructor locale key with current PaymentBlocks docs
+
+### What changed
+
+- Re-read the current CloudPayments recurrent/constructor docs and found one more provider-contract mismatch: the documented `PaymentBlocks` initialization payload uses `culture`, not `language`.
+- The constructor billing adapter now sends `culture: "ru-RU"` instead of `language`, while keeping the earlier recurring hardening (`recurrent` top-level, `accountId`, `userInfo.accountId`).
+- The web checkout page's local TypeScript payload model and focused test fixtures were also synced with the real persisted payload shape so future provider debugging does not rely on stale local types.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/billing/checkout/[paymentIntentId]/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This still needs one more live recurring-start payment to prove whether `culture` was the final missing provider key. The latest real card payment for `alex@agse.ru` still showed `providerSubscriptionId: null` before this follow-up landed.
+- If the next live payment still returns `SubscriptionId = null`, the remaining root cause is likely terminal/provider configuration or a method-specific recurring limitation rather than PersAI payload shape.
+
+### Next recommended step
+
+- Deploy this follow-up and immediately repeat one real card recurring-start payment in `persai-dev`; if `SubscriptionId` still comes back null, stop guessing in code and verify CloudPayments terminal recurring settings / allowed pay-method route with provider evidence.
+
+## 2026-05-07 (ADR-084 billing UI polish + CloudPayments recurring follow-up) — dark premium card, one paid CTA, and documented payer id on constructor checkout
+
+### What changed
+
+- Pricing-card emphasis was tuned again after live founder review: highlighted/recommended plans still keep the warmer premium fill in lighter surfaces, but dark theme now keeps the normal dark card surface and only uses the restrained gold border/top line so the card reads premium without a painted beige panel.
+- `Assistant Settings -> Limits & Plan` now keeps only one top CTA for paid plans: `Payment settings`. `Change plan` remains available from inside the billing modal instead of competing at the top level.
+- Live recurring investigation for `alex@agse.ru` showed that a real successful card payment already used the new top-level `initializationParams.recurrent` plus fallback `accountId`, yet CloudPayments still returned `providerSubscriptionId: null` and PersAI persisted `providerSubscriptionRef: null`. As a follow-up hardening step, the constructor adapter now also sends the same payer id through documented `userInfo.accountId`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- live DB/log inspection in `persai-dev` for `alex@agse.ru`
+
+### Risks / residuals
+
+- The latest live payment proves PersAI activates the paid plan correctly, but provider-managed recurring is still not confirmed: the successful `pay` event stored `providerSubscriptionId: null` even after the top-level `recurrent` fix.
+- `userInfo.accountId` is now added to the constructor payload because current public `PaymentBlocks` docs show that shape, but it still requires one more live payment to confirm whether CloudPayments starts returning a real subscription id for card/T-Pay.
+
+### Next recommended step
+
+- Deploy this follow-up, repeat one real card payment in `persai-dev`, and verify whether the next `pay` webhook now includes `providerSubscriptionId` / `SubscriptionId` before changing any more product billing logic.
+
 ## 2026-05-07 (ADR-084 CloudPayments recurring constructor payload fix) — make provider recurring-start payload match PaymentBlocks
 
 ### What changed

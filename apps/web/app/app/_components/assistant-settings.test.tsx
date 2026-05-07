@@ -1007,7 +1007,7 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
@@ -1016,6 +1016,7 @@ describe("AssistantSettings limits", () => {
         "Manage auto-renew and payment method from server-truth billing state."
       )
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Bank card")).toBeInTheDocument();
     expect(screen.getByText("On")).toBeInTheDocument();
 
@@ -1096,7 +1097,7 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Change plan" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
@@ -1106,6 +1107,7 @@ describe("AssistantSettings limits", () => {
         "View payment details and access period from server-truth billing state."
       )
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
     expect(screen.getByText(/May 12, 2026/i)).toBeInTheDocument();
     expect(screen.getByText("Off")).toBeInTheDocument();

@@ -54,10 +54,14 @@ async function run(): Promise<void> {
     (session.payload.initializationParams as Record<string, unknown>).externalId,
     "pi-1"
   );
+  assert.equal((session.payload.initializationParams as Record<string, unknown>).culture, "ru-RU");
   assert.equal(
     (session.payload.initializationParams as Record<string, unknown>).accountId,
     "cust-1"
   );
+  assert.deepEqual((session.payload.initializationParams as Record<string, unknown>).userInfo, {
+    accountId: "cust-1"
+  });
   assert.equal((session.payload.initializationParams as Record<string, unknown>).tokenize, true);
   assert.equal(
     (
@@ -148,6 +152,11 @@ async function run(): Promise<void> {
     (recurringSessionWithoutKnownCustomer.payload.initializationParams as Record<string, unknown>)
       .accountId,
     "ws-new"
+  );
+  assert.deepEqual(
+    (recurringSessionWithoutKnownCustomer.payload.initializationParams as Record<string, unknown>)
+      .userInfo,
+    { accountId: "ws-new" }
   );
 
   const missingConfigAdapter = new CloudpaymentsConstructorBillingProviderAdapter({

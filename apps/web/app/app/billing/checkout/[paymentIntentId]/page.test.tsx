@@ -161,7 +161,7 @@ describe("BillingCheckoutPage", () => {
             description: "PersAI subscription PRO",
             accountId: "cust-1",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           },
           customizationParams: {
@@ -244,7 +244,7 @@ describe("BillingCheckoutPage", () => {
             paymentSchema: "Single",
             description: "PersAI subscription BASIC",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           },
           customizationParams: {
@@ -332,7 +332,7 @@ describe("BillingCheckoutPage", () => {
             paymentSchema: "Single",
             description: "PersAI subscription PRO",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           }
         }
@@ -399,7 +399,7 @@ describe("BillingCheckoutPage", () => {
             paymentSchema: "Single",
             description: "PersAI subscription PRO",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           }
         }
@@ -458,7 +458,7 @@ describe("BillingCheckoutPage", () => {
             paymentSchema: "Single",
             description: "PersAI subscription PRO",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           }
         }
@@ -517,7 +517,7 @@ describe("BillingCheckoutPage", () => {
             paymentSchema: "Single",
             description: "PersAI subscription PRO",
             emailBehavior: "Optional",
-            language: "ru-RU",
+            culture: "ru-RU",
             metadata: {}
           }
         }

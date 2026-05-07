@@ -2600,19 +2600,15 @@ export function AssistantSettings({
                     >
                       {t("paymentSettings")}
                     </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => onOpenPricingPage?.()}
-                    className={cn(
-                      "inline-flex min-h-9 items-center justify-center rounded-full px-3.5 text-[11px] font-medium transition-colors",
-                      shouldShowBillingSettingsEntry
-                        ? "border border-border/80 bg-surface-raised/60 text-text hover:bg-surface-hover"
-                        : "border border-accent/20 bg-accent/10 text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                    )}
-                  >
-                    {t("changePlan")}
-                  </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenPricingPage?.()}
+                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                    >
+                      {t("changePlan")}
+                    </button>
+                  )}
                 </div>
               </div>
 

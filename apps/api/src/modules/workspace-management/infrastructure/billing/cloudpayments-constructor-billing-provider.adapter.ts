@@ -30,9 +30,12 @@ type CloudpaymentsConstructorPayload = {
     externalId: string;
     accountId?: string;
     emailBehavior: "Required" | "Hidden" | "Optional";
-    language: "ru-RU";
+    culture?: "ru-RU";
     tokenize?: boolean;
     recurrent?: CloudpaymentsRecurrentParams;
+    userInfo?: {
+      accountId: string;
+    };
     metadata: Record<string, unknown>;
   };
   customizationParams: {
@@ -142,6 +145,9 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
     const accountId = resolveCloudpaymentsAccountId(input);
     const recurrentParams: { recurrent: CloudpaymentsRecurrentParams } | Record<string, never> =
       recurrentData !== null ? { recurrent: recurrentData } : {};
+    const userInfoParams:
+      | Pick<CloudpaymentsConstructorPayload["initializationParams"], "userInfo">
+      | Record<string, never> = accountId !== null ? { userInfo: { accountId } } : {};
     const payload: CloudpaymentsConstructorPayload = {
       schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
       initializationParams: {
@@ -152,10 +158,11 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
         currency: input.currency,
         externalId: input.paymentIntentId,
         emailBehavior: "Optional",
-        language: "ru-RU",
+        culture: "ru-RU",
         tokenize: input.paymentMethodClass === "card",
         ...recurrentParams,
         ...(accountId !== null ? { accountId } : {}),
+        ...userInfoParams,
         metadata: {
           paymentIntentId: input.paymentIntentId,
           workspaceId: input.workspaceId,

@@ -22,8 +22,18 @@ type CloudpaymentsConstructorPayload = {
     externalId: string;
     accountId?: string;
     emailBehavior: "Required" | "Hidden" | "Optional";
-    language: "ru-RU";
+    culture?: "ru-RU";
     tokenize?: boolean;
+    recurrent?: {
+      interval: "Day" | "Week" | "Month";
+      period: number;
+      maxPeriods?: number;
+      amount?: number;
+      startDate?: string;
+    };
+    userInfo?: {
+      accountId: string;
+    };
     metadata: Record<string, unknown>;
   };
   customizationParams?: {

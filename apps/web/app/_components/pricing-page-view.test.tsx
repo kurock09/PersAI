@@ -137,7 +137,7 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
   });
 
-  it("gives current plans a subtle background and recommended plans a premium accent", () => {
+  it("gives current plans a subtle background and keeps recommended plans premium without dark-theme fill", () => {
     renderView(
       <PricingPageView
         plans={[
@@ -180,6 +180,9 @@ describe("PricingPageView", () => {
     expect(highlightedCard?.className).toContain("border-transparent");
     expect(highlightedCard?.className).toContain(
       "[background:linear-gradient(180deg,rgba(255,238,190,0.16)"
+    );
+    expect(highlightedCard?.className).toContain(
+      "dark:[background:linear-gradient(180deg,rgba(24,22,20,0.92)"
     );
     expect(regularCard?.className).toContain("border-border/80");
   });
