@@ -94,6 +94,41 @@ async function run(): Promise<void> {
     }),
     "Вот этот. Отправила в чат:\n\nПоправка: файл не был реально доставлен в этот чат в рамках этого ответа."
   );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText: 'Assistant sent an attachment: image "mansion_photo_edit.png".',
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["mansion_photo_edit.png"],
+      locale: "en"
+    }),
+    "File sent."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        'Assistant sent attachments: image "mansion_photo_edit.png", document "notes.txt".',
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["mansion_photo_edit.png"],
+      locale: "en"
+    }),
+    "File sent."
+  );
+
+  assert.equal(
+    applyFinalDeliveryHonestyCorrection({
+      assistantText:
+        "Here you go.\n\n[Working files from user attachments: previous attachment #1 = report.txt; previous image #1 = forest.png]",
+      attemptedArtifactCount: 1,
+      deliveredAttachmentCount: 1,
+      deliveredAttachmentFilenames: ["report.txt"],
+      locale: "en"
+    }),
+    "Here you go."
+  );
 }
 
 void run();

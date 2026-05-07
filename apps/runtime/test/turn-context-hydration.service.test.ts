@@ -524,48 +524,29 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   ];
 
   const hydrated = await service.buildMessages(request, runtimeBundle);
-  assert.deepEqual(hydrated, [
-    {
-      role: "assistant",
-      content: HYDRATED_MEMORY_CONTEXT
-    },
-    {
-      role: "user",
-      content:
-        '[Working files from user attachments:\n- attachment (document "notes.txt", fileRef: "file-ref-attachment-1", content preview: "first note preview")\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nfirst user'
-    },
-    {
-      role: "assistant",
-      content:
-        'first assistant\n\nAssistant sent an attachment: image "reply.png", fileRef: "file-ref-attachment-2".'
-    },
-    {
-      role: "assistant",
-      content:
-        'Assistant sent an attachment: voice "voice-note-yandex.ogg", fileRef: "file-ref-attachment-2b".'
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: '[Working files from user attachments:\n- attachment (audio "voice.mp3", transcription: "hello from attachment", fileRef: "file-ref-attachment-3")\n- attachment (image #1 "diagram.png", fileRef: "file-ref-attachment-4")\n- attachment (document "manual.pdf", fileRef: "file-ref-attachment-5")\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nPDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
-        },
-        {
-          type: "image",
-          mimeType: "image/png",
-          dataBase64: Buffer.from("png-bytes").toString("base64"),
-          filename: "diagram.png"
-        },
-        {
-          type: "pdf",
-          mimeType: "application/pdf",
-          dataBase64: Buffer.from("pdf-bytes").toString("base64"),
-          filename: "manual.pdf"
-        }
-      ]
-    }
-  ]);
+  assert.equal(hydrated[0]?.role, "assistant");
+  assert.equal(hydrated[0]?.content, HYDRATED_MEMORY_CONTEXT);
+  assert.equal(hydrated[1]?.role, "user");
+  assert.equal(hydrated[1]?.content, "first user");
+  assert.equal(hydrated[2]?.role, "assistant");
+  assert.equal(hydrated[2]?.content, "first assistant");
+  assert.equal(hydrated[3]?.role, "assistant");
+  assert.equal(hydrated[3]?.content, "");
+  assert.equal(Array.isArray(hydrated[4]?.content), true);
+  const currentUserBlocks = hydrated[4]?.content as Array<{ type: string; text?: string }>;
+  assert.equal(currentUserBlocks[0]?.type, "text");
+  assert.equal(currentUserBlocks[0]?.text, "current enriched user message");
+  for (const message of hydrated) {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+            .join("\n");
+    assert.doesNotMatch(content, /fileRef/i);
+    assert.doesNotMatch(content, /Assistant sent an attachment/i);
+    assert.doesNotMatch(content, /Working files from user attachments/i);
+  }
   const requestWithOpenMediaJobs = createRuntimeTurnRequest();
   requestWithOpenMediaJobs.openMediaJobs = [
     {
@@ -612,50 +593,35 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       }
     ]
   });
-  assert.deepEqual(availableImageToolAttachments, [
-    {
-      attachmentId: "attachment-4",
-      kind: "image",
-      objectKey: "assistant-media/chat-1/diagram.png",
-      mimeType: "image/png",
-      filename: "diagram.png",
-      sizeBytes: 128,
-      fileRef: "file-ref-attachment-4"
-    },
-    {
-      attachmentId: "attachment-2",
-      kind: "image",
-      objectKey: "assistant-media/chat-1/reply.png",
-      mimeType: "image/png",
-      filename: "reply.png",
-      sizeBytes: 64
-    }
-  ]);
+  assert.deepEqual(
+    availableImageToolAttachments.map((attachment) => ({
+      attachmentId: attachment.attachmentId,
+      aliases: attachment.aliases ?? []
+    })),
+    [
+      {
+        attachmentId: "attachment-4",
+        aliases: ["current attachment #1", "current image #1"]
+      },
+      {
+        attachmentId: "attachment-2",
+        aliases: ["previous attachment #1", "previous image #1", "last generated image"]
+      }
+    ]
+  );
 
   prisma.chat = null;
   downloadedObjectKeys.length = 0;
   const fallback = await service.buildMessages(request, runtimeBundle);
-  assert.deepEqual(fallback, [
-    {
-      role: "assistant",
-      content: HYDRATED_MEMORY_CONTEXT
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: '[Working files from user attachments:\n- attachment (file "runtime-fallback.pdf", fileRef: "file-ref-runtime-attachment-1")\n- attachment (file "runtime-large.pdf", fileRef: "file-ref-runtime-attachment-2")\nSome PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\ncurrent enriched user message'
-        },
-        {
-          type: "pdf",
-          mimeType: "application/pdf",
-          dataBase64: Buffer.from("pdf-bytes").toString("base64"),
-          filename: "runtime-fallback.pdf"
-        }
-      ]
-    }
-  ]);
+  assert.equal(fallback[0]?.role, "assistant");
+  assert.equal(fallback[0]?.content, HYDRATED_MEMORY_CONTEXT);
+  assert.equal(Array.isArray(fallback[1]?.content), true);
+  const fallbackBlocks = fallback[1]?.content as Array<{ type: string; text?: string }>;
+  assert.equal(fallbackBlocks[0]?.text, "current enriched user message");
+  assert.doesNotMatch(
+    fallbackBlocks[0]?.text ?? "",
+    /fileRef|Working files from user attachments/i
+  );
   assert.ok(
     downloadedObjectKeys.includes(
       "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
@@ -697,33 +663,14 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     }
   };
   const multiImage = await service.buildMessages(multiImageRequest, runtimeBundle);
-  assert.deepEqual(multiImage, [
-    {
-      role: "assistant",
-      content: HYDRATED_MEMORY_CONTEXT
-    },
-    {
-      role: "user",
-      content: [
-        {
-          type: "text",
-          text: '[Working files from user attachments:\n- attachment (image #1 "yard.png", fileRef: "file-ref-runtime-image-1")\n- attachment (image #2 "car.png", fileRef: "file-ref-runtime-image-2")\nCurrent-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image.\nImage attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text.\nWhen you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone.\nUse the attachment metadata, transcription, and content preview when available.]\nedit both images'
-        },
-        {
-          type: "image",
-          mimeType: "image/png",
-          dataBase64: Buffer.from("yard-png-bytes").toString("base64"),
-          filename: "yard.png"
-        },
-        {
-          type: "image",
-          mimeType: "image/png",
-          dataBase64: Buffer.from("car-png-bytes").toString("base64"),
-          filename: "car.png"
-        }
-      ]
-    }
-  ]);
+  assert.equal(multiImage[0]?.content, HYDRATED_MEMORY_CONTEXT);
+  assert.equal(Array.isArray(multiImage[1]?.content), true);
+  const multiImageBlocks = multiImage[1]?.content as Array<{ type: string; text?: string }>;
+  assert.equal(multiImageBlocks[0]?.text, "edit both images");
+  assert.doesNotMatch(
+    multiImageBlocks[0]?.text ?? "",
+    /fileRef|Working files from user attachments/i
+  );
   assert.ok(
     downloadedObjectKeys.includes(
       "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/yard.png"

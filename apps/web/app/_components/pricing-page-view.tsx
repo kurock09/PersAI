@@ -151,20 +151,12 @@ export function PricingPageView({
   plans,
   currentPlanCode,
   signedIn,
-  containedScroll = false,
-  embedded = false,
-  initialBillingSubscription = null,
-  onBillingSubscriptionChange
+  containedScroll = false
 }: {
   plans: PublicPricingPlanState[];
   currentPlanCode?: string | null;
   signedIn: boolean;
   containedScroll?: boolean;
-  embedded?: boolean;
-  initialBillingSubscription?: AssistantBillingSubscriptionManagementState | null;
-  onBillingSubscriptionChange?:
-    | ((subscription: AssistantBillingSubscriptionManagementState) => void)
-    | undefined;
 }) {
   const t = useTranslations("pricing");
   const locale = useLocale();
@@ -177,7 +169,7 @@ export function PricingPageView({
     text: string;
   } | null>(null);
   const [billingSubscription, setBillingSubscription] =
-    useState<AssistantBillingSubscriptionManagementState | null>(initialBillingSubscription);
+    useState<AssistantBillingSubscriptionManagementState | null>(null);
   const [reviewState, setReviewState] = useState<PricingReviewState | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const effectiveCurrentPlanCode = billingSubscription?.planCode ?? currentPlanCode ?? null;
@@ -201,10 +193,6 @@ export function PricingPageView({
     },
     []
   );
-
-  useEffect(() => {
-    setBillingSubscription(initialBillingSubscription);
-  }, [initialBillingSubscription]);
 
   useEffect(() => {
     if (!signedIn || !isLoaded || billingSubscription !== null) {
@@ -247,7 +235,6 @@ export function PricingPageView({
           return;
         }
         setBillingSubscription(result.subscription);
-        onBillingSubscriptionChange?.(result.subscription);
         setReviewState(null);
         setPricingFeedback({
           type: "ok",
@@ -268,7 +255,7 @@ export function PricingPageView({
         setSubmittingPlanKey((current) => (current === requestKey ? null : current));
       }
     },
-    [onBillingSubscriptionChange, router, t]
+    [router, t]
   );
 
   const startCheckout = async (plan: PublicPricingPlanState): Promise<void> => {
@@ -402,37 +389,25 @@ export function PricingPageView({
   return (
     <div
       className={cn(
-        "text-text",
-        embedded
-          ? "flex h-full flex-col overflow-hidden bg-transparent"
-          : containedScroll
-            ? "flex h-dvh flex-col overflow-hidden bg-chrome"
-            : "min-h-dvh bg-chrome"
+        "bg-chrome text-text",
+        containedScroll ? "flex h-dvh flex-col overflow-hidden" : "min-h-dvh"
       )}
     >
       <div
         className={cn(
-          "mx-auto flex w-full max-w-7xl flex-col px-4 sm:px-6 lg:px-8",
-          embedded
-            ? "h-full pb-4 pt-4"
-            : "pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))]",
-          (containedScroll || embedded) && "h-full",
-          !containedScroll && !embedded && "min-h-dvh"
+          "mx-auto flex w-full max-w-7xl flex-col px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6 lg:px-8",
+          containedScroll ? "h-full" : "min-h-dvh"
         )}
       >
-        <div
-          className={cn("min-h-0", (containedScroll || embedded) && "flex-1 overflow-y-auto pr-1")}
-        >
-          {embedded ? null : (
-            <header className="mx-auto mt-2 w-full max-w-3xl text-center sm:mt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
-                {t("eyebrow")}
-              </p>
-              <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
-                {t("title")}
-              </h1>
-            </header>
-          )}
+        <div className={cn("min-h-0", containedScroll && "flex-1 overflow-y-auto pr-1")}>
+          <header className="mx-auto mt-2 w-full max-w-3xl text-center sm:mt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-text-subtle">
+              {t("eyebrow")}
+            </p>
+            <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-text sm:text-5xl">
+              {t("title")}
+            </h1>
+          </header>
 
           {plans.length === 0 ? (
             <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/80 bg-surface/70 p-6 text-center">
@@ -444,8 +419,7 @@ export function PricingPageView({
               {pricingFeedback ? (
                 <div
                   className={cn(
-                    "mx-auto w-full max-w-3xl rounded-2xl border px-4 py-3 text-sm",
-                    embedded ? "mt-0" : "mt-6",
+                    "mx-auto mt-6 w-full max-w-3xl rounded-2xl border px-4 py-3 text-sm",
                     pricingFeedback.type === "ok"
                       ? "border-emerald-500/20 bg-emerald-500/10 text-text"
                       : "border-danger/20 bg-danger/10 text-danger"
@@ -454,12 +428,7 @@ export function PricingPageView({
                   {pricingFeedback.text}
                 </div>
               ) : null}
-              <div
-                className={cn(
-                  "grid gap-4 pb-8 sm:grid-cols-2 lg:gap-5",
-                  embedded ? "mt-4 xl:grid-cols-3" : "mt-8 md:mt-10 lg:grid-cols-4"
-                )}
-              >
+              <div className="mt-8 grid gap-4 pb-8 sm:grid-cols-2 md:mt-10 lg:grid-cols-4 lg:gap-5">
                 {plans.map((plan) => {
                   const title =
                     pickLocalizedText(locale, plan.presentation.title) ?? plan.displayName;

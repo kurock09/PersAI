@@ -1,5 +1,97 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-081 attachment-context alias split) — remove raw file selectors from model-visible history
+
+### What changed
+
+- Kept the session bounded to the founder-requested attachment/runtime PROD slice: raw attachment summaries are no longer injected into model-visible chat history as normal user/assistant text.
+- `TurnContextHydrationService` now leaves conversational history clean and builds runtime-owned reusable file state separately. Current/prior/generated files receive human-readable aliases such as `current image #1`, `previous attachment #1`, and `last generated image`, while canonical `fileRef` stays hidden in runtime/API state.
+- `TurnExecutionService` now appends a server-owned `## Working Files` developer block and refreshes it across tool loops, so the model can reuse files deterministically without seeing raw `fileRef`, `artifactId`, `objectKey`, or `attachmentId` in normal chat history.
+- Runtime tool contracts were updated to alias-first selection: `image_edit` and `video_generate` now use `sourceImageAlias` / `referenceImageAlias`, and `files` uses `alias` / `aliases` at the model-facing boundary while resolving back to canonical `fileRef` internally.
+- `files.send` no longer auto-picks the newest duplicate by filename when a query is ambiguous; it now returns ambiguity so the model must ask the user to clarify instead of guessing.
+- Post-audit polish closed the remaining high-risk tails before PROD: model-visible `files` tool history now strips raw selector fields for non-send results too, registry search no longer matches raw UUID/object-key selectors, plural `files.send` alias lists fail honestly instead of silently partial-sending, and recent/generated alias inference now uses real attachment aliases plus real file provenance instead of hardcoded `current image #1` or assistant-message recency heuristics.
+- Removed the dead hydration-era helper block that still formatted legacy `Assistant sent an attachment ... fileRef ...` summaries, and aligned tool-catalog / projection guidance plus focused tests with the alias-first contract.
+- Focused regressions were updated for hydration hygiene, alias-based file reuse, ambiguity behavior, runtime execution developer instructions, tool-result sanitization, media alias handling, and final delivery honesty.
+
+### Verification
+
+- `corepack pnpm exec tsx test/turn-context-hydration.service.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/runtime-files-tool.service.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/sanitize-tool-result-for-model.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/turn-execution.service.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/runtime-media-request-parsing.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/runtime-video-generate-tool.service.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/native-tool-projection.test.ts` (`apps/runtime`)
+- `corepack pnpm exec tsx test/final-delivery-honesty.test.ts` (`apps/api`)
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` — still fails on pre-existing unrelated `apps/web/app/app/_components/assistant-settings.test.tsx` formatting drift after runtime files were cleaned
+
+### Risks / residuals
+
+- The alias catalog currently lives in runtime-owned developer instructions plus tool-only metadata, so future prompt/policy work must preserve that separation and avoid reintroducing raw selector text into conversational history, tool-result JSON, or tool-catalog guidance.
+- Product/API canonical file identity is still `fileRef`, so any later Files/UI/API work must keep alias-first prompt behavior aligned with canonical registry truth instead of re-exposing raw selectors for convenience.
+- One live Telegram + web validation pass is still recommended for the exact founder flows (`отредактируй это фото`, `сделай как на втором фото`, `переотправь прошлый файл`, `используй последнюю сгенерированную картинку`) after deploy.
+
+### Next recommended step
+
+- Run one live validation pass in `persai-dev` on Telegram and web chat for alias-based reuse across current image, previous attachment, and last generated image/file, and confirm no final reply surfaces `Assistant sent an attachment...` or raw selector text.
+
+## 2026-05-07 (ADR-084 change-plan flow correction) — remove the embedded pricing picker and keep one standard pricing entry path
+
+### What changed
+
+- Kept the session bounded to the founder-requested UI correction only: `Assistant Settings -> Payment settings -> Change plan` no longer opens its own embedded pricing surface inside billing management.
+- `AssistantSettings` now routes `Change plan` back through the existing standard `/app/pricing` entry, so there is again one plan-selection surface in the product instead of a second modal-only pricing path.
+- The already-landed pricing review logic stays on the pricing CTA itself. Signed-in pricing still refreshes server billing subscription truth when needed, so FREE downgrade, cheaper-paid downgrade, and upgrade continue to open the in-product review modal after plan selection, including degraded bootstrap cases where the pricing page must load billing truth itself.
+- Removed the dead embedded-picker code path and its temporary locale copy from web billing settings / API-client helpers, so the technical stub text about reviewing upgrades and downgrades "inside the billing management flow" no longer renders anywhere.
+- Refreshed focused regressions to prove the corrected single flow: payment settings now calls the pricing-page redirect hook instead of rendering an embedded picker, pricing CTA review coverage still exists for FREE/downgrade/upgrade, and browser `confirm()` remains unused on managed plan changes.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint` — failed on pre-existing unrelated `apps/runtime/src/modules/turns/turn-context-hydration.service.ts` unused imports
+- `corepack pnpm run format:check` — failed on pre-existing unrelated `apps/runtime/src/modules/turns/runtime-image-edit-tool.service.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- The standard pricing page is once again the only active plan-selection surface, but one live `persai-dev` pass is still needed to confirm the founder flow end to end from `Payment settings -> Change plan -> /app/pricing -> CTA -> review modal`.
+- Repo-wide lint/format are still not globally clean because of the unrelated pre-existing runtime files above; this slice did not modify them.
+
+### Next recommended step
+
+- Run one live `persai-dev` validation pass for the corrected founder flow: open `Payment settings`, tap `Change plan`, confirm the app lands on standard pricing, then verify FREE downgrade, cheaper-paid downgrade, and upgrade each open the correct review modal from the pricing CTA.
+
+## 2026-05-07 (ADR-084 billing auth proxy matcher hotfix) — make Clerk middleware cover the web `/api/v1/*` proxy
+
+### What changed
+
+- Investigated the still-live `Session expired` report directly in `persai-dev` via Kubernetes logs instead of assuming the earlier local fix had fully landed in production behavior.
+- `kubectl logs` proved a concrete production-side auth seam in `apps/web`, not just UI copy drift:
+  - `api` showed successful `GET /api/v1/assistant/billing/subscription` requests with a real `userId`, followed shortly after by `POST /api/v1/assistant/billing/subscription/enable-auto-renew` requests returning `401` with `userId=null`.
+  - `web` simultaneously logged Clerk runtime errors: `auth() was called but Clerk can't detect usage of clerkMiddleware()`.
+- Root cause: the web API proxy route `app/api/v1/[[...path]]/route.ts` calls `auth()` to attach the session bearer to proxied upstream API calls, but `apps/web/middleware.ts` excluded `/api/v1` from the Clerk matcher (`/(api/(?!v1/)|trpc)(.*)`), so those proxied billing requests were running outside Clerk middleware in production.
+- Fixed the matcher to cover `/api/v1/*` as well (`/(api|trpc)(.*)`) while keeping the existing redirect-protect boundary unchanged. That means Clerk middleware now executes for the proxy route, but public/proxy routes are still not forcibly redirected because `isProtectedRoute(...)` was left untouched.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/api/v1/[[...path]]/route.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- live `kubectl logs` inspection in `persai-dev` for `web` + `api`
+
+### Risks / residuals
+
+- This fixes the code-side proxy matcher gap, but the deployed cluster still needs a fresh `web` rollout before the Kubernetes behavior changes.
+- The separate Clerk warning about missing `azp` claim in the session cookie is still present in `web` logs. It did not cause the confirmed `401` seam above, but it remains a production auth warning worth tracking with Clerk.
+
+### Next recommended step
+
+- Deploy the updated `web` build to `persai-dev`, then repeat the exact failing action (`Payment settings -> Enable auto-renew`) and confirm that `web` no longer logs `auth() ... clerkMiddleware()` and `api` no longer records `enable-auto-renew` as `401 userId=null`.
+
 ## 2026-05-07 (ADR-084 billing UX/auth follow-up) — keep review flow on degraded pricing and move change-plan into Payment settings
 
 ### What changed

@@ -44,7 +44,7 @@ describe("runtime media request parsing", () => {
       filename: "edit.png",
       size: "1024x1024",
       background: "auto",
-      sourceImageIndex: 1
+      sourceImageAlias: "current image #1"
     });
     assert.ok(!(parsed instanceof Error));
   });
@@ -66,7 +66,7 @@ describe("runtime media request parsing", () => {
       filename: "clip.mp4",
       size: "1280x720",
       seconds: 4,
-      referenceImageIndex: 1
+      referenceImageAlias: "last generated image"
     });
     assert.ok(!(parsed instanceof Error));
   });

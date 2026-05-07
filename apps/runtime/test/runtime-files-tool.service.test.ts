@@ -362,6 +362,31 @@ async function run(): Promise<void> {
     } as never
   );
 
+  function toRuntimeFileRefWithAliases(rowId: string, aliases: string[]) {
+    const row = canonicalRows.find((entry) => entry.id === rowId);
+    assert.ok(row !== undefined);
+    return {
+      ...registry.toRuntimeFileRef({
+        fileRef: row.id,
+        assistantId: row.assistantId,
+        workspaceId: row.workspaceId,
+        sandboxJobId: row.sandboxJobId,
+        origin: row.origin,
+        sourceToolCode: row.sourceToolCode,
+        objectKey: row.objectKey,
+        relativePath: row.relativePath,
+        displayName: row.displayName,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+        logicalSizeBytes: row.logicalSizeBytes === null ? null : Number(row.logicalSizeBytes),
+        sha256: row.sha256,
+        metadata: row.metadata,
+        createdAt: row.createdAt
+      }),
+      aliases
+    };
+  }
+
   const searchResult = await service.executeToolCall({
     bundle: createBundle(),
     toolCall: {
@@ -494,13 +519,16 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "read",
-        fileRef: "file-ref-1"
+        alias: "current attachment #1"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-2",
     currentArtifacts: [],
     currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-1", ["current attachment #1"])
+    ],
     channel: "web"
   });
   assert.equal(readResult.isError, false);
@@ -551,7 +579,7 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: [currentArtifact.fileRef],
+        aliases: ["last generated image"],
         caption: "Updated caption"
       }
     } as ProviderGatewayToolCall,
@@ -559,26 +587,13 @@ async function run(): Promise<void> {
     requestId: "request-3",
     currentArtifacts: [currentArtifact],
     currentFileRefs: [
-      registry.toRuntimeFileRef({
-        fileRef: generatedFileRefRow.id,
-        assistantId: generatedFileRefRow.assistantId,
-        workspaceId: generatedFileRefRow.workspaceId,
-        sandboxJobId: generatedFileRefRow.sandboxJobId,
-        origin: generatedFileRefRow.origin,
-        sourceToolCode: generatedFileRefRow.sourceToolCode,
-        objectKey: generatedFileRefRow.objectKey,
-        relativePath: generatedFileRefRow.relativePath,
-        displayName: generatedFileRefRow.displayName,
-        mimeType: generatedFileRefRow.mimeType,
-        sizeBytes: Number(generatedFileRefRow.sizeBytes),
-        logicalSizeBytes:
-          generatedFileRefRow.logicalSizeBytes === null
-            ? null
-            : Number(generatedFileRefRow.logicalSizeBytes),
-        sha256: generatedFileRefRow.sha256,
-        metadata: generatedFileRefRow.metadata,
-        createdAt: generatedFileRefRow.createdAt
-      })
+      toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["last generated image"])
+    ],
+    availableWorkingFileRefs: [
+      {
+        ...toRuntimeFileRefWithAliases(generatedFileRefRow.id, ["last generated image"]),
+        aliases: ["last generated image", "last generated file"]
+      }
     ],
     channel: "web"
   });
@@ -589,14 +604,14 @@ async function run(): Promise<void> {
   assert.equal(sendCurrentGeneratedFile.artifacts[0]?.fileRef, currentArtifact.fileRef);
   assert.equal(sendCurrentGeneratedFile.artifacts[0]?.caption, "Updated caption");
 
-  const sendFileRef = await service.executeToolCall({
+  const sendAliasedFile = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
     toolCall: {
-      id: "tool-call-send-file-ref",
+      id: "tool-call-send-aliased-file",
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: ["file-ref-1"],
+        aliases: ["previous attachment #1"],
         caption: "Sandbox output",
         filename: "custom-report.txt"
       }
@@ -605,18 +620,44 @@ async function run(): Promise<void> {
     requestId: "request-4",
     currentArtifacts: [],
     currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-1", ["previous attachment #1"])
+    ],
     channel: "web"
   });
-  assert.equal(sendFileRef.isError, false);
-  assert.equal(sendFileRef.payload.action, "queued");
-  assert.equal(sendFileRef.artifacts.length, 1);
-  assert.equal(sendFileRef.artifacts[0]?.kind, "file");
+  assert.equal(sendAliasedFile.isError, false);
+  assert.equal(sendAliasedFile.payload.action, "queued");
+  assert.equal(sendAliasedFile.artifacts.length, 1);
+  assert.equal(sendAliasedFile.artifacts[0]?.kind, "file");
   assert.equal(
-    sendFileRef.artifacts[0]?.objectKey,
+    sendAliasedFile.artifacts[0]?.objectKey,
     "assistant-media/uploads/file-ref-1/report.txt"
   );
-  assert.equal(sendFileRef.artifacts[0]?.filename, "custom-report.txt");
-  assert.equal(sendFileRef.artifacts[0]?.caption, "Sandbox output");
+  assert.equal(sendAliasedFile.artifacts[0]?.filename, "custom-report.txt");
+  assert.equal(sendAliasedFile.artifacts[0]?.caption, "Sandbox output");
+
+  const sendWithMissingPluralAlias = await service.executeToolCall({
+    bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
+    toolCall: {
+      id: "tool-call-send-missing-plural-alias",
+      name: "files",
+      arguments: {
+        action: "send",
+        aliases: ["previous attachment #1", "missing attachment #9"]
+      }
+    } as ProviderGatewayToolCall,
+    sessionId: "session-1",
+    requestId: "request-4aa0",
+    currentArtifacts: [],
+    currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-1", ["previous attachment #1"])
+    ],
+    channel: "web"
+  });
+  assert.equal(sendWithMissingPluralAlias.isError, true);
+  assert.equal(sendWithMissingPluralAlias.payload.action, "skipped");
+  assert.equal(sendWithMissingPluralAlias.payload.reason, "file_alias_not_found");
 
   const sendAmbiguousDuplicateByQuery = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
@@ -634,14 +675,9 @@ async function run(): Promise<void> {
     currentFileRefs: [],
     channel: "web"
   });
-  assert.equal(sendAmbiguousDuplicateByQuery.isError, false);
-  assert.equal(sendAmbiguousDuplicateByQuery.payload.action, "queued");
-  assert.equal(
-    sendAmbiguousDuplicateByQuery.payload.warning?.includes("same visible filename"),
-    true
-  );
-  assert.equal(sendAmbiguousDuplicateByQuery.payload.fileRefs[0], "file-ref-artifact");
-  assert.equal(sendAmbiguousDuplicateByQuery.artifacts[0]?.filename, "hello.txt");
+  assert.equal(sendAmbiguousDuplicateByQuery.isError, true);
+  assert.equal(sendAmbiguousDuplicateByQuery.payload.action, "skipped");
+  assert.equal(sendAmbiguousDuplicateByQuery.payload.reason, "ambiguous_file_query");
 
   const writeAndSendResult = await service.executeToolCall({
     bundle: createBundle({ maxArtifactSendCountPerTurn: 1 }),
@@ -746,24 +782,27 @@ async function run(): Promise<void> {
   assert.equal(blockedWriteAndSend.payload.reason, "channel_size_limit_exceeded");
   assert.equal(blockedWriteAndSend.artifacts.length, 0);
 
-  const sendFileRefWithDefaultCap = await service.executeToolCall({
+  const sendAliasWithDefaultCap = await service.executeToolCall({
     bundle: createBundle(),
     toolCall: {
-      id: "tool-call-send-default-cap",
+      id: "tool-call-send-alias-default-cap",
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: ["file-ref-1"]
+        aliases: ["current attachment #1"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-4b",
     currentArtifacts: [],
     currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-1", ["current attachment #1"])
+    ],
     channel: "web"
   });
-  assert.equal(sendFileRefWithDefaultCap.isError, false);
-  assert.equal(sendFileRefWithDefaultCap.payload.action, "queued");
+  assert.equal(sendAliasWithDefaultCap.isError, false);
+  assert.equal(sendAliasWithDefaultCap.payload.action, "queued");
 
   const missingGet = await service.executeToolCall({
     bundle: createBundle(),
@@ -772,7 +811,7 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "get",
-        fileRef: "missing-file-ref"
+        alias: "missing alias"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
@@ -783,7 +822,7 @@ async function run(): Promise<void> {
   });
   assert.equal(missingGet.isError, true);
   assert.equal(missingGet.payload.action, "skipped");
-  assert.equal(missingGet.payload.reason, "file_not_found");
+  assert.equal(missingGet.payload.reason, "file_alias_not_found");
 
   const blockedMime = await service.executeToolCall({
     bundle: createBundle({
@@ -795,13 +834,16 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: [currentArtifact.fileRef]
+        aliases: ["last generated image"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-5",
     currentArtifacts: [currentArtifact],
     currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["last generated image"])
+    ],
     channel: "web"
   });
   assert.equal(blockedMime.isError, true);
@@ -819,13 +861,16 @@ async function run(): Promise<void> {
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: [currentArtifact.fileRef]
+        aliases: ["last generated image"]
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
     requestId: "request-6",
     currentArtifacts: [currentArtifact],
     currentFileRefs: [],
+    availableWorkingFileRefs: [
+      toRuntimeFileRefWithAliases("file-ref-generated-1", ["last generated image"])
+    ],
     channel: "web"
   });
   assert.equal(blockedChannelBytes.isError, true);
@@ -833,14 +878,14 @@ async function run(): Promise<void> {
   assert.equal(blockedChannelBytes.payload.reason, "channel_size_limit_exceeded");
   assert.match(blockedChannelBytes.payload.warning ?? "", /above the channel cap of 100 bytes/);
 
-  const invalidFileRefSend = await service.executeToolCall({
+  const invalidAliasSend = await service.executeToolCall({
     bundle: createBundle(),
     toolCall: {
-      id: "tool-call-invalid-file-ref-send",
+      id: "tool-call-invalid-alias-send",
       name: "files",
       arguments: {
         action: "send",
-        fileRefs: ["uploads/94ec8468-10ce-4761-9065-2498de7130ee/KB.txt"]
+        alias: "file-ref-generated-by-model"
       }
     } as ProviderGatewayToolCall,
     sessionId: "session-1",
@@ -849,10 +894,9 @@ async function run(): Promise<void> {
     currentFileRefs: [],
     channel: "web"
   });
-  assert.equal(invalidFileRefSend.isError, true);
-  assert.equal(invalidFileRefSend.payload.action, "skipped");
-  assert.equal(invalidFileRefSend.payload.reason, "files_failed");
-  assert.match(invalidFileRefSend.payload.warning ?? "", /fileRefs are invalid/i);
+  assert.equal(invalidAliasSend.isError, true);
+  assert.equal(invalidAliasSend.payload.action, "skipped");
+  assert.equal(invalidAliasSend.payload.reason, "file_alias_not_found");
 }
 
 void run();

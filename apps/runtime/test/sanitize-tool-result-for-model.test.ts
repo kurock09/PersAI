@@ -169,6 +169,61 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.match(parsed.instruction ?? "", /Do not print fileRef/);
   }
 
+  // Non-delivery files results still keep user-meaningful metadata, but raw
+  // file selectors and sandbox job internals stay hidden from the model.
+  {
+    const payload = {
+      toolCode: "files" as const,
+      executionMode: "inline" as const,
+      requestedAction: "read" as const,
+      action: "read" as const,
+      reason: null,
+      warning: null,
+      item: {
+        fileRef: "file-ref-1",
+        origin: "uploaded_attachment",
+        relativePath: "uploads/report.txt",
+        displayName: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: 42,
+        logicalSizeBytes: 42,
+        aliases: ["previous attachment #1"]
+      },
+      items: [
+        {
+          fileRef: "file-ref-1",
+          origin: "uploaded_attachment",
+          relativePath: "uploads/report.txt",
+          displayName: "report.txt",
+          mimeType: "text/plain",
+          sizeBytes: 42,
+          logicalSizeBytes: 42,
+          aliases: ["previous attachment #1"]
+        }
+      ],
+      content: "hello",
+      job: {
+        status: "completed",
+        files: [{ fileRef: "file-ref-1", path: "uploads/report.txt" }]
+      },
+      fileRefs: ["file-ref-1"],
+      queuedArtifacts: 0
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      item: Record<string, unknown>;
+      items: Array<Record<string, unknown>>;
+      content: string;
+      job: unknown;
+      fileRefs?: string[];
+    };
+    assert.equal(parsed.item.fileRef, undefined);
+    assert.deepEqual(parsed.item.aliases, ["previous attachment #1"]);
+    assert.equal(parsed.items[0]?.fileRef, undefined);
+    assert.equal(parsed.content, "hello");
+    assert.equal(parsed.job, null);
+    assert.equal(parsed.fileRefs, undefined);
+  }
+
   // Top-level user-supplied filenames (`sourceFilename`, `referenceFilename`
   // on image_edit / video_generate results) are NOT redacted because the
   // model already saw them in the user's message context — only output

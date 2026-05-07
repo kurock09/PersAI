@@ -719,17 +719,15 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           type: "string",
           description: "Text instruction describing how the referenced chat image should be edited."
         },
-        sourceImageIndex: {
-          type: "integer",
-          minimum: 1,
+        sourceImageAlias: {
+          type: "string",
           description:
-            "Optional 1-based index of the available chat image to edit. Required when multiple images are available and the source image is clear."
+            'Optional human-readable alias of the available image to edit, for example "current image #1" or "last generated image". Required when multiple reusable images are available and the source image is clear.'
         },
-        referenceImageIndex: {
-          type: "integer",
-          minimum: 1,
+        referenceImageAlias: {
+          type: "string",
           description:
-            "Optional 1-based index of a second available chat image to use only as a visual style, appearance, or background reference. The tool must still return one edited version of the source image, not a separate edit of the reference image."
+            'Optional human-readable alias of a second available image to use only as a visual style, appearance, or background reference, for example "current image #2". The tool must still return one edited version of the source image, not a separate edit of the reference image.'
         },
         filename: {
           type: "string",
@@ -774,11 +772,10 @@ function createVideoGenerateToolDefinition(
           type: "string",
           description: "Text prompt describing the video clip to generate."
         },
-        referenceImageIndex: {
-          type: "integer",
-          minimum: 1,
+        referenceImageAlias: {
+          type: "string",
           description:
-            "Optional 1-based index of an available chat image to use as a visual reference or first frame. Set this whenever a current or recent chat image should guide the video."
+            'Optional human-readable alias of an available image to use as a visual reference or first frame, for example "current image #1" or "last generated image". Set this whenever a current or recent reusable image should guide the video.'
         },
         filename: {
           type: "string",
@@ -1002,7 +999,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one canonical fileRef-first surface. This includes user uploads, generated outputs, and sandbox-created files. Keep shell and exec separate for real process execution."
+      "List, search, inspect, read, write, write-and-send, edit, delete, or send assistant-managed files through one alias-first surface. This includes user uploads, generated outputs, and sandbox-created files. Keep shell and exec separate for real process execution."
     ),
     inputSchema: {
       type: "object",
@@ -1018,7 +1015,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         query: {
           type: "string",
           description:
-            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when fileRef/path is unavailable. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a found file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
+            'Non-empty search text for action="search", or a selector for action="get", "read", "edit", "delete", or "send" when no working-file alias or exact path is available. Search spans the assistant Files registry, including uploaded chat files, generated outputs, and sandbox files. If the user asks to send or resend a found file, discovering it is not enough: call action="send" with the resolved target in the same turn.'
         },
         limit: {
           type: "integer",
@@ -1032,10 +1029,10 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           description:
             'Assistant file path for action="list", "get", "read", "write", "write_and_send", "edit", or "delete". For action="write" and "write_and_send", this is the canonical save location. For action="list", leave unset or use "." for the root.'
         },
-        fileRef: {
+        alias: {
           type: "string",
           description:
-            'Canonical assistant file reference for action="get", "read", "edit", "delete", or "send". Prefer this for any current or prior working file when available. A returned fileRef is a selector for a later files action, not a substitute for actual delivery.'
+            'Human-readable working-file alias for action="get", "read", "edit", "delete", or "send", for example "current attachment #1", "previous attachment #1", or "last generated image". Prefer this for current or prior reusable chat files when available.'
         },
         content: {
           type: "string",
@@ -1054,11 +1051,11 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           description:
             'Optional recursion flag for action="list". For action="delete", set true when deleting a directory tree.'
         },
-        fileRefs: {
+        aliases: {
           type: "array",
           items: { type: "string" },
           description:
-            'Canonical assistant file references to deliver for action="send". You may also combine these with one resolved selector.'
+            'Human-readable working-file aliases to deliver for action="send". You may also combine these with one resolved selector.'
         },
         caption: {
           type: "string",

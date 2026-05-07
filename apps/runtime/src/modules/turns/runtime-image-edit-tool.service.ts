@@ -64,8 +64,8 @@ type ResolvedImageEditSelection =
         mimeType: string;
         filename: string | null;
       } | null;
-      sourceImageIndex: number;
-      referenceImageIndex: number | null;
+      sourceImageAlias: string;
+      referenceImageAlias: string | null;
       sourceFilename: string | null;
       referenceFilename: string | null;
     }
@@ -113,8 +113,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: null,
           revisedPrompt: null,
-          sourceImageIndex: null,
-          referenceImageIndex: null,
+          sourceImageAlias: null,
+          referenceImageAlias: null,
           sourceFilename: null,
           referenceFilename: null,
           size: null,
@@ -138,8 +138,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -165,8 +165,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -191,8 +191,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -217,8 +217,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -250,8 +250,8 @@ export class RuntimeImageEditToolService {
           model: this.resolveToolModelKey(credential),
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -276,8 +276,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: request.sourceImageIndex,
-          referenceImageIndex: request.referenceImageIndex,
+          sourceImageAlias: request.sourceImageAlias,
+          referenceImageAlias: request.referenceImageAlias,
           sourceFilename: null,
           referenceFilename: null,
           size: request.size,
@@ -313,8 +313,8 @@ export class RuntimeImageEditToolService {
               model: this.resolveToolModelKey(credential),
               prompt: request.prompt,
               revisedPrompt: null,
-              sourceImageIndex: selection.sourceImageIndex,
-              referenceImageIndex: selection.referenceImageIndex,
+              sourceImageAlias: selection.sourceImageAlias,
+              referenceImageAlias: selection.referenceImageAlias,
               sourceFilename: selection.sourceFilename,
               referenceFilename: selection.referenceFilename,
               size: request.size,
@@ -337,8 +337,8 @@ export class RuntimeImageEditToolService {
             model: this.resolveToolModelKey(credential),
             prompt: request.prompt,
             revisedPrompt: null,
-            sourceImageIndex: selection.sourceImageIndex,
-            referenceImageIndex: selection.referenceImageIndex,
+            sourceImageAlias: selection.sourceImageAlias,
+            referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
             referenceFilename: selection.referenceFilename,
             size: request.size,
@@ -361,8 +361,8 @@ export class RuntimeImageEditToolService {
             model: null,
             prompt: request.prompt,
             revisedPrompt: null,
-            sourceImageIndex: selection.sourceImageIndex,
-            referenceImageIndex: selection.referenceImageIndex,
+            sourceImageAlias: selection.sourceImageAlias,
+            referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
             referenceFilename: selection.referenceFilename,
             size: request.size,
@@ -395,8 +395,8 @@ export class RuntimeImageEditToolService {
             model: null,
             prompt: request.prompt,
             revisedPrompt: null,
-            sourceImageIndex: selection.sourceImageIndex,
-            referenceImageIndex: selection.referenceImageIndex,
+            sourceImageAlias: selection.sourceImageAlias,
+            referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
             referenceFilename: selection.referenceFilename,
             size: request.size,
@@ -431,9 +431,7 @@ export class RuntimeImageEditToolService {
         }
       );
       this.logger.log(
-        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceIndex=${String(
-          selection.sourceImageIndex
-        )} referenceIndex=${selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)}`
+        `[image-edit] requestId=${params.requestId} provider=${providerId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${selection.referenceImageAlias ?? "none"}"`
       );
       const artifacts = await Promise.all(
         providerResult.images.map((image, index) =>
@@ -461,8 +459,8 @@ export class RuntimeImageEditToolService {
             model: providerResult.model,
             prompt: request.prompt,
             revisedPrompt: null,
-            sourceImageIndex: selection.sourceImageIndex,
-            referenceImageIndex: selection.referenceImageIndex,
+            sourceImageAlias: selection.sourceImageAlias,
+            referenceImageAlias: selection.referenceImageAlias,
             sourceFilename: selection.sourceFilename,
             referenceFilename: selection.referenceFilename,
             size: request.size,
@@ -482,9 +480,9 @@ export class RuntimeImageEditToolService {
       this.logger.log(
         `[image-edit] completed requestId=${params.requestId} provider=${providerId} artifacts=${String(
           artifacts.length
-        )} sourceIndex=${String(selection.sourceImageIndex)} referenceIndex=${
-          selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)
-        }`
+        )} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
+          selection.referenceImageAlias ?? "none"
+        }"`
       );
       return {
         payload: {
@@ -494,8 +492,8 @@ export class RuntimeImageEditToolService {
           model: providerResult.model,
           prompt: request.prompt,
           revisedPrompt,
-          sourceImageIndex: selection.sourceImageIndex,
-          referenceImageIndex: selection.referenceImageIndex,
+          sourceImageAlias: selection.sourceImageAlias,
+          referenceImageAlias: selection.referenceImageAlias,
           sourceFilename: selection.sourceFilename,
           referenceFilename: selection.referenceFilename,
           size: request.size,
@@ -513,11 +511,9 @@ export class RuntimeImageEditToolService {
         assistantId: params.bundle.metadata.assistantId
       });
       this.logger.warn(
-        `[image-edit] failed requestId=${params.requestId} sourceIndex=${String(
-          selection.sourceImageIndex
-        )} referenceIndex=${selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)}: ${
-          error instanceof Error ? error.message : "Image edit failed."
-        }`
+        `[image-edit] failed requestId=${params.requestId} sourceAlias="${selection.sourceImageAlias}" referenceAlias="${
+          selection.referenceImageAlias ?? "none"
+        }": ${error instanceof Error ? error.message : "Image edit failed."}`
       );
       return {
         payload: {
@@ -527,8 +523,8 @@ export class RuntimeImageEditToolService {
           model: null,
           prompt: request.prompt,
           revisedPrompt: null,
-          sourceImageIndex: selection.sourceImageIndex,
-          referenceImageIndex: selection.referenceImageIndex,
+          sourceImageAlias: selection.sourceImageAlias,
+          referenceImageAlias: selection.referenceImageAlias,
           sourceFilename: selection.sourceFilename,
           referenceFilename: selection.referenceFilename,
           size: request.size,
@@ -552,8 +548,8 @@ export class RuntimeImageEditToolService {
         key !== "filename" &&
         key !== "size" &&
         key !== "background" &&
-        key !== "sourceImageIndex" &&
-        key !== "referenceImageIndex"
+        key !== "sourceImageAlias" &&
+        key !== "referenceImageAlias"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -599,18 +595,24 @@ export class RuntimeImageEditToolService {
     const background: PersaiRuntimeImageBackground =
       typeof backgroundInput === "string" ? backgroundInput : "auto";
 
-    const sourceImageIndex = this.readOptionalPositiveImageIndex(args.sourceImageIndex);
-    if ("sourceImageIndex" in args && args.sourceImageIndex !== null && sourceImageIndex === null) {
-      return new Error("sourceImageIndex must be a positive integer when provided");
+    const sourceImageAlias =
+      args.sourceImageAlias === undefined || args.sourceImageAlias === null
+        ? null
+        : this.asNonEmptyString(args.sourceImageAlias);
+    if ("sourceImageAlias" in args && args.sourceImageAlias !== null && sourceImageAlias === null) {
+      return new Error("sourceImageAlias must be a non-empty string when provided");
     }
 
-    const referenceImageIndex = this.readOptionalPositiveImageIndex(args.referenceImageIndex);
+    const referenceImageAlias =
+      args.referenceImageAlias === undefined || args.referenceImageAlias === null
+        ? null
+        : this.asNonEmptyString(args.referenceImageAlias);
     if (
-      "referenceImageIndex" in args &&
-      args.referenceImageIndex !== null &&
-      referenceImageIndex === null
+      "referenceImageAlias" in args &&
+      args.referenceImageAlias !== null &&
+      referenceImageAlias === null
     ) {
-      return new Error("referenceImageIndex must be a positive integer when provided");
+      return new Error("referenceImageAlias must be a non-empty string when provided");
     }
 
     return {
@@ -619,8 +621,8 @@ export class RuntimeImageEditToolService {
       filename,
       size,
       background,
-      sourceImageIndex,
-      referenceImageIndex
+      sourceImageAlias,
+      referenceImageAlias
     };
   }
 
@@ -639,55 +641,62 @@ export class RuntimeImageEditToolService {
     }
 
     const inferredSelection =
-      request.sourceImageIndex === null || request.referenceImageIndex === null
-        ? this.inferReferenceGuidedSelection(imageAttachments.length, request)
+      request.sourceImageAlias === null || request.referenceImageAlias === null
+        ? this.inferReferenceGuidedSelection(imageAttachments, request)
         : null;
     if (inferredSelection !== null) {
       this.logger.log(
-        `[image-edit] inferred source/reference from prompt sourceIndex=${String(
-          inferredSelection.sourceImageIndex
-        )} referenceIndex=${String(inferredSelection.referenceImageIndex)}`
+        `[image-edit] inferred source/reference from prompt sourceAlias="${inferredSelection.sourceImageAlias}" referenceAlias="${inferredSelection.referenceImageAlias}"`
       );
     }
-    const sourceImageIndex = inferredSelection?.sourceImageIndex ?? request.sourceImageIndex;
-    const referenceImageIndex =
-      inferredSelection?.referenceImageIndex ?? request.referenceImageIndex;
+    const sourceImageAlias = inferredSelection?.sourceImageAlias ?? request.sourceImageAlias;
+    const referenceImageAlias =
+      inferredSelection?.referenceImageAlias ?? request.referenceImageAlias;
 
-    if (imageAttachments.length > 1 && sourceImageIndex === null) {
+    if (imageAttachments.length > 1 && sourceImageAlias === null) {
       return {
         ok: false,
-        reason: "source_image_selection_required",
+        reason: "source_image_alias_required",
         warning:
-          "Multiple images are attached. Ask the user which numbered image is the source image, or set sourceImageIndex when the source image is already clear."
+          "Multiple reusable images are available. Ask the user which image alias is the source image, for example current image #1 or last generated image."
       };
     }
 
-    const resolvedSourceImageIndex = sourceImageIndex ?? 1;
-    const sourceAttachment = imageAttachments[resolvedSourceImageIndex - 1] ?? null;
+    const sourceAttachment =
+      sourceImageAlias === null
+        ? (imageAttachments[0] ?? null)
+        : this.findAttachmentByAlias(imageAttachments, sourceImageAlias);
     if (sourceAttachment === null) {
       return {
         ok: false,
-        reason: "source_image_index_invalid",
-        warning: "sourceImageIndex must point to one of the available chat image attachments."
+        reason: "source_image_alias_invalid",
+        warning:
+          "sourceImageAlias must match one of the available reusable image aliases in the working-files context."
       };
     }
 
     if (
-      referenceImageIndex !== null &&
-      (referenceImageIndex < 1 || referenceImageIndex > imageAttachments.length)
+      referenceImageAlias !== null &&
+      this.findAttachmentByAlias(imageAttachments, referenceImageAlias) === null
     ) {
       return {
         ok: false,
-        reason: "reference_image_index_invalid",
-        warning: "referenceImageIndex must point to one of the available chat image attachments."
+        reason: "reference_image_alias_invalid",
+        warning:
+          "referenceImageAlias must match one of the available reusable image aliases in the working-files context."
       };
     }
 
-    if (referenceImageIndex !== null && referenceImageIndex === resolvedSourceImageIndex) {
+    if (
+      referenceImageAlias !== null &&
+      this.normalizeAlias(referenceImageAlias) ===
+        this.normalizeAlias(this.resolvePrimaryAttachmentAlias(sourceAttachment))
+    ) {
       return {
         ok: false,
         reason: "reference_image_same_as_source",
-        warning: "referenceImageIndex must refer to a different image than sourceImageIndex."
+        warning:
+          "referenceImageAlias must refer to a different reusable image than sourceImageAlias."
       };
     }
 
@@ -697,7 +706,9 @@ export class RuntimeImageEditToolService {
     }
 
     const referenceAttachment =
-      referenceImageIndex === null ? null : imageAttachments[referenceImageIndex - 1]!;
+      referenceImageAlias === null
+        ? null
+        : this.findAttachmentByAlias(imageAttachments, referenceImageAlias);
     const loadedReference =
       referenceAttachment === null
         ? null
@@ -710,20 +721,25 @@ export class RuntimeImageEditToolService {
       ok: true,
       sourceImage: loadedSource.image,
       referenceImage: loadedReference?.image ?? null,
-      sourceImageIndex: resolvedSourceImageIndex,
-      referenceImageIndex,
+      sourceImageAlias: this.resolvePrimaryAttachmentAlias(sourceAttachment),
+      referenceImageAlias:
+        referenceAttachment === null
+          ? null
+          : this.resolvePrimaryAttachmentAlias(referenceAttachment),
       sourceFilename: sourceAttachment.filename,
       referenceFilename: referenceAttachment?.filename ?? null
     };
   }
 
   private inferReferenceGuidedSelection(
-    imageAttachmentCount: number,
+    imageAttachments: RuntimeAttachmentRef[],
     request: RuntimeImageEditRequest
-  ): { sourceImageIndex: number; referenceImageIndex: number } | null {
-    if (imageAttachmentCount !== 2) {
+  ): { sourceImageAlias: string; referenceImageAlias: string } | null {
+    if (imageAttachments.length !== 2) {
       return null;
     }
+    const firstAlias = this.resolvePrimaryAttachmentAlias(imageAttachments[0]!);
+    const secondAlias = this.resolvePrimaryAttachmentAlias(imageAttachments[1]!);
     const normalizedPrompt = request.prompt.trim().toLowerCase();
     const mentionsSecondImageAsReference = SECOND_IMAGE_REFERENCE_PROMPT_MARKERS.some((marker) =>
       normalizedPrompt.includes(marker)
@@ -731,22 +747,30 @@ export class RuntimeImageEditToolService {
     if (!mentionsSecondImageAsReference) {
       return null;
     }
-    if (request.sourceImageIndex === null && request.referenceImageIndex === null) {
+    if (request.sourceImageAlias === null && request.referenceImageAlias === null) {
       return {
-        sourceImageIndex: 1,
-        referenceImageIndex: 2
+        sourceImageAlias: firstAlias,
+        referenceImageAlias: secondAlias
       };
     }
-    if (request.sourceImageIndex === 1 && request.referenceImageIndex === null) {
+    if (
+      request.sourceImageAlias !== null &&
+      this.normalizeAlias(request.sourceImageAlias) === this.normalizeAlias(firstAlias) &&
+      request.referenceImageAlias === null
+    ) {
       return {
-        sourceImageIndex: 1,
-        referenceImageIndex: 2
+        sourceImageAlias: firstAlias,
+        referenceImageAlias: secondAlias
       };
     }
-    if (request.sourceImageIndex === null && request.referenceImageIndex === 2) {
+    if (
+      request.sourceImageAlias === null &&
+      request.referenceImageAlias !== null &&
+      this.normalizeAlias(request.referenceImageAlias) === this.normalizeAlias(secondAlias)
+    ) {
       return {
-        sourceImageIndex: 1,
-        referenceImageIndex: 2
+        sourceImageAlias: firstAlias,
+        referenceImageAlias: secondAlias
       };
     }
     return null;
@@ -997,8 +1021,26 @@ export class RuntimeImageEditToolService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private readOptionalPositiveImageIndex(value: unknown): number | null {
-    return Number.isInteger(value) && Number(value) > 0 ? Number(value) : null;
+  private findAttachmentByAlias(
+    attachments: RuntimeAttachmentRef[],
+    alias: string
+  ): RuntimeAttachmentRef | null {
+    const normalized = this.normalizeAlias(alias);
+    return (
+      attachments.find((attachment) =>
+        (attachment.aliases ?? []).some(
+          (candidate) => this.normalizeAlias(candidate) === normalized
+        )
+      ) ?? null
+    );
+  }
+
+  private resolvePrimaryAttachmentAlias(attachment: RuntimeAttachmentRef): string {
+    return attachment.aliases?.[0] ?? attachment.filename ?? "selected image";
+  }
+
+  private normalizeAlias(value: string): string {
+    return value.trim().toLowerCase();
   }
 
   private isLikelyAnalysisOnlyPrompt(prompt: string): boolean {

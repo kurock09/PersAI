@@ -8,8 +8,6 @@ import type {
 import { RuntimeStatePrismaService } from "../runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 export type RuntimeAssistantFileRecord = {
   fileRef: string;
   assistantId: string;
@@ -296,7 +294,6 @@ export class RuntimeAssistantFileRegistryService {
       assistantId,
       workspaceId,
       OR: [
-        ...(UUID_PATTERN.test(query) ? [{ id: query }] : []),
         {
           displayName: {
             contains: query,
@@ -305,12 +302,6 @@ export class RuntimeAssistantFileRegistryService {
         },
         {
           relativePath: {
-            contains: query,
-            mode: "insensitive" as const
-          }
-        },
-        {
-          objectKey: {
             contains: query,
             mode: "insensitive" as const
           }

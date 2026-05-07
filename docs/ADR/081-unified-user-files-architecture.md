@@ -49,9 +49,13 @@ PersAI will expose a single product-level Files architecture.
 
 Every user-visible or assistant-reusable file receives a durable `fileRef` immediately at persistence time. File registration is not lazy and is not dependent on a later runtime hydration pass.
 
-The model-facing and product-facing selector contract is one stable identifier:
+The product-facing selector contract is one stable identifier:
 
 - `fileRef`
+
+The ordinary model-facing selector contract is alias-first and runtime-owned:
+
+- human-readable working-file aliases such as `current image #1`, `previous attachment #1`, and `last generated image`
 
 The following identifiers are internal implementation details and must not be primary model-facing selectors:
 
@@ -63,7 +67,7 @@ The following identifiers are internal implementation details and must not be pr
 - knowledge source id
 - retrieval reference id
 
-`attachmentId` may remain a UI/API implementation detail for downloading or rendering a specific chat message attachment, but it is not the assistant file handle. `artifactId` is removed from the target model/tool contract; generated outputs must be registered as `AssistantFile` rows immediately and returned to the model as `fileRef`. `objectKey` remains storage-internal and is not a user or model selector.
+`attachmentId` may remain a UI/API implementation detail for downloading or rendering a specific chat message attachment, but it is not the assistant file handle. `artifactId` is removed from the target model/tool contract; generated outputs must be registered as `AssistantFile` rows immediately and resolved inside runtime to canonical `fileRef`. `objectKey` remains storage-internal and is not a user or model selector.
 
 Knowledge remains a separate product plane. Knowledge documents are not ordinary Files by default. A source file may have internal metadata linking it to a knowledge source, but the user-facing Knowledge Base and the user-facing Files list remain distinct concepts:
 
@@ -97,9 +101,9 @@ The exact schema can evolve, but the authority must stay singular: a user-visibl
 
 Runtime inbound attachments should carry `fileRef` whenever they represent a persisted file. The runtime should not need to mint file refs during prompt hydration.
 
-Tool output contracts should return `fileRef` for created or generated files. A generated image/video/audio/document is a file as soon as the tool result exists, not an ephemeral artifact that later may become an attachment.
+Tool output contracts should preserve the canonical file identity for created or generated files, but model-visible tool-result JSON must not rely on raw `fileRef` as the reusable selector. A generated image/video/audio/document is a file as soon as the tool result exists, not an ephemeral artifact that later may become an attachment.
 
-The `files` tool should operate on `fileRef`, path, and query only:
+The `files` tool should operate on alias, path, and query at the model-facing boundary, resolving to canonical `fileRef` inside runtime:
 
 - `files.list`
 - `files.search`
@@ -111,7 +115,7 @@ The `files` tool should operate on `fileRef`, path, and query only:
 - `files.delete`
 - `files.send`
 
-`files.send` sends files by `fileRef` or resolved query/path. It does not accept `artifactId` in the target contract.
+`files.send` sends files by working-file alias or resolved query/path. It does not accept `artifactId` in the target contract.
 
 Sandbox-backed tools may use relative paths inside the isolated workspace, but any persisted output returned to runtime becomes an `AssistantFile` with a `fileRef`.
 
@@ -159,10 +163,10 @@ The implementation must be direct and clean:
 2. Make generated media tools return `fileRef`-backed file outputs.
 3. Remove `artifactId` as a model-facing send selector.
 4. Ensure chat attachments link to their canonical file record.
-5. Ensure runtime prompt hydration shows the assistant one stable selector: `fileRef`.
+5. Ensure runtime prompt hydration shows the assistant runtime-owned human aliases instead of raw `fileRef`.
 6. Keep `objectKey` internal to storage, delivery, and signed-download boundaries.
 7. Keep Knowledge source ids and retrieval references out of the Files send/read contract.
-8. Add tests that prove uploads, generated artifacts, sandbox outputs, and delivered attachments all appear in Files and can be sent by `fileRef`.
+8. Add tests that prove uploads, generated artifacts, sandbox outputs, and delivered attachments all appear in Files and can be sent by alias while runtime resolves them to canonical `fileRef`.
 
 ## Execution plan
 
@@ -225,12 +229,12 @@ Out of scope:
 
 Goal: make `files` and Skill-assisted work use one stable file selector across uploads, generated outputs, and sandbox files.
 
-Status: implemented 2026-05-02 for runtime Files and Skill working-file behavior. Chat attachments are now presented in prompt hydration as working files with durable `fileRef`, the Files tool schema describes one unified fileRef-first surface across uploads/generated/sandbox files, and `files.read`/`files.edit`/`files.delete` mount resolved assistant Files into sandbox jobs by required `fileRef` before path-based sandbox operations. Focused tests cover uploaded PDF query -> read with required fileRef mount, ambiguous query choices with fileRef, sandbox-created file send, generated file search/read/send continuity, and working-file prompt hydration. Live polish on 2026-05-02 confirmed non-deleted prior user/assistant files remain available to the agent by `fileRef`, while deleted chat attachments are filtered from runtime hydration so deletion is respected. Knowledge ingestion remains separate.
+Status: implemented 2026-05-02 for canonical runtime Files continuity, then corrected 2026-05-07 for prompt/tool hygiene. Chat attachments/generated outputs/sandbox files still converge on canonical `AssistantFile` + `fileRef`, but prompt hydration no longer prints raw `fileRef` into conversational history. Runtime now exposes working files to the model through runtime-owned aliases, and `files`/`image_edit`/`video_generate` resolve those aliases server-side back to canonical `fileRef`. Focused tests cover uploaded PDF query -> read with required file mount, ambiguous query choices, sandbox-created file send, generated file search/read/send continuity, alias-based generated/current-file reuse, and prompt-hydration hygiene. Knowledge ingestion remains separate.
 
 Scope:
 
-- update `RuntimeAttachmentRef`, `RuntimeFileRef`, `RuntimeFilesToolResult`, and related contracts so model-facing file handles are `fileRef`-first
-- update prompt hydration so chat files are presented as working files with `fileRef`
+- update `RuntimeAttachmentRef`, `RuntimeFileRef`, `RuntimeFilesToolResult`, and related contracts so runtime can carry canonical `fileRef` plus runtime-owned aliases
+- update prompt hydration so chat files are presented as working files with aliases, not raw `fileRef`
 - update `files.list/search/get/read/write/write_and_send/edit/delete/send` behavior and schemas to remove `artifactIds`
 - ensure sandbox outputs continue to return canonical `fileRef`
 - ensure Skills can find/read current and prior chat files through the same Files registry
@@ -239,8 +243,8 @@ Acceptance:
 
 - a Skill such as `ГИП проекта` can work with a PDF ТЗ uploaded in chat by finding/reading it as a file
 - `files.search` searches the unified user-visible assistant Files registry, not only sandbox outputs
-- `files.send` accepts `fileRef`/query/path only
-- ambiguous query behavior returns clear choices with `fileRef`
+- `files.send` accepts alias/query/path only at the model-facing boundary
+- ambiguous query behavior returns clear choices instead of auto-picking by hidden raw selector
 - tests cover uploaded PDF -> Skill turn -> files search/read; sandbox-created file -> send; generated file -> search/read/send
 
 Out of scope:
@@ -320,7 +324,7 @@ The first implementation session should start with Slice 1 and should identify:
 ADR-081 is complete only when all of the following are true:
 
 - every user-visible or assistant-reusable file origin creates an `AssistantFile` row immediately
-- the model-facing selector for files is `fileRef`
+- the model-facing selector for files is a runtime-owned human alias, while canonical file identity remains `fileRef`
 - generated outputs no longer require or expose turn-local `artifactId` for send/reuse
 - chat attachments are projections of canonical Files where reusable
 - Assistant Settings contains the user-facing Files list
@@ -333,7 +337,7 @@ ADR-081 is complete only when all of the following are true:
 ### Positive
 
 - users get one mental model: Files
-- the assistant gets one durable selector: `fileRef`
+- the assistant gets one stable working-file alias surface, resolved by runtime to canonical `fileRef`
 - generated outputs become reusable after creation without turn-local special cases
 - file search can honestly mean "search user-visible assistant files"
 - storage backend details stop leaking into prompts and tool arguments

@@ -196,13 +196,13 @@ These are internal runtime-to-sandbox boundaries for isolated `files` / `exec` /
 
 ADR-081 defines the active target-state file boundary.
 
-The public/product file surface should expose assistant-scoped Files through canonical `fileRef` handles backed by `AssistantFile`. Chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors.
+The public/product file surface should expose assistant-scoped Files through canonical `fileRef` handles backed by `AssistantFile`. Chat `attachmentId`, runtime `artifactId`, object-storage `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors. Runtime prompt hydration and model-visible tool use must expose reusable chat files through human-readable aliases that resolve to canonical `fileRef` server-side, rather than printing raw selectors into conversational history.
 
 Sandbox and media delivery may continue to use their internal endpoints and storage paths, but those details must be hidden behind the single Files product/runtime contract. Knowledge remains a separate API/product plane and must not be folded into Files.
 
 ADR-081 Slice 1 exposes the first assistant-scoped Files API under `/api/v1/assistant/files`: list/search, metadata by `fileRef`, download, display-name update, and registry-row delete/archive semantics. These responses expose `fileRef` and product metadata, not `objectKey`.
 
-ADR-081 Slice 3 makes the runtime Files tool model-facing contract `fileRef`-first across uploaded chat files, generated outputs, and sandbox-created files. Runtime may still mount files into sandbox by relative path internally, but the required selector passed between model/tool/runtime is `fileRef`; sandbox/object storage paths remain internal implementation details.
+ADR-081 follow-up (2026-05-07) keeps `fileRef` as the canonical runtime/API file identity but changes the runtime model-facing contract to alias-first across uploaded chat files, generated outputs, and sandbox-created files. Runtime may still mount files into sandbox by relative path internally, and tool execution still resolves to canonical `fileRef`, but the model-facing selector passed through prompt/tool usage guidance is a human-readable working-file alias; sandbox/object storage paths and raw `fileRef` remain internal implementation details.
 
 ADR-081 Slice 4 adds the first visible product Files surface inside Assistant Settings. The web UI consumes the assistant-scoped Files API by `fileRef` and uses a Clerk-authenticated web proxy for open/download links. Chat attachment cards prefer the same canonical file route when `fileRef` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
 

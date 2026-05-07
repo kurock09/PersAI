@@ -39,7 +39,7 @@ type FilesSearchRequest = {
 };
 
 type FilesLookupTarget = {
-  fileRef: string | null;
+  alias: string | null;
   path: string | null;
   query: string | null;
 };
@@ -68,7 +68,7 @@ type FilesWriteAndSendRequest = {
 
 type FilesEditRequest = {
   action: "edit";
-  fileRef: string | null;
+  alias: string | null;
   path: string | null;
   query: string | null;
   oldText: string;
@@ -82,10 +82,10 @@ type FilesDeleteRequest = FilesLookupTarget & {
 
 type FilesSendRequest = {
   action: "send";
-  fileRef: string | null;
+  alias: string | null;
   path: string | null;
   query: string | null;
-  fileRefs: string[];
+  aliases: string[];
   caption: string | null;
   filename: string | null;
 };
@@ -135,6 +135,7 @@ export class RuntimeFilesToolService {
     requestId: string;
     currentArtifacts: RuntimeOutputArtifact[];
     currentFileRefs: RuntimeFileRef[];
+    availableWorkingFileRefs?: RuntimeFileRef[];
     channel: "web" | "telegram" | "max_ru";
   }): Promise<RuntimeFilesToolExecutionResult> {
     const policy = this.resolveAllowedToolPolicy(params.bundle);
@@ -200,7 +201,12 @@ export class RuntimeFilesToolService {
         case "search":
           return await this.executeSearchAction(params.bundle, request);
         case "get":
-          return await this.executeGetAction(params.bundle, request, params.currentFileRefs);
+          return await this.executeGetAction(
+            params.bundle,
+            request,
+            params.currentFileRefs,
+            params.availableWorkingFileRefs ?? []
+          );
         case "read":
           return await this.executeReadAction(params, request);
         case "write":
@@ -303,13 +309,15 @@ export class RuntimeFilesToolService {
   private async executeGetAction(
     bundle: AssistantRuntimeBundle,
     request: FilesGetRequest,
-    currentFileRefs: RuntimeFileRef[]
+    currentFileRefs: RuntimeFileRef[],
+    availableWorkingFileRefs: RuntimeFileRef[]
   ): Promise<RuntimeFilesToolExecutionResult> {
     const resolved = await this.resolveTarget({
       assistantId: bundle.metadata.assistantId,
       workspaceId: bundle.metadata.workspaceId,
       currentFileRefs,
-      fileRef: request.fileRef,
+      availableWorkingFileRefs,
+      alias: request.alias,
       path: request.path,
       query: request.query
     });
@@ -354,6 +362,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesReadRequest
@@ -362,7 +371,8 @@ export class RuntimeFilesToolService {
       assistantId: params.bundle.metadata.assistantId,
       workspaceId: params.bundle.metadata.workspaceId,
       currentFileRefs: params.currentFileRefs,
-      fileRef: request.fileRef,
+      availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
+      alias: request.alias,
       path: request.path,
       query: request.query
     });
@@ -421,6 +431,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesWriteRequest
@@ -465,6 +476,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesWriteAndSendRequest
@@ -523,6 +535,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesEditRequest
@@ -531,7 +544,8 @@ export class RuntimeFilesToolService {
       assistantId: params.bundle.metadata.assistantId,
       workspaceId: params.bundle.metadata.workspaceId,
       currentFileRefs: params.currentFileRefs,
-      fileRef: request.fileRef,
+      availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
+      alias: request.alias,
       path: request.path,
       query: request.query
     });
@@ -592,6 +606,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesDeleteRequest
@@ -601,12 +616,13 @@ export class RuntimeFilesToolService {
     let targetPath = request.path;
     let targetFileRef: string | null = null;
 
-    if (request.fileRef !== null || request.query !== null) {
+    if (request.alias !== null || request.query !== null) {
       const resolved = await this.resolveTarget({
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
         currentFileRefs: params.currentFileRefs,
-        fileRef: request.fileRef,
+        availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
+        alias: request.alias,
         path: null,
         query: request.query
       });
@@ -682,18 +698,35 @@ export class RuntimeFilesToolService {
       requestId: string;
       currentArtifacts: RuntimeOutputArtifact[];
       currentFileRefs: RuntimeFileRef[];
+      availableWorkingFileRefs?: RuntimeFileRef[];
       channel: "web" | "telegram" | "max_ru";
     },
     request: FilesSendRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const selectedFileRefs = [...request.fileRefs];
+    const pluralAliasSelection = this.resolveSelectedFileRefsFromAliases(
+      params.availableWorkingFileRefs ?? [],
+      request.aliases
+    );
+    if (pluralAliasSelection.missingAliases.length > 0) {
+      return {
+        payload: this.createSkippedResult({
+          reason: "file_alias_not_found",
+          requestedAction: "send",
+          warning: `Unknown working-file alias${pluralAliasSelection.missingAliases.length === 1 ? "" : "es"}: ${pluralAliasSelection.missingAliases.join(", ")}.`
+        }),
+        artifacts: [],
+        isError: true
+      };
+    }
+    const selectedFileRefs = [...pluralAliasSelection.fileRefs];
     let selectorWarning: string | null = null;
-    if (request.fileRef !== null || request.path !== null || request.query !== null) {
+    if (request.alias !== null || request.path !== null || request.query !== null) {
       const resolved = await this.resolveSendTarget({
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
         currentFileRefs: params.currentFileRefs,
-        fileRef: request.fileRef,
+        availableWorkingFileRefs: params.availableWorkingFileRefs ?? [],
+        alias: request.alias,
         path: request.path,
         query: request.query
       });
@@ -716,6 +749,17 @@ export class RuntimeFilesToolService {
     }
 
     const dedupedFileRefs = [...new Set(selectedFileRefs)];
+    if (dedupedFileRefs.length === 0) {
+      return {
+        payload: this.createSkippedResult({
+          reason: "file_selector_required",
+          requestedAction: "send",
+          warning: "files.send needs at least one valid working-file alias, path, or query."
+        }),
+        artifacts: [],
+        isError: true
+      };
+    }
     const queued = await this.queueResolvedSelection({
       bundle: params.bundle,
       currentArtifacts: params.currentArtifacts,
@@ -878,14 +922,14 @@ export class RuntimeFilesToolService {
       case "get":
         return {
           action: "get",
-          fileRef: this.readNonEmptyString(row.fileRef),
+          alias: this.readNonEmptyString(row.alias),
           path: this.readNonEmptyString(row.path),
           query: this.readNonEmptyString(row.query)
         };
       case "read":
         return {
           action: "read",
-          fileRef: this.readNonEmptyString(row.fileRef),
+          alias: this.readNonEmptyString(row.alias),
           path: this.readNonEmptyString(row.path),
           query: this.readNonEmptyString(row.query)
         };
@@ -924,7 +968,7 @@ export class RuntimeFilesToolService {
         }
         return {
           action,
-          fileRef: this.readNonEmptyString(row.fileRef),
+          alias: this.readNonEmptyString(row.alias),
           path: this.readNonEmptyString(row.path),
           query: this.readNonEmptyString(row.query),
           oldText,
@@ -932,40 +976,40 @@ export class RuntimeFilesToolService {
         };
       }
       case "delete": {
-        const fileRef = this.readNonEmptyString(row.fileRef);
+        const alias = this.readNonEmptyString(row.alias);
         const path = this.readNonEmptyString(row.path);
         const query = this.readNonEmptyString(row.query);
-        if (fileRef === null && path === null && query === null) {
-          return new Error("files.delete requires one target selector: fileRef, path, or query.");
+        if (alias === null && path === null && query === null) {
+          return new Error("files.delete requires one target selector: alias, path, or query.");
         }
         return {
           action,
-          fileRef,
+          alias,
           path,
           query,
           recursive: row.recursive === true
         };
       }
       case "send": {
-        const fileRefs = Array.isArray(row.fileRefs)
-          ? row.fileRefs.filter(
+        const aliases = Array.isArray(row.aliases)
+          ? row.aliases.filter(
               (item): item is string => typeof item === "string" && item.trim().length > 0
             )
           : [];
-        const fileRef = this.readNonEmptyString(row.fileRef);
+        const alias = this.readNonEmptyString(row.alias);
         const path = this.readNonEmptyString(row.path);
         const query = this.readNonEmptyString(row.query);
-        if (fileRefs.length === 0 && fileRef === null && path === null && query === null) {
+        if (aliases.length === 0 && alias === null && path === null && query === null) {
           return new Error(
-            "files.send requires fileRefs or one target selector: fileRef, path, or query."
+            "files.send requires aliases or one target selector: alias, path, or query."
           );
         }
         return {
           action,
-          fileRef,
+          alias,
           path,
           query,
-          fileRefs,
+          aliases,
           caption: this.readNonEmptyString(row.caption),
           filename: this.readNonEmptyString(row.filename)
         };
@@ -977,26 +1021,24 @@ export class RuntimeFilesToolService {
     assistantId: string;
     workspaceId: string;
     currentFileRefs: RuntimeFileRef[];
-    fileRef: string | null;
+    availableWorkingFileRefs: RuntimeFileRef[];
+    alias: string | null;
     path: string | null;
     query: string | null;
   }): Promise<ResolvedFilesToolTarget> {
-    if (input.fileRef !== null) {
-      const current = input.currentFileRefs.find((item) => item.fileRef === input.fileRef);
+    if (input.alias !== null) {
+      const normalizedAlias = this.normalizeAlias(input.alias);
+      const current = [...input.currentFileRefs, ...input.availableWorkingFileRefs].find((item) =>
+        (item.aliases ?? []).some((candidate) => this.normalizeAlias(candidate) === normalizedAlias)
+      );
       if (current !== undefined) {
         return { item: this.toItemFromRuntimeFileRef(current), warning: null };
       }
-      const stored = await this.runtimeAssistantFileRegistryService.findByFileRef({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        fileRef: input.fileRef
-      });
-      return stored === null
-        ? { item: null, reason: "file_not_found", warning: "Requested fileRef is unavailable." }
-        : {
-            item: this.runtimeAssistantFileRegistryService.toRuntimeFilesToolItem(stored),
-            warning: null
-          };
+      return {
+        item: null,
+        reason: "file_alias_not_found",
+        warning: "Requested working-file alias is unavailable in the current turn context."
+      };
     }
 
     if (input.path !== null) {
@@ -1037,7 +1079,7 @@ export class RuntimeFilesToolService {
         return {
           item: null,
           reason: "ambiguous_file_query",
-          warning: `Multiple assistant files matched "${input.query}". Refine the query or use fileRef.`,
+          warning: `Multiple assistant files matched "${input.query}". Refine the query or use a working-file alias.`,
           items: matches
         };
       }
@@ -1047,7 +1089,7 @@ export class RuntimeFilesToolService {
     return {
       item: null,
       reason: "file_selector_required",
-      warning: "Provide fileRef, path, or query for this files action."
+      warning: "Provide alias, path, or query for this files action."
     };
   }
 
@@ -1055,28 +1097,12 @@ export class RuntimeFilesToolService {
     assistantId: string;
     workspaceId: string;
     currentFileRefs: RuntimeFileRef[];
-    fileRef: string | null;
+    availableWorkingFileRefs: RuntimeFileRef[];
+    alias: string | null;
     path: string | null;
     query: string | null;
   }): Promise<ResolvedFilesToolTarget> {
-    const resolved = await this.resolveTarget(input);
-    if (
-      resolved.item !== null ||
-      input.query === null ||
-      resolved.reason !== "ambiguous_file_query"
-    ) {
-      return resolved;
-    }
-    const items = resolved.items ?? [];
-    const first = items[0];
-    if (first === undefined || !this.allTargetsShareVisibleFileName(items, first)) {
-      return resolved;
-    }
-    return {
-      item: first,
-      warning:
-        "Multiple registry entries matched the same visible filename; sending the newest match."
-    };
+    return this.resolveTarget(input);
   }
 
   private allTargetsShareVisibleFileName(
@@ -1339,7 +1365,8 @@ export class RuntimeFilesToolService {
       displayName: file.fileRef.displayName,
       mimeType: file.fileRef.mimeType,
       sizeBytes: file.fileRef.sizeBytes,
-      logicalSizeBytes: file.fileRef.logicalSizeBytes
+      logicalSizeBytes: file.fileRef.logicalSizeBytes,
+      aliases: file.fileRef.aliases ?? null
     }));
   }
 
@@ -1352,8 +1379,30 @@ export class RuntimeFilesToolService {
       displayName: fileRef.displayName,
       mimeType: fileRef.mimeType,
       sizeBytes: fileRef.sizeBytes,
-      logicalSizeBytes: fileRef.logicalSizeBytes
+      logicalSizeBytes: fileRef.logicalSizeBytes,
+      aliases: fileRef.aliases ?? null
     };
+  }
+
+  private resolveSelectedFileRefsFromAliases(
+    availableWorkingFileRefs: RuntimeFileRef[],
+    aliases: string[]
+  ): { fileRefs: string[]; missingAliases: string[] } {
+    const fileRefs: string[] = [];
+    const missingAliases: string[] = [];
+    for (const alias of aliases) {
+      const match = availableWorkingFileRefs.find((item) =>
+        (item.aliases ?? []).some(
+          (candidate) => this.normalizeAlias(candidate) === this.normalizeAlias(alias)
+        )
+      );
+      if (match === undefined) {
+        missingAliases.push(alias);
+        continue;
+      }
+      fileRefs.push(match.fileRef);
+    }
+    return { fileRefs, missingAliases };
   }
 
   private assertMimeAllowed(mimeType: string, allowlist: Set<string>): void {
@@ -1420,5 +1469,9 @@ export class RuntimeFilesToolService {
 
   private readString(value: unknown): string | null {
     return typeof value === "string" ? value : null;
+  }
+
+  private normalizeAlias(value: string): string {
+    return value.trim().toLowerCase();
   }
 }

@@ -63,7 +63,7 @@ type ResolvedVideoReferenceSelection =
         mimeType: string;
         filename: string | null;
       } | null;
-      referenceImageIndex: number | null;
+      referenceImageAlias: string | null;
       referenceFilename: string | null;
     }
   | {
@@ -111,7 +111,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: null,
           requestedSeconds: null,
           size: null,
-          referenceImageIndex: null,
+          referenceImageAlias: null,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -135,7 +135,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: request.referenceImageIndex,
+          referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -159,7 +159,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: request.referenceImageIndex,
+          referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -183,7 +183,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: request.referenceImageIndex,
+          referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -210,7 +210,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: request.referenceImageIndex,
+          referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -238,7 +238,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: request.referenceImageIndex,
+          referenceImageAlias: request.referenceImageAlias,
           referenceFilename: null,
           artifact: null,
           usage: null,
@@ -273,7 +273,7 @@ export class RuntimeVideoGenerateToolService {
               prompt: request.prompt,
               requestedSeconds: request.seconds,
               size: request.size,
-              referenceImageIndex: selection.referenceImageIndex,
+              referenceImageAlias: selection.referenceImageAlias,
               referenceFilename: selection.referenceFilename,
               artifact: null,
               usage: null,
@@ -295,7 +295,7 @@ export class RuntimeVideoGenerateToolService {
             prompt: request.prompt,
             requestedSeconds: request.seconds,
             size: request.size,
-            referenceImageIndex: selection.referenceImageIndex,
+            referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
             usage: null,
@@ -317,7 +317,7 @@ export class RuntimeVideoGenerateToolService {
             prompt: request.prompt,
             requestedSeconds: request.seconds,
             size: request.size,
-            referenceImageIndex: selection.referenceImageIndex,
+            referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
             usage: null,
@@ -351,7 +351,7 @@ export class RuntimeVideoGenerateToolService {
             prompt: request.prompt,
             requestedSeconds: request.seconds,
             size: request.size,
-            referenceImageIndex: selection.referenceImageIndex,
+            referenceImageAlias: selection.referenceImageAlias,
             referenceFilename: selection.referenceFilename,
             artifact: null,
             usage: null,
@@ -384,7 +384,7 @@ export class RuntimeVideoGenerateToolService {
       this.logger.log(
         `[video-generate] requestId=${params.requestId} provider=${providerId} seconds=${String(
           request.seconds
-        )} referenceIndex=${selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)}`
+        )} referenceAlias="${selection.referenceImageAlias ?? "none"}"`
       );
 
       const artifact = await this.persistGeneratedArtifact({
@@ -406,7 +406,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: providerResult.size ?? request.size,
-          referenceImageIndex: selection.referenceImageIndex,
+          referenceImageAlias: selection.referenceImageAlias,
           referenceFilename: selection.referenceFilename,
           artifact,
           usage: providerResult.usage,
@@ -422,9 +422,9 @@ export class RuntimeVideoGenerateToolService {
         assistantId: params.bundle.metadata.assistantId
       });
       this.logger.warn(
-        `[video-generate] failed requestId=${params.requestId} referenceIndex=${
-          selection.referenceImageIndex === null ? "none" : String(selection.referenceImageIndex)
-        }: ${error instanceof Error ? error.message : "Video generation failed."}`
+        `[video-generate] failed requestId=${params.requestId} referenceAlias="${
+          selection.referenceImageAlias ?? "none"
+        }": ${error instanceof Error ? error.message : "Video generation failed."}`
       );
       return {
         payload: {
@@ -435,7 +435,7 @@ export class RuntimeVideoGenerateToolService {
           prompt: request.prompt,
           requestedSeconds: request.seconds,
           size: request.size,
-          referenceImageIndex: selection.referenceImageIndex,
+          referenceImageAlias: selection.referenceImageAlias,
           referenceFilename: selection.referenceFilename,
           artifact: null,
           usage: null,
@@ -459,7 +459,7 @@ export class RuntimeVideoGenerateToolService {
         key !== "filename" &&
         key !== "size" &&
         key !== "seconds" &&
-        key !== "referenceImageIndex"
+        key !== "referenceImageAlias"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -505,13 +505,16 @@ export class RuntimeVideoGenerateToolService {
       );
     }
 
-    const referenceImageIndex = this.readOptionalPositiveImageIndex(args.referenceImageIndex);
+    const referenceImageAlias =
+      args.referenceImageAlias === undefined || args.referenceImageAlias === null
+        ? null
+        : this.asNonEmptyString(args.referenceImageAlias);
     if (
-      "referenceImageIndex" in args &&
-      args.referenceImageIndex !== null &&
-      referenceImageIndex === null
+      "referenceImageAlias" in args &&
+      args.referenceImageAlias !== null &&
+      referenceImageAlias === null
     ) {
-      return new Error("referenceImageIndex must be a positive integer when provided");
+      return new Error("referenceImageAlias must be a non-empty string when provided");
     }
 
     return {
@@ -520,7 +523,7 @@ export class RuntimeVideoGenerateToolService {
       filename,
       size,
       seconds: seconds as PersaiRuntimeVideoGenerateSeconds,
-      referenceImageIndex
+      referenceImageAlias
     };
   }
 
@@ -530,9 +533,9 @@ export class RuntimeVideoGenerateToolService {
     requestId: string
   ): Promise<ResolvedVideoReferenceSelection> {
     const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-    let referenceImageIndex = request.referenceImageIndex;
-    if (referenceImageIndex === null) {
-      const inferred = this.inferReferenceImageIndex(imageAttachments.length, request.prompt);
+    let referenceImageAlias = request.referenceImageAlias;
+    if (referenceImageAlias === null) {
+      const inferred = this.inferReferenceImageAlias(imageAttachments, request.prompt);
       if (inferred === "missing") {
         return {
           ok: false,
@@ -544,24 +547,24 @@ export class RuntimeVideoGenerateToolService {
       if (inferred === "selection_required") {
         return {
           ok: false,
-          reason: "reference_image_selection_required",
+          reason: "reference_image_alias_required",
           warning:
-            "Multiple images are attached. Set referenceImageIndex to the numbered image that should guide the generated video."
+            "Multiple reusable images are available. Ask the user which image alias should guide the generated video."
         };
       }
-      if (typeof inferred === "number") {
-        referenceImageIndex = inferred;
+      if (typeof inferred === "string") {
+        referenceImageAlias = inferred;
         this.logger.log(
-          `[video-generate] inferred reference image index=${String(referenceImageIndex)} requestId=${requestId}`
+          `[video-generate] inferred reference image alias="${referenceImageAlias}" requestId=${requestId}`
         );
       }
     }
 
-    if (referenceImageIndex === null) {
+    if (referenceImageAlias === null) {
       return {
         ok: true,
         referenceImage: null,
-        referenceImageIndex: null,
+        referenceImageAlias: null,
         referenceFilename: null
       };
     }
@@ -571,16 +574,17 @@ export class RuntimeVideoGenerateToolService {
         ok: false,
         reason: "reference_image_missing",
         warning:
-          "Attach an image or keep the reference image in recent chat context before using referenceImageIndex."
+          "Attach an image or keep the reference image in recent chat context before using referenceImageAlias."
       };
     }
 
-    const attachment = imageAttachments[referenceImageIndex - 1] ?? null;
+    const attachment = this.findAttachmentByAlias(imageAttachments, referenceImageAlias);
     if (attachment === null) {
       return {
         ok: false,
-        reason: "reference_image_index_invalid",
-        warning: "referenceImageIndex must point to one of the available chat image attachments."
+        reason: "reference_image_alias_invalid",
+        warning:
+          "referenceImageAlias must match one of the available reusable image aliases in the working-files context."
       };
     }
 
@@ -592,23 +596,23 @@ export class RuntimeVideoGenerateToolService {
     return {
       ok: true,
       referenceImage: loadedReference.image,
-      referenceImageIndex,
+      referenceImageAlias: this.resolvePrimaryAttachmentAlias(attachment),
       referenceFilename: attachment.filename
     };
   }
 
-  private inferReferenceImageIndex(
-    imageAttachmentCount: number,
+  private inferReferenceImageAlias(
+    imageAttachments: RuntimeAttachmentRef[],
     prompt: string
-  ): number | "missing" | "selection_required" | null {
+  ): string | "missing" | "selection_required" | null {
     if (!this.promptImpliesReferenceImage(prompt)) {
       return null;
     }
-    if (imageAttachmentCount === 0) {
+    if (imageAttachments.length === 0) {
       return "missing";
     }
-    if (imageAttachmentCount === 1) {
-      return 1;
+    if (imageAttachments.length === 1) {
+      return this.resolvePrimaryAttachmentAlias(imageAttachments[0]!);
     }
     return "selection_required";
   }
@@ -852,7 +856,25 @@ export class RuntimeVideoGenerateToolService {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
-  private readOptionalPositiveImageIndex(value: unknown): number | null {
-    return Number.isInteger(value) && Number(value) > 0 ? Number(value) : null;
+  private findAttachmentByAlias(
+    attachments: RuntimeAttachmentRef[],
+    alias: string
+  ): RuntimeAttachmentRef | null {
+    const normalized = this.normalizeAlias(alias);
+    return (
+      attachments.find((attachment) =>
+        (attachment.aliases ?? []).some(
+          (candidate) => this.normalizeAlias(candidate) === normalized
+        )
+      ) ?? null
+    );
+  }
+
+  private resolvePrimaryAttachmentAlias(attachment: RuntimeAttachmentRef): string {
+    return attachment.aliases?.[0] ?? attachment.filename ?? "reference image";
+  }
+
+  private normalizeAlias(value: string): string {
+    return value.trim().toLowerCase();
   }
 }

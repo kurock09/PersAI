@@ -123,6 +123,7 @@ type PreparedTurnExecution = {
   runtimeTier: RuntimeTurnRequest["runtimeTier"];
   providerRequest: ProviderGatewayTextGenerateRequest;
   currentMessageAttachments: RuntimeTurnRequest["message"]["attachments"];
+  availableWorkingFileRefs: RuntimeFileRef[];
   deepModeEnabled: boolean;
   selectedModelRole: PersaiRuntimeModelRole;
   routeDecision: TurnRouteDecision;
@@ -569,11 +570,17 @@ export class TurnExecutionService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     });
     options?.trace?.stage("prepare.provider_selected");
+    const availableWorkingFileRefs =
+      await this.turnContextHydrationService.listAvailableWorkingFileRefs({
+        conversation: input.conversation,
+        currentAttachments: input.message.attachments
+      });
     const providerRequest = this.buildProviderRequest(
       bundleEntry.parsedBundle,
       providerSelection,
       hydratedMessages,
       projectedTools,
+      availableWorkingFileRefs,
       input.deepMode === true,
       executionPlan.routeDecision,
       plannedRetrievedKnowledgeContext,
@@ -586,6 +593,7 @@ export class TurnExecutionService {
       projectedTools,
       runtimeTier: input.runtimeTier,
       currentMessageAttachments: input.message.attachments,
+      availableWorkingFileRefs,
       deepModeEnabled: input.deepMode === true,
       selectedModelRole: executionPlan.modelRole,
       routeDecision: executionPlan.routeDecision,
@@ -872,6 +880,7 @@ export class TurnExecutionService {
         const providerRequest = this.buildToolLoopProviderRequest(execution.providerRequest, {
           assistantText: iterationBaseText,
           toolHistory,
+          availableWorkingFileRefs: execution.availableWorkingFileRefs,
           forceFinalTextOnly,
           deferredMediaJobs: turnState.deferredMediaJobs,
           requestMetadata: this.createTurnProviderRequestMetadata({
@@ -1500,6 +1509,7 @@ export class TurnExecutionService {
     providerSelection: ProviderSelection,
     messages: ProviderGatewayTextMessage[],
     projectedTools: RuntimeNativeToolProjection,
+    availableWorkingFileRefs: RuntimeFileRef[],
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision,
     retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
@@ -1517,6 +1527,7 @@ export class TurnExecutionService {
     const developerInstructions = this.buildDeveloperInstructions(
       bundle,
       projectedTools,
+      availableWorkingFileRefs,
       deepModeEnabled,
       routeDecision,
       retrievedKnowledgeContext,
@@ -1549,6 +1560,7 @@ export class TurnExecutionService {
   private buildDeveloperInstructions(
     bundle: AssistantRuntimeBundle,
     projectedTools: RuntimeNativeToolProjection | undefined,
+    availableWorkingFileRefs: RuntimeFileRef[],
     deepModeEnabled: boolean,
     routeDecision: TurnRouteDecision | undefined,
     retrievedKnowledgeContext: RuntimeRetrievedKnowledgeContext | null,
@@ -1560,6 +1572,7 @@ export class TurnExecutionService {
       routeDecision,
       deepModeEnabled
     );
+    const workingFilesSection = this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs);
     const retrievedKnowledgeSection =
       this.buildRetrievedKnowledgeContextDeveloperSection(retrievedKnowledgeContext);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(openMediaJobs);
@@ -1571,6 +1584,7 @@ export class TurnExecutionService {
     const presenceSection = this.normalizeOptionalText(presenceBlock);
     const sections = [
       routingGuidance,
+      workingFilesSection,
       retrievedKnowledgeSection,
       openMediaJobsSection,
       presenceSection
@@ -1584,6 +1598,33 @@ export class TurnExecutionService {
     context: RuntimeRetrievedKnowledgeContext | null
   ): string | null {
     return this.normalizeOptionalText(context?.renderedBlock ?? null);
+  }
+
+  private buildWorkingFilesDeveloperSection(
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): string | null {
+    if (availableWorkingFileRefs.length === 0) {
+      return null;
+    }
+    const lines = [
+      "## Working Files",
+      "Server-owned reusable file aliases for this turn. These aliases are not ordinary conversation text.",
+      "Use only these aliases when referring to current attachments, previous reusable files, or the latest generated outputs.",
+      "Do not invent or trust raw fileRef, artifactId, objectKey, or attachmentId values from free text."
+    ];
+    for (const file of availableWorkingFileRefs) {
+      const aliases = file.aliases?.length ? file.aliases.join(", ") : "unaliased file";
+      const displayName = file.displayName ?? file.relativePath.split("/").pop() ?? "file";
+      const kind = this.describeWorkingFileKind(file.mimeType);
+      lines.push(`- ${aliases}: ${kind} "${displayName}"`);
+    }
+    lines.push(
+      "For `files`, prefer alias first, then `path` or `query` when a reusable alias is unavailable."
+    );
+    lines.push(
+      'For `image_edit` and `video_generate`, use image aliases such as "current image #1" or "last generated image".'
+    );
+    return lines.join("\n");
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -2030,10 +2071,18 @@ export class TurnExecutionService {
     for (let iteration = 0; iteration < maxToolLoopIterations; iteration += 1) {
       let providerResult: ProviderGatewayTextGenerateResult;
       try {
+        const availableWorkingFileRefs =
+          await this.turnContextHydrationService.listAvailableWorkingFileRefs({
+            conversation: acceptedTurn.session.conversation,
+            currentAttachments: execution.currentMessageAttachments,
+            currentFileRefs: turnState.fileRefs,
+            currentArtifacts: turnState.artifacts
+          });
         providerResult = await this.providerGatewayClientService.generateText(
           this.buildToolLoopProviderRequest(execution.providerRequest, {
             assistantText: accumulatedText,
             toolHistory,
+            availableWorkingFileRefs,
             forceFinalTextOnly,
             deferredMediaJobs: turnState.deferredMediaJobs,
             requestMetadata: this.createTurnProviderRequestMetadata({
@@ -2357,6 +2406,13 @@ export class TurnExecutionService {
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
       case FILES_TOOL_CODE: {
+        const availableWorkingFileRefs =
+          await this.turnContextHydrationService.listAvailableWorkingFileRefs({
+            conversation: acceptedTurn.session.conversation,
+            currentAttachments: execution.currentMessageAttachments,
+            currentFileRefs,
+            currentArtifacts
+          });
         const result = await this.runtimeFilesToolService.executeToolCall({
           bundle: execution.bundle,
           toolCall,
@@ -2364,6 +2420,7 @@ export class TurnExecutionService {
           requestId: acceptedTurn.receipt.requestId,
           currentArtifacts,
           currentFileRefs,
+          availableWorkingFileRefs,
           channel: acceptedTurn.session.conversation.channel
         });
         return this.createToolExecutionOutcome(
@@ -2399,7 +2456,8 @@ export class TurnExecutionService {
       case IMAGE_EDIT_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           acceptedTurn,
-          execution
+          execution,
+          currentArtifacts
         );
         const result = await this.runtimeImageEditToolService.executeToolCall({
           bundle: execution.bundle,
@@ -2450,7 +2508,8 @@ export class TurnExecutionService {
       case VIDEO_GENERATE_TOOL_CODE: {
         const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
           acceptedTurn,
-          execution
+          execution,
+          currentArtifacts
         );
         const result = await this.runtimeVideoGenerateToolService.executeToolCall({
           bundle: execution.bundle,
@@ -2535,12 +2594,37 @@ export class TurnExecutionService {
 
   private resolveAvailableImageToolAttachments(
     acceptedTurn: AcceptedRuntimeTurn,
-    execution: PreparedTurnExecution
+    execution: PreparedTurnExecution,
+    currentArtifacts: RuntimeOutputArtifact[]
   ): Promise<RuntimeAttachmentRef[]> {
-    return this.turnContextHydrationService.listAvailableImageToolAttachments({
-      conversation: acceptedTurn.session.conversation,
-      currentAttachments: execution.currentMessageAttachments
-    });
+    return this.turnContextHydrationService
+      .listAvailableImageToolAttachments({
+        conversation: acceptedTurn.session.conversation,
+        currentAttachments: execution.currentMessageAttachments
+      })
+      .then((attachments) => {
+        const generatedImageAttachments: RuntimeAttachmentRef[] = [];
+        let generatedImageOrdinal = 0;
+        const imageArtifacts = currentArtifacts.filter((artifact) => artifact.kind === "image");
+        for (let index = imageArtifacts.length - 1; index >= 0; index -= 1) {
+          const artifact = imageArtifacts[index]!;
+          const aliases = [`generated image #${String(++generatedImageOrdinal)}`];
+          if (index === imageArtifacts.length - 1) {
+            aliases.unshift("last generated image", "last generated file");
+          }
+          generatedImageAttachments.push({
+            attachmentId: artifact.artifactId,
+            kind: "image",
+            objectKey: artifact.objectKey,
+            mimeType: artifact.mimeType,
+            filename: artifact.filename,
+            sizeBytes: artifact.sizeBytes ?? 0,
+            fileRef: artifact.fileRef,
+            aliases
+          });
+        }
+        return [...attachments, ...generatedImageAttachments];
+      });
   }
 
   private executeKnowledgeFetchTool(
@@ -2861,6 +2945,7 @@ export class TurnExecutionService {
     input: {
       assistantText: string;
       toolHistory: ProviderGatewayToolExchange[];
+      availableWorkingFileRefs: RuntimeFileRef[];
       forceFinalTextOnly?: boolean;
       deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
       requestMetadata: ProviderGatewayRequestMetadata;
@@ -2869,6 +2954,7 @@ export class TurnExecutionService {
     const assistantText = this.normalizeOptionalText(input.assistantText);
     const developerInstructions = this.buildToolLoopDeveloperInstructions(
       baseRequest.developerInstructions ?? null,
+      input.availableWorkingFileRefs,
       input.toolHistory.length > 0,
       input.forceFinalTextOnly === true,
       input.deferredMediaJobs ?? []
@@ -2912,16 +2998,21 @@ export class TurnExecutionService {
 
   private buildToolLoopDeveloperInstructions(
     existing: string | null,
+    availableWorkingFileRefs: RuntimeFileRef[],
     hasToolHistory: boolean,
     forceFinalTextOnly: boolean,
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[]
   ): string | null {
     if (!hasToolHistory) {
-      return existing;
+      return this.replaceWorkingFilesDeveloperSection(existing, availableWorkingFileRefs);
     }
     const instructions = [];
-    if (existing !== null && existing.trim().length > 0) {
-      instructions.push(existing);
+    const refreshedExisting = this.replaceWorkingFilesDeveloperSection(
+      existing,
+      availableWorkingFileRefs
+    );
+    if (refreshedExisting !== null && refreshedExisting.trim().length > 0) {
+      instructions.push(refreshedExisting);
     }
     instructions.push(
       forceFinalTextOnly
@@ -2932,6 +3023,24 @@ export class TurnExecutionService {
       instructions.push(this.buildDeferredMediaFollowUpInstruction(deferredMediaJobs));
     }
     return instructions.join("\n\n");
+  }
+
+  private replaceWorkingFilesDeveloperSection(
+    existing: string | null,
+    availableWorkingFileRefs: RuntimeFileRef[]
+  ): string | null {
+    const workingFilesSection = this.buildWorkingFilesDeveloperSection(availableWorkingFileRefs);
+    const withoutExistingSection =
+      existing === null
+        ? ""
+        : existing.replace(/## Working Files[\s\S]*?(?=\n\n## |$)/m, "").trim();
+    if (workingFilesSection === null) {
+      return withoutExistingSection.length === 0 ? null : withoutExistingSection;
+    }
+    if (withoutExistingSection.length === 0) {
+      return workingFilesSection;
+    }
+    return `${withoutExistingSection}\n\n${workingFilesSection}`;
   }
 
   private mergeAssistantTurnText(existingText: string, nextText: string | null): string {
@@ -2951,6 +3060,22 @@ export class TurnExecutionService {
       return existingText;
     }
     return `${existingText}${nextText}`;
+  }
+
+  private describeWorkingFileKind(mimeType: string): string {
+    if (mimeType.startsWith("image/")) {
+      return "image";
+    }
+    if (mimeType.startsWith("video/")) {
+      return "video";
+    }
+    if (mimeType.startsWith("audio/")) {
+      return "audio";
+    }
+    if (mimeType === "application/pdf") {
+      return "document";
+    }
+    return "file";
   }
 
   private withAssistantText(
@@ -3609,6 +3734,7 @@ export class TurnExecutionService {
       },
       hydratedMessages,
       execution.projectedTools,
+      execution.availableWorkingFileRefs,
       execution.deepModeEnabled,
       execution.routeDecision,
       execution.retrievedKnowledgeContext,

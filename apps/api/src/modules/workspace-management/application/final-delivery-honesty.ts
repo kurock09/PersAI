@@ -161,8 +161,8 @@ function stripTechnicalAttachmentSummary(input: { assistantText: string }): {
     .filter((line) => {
       const normalized = line.trim();
       if (
-        /^Assistant sent (?:an? )?attachments?:\s+.+fileRef:\s*"[^"]+".?$/i.test(normalized) ||
-        /^Assistant sent (?:an? )?attachments?:\s+.+fileRef:\s*'[^']+'.?$/i.test(normalized)
+        /^Assistant sent (?:an? )?attachments?:\s+.+$/i.test(normalized) ||
+        /^\[?Working files from user attachments:.*$/i.test(normalized)
       ) {
         strippedTechnicalAttachmentSummary = true;
         return false;

@@ -1,11 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentProps, ReactNode } from "react";
-import type {
-  AssistantLifecycleState,
-  AssistantMemoryRegistryItemState,
-  PublicPricingPlanState
-} from "@persai/contracts";
+import type { AssistantLifecycleState, AssistantMemoryRegistryItemState } from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 
@@ -45,7 +41,6 @@ const assistantApiMocks = vi.hoisted(() => ({
   patchAssistantFileDisplayName: vi.fn(),
   deleteAssistantFile: vi.fn(),
   uploadAssistantAvatar: vi.fn(),
-  getPublicPricingPlans: vi.fn(),
   getAssistantBillingSubscription: vi.fn(),
   postAssistantBillingDisableAutoRenew: vi.fn(),
   postAssistantBillingChangePlan: vi.fn()
@@ -89,7 +84,6 @@ vi.mock("../assistant-api-client", async () => {
     patchAssistantFileDisplayName: assistantApiMocks.patchAssistantFileDisplayName,
     deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
-    getPublicPricingPlans: assistantApiMocks.getPublicPricingPlans,
     getAssistantBillingSubscription: assistantApiMocks.getAssistantBillingSubscription,
     postAssistantBillingDisableAutoRenew: assistantApiMocks.postAssistantBillingDisableAutoRenew,
     postAssistantBillingChangePlan: assistantApiMocks.postAssistantBillingChangePlan
@@ -196,57 +190,6 @@ function makeAppData(overrides: Partial<AppData> = {}): AppData {
   } as AppData;
 }
 
-function makePricingPlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricingPlanState {
-  return {
-    code: "pro",
-    displayName: "Pro",
-    description: "Premium plan",
-    trialEnabled: true,
-    trialDurationDays: 7,
-    defaultOnRegistration: false,
-    enabledToolCodes: ["image_generate", "video_generate"],
-    entitlements: {
-      toolClasses: {
-        costDrivingTools: true,
-        utilityTools: true,
-        costDrivingQuotaGoverned: true,
-        utilityQuotaGoverned: true
-      },
-      channelsAndSurfaces: {
-        webChat: true,
-        telegram: true,
-        whatsapp: false,
-        max: false
-      }
-    },
-    quotaLimits: {
-      tokenBudgetLimit: 20000,
-      activeWebChatsLimit: 10,
-      mediaStorageBytesLimit: 1000000,
-      knowledgeStorageBytesLimit: 1000000,
-      imageGenerateMonthlyUnitsLimit: 30,
-      imageEditMonthlyUnitsLimit: 10,
-      videoGenerateMonthlyUnitsLimit: 8
-    },
-    skillPolicy: {
-      maxEnabledSkills: 12
-    },
-    presentation: {
-      showOnPricingPage: true,
-      displayOrder: 1,
-      highlighted: true,
-      title: { ru: "Про", en: "Pro" },
-      subtitle: { ru: "Для роста", en: "For growth" },
-      notes: { ru: "Quiet premium note", en: "Quiet premium note" },
-      badge: { ru: "Популярный", en: "Popular" },
-      ctaLabel: { ru: "Выбрать", en: "Choose" },
-      price: { amount: 49, currency: "RUB", billingPeriod: "month" },
-      highlightItems: { ru: ["30 картинок"], en: ["30 images per month"] }
-    },
-    ...overrides
-  };
-}
-
 function registry(
   overrides: Partial<AssistantMemoryRegistryItemState>
 ): AssistantMemoryRegistryItemState {
@@ -304,7 +247,6 @@ beforeEach(() => {
   });
   clerkMocks.isLoaded = true;
   clerkMocks.getToken.mockResolvedValue("token-1");
-  assistantApiMocks.getPublicPricingPlans.mockResolvedValue([makePricingPlan()]);
   assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantBackgroundTaskItems.mockResolvedValue([]);
@@ -1075,9 +1017,7 @@ describe("AssistantSettings limits", () => {
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
-      await screen.findByText(
-        "Manage auto-renew and payment method from server-truth billing state."
-      )
+      await screen.findByText("Manage auto-renew and payment method here.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Bank card")).toBeInTheDocument();
@@ -1171,9 +1111,7 @@ describe("AssistantSettings limits", () => {
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
-      await screen.findByText(
-        "View payment details and access period from server-truth billing state."
-      )
+      await screen.findByText("View payment details and access period here.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
     expect(screen.getByText("Access until")).toBeInTheDocument();
@@ -1184,29 +1122,8 @@ describe("AssistantSettings limits", () => {
     expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
   });
 
-  it("opens an in-product plan picker from payment settings instead of redirect-only pricing", async () => {
+  it("redirects change plan from payment settings to the standard pricing page", async () => {
     const openPricingPage = vi.fn();
-    assistantApiMocks.getPublicPricingPlans.mockResolvedValue([
-      makePricingPlan({
-        code: "basic",
-        displayName: "Basic",
-        presentation: {
-          ...makePricingPlan().presentation,
-          highlighted: false,
-          title: { ru: "Базовый", en: "Basic" },
-          price: { amount: 19, currency: "RUB", billingPeriod: "month" }
-        }
-      }),
-      makePricingPlan({
-        code: "pro",
-        displayName: "Pro",
-        presentation: {
-          ...makePricingPlan().presentation,
-          title: { ru: "Про", en: "Pro" },
-          price: { amount: 49, currency: "RUB", billingPeriod: "month" }
-        }
-      })
-    ]);
     assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
       planCode: "basic",
       planDisplayName: "Basic",
@@ -1274,13 +1191,13 @@ describe("AssistantSettings limits", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
     fireEvent.click(await screen.findByRole("button", { name: "Change plan" }));
 
-    expect(await screen.findByRole("heading", { name: "Change plan" })).toBeInTheDocument();
-    expect(openPricingPage).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
-
-    expect(await screen.findByText("Review upgrade")).toBeInTheDocument();
-    expect(screen.getByText(/switches from Basic to Pro immediately/i)).toBeInTheDocument();
+    expect(openPricingPage).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("heading", { name: "Change plan" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "Review upgrades, downgrades, and FREE changes inside the billing management flow."
+      )
+    ).toBeNull();
   });
 
   it("keeps zero-price plans outside payment settings and shows indefinite access", () => {

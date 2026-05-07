@@ -31,20 +31,23 @@
  * `provider`, `usage`) pass through verbatim, so the model still receives
  * everything semantically meaningful for its next response.
  *
- * Fields kept for the model: `fileRef`, `kind`, `mimeType`, `voiceNote`, `caption`.
+ * Fields kept for the model: `kind`, `mimeType`, `voiceNote`, `caption`.
  * Fields stripped from the model-visible JSON: `artifactId`, `objectKey`,
- * `filename`, `sizeBytes`. `caption` is kept because if the runtime ever
+ * `filename`, `sizeBytes`, `fileRef`. `caption` is kept because if the runtime ever
  * synthesizes a caption (e.g., a tool says "cropped to focus on subject"),
  * that caption is meaningful for the next reasoning step and not a
  * presentation-only token.
  */
 
-const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set([
-  "fileRef",
-  "kind",
+const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set(["kind", "mimeType", "voiceNote", "caption"]);
+const MODEL_VISIBLE_FILES_ITEM_FIELDS = new Set([
+  "origin",
+  "relativePath",
+  "displayName",
   "mimeType",
-  "voiceNote",
-  "caption"
+  "sizeBytes",
+  "logicalSizeBytes",
+  "aliases"
 ]);
 
 function isSuccessfulFilesDeliveryResult(value: Record<string, unknown>): boolean {
@@ -64,21 +67,85 @@ function isRuntimeOutputArtifactShape(value: Record<string, unknown>): boolean {
   return typeof value.artifactId === "string" && typeof value.kind === "string";
 }
 
+function isRuntimeFilesToolItemShape(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.fileRef === "string" &&
+    typeof value.origin === "string" &&
+    typeof value.relativePath === "string" &&
+    typeof value.mimeType === "string"
+  );
+}
+
+function isRuntimeFilesToolResultShape(value: Record<string, unknown>): boolean {
+  return value.toolCode === "files" && value.executionMode === "inline";
+}
+
+function sanitizeFilesToolItemForModel(value: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (MODEL_VISIBLE_FILES_ITEM_FIELDS.has(k)) {
+      sanitized[k] = v;
+    }
+  }
+  return sanitized;
+}
+
+function sanitizeFilesToolResultForModel(value: Record<string, unknown>): Record<string, unknown> {
+  if (isSuccessfulFilesDeliveryResult(value)) {
+    return {
+      toolCode: "files",
+      requestedAction: value.requestedAction,
+      action: value.action,
+      delivered: true,
+      queuedAttachments: value.queuedArtifacts,
+      instruction:
+        "The file delivery succeeded and will be shown as an attachment card. Do not print raw selectors, raw tool output, or attachment metadata. Briefly tell the user the file was sent."
+    };
+  }
+
+  const item =
+    typeof value.item === "object" &&
+    value.item !== null &&
+    !Array.isArray(value.item) &&
+    isRuntimeFilesToolItemShape(value.item as Record<string, unknown>)
+      ? sanitizeFilesToolItemForModel(value.item as Record<string, unknown>)
+      : value.item;
+  const items = Array.isArray(value.items)
+    ? value.items.map((entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        !Array.isArray(entry) &&
+        isRuntimeFilesToolItemShape(entry as Record<string, unknown>)
+          ? sanitizeFilesToolItemForModel(entry as Record<string, unknown>)
+          : entry
+      )
+    : [];
+
+  return {
+    toolCode: "files",
+    executionMode: value.executionMode,
+    requestedAction: value.requestedAction,
+    action: value.action,
+    reason: value.reason,
+    warning: value.warning,
+    item,
+    items,
+    content: value.content ?? null,
+    job: null,
+    queuedArtifacts: value.queuedArtifacts ?? 0
+  };
+}
+
 function modelFacingReplacer(_key: string, value: unknown): unknown {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return value;
   }
   const candidate = value as Record<string, unknown>;
-  if (isSuccessfulFilesDeliveryResult(candidate)) {
-    return {
-      toolCode: "files",
-      requestedAction: candidate.requestedAction,
-      action: candidate.action,
-      delivered: true,
-      queuedAttachments: candidate.queuedArtifacts,
-      instruction:
-        "The file delivery succeeded and will be shown as an attachment card. Do not print fileRef, raw tool output, or attachment metadata. Briefly tell the user the file was sent."
-    };
+  if (isRuntimeFilesToolResultShape(candidate)) {
+    return sanitizeFilesToolResultForModel(candidate);
+  }
+  if (isRuntimeFilesToolItemShape(candidate)) {
+    return sanitizeFilesToolItemForModel(candidate);
   }
   if (!isRuntimeOutputArtifactShape(candidate)) {
     return value;

@@ -6,6 +6,8 @@ import type {
   ProviderGatewayPdfContentBlock,
   ProviderGatewayTextMessage,
   RuntimeAttachmentRef,
+  RuntimeFileRef,
+  RuntimeOutputArtifact,
   RuntimeConversationAddress,
   RuntimeTurnRequest
 } from "@persai/runtime-contract";
@@ -30,7 +32,10 @@ import {
 } from "./prompt-cache-stable-blocks";
 import { renderCrossSessionCarryOverBlock } from "./cross-session-carry-over-renderer";
 import { renderPresenceBlock } from "./presence-renderer";
-import { RuntimeAssistantFileRegistryService } from "./runtime-assistant-file-registry.service";
+import {
+  RuntimeAssistantFileRegistryService,
+  type RuntimeAssistantFileRecord
+} from "./runtime-assistant-file-registry.service";
 import { parseStoredReusableCompactionState } from "./shared-compaction-state";
 
 const MAX_DIRECT_PROVIDER_ATTACHMENT_BYTES = 8 * 1024 * 1024;
@@ -84,6 +89,7 @@ type AssistantChatRowMeta = {
 
 type CanonicalChatAttachmentRow = {
   id: string;
+  assistantFileId: string | null;
   attachmentType: "image" | "audio" | "voice" | "video" | "document" | "tool_output";
   originalFilename: string | null;
   mimeType: string;
@@ -224,8 +230,19 @@ export class TurnContextHydrationService {
     conversation: RuntimeConversationAddress;
     currentAttachments: RuntimeAttachmentRef[];
   }): Promise<RuntimeAttachmentRef[]> {
+    let currentImageOrdinal = 0;
+    let currentAttachmentOrdinal = 0;
     const currentImages = this.dedupeRuntimeAttachments(
-      input.currentAttachments.filter((attachment) => attachment.kind === "image")
+      input.currentAttachments
+        .filter((attachment) => attachment.kind === "image")
+        .map((attachment) => ({
+          ...attachment,
+          aliases: this.mergeAliases(
+            attachment.aliases,
+            `current attachment #${String(++currentAttachmentOrdinal)}`,
+            `current image #${String(++currentImageOrdinal)}`
+          )
+        }))
     );
     const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
     if (canonicalSurface === null) {
@@ -258,6 +275,7 @@ export class TurnContextHydrationService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: MAX_RECENT_IMAGE_TOOL_MESSAGES,
       select: {
+        author: true,
         attachments: {
           where: {
             processingStatus: "ready",
@@ -266,6 +284,7 @@ export class TurnContextHydrationService {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           select: {
             id: true,
+            assistantFileId: true,
             originalFilename: true,
             mimeType: true,
             storagePath: true,
@@ -274,22 +293,159 @@ export class TurnContextHydrationService {
         }
       }
     });
-    const recentImages = recentMessages
-      .flatMap((message) =>
-        message.attachments
-          .filter((attachment) => attachment.mimeType.startsWith("image/"))
-          .map((attachment) =>
-            this.toImageToolAttachmentRef({
+    let previousAttachmentOrdinal = 0;
+    let previousImageOrdinal = 0;
+    let lastGeneratedImageAssigned = false;
+    const recentImages: RuntimeAttachmentRef[] = [];
+    for (const message of recentMessages) {
+      for (const attachment of message.attachments) {
+        if (!attachment.mimeType.startsWith("image/")) {
+          continue;
+        }
+        const aliases = [
+          `previous attachment #${String(++previousAttachmentOrdinal)}`,
+          `previous image #${String(++previousImageOrdinal)}`
+        ];
+        const record = await this.resolveAttachmentFileRecord(
+          input.conversation.assistantId,
+          input.conversation.workspaceId,
+          {
+            attachmentId: attachment.id,
+            fileRef: attachment.assistantFileId,
+            objectKey: attachment.storagePath,
+            filename: attachment.originalFilename,
+            mimeType: attachment.mimeType,
+            sizeBytes: Number(attachment.sizeBytes)
+          },
+          message.author === "assistant" ? "runtime_output" : "uploaded_attachment"
+        );
+        if (
+          !lastGeneratedImageAssigned &&
+          record !== null &&
+          this.isAssistantGeneratedFile(record)
+        ) {
+          aliases.unshift("last generated image");
+          lastGeneratedImageAssigned = true;
+        }
+        recentImages.push(
+          this.toImageToolAttachmentRef(
+            {
               attachmentId: attachment.id,
               filename: attachment.originalFilename,
               mimeType: attachment.mimeType,
               objectKey: attachment.storagePath,
               sizeBytes: Number(attachment.sizeBytes)
-            })
+            },
+            aliases
           )
-      )
-      .slice(0, MAX_RECENT_IMAGE_TOOL_ATTACHMENTS);
+        );
+        if (recentImages.length >= MAX_RECENT_IMAGE_TOOL_ATTACHMENTS) {
+          return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
+        }
+      }
+    }
     return this.dedupeRuntimeAttachments([...currentImages, ...recentImages]);
+  }
+
+  async listAvailableWorkingFileRefs(input: {
+    conversation: RuntimeConversationAddress;
+    currentAttachments: RuntimeAttachmentRef[];
+    currentFileRefs?: RuntimeFileRef[];
+    currentArtifacts?: RuntimeOutputArtifact[];
+  }): Promise<RuntimeFileRef[]> {
+    const refs = new Map<string, RuntimeFileRef>();
+
+    let currentAttachmentOrdinal = 0;
+    let currentImageOrdinal = 0;
+    for (const attachment of input.currentAttachments) {
+      const runtimeFileRef = await this.resolveRuntimeFileRefForAttachment(
+        input.conversation.assistantId,
+        input.conversation.workspaceId,
+        attachment
+      );
+      if (runtimeFileRef === null) {
+        continue;
+      }
+      const aliases = [`current attachment #${String(++currentAttachmentOrdinal)}`];
+      if (attachment.kind === "image") {
+        aliases.unshift(`current image #${String(++currentImageOrdinal)}`);
+      }
+      this.upsertWorkingFileRef(refs, runtimeFileRef, aliases);
+    }
+
+    const storedMessages = await this.loadCanonicalChatMessages(input.conversation);
+    if (storedMessages !== null) {
+      let previousAttachmentOrdinal = 0;
+      let previousImageOrdinal = 0;
+      let lastGeneratedFileAssigned = false;
+      let lastGeneratedImageAssigned = false;
+      for (const message of [...storedMessages].reverse()) {
+        for (const attachment of [...message.attachments].reverse()) {
+          const record = await this.resolveAttachmentFileRecord(
+            input.conversation.assistantId,
+            input.conversation.workspaceId,
+            {
+              attachmentId: attachment.id,
+              fileRef: attachment.assistantFileId,
+              objectKey: attachment.storagePath,
+              filename: attachment.originalFilename,
+              mimeType: attachment.mimeType,
+              sizeBytes: attachment.sizeBytes
+            },
+            message.author === "assistant" ? "runtime_output" : "uploaded_attachment"
+          );
+          if (record === null) {
+            continue;
+          }
+          const aliases = [`previous attachment #${String(++previousAttachmentOrdinal)}`];
+          if (attachment.mimeType.startsWith("image/")) {
+            aliases.unshift(`previous image #${String(++previousImageOrdinal)}`);
+          }
+          if (!lastGeneratedFileAssigned && this.isAssistantGeneratedFile(record)) {
+            aliases.unshift("last generated file");
+            lastGeneratedFileAssigned = true;
+          }
+          if (
+            this.isAssistantGeneratedFile(record) &&
+            attachment.mimeType.startsWith("image/") &&
+            !lastGeneratedImageAssigned
+          ) {
+            aliases.unshift("last generated image");
+            lastGeneratedImageAssigned = true;
+          }
+          this.upsertWorkingFileRef(
+            refs,
+            this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record),
+            aliases
+          );
+        }
+      }
+    }
+
+    const currentGeneratedArtifacts = input.currentArtifacts ?? [];
+    let generatedFileOrdinal = 0;
+    let generatedImageOrdinal = 0;
+    for (let index = currentGeneratedArtifacts.length - 1; index >= 0; index -= 1) {
+      const artifact = currentGeneratedArtifacts[index]!;
+      const aliases = [`generated file #${String(++generatedFileOrdinal)}`];
+      if (artifact.kind === "image") {
+        aliases.unshift(`generated image #${String(++generatedImageOrdinal)}`);
+      }
+      if (index === currentGeneratedArtifacts.length - 1) {
+        aliases.unshift("last generated file");
+        if (artifact.kind === "image") {
+          aliases.unshift("last generated image");
+        }
+      }
+      this.upsertWorkingFileRef(refs, artifact.file, aliases);
+    }
+
+    let currentFileOrdinal = 0;
+    for (const fileRef of input.currentFileRefs ?? []) {
+      this.upsertWorkingFileRef(refs, fileRef, [`current file #${String(++currentFileOrdinal)}`]);
+    }
+
+    return [...refs.values()];
   }
 
   private composeWithCarryOverDurableMemoryAndConversation(
@@ -824,6 +980,7 @@ export class TurnContextHydrationService {
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: {
             id: true,
+            assistantFileId: true,
             attachmentType: true,
             originalFilename: true,
             mimeType: true,
@@ -848,6 +1005,7 @@ export class TurnContextHydrationService {
         })
         .map((attachment) => ({
           id: attachment.id,
+          assistantFileId: attachment.assistantFileId,
           attachmentType: attachment.attachmentType,
           originalFilename: attachment.originalFilename,
           mimeType: attachment.mimeType,
@@ -1186,123 +1344,14 @@ export class TurnContextHydrationService {
     directPdfCount: number;
     showCurrentTurnImageOrdinals: boolean;
   }): Promise<string> {
-    const totalImageCount =
-      input.attachments.length > 0
-        ? input.attachments.filter((attachment) => attachment.mimeType.startsWith("image/")).length
-        : input.fallbackAttachments.filter((attachment) => attachment.mimeType.startsWith("image/"))
-            .length;
-    const totalPdfCount =
-      input.attachments.length > 0
-        ? input.attachments.filter((attachment) => attachment.mimeType === "application/pdf").length
-        : input.fallbackAttachments.filter(
-            (attachment) => attachment.mimeType === "application/pdf"
-          ).length;
-    const attachmentLines =
-      input.attachments.length > 0
-        ? await this.formatCanonicalAttachmentLines(
-            input.assistantId,
-            input.workspaceId,
-            input.author,
-            input.attachments,
-            input.directCanonicalAttachmentIds,
-            input.showCurrentTurnImageOrdinals
-          )
-        : await this.formatRuntimeAttachmentLines(
-            input.assistantId,
-            input.workspaceId,
-            input.fallbackAttachments,
-            input.showCurrentTurnImageOrdinals
-          );
-
-    if (attachmentLines.length === 0) {
+    if (input.baseContent.trim().length > 0) {
       return input.baseContent;
     }
-
-    if (input.author === "assistant") {
-      return this.buildAssistantMessageWithAttachmentSummary(input.baseContent, attachmentLines);
+    const hasAttachments = input.attachments.length > 0 || input.fallbackAttachments.length > 0;
+    if (input.author === "user" && hasAttachments) {
+      return "User sent attachments only.";
     }
-
-    const attachmentBlock = this.buildAttachmentBlock({
-      title: "Working files from user attachments",
-      lines: attachmentLines,
-      totalImageCount,
-      directImageCount: input.directImageCount,
-      totalPdfCount,
-      directPdfCount: input.directPdfCount,
-      showCurrentTurnImageOrdinals: input.showCurrentTurnImageOrdinals
-    });
-    const baseContent =
-      input.baseContent.trim().length > 0 ? input.baseContent : "User sent attachments only.";
-    return `${attachmentBlock}\n${baseContent}`;
-  }
-
-  private buildAssistantMessageWithAttachmentSummary(
-    baseContent: string,
-    attachmentLines: string[]
-  ): string {
-    const descriptors = attachmentLines.map((line) => this.toAttachmentSummaryDescriptor(line));
-    const attachmentSummary =
-      descriptors.length === 1
-        ? `Assistant sent an attachment: ${descriptors[0]}.`
-        : `Assistant sent attachments: ${descriptors.join("; ")}.`;
-
-    if (baseContent.trim().length > 0) {
-      return `${baseContent}\n\n${attachmentSummary}`;
-    }
-
-    return attachmentSummary;
-  }
-
-  private async formatCanonicalAttachmentLines(
-    assistantId: string,
-    workspaceId: string,
-    author: CanonicalChatMessageRow["author"],
-    attachments: CanonicalChatAttachmentRow[],
-    directCanonicalAttachmentIds: Set<string>,
-    showCurrentTurnImageOrdinals: boolean
-  ): Promise<string[]> {
-    let imageOrdinal = 0;
-    return await Promise.all(
-      attachments.map((attachment) => {
-        const imageIndex =
-          showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
-            ? (imageOrdinal += 1)
-            : null;
-        return this.formatCanonicalAttachmentLine({
-          assistantId,
-          workspaceId,
-          origin: author === "user" ? "uploaded_attachment" : "runtime_output",
-          referenceId: attachment.id,
-          objectKey: attachment.storagePath,
-          filename: attachment.originalFilename,
-          mimeType: attachment.mimeType,
-          sizeBytes: attachment.sizeBytes,
-          attachmentType: attachment.attachmentType,
-          transcription: attachment.transcription,
-          metadata: attachment.metadata,
-          suppressContentPreview: directCanonicalAttachmentIds.has(attachment.id),
-          imageIndex
-        });
-      })
-    );
-  }
-
-  private async formatRuntimeAttachmentLines(
-    assistantId: string,
-    workspaceId: string,
-    attachments: RuntimeAttachmentRef[],
-    showCurrentTurnImageOrdinals: boolean
-  ): Promise<string[]> {
-    let imageOrdinal = 0;
-    return await Promise.all(
-      attachments.map((attachment) => {
-        const imageIndex =
-          showCurrentTurnImageOrdinals && attachment.mimeType.startsWith("image/")
-            ? (imageOrdinal += 1)
-            : null;
-        return this.formatRuntimeAttachmentLine(assistantId, workspaceId, attachment, imageIndex);
-      })
-    );
+    return input.baseContent;
   }
 
   private async buildDirectInputSelection(
@@ -1441,136 +1490,6 @@ export class TurnContextHydrationService {
     };
   }
 
-  private async formatCanonicalAttachmentLine(input: {
-    assistantId: string;
-    workspaceId: string;
-    origin: "uploaded_attachment" | "runtime_output";
-    referenceId: string;
-    objectKey: string;
-    filename: string | null;
-    mimeType: string;
-    sizeBytes: number;
-    attachmentType: CanonicalChatAttachmentRow["attachmentType"];
-    transcription: string | null;
-    metadata: Record<string, unknown> | null;
-    suppressContentPreview?: boolean;
-    imageIndex?: number | null;
-  }): Promise<string> {
-    const name = input.filename ? ` "${input.filename}"` : "";
-    const extras: string[] = [];
-    if (input.transcription) {
-      extras.push(`transcription: "${input.transcription.slice(0, 500)}"`);
-    }
-    const fileRef = await this.ensureAttachmentFileRef({
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      origin: input.origin,
-      referenceId: input.referenceId,
-      objectKey: input.objectKey,
-      filename: input.filename,
-      mimeType: input.mimeType,
-      sizeBytes: input.sizeBytes
-    });
-    extras.push(`fileRef: "${fileRef}"`);
-    if (!input.suppressContentPreview) {
-      const contentPreview = this.readStoredAttachmentContentPreview(input.metadata);
-      if (contentPreview !== null) {
-        extras.push(`content preview: "${contentPreview}"`);
-      }
-    }
-    const extrasStr = extras.length > 0 ? `, ${extras.join(", ")}` : "";
-    const kind =
-      input.attachmentType === "image" && input.imageIndex !== null
-        ? `image #${String(input.imageIndex)}`
-        : input.attachmentType;
-    return `- attachment (${kind}${name}${extrasStr})`;
-  }
-
-  private async formatRuntimeAttachmentLine(
-    assistantId: string,
-    workspaceId: string,
-    attachment: RuntimeAttachmentRef,
-    imageIndex: number | null = null
-  ): Promise<string> {
-    const name = attachment.filename ? ` "${attachment.filename}"` : "";
-    const fileRef =
-      attachment.fileRef ??
-      (await this.ensureAttachmentFileRef({
-        assistantId,
-        workspaceId,
-        origin: "uploaded_attachment",
-        referenceId: attachment.attachmentId,
-        objectKey: attachment.objectKey,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes
-      }));
-    const kind =
-      attachment.kind === "image" && imageIndex !== null
-        ? `image #${String(imageIndex)}`
-        : attachment.kind;
-    return `- attachment (${kind}${name}, fileRef: "${fileRef}")`;
-  }
-
-  private toAttachmentSummaryDescriptor(line: string): string {
-    if (line.startsWith("- attachment (") && line.endsWith(")")) {
-      return line.slice("- attachment (".length, -1);
-    }
-    return line.replace(/^- /, "");
-  }
-
-  private buildAttachmentBlock(input: {
-    title: string;
-    lines: string[];
-    totalImageCount: number;
-    directImageCount: number;
-    totalPdfCount: number;
-    directPdfCount: number;
-    showCurrentTurnImageOrdinals: boolean;
-  }): string {
-    const block = [`[${input.title}:`, ...input.lines];
-    if (input.showCurrentTurnImageOrdinals && input.totalImageCount > 1) {
-      block.push(
-        "Current-turn image attachments are numbered image #1, image #2, and so on in this list. Use those numbers when a tool needs an explicit source or reference image."
-      );
-    }
-    if (input.totalImageCount > 0) {
-      if (input.directImageCount === input.totalImageCount) {
-        block.push(
-          "Image attachments are included as direct model image input. Use the visible contents plus any attachment metadata and message text."
-        );
-      } else if (input.directImageCount > 0) {
-        block.push(
-          "Some image attachments are included as direct model image input when within the request-size budget. For any others, do not guess visual details not described in the attachment metadata or message text."
-        );
-      } else {
-        block.push(
-          "Image attachments are present. Do not guess visual details that are not described in the attachment metadata or message text."
-        );
-      }
-    }
-    if (input.totalPdfCount > 0) {
-      if (input.directPdfCount === input.totalPdfCount) {
-        block.push(
-          "PDF attachments are included as direct model document input. Use the document contents plus any attachment metadata and message text."
-        );
-      } else if (input.directPdfCount > 0) {
-        block.push(
-          "Some PDF attachments are included as direct model document input when within the request-size budget. For any others, rely on attachment metadata and content preview when available."
-        );
-      } else {
-        block.push(
-          "PDF attachments are present. Use only attachment metadata and content preview when available; do not assume unseen layout or figures."
-        );
-      }
-    }
-    block.push(
-      "When you need to inspect, read, edit, resend, or otherwise operate on one of these working files, use its fileRef with the files tool instead of guessing from the filename alone."
-    );
-    block.push("Use the attachment metadata, transcription, and content preview when available.]");
-    return block.join("\n");
-  }
-
   private async ensureAttachmentFileRef(input: {
     assistantId: string;
     workspaceId: string;
@@ -1598,34 +1517,141 @@ export class TurnContextHydrationService {
       : null;
   }
 
-  private toImageToolAttachmentRef(input: {
-    attachmentId: string;
-    objectKey: string;
-    mimeType: string;
-    filename: string | null;
-    sizeBytes: number;
-  }): RuntimeAttachmentRef {
+  private toImageToolAttachmentRef(
+    input: {
+      attachmentId: string;
+      objectKey: string;
+      mimeType: string;
+      filename: string | null;
+      sizeBytes: number;
+    },
+    aliases: string[] | null = null
+  ): RuntimeAttachmentRef {
     return {
       attachmentId: input.attachmentId,
       kind: "image",
       objectKey: input.objectKey,
       mimeType: input.mimeType,
       filename: input.filename,
-      sizeBytes: input.sizeBytes
+      sizeBytes: input.sizeBytes,
+      ...(aliases === null ? {} : { aliases })
     };
   }
 
   private dedupeRuntimeAttachments(attachments: RuntimeAttachmentRef[]): RuntimeAttachmentRef[] {
-    const deduped: RuntimeAttachmentRef[] = [];
-    const seen = new Set<string>();
+    const deduped = new Map<string, RuntimeAttachmentRef>();
     for (const attachment of attachments) {
       const dedupeKey = `${attachment.attachmentId}:${attachment.objectKey}`;
-      if (seen.has(dedupeKey)) {
+      const existing = deduped.get(dedupeKey);
+      if (existing !== undefined) {
+        deduped.set(dedupeKey, {
+          ...existing,
+          aliases: this.mergeAliases(existing.aliases, ...(attachment.aliases ?? []))
+        });
         continue;
       }
-      seen.add(dedupeKey);
-      deduped.push(attachment);
+      deduped.set(dedupeKey, attachment);
     }
-    return deduped;
+    return [...deduped.values()];
+  }
+
+  private async resolveRuntimeFileRefForAttachment(
+    assistantId: string,
+    workspaceId: string,
+    attachment: RuntimeAttachmentRef
+  ): Promise<RuntimeFileRef | null> {
+    const fileRef =
+      attachment.fileRef ??
+      (await this.ensureAttachmentFileRef({
+        assistantId,
+        workspaceId,
+        origin: "uploaded_attachment",
+        referenceId: attachment.attachmentId,
+        objectKey: attachment.objectKey,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes
+      }));
+    const record = await this.runtimeAssistantFileRegistryService.findByFileRef({
+      assistantId,
+      workspaceId,
+      fileRef
+    });
+    if (record === null) {
+      return null;
+    }
+    return this.runtimeAssistantFileRegistryService.toRuntimeFileRef(record);
+  }
+
+  private async resolveAttachmentFileRecord(
+    assistantId: string,
+    workspaceId: string,
+    attachment: {
+      attachmentId: string;
+      fileRef: string | null;
+      objectKey: string;
+      filename: string | null;
+      mimeType: string;
+      sizeBytes: number;
+    },
+    fallbackOrigin: "uploaded_attachment" | "runtime_output"
+  ): Promise<RuntimeAssistantFileRecord | null> {
+    const fileRef =
+      attachment.fileRef ??
+      (await this.ensureAttachmentFileRef({
+        assistantId,
+        workspaceId,
+        origin: fallbackOrigin,
+        referenceId: attachment.attachmentId,
+        objectKey: attachment.objectKey,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        sizeBytes: attachment.sizeBytes
+      }));
+    return this.runtimeAssistantFileRegistryService.findByFileRef({
+      assistantId,
+      workspaceId,
+      fileRef
+    });
+  }
+
+  private isAssistantGeneratedFile(file: Pick<RuntimeFileRef, "origin">): boolean {
+    return file.origin !== "uploaded_attachment";
+  }
+
+  private upsertWorkingFileRef(
+    target: Map<string, RuntimeFileRef>,
+    fileRef: RuntimeFileRef,
+    aliases: string[]
+  ): void {
+    const existing = target.get(fileRef.fileRef);
+    if (existing === undefined) {
+      target.set(fileRef.fileRef, {
+        ...fileRef,
+        aliases: this.mergeAliases(fileRef.aliases, ...aliases)
+      });
+      return;
+    }
+    target.set(fileRef.fileRef, {
+      ...existing,
+      aliases: this.mergeAliases(existing.aliases, fileRef.aliases ?? [], ...aliases)
+    });
+  }
+
+  private mergeAliases(
+    existing: string[] | null | undefined,
+    ...next: Array<string | string[] | null | undefined>
+  ): string[] {
+    const seen = new Set<string>();
+    const merged: string[] = [];
+    for (const alias of [...(existing ?? []), ...next.flatMap((value) => value ?? [])]) {
+      const normalized = alias.trim().toLowerCase();
+      if (normalized.length === 0 || seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      merged.push(alias);
+    }
+    return merged;
   }
 }

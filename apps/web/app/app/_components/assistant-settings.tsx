@@ -29,7 +29,6 @@ import {
 import type {
   AssistantMemoryRegistryItemState,
   AssistantTaskRegistryItemState,
-  PublicPricingPlanState,
   UserPlanVisibilityState
 } from "@persai/contracts";
 import { useLocale, useTranslations } from "next-intl";
@@ -71,7 +70,6 @@ import {
   searchWorkspaceMemory,
   uploadAssistantAvatar,
   getAssistantBillingSubscription,
-  getPublicPricingPlans,
   postAssistantBillingEnableAutoRenew,
   postAssistantBillingDisableAutoRenew,
   type AssistantBillingSubscriptionActionResult,
@@ -79,7 +77,6 @@ import {
   type WorkspaceMemoryItem,
   type AssistantSkillsState
 } from "../assistant-api-client";
-import { PricingPageView } from "../../_components/pricing-page-view";
 import { AssistantAvatar } from "./assistant-avatar";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
@@ -559,12 +556,6 @@ export function AssistantSettings({
   const [enableAutoRenewPending, setEnableAutoRenewPending] = useState(false);
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
-  const [billingPlanPickerOpen, setBillingPlanPickerOpen] = useState(false);
-  const [billingPlanPickerLoading, setBillingPlanPickerLoading] = useState(false);
-  const [billingPlanPickerFb, setBillingPlanPickerFb] = useState<ActionFeedback>(null);
-  const [billingPlanPickerPlans, setBillingPlanPickerPlans] = useState<PublicPricingPlanState[]>(
-    []
-  );
   const assistant = data.assistant;
   const statusLabel = t(
     (
@@ -840,25 +831,6 @@ export function AssistantSettings({
     }
     void loadBillingSubscription("silent");
   }, [billingSubscription, billingSubscriptionLoaded, loadBillingSubscription]);
-  const openBillingPlanPicker = useCallback(async () => {
-    setBillingPlanPickerOpen(true);
-    setBillingPlanPickerFb(null);
-    if (billingPlanPickerPlans.length > 0) {
-      return;
-    }
-    setBillingPlanPickerLoading(true);
-    try {
-      const nextPlans = await getPublicPricingPlans();
-      setBillingPlanPickerPlans(nextPlans);
-    } catch {
-      setBillingPlanPickerFb({
-        type: "err",
-        text: t("billingPlanPickerLoadFailed")
-      });
-    } finally {
-      setBillingPlanPickerLoading(false);
-    }
-  }, [billingPlanPickerPlans.length, t]);
   const handleEnableAutoRenew = useCallback(async () => {
     const token = await resolveBillingToken();
     if (!token) {
@@ -2897,7 +2869,6 @@ export function AssistantSettings({
           onClick={() => {
             setBillingSettingsOpen(false);
             setDisableAutoRenewConfirmOpen(false);
-            setBillingPlanPickerOpen(false);
           }}
         >
           <div
@@ -2920,7 +2891,6 @@ export function AssistantSettings({
                   onClick={() => {
                     setBillingSettingsOpen(false);
                     setDisableAutoRenewConfirmOpen(false);
-                    setBillingPlanPickerOpen(false);
                   }}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
                   aria-label={t("closeBillingSettings")}
@@ -2988,7 +2958,7 @@ export function AssistantSettings({
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => void openBillingPlanPicker()}
+                      onClick={() => onOpenPricingPage?.()}
                       className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
                       {t("changePlan")}
@@ -3063,79 +3033,6 @@ export function AssistantSettings({
                   ) : null}
                   <FeedbackLine fb={billingSubscriptionFb} />
                 </>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {billingPlanPickerOpen ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm sm:items-center sm:p-6"
-          onClick={() => setBillingPlanPickerOpen(false)}
-        >
-          <div
-            className="flex h-[min(90vh,58rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="border-b border-border/70 px-5 py-4 sm:px-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
-                    {t("paymentSettingsEyebrow")}
-                  </p>
-                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
-                    {t("billingPlanPickerTitle")}
-                  </h3>
-                  <p className="mt-1 text-sm text-text-muted">
-                    {t("billingPlanPickerDescription")}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setBillingPlanPickerOpen(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
-                  aria-label={t("billingPlanPickerClose")}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1">
-              {billingPlanPickerLoading ? (
-                <div className="flex h-full items-center justify-center px-6 text-sm text-text-muted">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t("billingPlanPickerLoading")}
-                  </span>
-                </div>
-              ) : billingPlanPickerPlans.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-                  <p className="max-w-md text-sm text-text-muted">
-                    {billingPlanPickerFb?.text ?? t("billingPlanPickerLoadFailed")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void openBillingPlanPicker()}
-                    className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    {t("billingPlanPickerRetry")}
-                  </button>
-                </div>
-              ) : (
-                <PricingPageView
-                  plans={billingPlanPickerPlans}
-                  currentPlanCode={
-                    billingSubscription?.planCode ?? data.plan?.effectivePlan.code ?? null
-                  }
-                  signedIn
-                  containedScroll
-                  embedded
-                  initialBillingSubscription={billingSubscription}
-                  onBillingSubscriptionChange={(nextSubscription) => {
-                    setBillingSubscription(nextSubscription);
-                    setBillingSubscriptionFb(null);
-                  }}
-                />
               )}
             </div>
           </div>

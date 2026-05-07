@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicPricingPlanState } from "@persai/contracts";
@@ -386,7 +386,7 @@ describe("PricingPageView", () => {
     expect(await screen.findByText("Review upgrade")).toBeInTheDocument();
     expect(screen.getByText(/switches from Basic to Pro immediately/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue to checkout" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to payment" }));
 
     await waitFor(() => {
       expect(billingMocks.postAssistantBillingChangePlan).toHaveBeenCalledWith(
@@ -397,6 +397,98 @@ describe("PricingPageView", () => {
       );
     });
     expect(navigationMocks.push).toHaveBeenCalledWith("/app/billing/checkout/pi-upgrade");
+  });
+
+  it("uses only in-product review modals for managed plan changes", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockImplementation(() => true);
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "basic",
+            displayName: "Basic",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Базовый", en: "Basic" },
+              price: { amount: 19, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про", en: "Pro" },
+              price: { amount: 49, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "ultima",
+            displayName: "Ultima",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Ультима", en: "Ultima" },
+              price: { amount: 79, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    const freeCard = screen.getAllByText("Free")[0]?.closest("section");
+    expect(freeCard).not.toBeNull();
+    fireEvent.click(within(freeCard as HTMLElement).getByRole("button", { name: "Choose" }));
+    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    const basicCard = screen.getAllByText("Basic")[0]?.closest("section");
+    expect(basicCard).not.toBeNull();
+    fireEvent.click(within(basicCard as HTMLElement).getByRole("button", { name: "Choose" }));
+    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    const upgradeCard = screen.getAllByText("Ultima")[0]?.closest("section");
+    expect(upgradeCard).not.toBeNull();
+    fireEvent.click(within(upgradeCard as HTMLElement).getByRole("button", { name: "Choose" }));
+    expect(await screen.findByText("Review upgrade")).toBeInTheDocument();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 
   it("blocks unsupported cross-period plan changes before raw submit", async () => {
@@ -454,7 +546,7 @@ describe("PricingPageView", () => {
     fireEvent.click(screen.getByRole("button", { name: "Choose" }));
 
     expect(
-      await screen.findByText("This plan change is not supported in the current billing flow.")
+      await screen.findByText("This plan change is not available right now.")
     ).toBeInTheDocument();
     expect(screen.queryByText("Review upgrade")).toBeNull();
     expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();

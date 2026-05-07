@@ -216,14 +216,17 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
   };
 }
 
-function createReferenceAttachment(): RuntimeAttachmentRef {
+function createReferenceAttachment(
+  aliases: string[] = ["current image #1", "current attachment #1"]
+): RuntimeAttachmentRef {
   return {
     attachmentId: "attachment-1",
     kind: "image",
     objectKey: "media/reference-1.png",
     mimeType: "image/png",
     filename: "forest.png",
-    sizeBytes: 10
+    sizeBytes: 10,
+    aliases
   };
 }
 
@@ -425,7 +428,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   assert.equal(promptOnlyResult.payload.action, "generated");
   assert.equal(promptOnlyResult.payload.provider, "openai");
-  assert.equal(promptOnlyResult.payload.referenceImageIndex, null);
+  assert.equal(promptOnlyResult.payload.referenceImageAlias, null);
   assert.equal(promptOnlyResult.payload.artifact?.kind, "video");
   assert.equal(promptOnlyResult.artifacts.length, 1);
   assert.deepEqual(providerGatewayClientService.videoCalls[0], {
@@ -471,7 +474,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     bundle,
     toolCall: createToolCall({
       prompt: "Animate the attached image into a calm sunrise clip",
-      referenceImageIndex: 1,
+      referenceImageAlias: "current image #1",
       seconds: 8
     }),
     availableAttachments: [createReferenceAttachment()],
@@ -479,7 +482,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     requestId: "request-2"
   });
   assert.equal(referenceResult.payload.action, "generated");
-  assert.equal(referenceResult.payload.referenceImageIndex, 1);
+  assert.equal(referenceResult.payload.referenceImageAlias, "current image #1");
   assert.equal(referenceResult.payload.referenceFilename, "forest.png");
   assert.equal(referenceResult.payload.artifact?.filename, "forest-video.mp4");
   assert.equal(referenceResult.payload.model, "sora-2");
@@ -491,7 +494,27 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     providerGatewayClientService.videoCalls[2]?.input.referenceImage?.bytesBase64,
     Buffer.from("reference-image-binary").toString("base64")
   );
+
+  const inferredPreviousAliasResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      prompt: "Animate this reference image into a short sunrise clip",
+      seconds: 4
+    }),
+    availableAttachments: [
+      createReferenceAttachment(["last generated image", "previous image #1"])
+    ],
+    sessionId: "session-1",
+    requestId: "request-2b"
+  });
+  assert.equal(inferredPreviousAliasResult.payload.action, "generated");
+  assert.equal(inferredPreviousAliasResult.payload.referenceImageAlias, "last generated image");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
+    {
+      assistantId: "assistant-1",
+      toolCode: "video_generate",
+      units: 1
+    },
     {
       assistantId: "assistant-1",
       toolCode: "video_generate",

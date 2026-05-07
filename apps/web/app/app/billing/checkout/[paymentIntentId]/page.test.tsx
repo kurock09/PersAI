@@ -79,7 +79,7 @@ describe("BillingCheckoutPage", () => {
     await waitFor(() => {
       expect(apiMocks.getAssistantBillingPaymentIntent).not.toHaveBeenCalled();
     });
-    expect(screen.queryByText("Session expired. Sign in again and retry checkout.")).toBeNull();
+    expect(screen.queryByText("Session expired. Sign in again and try again.")).toBeNull();
   });
 
   it("loads a manual-test checkout intent and returns success to chat", async () => {
@@ -498,7 +498,7 @@ describe("BillingCheckoutPage", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("This checkout has expired")).toBeInTheDocument();
+      expect(screen.getByText("This payment page has expired")).toBeInTheDocument();
     });
     expect(cloudpaymentsMocks.instance.mount).not.toHaveBeenCalled();
   });
@@ -561,7 +561,7 @@ describe("BillingCheckoutPage", () => {
     });
     expect(
       screen.getByText(
-        "This checkout is one-time for the selected payment method. Auto-renewal will not start from this payment."
+        "This is a one-time payment for the selected method. Auto-renew will not start from this payment."
       )
     ).toBeInTheDocument();
   });

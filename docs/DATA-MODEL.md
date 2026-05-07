@@ -14,7 +14,7 @@ PersAI is the source of truth for:
 - canonical chats and messages
 - canonical assistant chat attachments and media metadata
 - durable web-chat logical turn attempts keyed by `assistantId + userId + surfaceThreadKey + clientTurnId`, used for retry/replay/status reconciliation
-- canonical user-visible Files through `assistant_files` and durable `fileRef`
+- canonical user-visible Files through `assistant_files` and durable `fileRef`, with runtime-owned model aliases resolving back to that canonical id
 - assistant-private knowledge source metadata plus platform/admin-managed Skill, Product KB, and global Knowledge metadata and indexed chunks
 - admin-authored Skill knowledge cards and Product KB text entries, with explicit lifecycle governance before indexing/runtime use
 - persisted assistant workspace files through `assistant_files`
@@ -56,7 +56,7 @@ ADR-081 extends the target-state authority of `assistant_files`: every user-visi
 
 ADR-081 Slice 1 adds `assistant_chat_message_attachments.assistant_file_id` as the projection link from chat rendering/download rows to canonical `assistant_files`. Ready upload/inbound/delivery attachments are registered into `assistant_files` immediately; `attachmentId` remains message-rendering state, while `assistant_files.id` is the durable `fileRef`.
 
-`attachmentId`, `artifactId`, `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are not target-state model-facing file selectors. They may remain internal implementation identifiers where needed, but `fileRef` is the product/runtime handle for Files.
+`attachmentId`, `artifactId`, `objectKey`, storage paths, raw sandbox paths, knowledge source ids, and retrieval references are not target-state model-facing file selectors. They may remain internal implementation identifiers where needed, and `fileRef` remains the canonical product/runtime handle for Files, but ordinary model-visible prompt history/tool usage should use runtime-owned human aliases that resolve to `fileRef` server-side instead of exposing raw selectors in conversation text.
 
 ADR-081 Slice 5 removes the old attachment download route from the active product path. Chat attachment rows can still exist as message-rendering projections, but reusable/openable files are surfaced through `assistant_files.id` (`fileRef`) and the Files API does not expose storage paths, `objectKey`, or checksum internals as user-facing state.
 

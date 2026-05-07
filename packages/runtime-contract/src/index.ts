@@ -86,6 +86,7 @@ export interface RuntimeAttachmentRef {
   filename: string | null;
   sizeBytes: number;
   fileRef?: string | null;
+  aliases?: string[] | null;
 }
 
 export interface RuntimeOutputArtifact {
@@ -120,6 +121,7 @@ export interface RuntimeFileRef {
   mimeType: string;
   sizeBytes: number;
   logicalSizeBytes: number | null;
+  aliases?: string[] | null;
 }
 
 export interface RuntimeSandboxPolicy {
@@ -251,6 +253,7 @@ export interface RuntimeFilesToolItem {
   mimeType: string;
   sizeBytes: number;
   logicalSizeBytes: number | null;
+  aliases?: string[] | null;
 }
 
 export interface RuntimeFilesToolResult {
@@ -1133,8 +1136,8 @@ export interface RuntimeImageEditRequest {
   filename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
   background: PersaiRuntimeImageBackground;
-  sourceImageIndex: number | null;
-  referenceImageIndex: number | null;
+  sourceImageAlias: string | null;
+  referenceImageAlias: string | null;
 }
 
 export interface RuntimeImageEditToolResult {
@@ -1144,8 +1147,8 @@ export interface RuntimeImageEditToolResult {
   model: string | null;
   prompt: string | null;
   revisedPrompt: string | null;
-  sourceImageIndex: number | null;
-  referenceImageIndex: number | null;
+  sourceImageAlias: string | null;
+  referenceImageAlias: string | null;
   sourceFilename: string | null;
   referenceFilename: string | null;
   size: PersaiRuntimeImageGenerateSize | null;
@@ -1193,7 +1196,7 @@ export interface RuntimeVideoGenerateRequest {
   filename: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   seconds: PersaiRuntimeVideoGenerateSeconds;
-  referenceImageIndex: number | null;
+  referenceImageAlias: string | null;
 }
 
 export interface RuntimeVideoGenerateToolResult {
@@ -1204,7 +1207,7 @@ export interface RuntimeVideoGenerateToolResult {
   prompt: string | null;
   requestedSeconds: PersaiRuntimeVideoGenerateSeconds | null;
   size: PersaiRuntimeVideoGenerateSize | null;
-  referenceImageIndex: number | null;
+  referenceImageAlias: string | null;
   referenceFilename: string | null;
   artifact: RuntimeOutputArtifact | null;
   usage: RuntimeUsageSnapshot | null;

@@ -179,7 +179,7 @@ async function run(): Promise<void> {
           description:
             "List, search, inspect, read, write, write-and-send, edit, or send assistant-managed files.",
           usageGuidance:
-            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, use a returned fileRef or relativePath directly with files.get, files.read, files.edit, or files.send. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A fileRef, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
+            "Use files.write_and_send when the user asks you to create or save a file and immediately deliver it in chat. Use files.write when the file should only be saved. Use files.list when you need an exact root or folder inventory, and use files.search with a non-empty query when you need to discover a file by name. When you already know the target file, prefer a working-file alias first, then relativePath, then query; do not rely on raw fileRef values from free text. If the user asks you to send, resend, attach, or share an existing file, discovering or reading that file is not enough: call files.send in the same turn. A working-file alias, relativePath, filename, or markdown link is not a substitute for delivery. Do not claim a file was sent unless files.send or files.write_and_send succeeded. Keep shell and exec for actual process execution only.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -310,7 +310,8 @@ async function run(): Promise<void> {
       properties?: {
         query?: { description?: string };
         path?: { description?: string };
-        fileRef?: { description?: string };
+        alias?: { description?: string };
+        aliases?: { description?: string };
         filename?: { description?: string };
       };
     }
@@ -320,7 +321,11 @@ async function run(): Promise<void> {
     /call action="send" with the resolved target/
   );
   assert.match(filesProperties?.path?.description ?? "", /canonical save location/);
-  assert.match(filesProperties?.fileRef?.description ?? "", /not a substitute for actual delivery/);
+  assert.match(filesProperties?.alias?.description ?? "", /Human-readable working-file alias/);
+  assert.match(
+    filesProperties?.aliases?.description ?? "",
+    /Human-readable working-file aliases to deliver/
+  );
   assert.match(filesProperties?.filename?.description ?? "", /does not replace path/);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);

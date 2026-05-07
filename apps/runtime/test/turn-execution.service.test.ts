@@ -29,6 +29,7 @@ import type {
   ProviderGatewayWebFetchResult,
   RuntimeCompactionRequest,
   RuntimeAttachmentRef,
+  RuntimeFileRef,
   RuntimeTurnRequest,
   RuntimeTurnResult,
   RuntimeTurnStreamEvent,
@@ -1077,6 +1078,7 @@ class FakeTurnContextHydrationService {
   // mirrors a bundle without a presence template (the legacy path).
   presenceBlock: string | null = null;
   availableImageToolAttachmentsOverride: RuntimeAttachmentRef[] | null = null;
+  availableWorkingFileRefsOverride: RuntimeFileRef[] = [];
   availableImageToolAttachmentInputs: Array<{
     conversation: RuntimeTurnRequest["conversation"];
     currentAttachments: RuntimeAttachmentRef[];
@@ -1105,6 +1107,10 @@ class FakeTurnContextHydrationService {
     return input.currentAttachments.length > 0
       ? input.currentAttachments.filter((attachment) => attachment.kind === "image")
       : [...(this.availableImageToolAttachmentsOverride ?? [])];
+  }
+
+  async listAvailableWorkingFileRefs(): Promise<RuntimeFileRef[]> {
+    return [...this.availableWorkingFileRefsOverride];
   }
 }
 
@@ -1644,6 +1650,7 @@ class FakeRuntimeFilesToolService {
     requestId: string;
     currentArtifacts: RuntimeOutputArtifact[];
     currentFileRefs: Array<{ fileRef: string }>;
+    availableWorkingFileRefs?: Array<{ fileRef: string; aliases?: string[] | null }>;
     channel: "web" | "telegram" | "max_ru";
   }> = [];
 
@@ -1654,12 +1661,16 @@ class FakeRuntimeFilesToolService {
     requestId: string;
     currentArtifacts: RuntimeOutputArtifact[];
     currentFileRefs: Array<{ fileRef: string }>;
+    availableWorkingFileRefs?: Array<{ fileRef: string; aliases?: string[] | null }>;
     channel: "web" | "telegram" | "max_ru";
   }) {
     this.calls.push({
       ...input,
       currentArtifacts: [...input.currentArtifacts],
-      currentFileRefs: [...input.currentFileRefs]
+      currentFileRefs: [...input.currentFileRefs],
+      ...(input.availableWorkingFileRefs === undefined
+        ? {}
+        : { availableWorkingFileRefs: [...input.availableWorkingFileRefs] })
     });
     const action = input.toolCall.arguments.action;
     if (action === "write_and_send") {
@@ -2530,6 +2541,36 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[openMediaJobsOffset]?.developerInstructions ?? "",
     /1\. image_generate job is running; created 2026-04-11T11:55:00.000Z, started 2026-04-11T11:56:00.000Z\./
   );
+  turnContextHydrationService.availableWorkingFileRefsOverride = [
+    {
+      fileRef: "file-ref-alias-1",
+      origin: "uploaded_attachment",
+      sourceToolCode: null,
+      objectKey: "assistant-media/uploads/working-image.png",
+      relativePath: "uploads/working-image.png",
+      displayName: "working-image.png",
+      mimeType: "image/png",
+      sizeBytes: 64,
+      logicalSizeBytes: 64,
+      aliases: ["current image #1", "current attachment #1"]
+    }
+  ];
+  const workingFilesOffset = providerGatewayClient.calls.length;
+  const workingFilesCompleted = await service.createTurn(createRuntimeTurnRequest());
+  assert.equal(workingFilesCompleted.assistantText, "runtime reply");
+  assert.match(
+    providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
+    /## Working Files/
+  );
+  assert.match(
+    providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
+    /current image #1, current attachment #1: image "working-image\.png"/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
+    /fileRef/
+  );
+  turnContextHydrationService.availableWorkingFileRefsOverride = [];
 
   if (bundleRegistry.entry !== null) {
     const runtimeProviderRouting = bundleRegistry.entry.parsedBundle.runtime
@@ -5468,7 +5509,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "video_generate",
           arguments: {
             prompt: "Animate the attached image into a calm sunrise clip",
-            referenceImageIndex: 1,
+            referenceImageAlias: "current image #1",
             filename: "sunrise-clip.mp4",
             size: "1280x720",
             seconds: 4
@@ -5559,7 +5600,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       filename: "sunrise-clip.mp4",
       size: "1280x720",
       seconds: 4,
-      referenceImageIndex: 1
+      referenceImageAlias: "current image #1"
     }
   );
   assert.deepEqual(
@@ -5573,7 +5614,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     provider?: string | null;
     model?: string | null;
     prompt?: string | null;
-    referenceImageIndex?: number | null;
+    referenceImageAlias?: string | null;
     artifact?: {
       kind?: string;
       filename?: string | null;
@@ -5588,7 +5629,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     videoGenerateToolHistory.prompt,
     "Animate the attached image into a calm sunrise clip"
   );
-  assert.equal(videoGenerateToolHistory.referenceImageIndex, 1);
+  assert.equal(videoGenerateToolHistory.referenceImageAlias, "current image #1");
   assert.equal(videoGenerateToolHistory.artifact, null);
 
   if (bundleRegistry.entry !== null) {
@@ -5696,8 +5737,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     provider?: string | null;
     model?: string | null;
     prompt?: string | null;
-    sourceImageIndex?: number | null;
-    referenceImageIndex?: number | null;
+    sourceImageAlias?: string | null;
+    referenceImageAlias?: string | null;
     sourceFilename?: string | null;
     referenceFilename?: string | null;
     artifacts?: Array<{
@@ -5711,8 +5752,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(imageEditToolHistory.action, "deferred");
   assert.equal(imageEditToolHistory.provider, "openai");
   assert.equal(imageEditToolHistory.prompt, "Replace the couch with a red chair");
-  assert.equal(imageEditToolHistory.sourceImageIndex, 1);
-  assert.equal(imageEditToolHistory.referenceImageIndex, null);
+  assert.equal(imageEditToolHistory.sourceImageAlias, "living-room.png");
+  assert.equal(imageEditToolHistory.referenceImageAlias, null);
   // `sourceFilename` and `referenceFilename` are user-supplied input
   // filenames — the model already saw them in the user's message context,
   // so echoing them in the tool result is not a leak. FIX 2 only strips
@@ -5770,8 +5811,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "image_edit",
           arguments: {
             prompt: "Place the car from image #2 into the yard in image #1",
-            sourceImageIndex: 1,
-            referenceImageIndex: 2,
+            sourceImageAlias: "current image #1",
+            referenceImageAlias: "current image #2",
             filename: "yard-with-car.png"
           }
         }
@@ -5808,14 +5849,14 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    sourceImageIndex?: number | null;
-    referenceImageIndex?: number | null;
+    sourceImageAlias?: string | null;
+    referenceImageAlias?: string | null;
     sourceFilename?: string | null;
     referenceFilename?: string | null;
   };
   assert.equal(referencedImageEditToolHistory.action, "deferred");
-  assert.equal(referencedImageEditToolHistory.sourceImageIndex, 1);
-  assert.equal(referencedImageEditToolHistory.referenceImageIndex, 2);
+  assert.equal(referencedImageEditToolHistory.sourceImageAlias, "current image #1");
+  assert.equal(referencedImageEditToolHistory.referenceImageAlias, "current image #2");
   assert.equal(referencedImageEditToolHistory.sourceFilename, "yard.png");
   assert.equal(referencedImageEditToolHistory.referenceFilename, "car.png");
 
@@ -5887,12 +5928,12 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
   ) as {
     action?: string;
-    sourceImageIndex?: number | null;
-    referenceImageIndex?: number | null;
+    sourceImageAlias?: string | null;
+    referenceImageAlias?: string | null;
   };
   assert.equal(inferredReferenceImageEditToolHistory.action, "deferred");
-  assert.equal(inferredReferenceImageEditToolHistory.sourceImageIndex, 1);
-  assert.equal(inferredReferenceImageEditToolHistory.referenceImageIndex, 2);
+  assert.equal(inferredReferenceImageEditToolHistory.sourceImageAlias, "current image #1");
+  assert.equal(inferredReferenceImageEditToolHistory.referenceImageAlias, "current image #2");
 
   const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
   const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;
@@ -5951,13 +5992,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   ) as {
     action?: string;
     reason?: string | null;
-    sourceImageIndex?: number | null;
-    referenceImageIndex?: number | null;
+    sourceImageAlias?: string | null;
+    referenceImageAlias?: string | null;
   };
   assert.equal(ambiguousImageEditToolHistory.action, "skipped");
-  assert.equal(ambiguousImageEditToolHistory.reason, "source_image_selection_required");
-  assert.equal(ambiguousImageEditToolHistory.sourceImageIndex, null);
-  assert.equal(ambiguousImageEditToolHistory.referenceImageIndex, null);
+  assert.equal(ambiguousImageEditToolHistory.reason, "source_image_alias_required");
+  assert.equal(ambiguousImageEditToolHistory.sourceImageAlias, null);
+  assert.equal(ambiguousImageEditToolHistory.referenceImageAlias, null);
   request.message.attachments = [];
 
   if (bundleRegistry.entry !== null) {
