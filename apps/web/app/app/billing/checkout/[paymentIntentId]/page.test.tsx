@@ -15,6 +15,7 @@ const navigationMocks = vi.hoisted(() => ({
 }));
 
 const authMocks = vi.hoisted(() => ({
+  isLoaded: true,
   getToken: vi.fn(async () => "token-1")
 }));
 
@@ -38,7 +39,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
-    getToken: authMocks.getToken
+    getToken: authMocks.getToken,
+    isLoaded: authMocks.isLoaded
   })
 }));
 
@@ -49,6 +51,9 @@ vi.mock("../../../assistant-api-client", () => ({
 afterEach(() => {
   cleanup();
   document.documentElement.classList.remove("light");
+  authMocks.isLoaded = true;
+  authMocks.getToken.mockReset();
+  authMocks.getToken.mockResolvedValue("token-1");
   routerMocks.replace.mockReset();
   navigationMocks.params = { paymentIntentId: "pi-1" };
   apiMocks.getAssistantBillingPaymentIntent.mockReset();
@@ -60,6 +65,23 @@ afterEach(() => {
 });
 
 describe("BillingCheckoutPage", () => {
+  it("waits for Clerk rehydration before showing a session-expired state", async () => {
+    authMocks.isLoaded = false;
+    authMocks.getToken.mockResolvedValue(null as unknown as string);
+
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <BillingCheckoutPage />
+      </NextIntlClientProvider>
+    );
+
+    expect(screen.getByText("Loading payment form...")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(apiMocks.getAssistantBillingPaymentIntent).not.toHaveBeenCalled();
+    });
+    expect(screen.queryByText("Session expired. Sign in again and retry checkout.")).toBeNull();
+  });
+
   it("loads a manual-test checkout intent and returns success to chat", async () => {
     navigationMocks.params = { paymentIntentId: "pi-1" };
     apiMocks.getAssistantBillingPaymentIntent.mockResolvedValue({

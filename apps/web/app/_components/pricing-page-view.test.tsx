@@ -12,6 +12,7 @@ const navigationMocks = vi.hoisted(() => ({
 }));
 
 const authMocks = vi.hoisted(() => ({
+  isLoaded: true,
   getToken: vi.fn(async () => "token-1")
 }));
 
@@ -26,7 +27,8 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
-    getToken: authMocks.getToken
+    getToken: authMocks.getToken,
+    isLoaded: authMocks.isLoaded
   })
 }));
 
@@ -38,6 +40,7 @@ vi.mock("../app/assistant-api-client", () => ({
 afterEach(() => {
   cleanup();
   navigationMocks.push.mockReset();
+  authMocks.isLoaded = true;
   authMocks.getToken.mockClear();
   billingMocks.getAssistantBillingSubscription.mockReset();
   billingMocks.postAssistantBillingChangePlan.mockReset();
@@ -111,7 +114,26 @@ describe("PricingPageView", () => {
     expect(screen.getByRole("link", { name: "Choose" })).toHaveAttribute("href", "/sign-up");
   });
 
-  it("marks the current plan and lets signed-in users start checkout", async () => {
+  it("lets signed-in users start checkout for a paid purchase", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "free",
+      planDisplayName: "Free",
+      subscriptionStatus: "active",
+      billingProvider: null,
+      providerSubscriptionRef: null,
+      autoRenewEnabled: false,
+      canDisableAutoRenew: false,
+      canScheduleDowngrade: false,
+      canSwitchToFree: false,
+      nextChargeAt: null,
+      currentPeriodEndsAt: null,
+      paymentMethodLabel: null,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
     billingMocks.postAssistantBillingChangePlan.mockResolvedValue({
       mode: "checkout",
       paymentIntent: {
@@ -120,8 +142,20 @@ describe("PricingPageView", () => {
     });
     renderView(
       <PricingPageView
-        plans={[makePlan(), makePlan({ code: "team", displayName: "Team" })]}
-        currentPlanCode="pro"
+        plans={[
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({ code: "team", displayName: "Team" })
+        ]}
+        currentPlanCode="free"
         signedIn
       />
     );
@@ -141,6 +175,289 @@ describe("PricingPageView", () => {
     });
     expect(navigationMocks.push).toHaveBeenCalledWith("/app/billing/checkout/pi-1");
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
+  });
+
+  it("keeps FREE downgrade review flow when bootstrap current plan is unavailable", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+    billingMocks.postAssistantBillingChangePlan.mockResolvedValue({
+      mode: "subscription_updated",
+      subscription: {
+        planCode: "pro",
+        planDisplayName: "Pro",
+        subscriptionStatus: "active",
+        billingProvider: "cloudpayments",
+        providerSubscriptionRef: "sub-1",
+        autoRenewEnabled: true,
+        canDisableAutoRenew: true,
+        canScheduleDowngrade: true,
+        canSwitchToFree: true,
+        nextChargeAt: "2026-05-12T00:00:00.000Z",
+        currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+        paymentMethodLabel: "Bank card",
+        managePaymentMethodUrl: null,
+        managePaymentMethodMode: "unavailable",
+        cancelUrl: null,
+        scheduledPlanChange: {
+          changeKind: "free",
+          targetPlanCode: "free",
+          targetPlanDisplayName: "Free",
+          effectiveAt: "2026-05-12T00:00:00.000Z"
+        },
+        warning: null
+      }
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan(),
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Бесплатно", en: "Free" },
+              badge: { ru: null, en: null },
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Choose" })).toHaveLength(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
+    expect(screen.getByText(/Your current paid access stays active until/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm change" }));
+
+    await waitFor(() => {
+      expect(billingMocks.postAssistantBillingChangePlan).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          planCode: "free"
+        })
+      );
+    });
+    expect(
+      await screen.findByText("FREE is scheduled for the next billing date.")
+    ).toBeInTheDocument();
+  });
+
+  it("reviews a cheaper paid downgrade before scheduling it", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "basic",
+            displayName: "Basic",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Базовый", en: "Basic" },
+              price: { amount: 19, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про", en: "Pro" },
+              price: { amount: 49, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Choose" })).toHaveLength(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+
+    expect(await screen.findByText("Review plan change")).toBeInTheDocument();
+    expect(screen.getByText(/After that, Basic becomes active at/i)).toBeInTheDocument();
+    expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();
+  });
+
+  it("reviews an upgrade before launching checkout", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "basic",
+      planDisplayName: "Basic",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      canScheduleDowngrade: false,
+      canSwitchToFree: false,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+    billingMocks.postAssistantBillingChangePlan.mockResolvedValue({
+      mode: "checkout",
+      paymentIntent: {
+        id: "pi-upgrade"
+      }
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "basic",
+            displayName: "Basic",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Базовый", en: "Basic" },
+              price: { amount: 1900, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "pro",
+            displayName: "Pro",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про", en: "Pro" },
+              price: { amount: 4900, currency: "RUB", billingPeriod: "month" }
+            }
+          })
+        ]}
+        currentPlanCode="basic"
+        signedIn
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+    expect(await screen.findByText("Review upgrade")).toBeInTheDocument();
+    expect(screen.getByText(/switches from Basic to Pro immediately/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue to checkout" }));
+
+    await waitFor(() => {
+      expect(billingMocks.postAssistantBillingChangePlan).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          planCode: "pro"
+        })
+      );
+    });
+    expect(navigationMocks.push).toHaveBeenCalledWith("/app/billing/checkout/pi-upgrade");
+  });
+
+  it("blocks unsupported cross-period plan changes before raw submit", async () => {
+    billingMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "basic",
+      planDisplayName: "Basic",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-1",
+      autoRenewEnabled: true,
+      canDisableAutoRenew: true,
+      canScheduleDowngrade: true,
+      canSwitchToFree: true,
+      nextChargeAt: "2026-05-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "basic",
+            displayName: "Basic",
+            presentation: {
+              ...makePlan().presentation,
+              highlighted: false,
+              title: { ru: "Базовый", en: "Basic" },
+              price: { amount: 19, currency: "RUB", billingPeriod: "month" }
+            }
+          }),
+          makePlan({
+            code: "pro-yearly",
+            displayName: "Pro Yearly",
+            presentation: {
+              ...makePlan().presentation,
+              title: { ru: "Про годовой", en: "Pro Yearly" },
+              price: { amount: 499, currency: "RUB", billingPeriod: "year" }
+            }
+          })
+        ]}
+        currentPlanCode={null}
+        signedIn
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Choose" })).toHaveLength(1);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Choose" }));
+
+    expect(
+      await screen.findByText("This plan change is not supported in the current billing flow.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Review upgrade")).toBeNull();
+    expect(billingMocks.postAssistantBillingChangePlan).not.toHaveBeenCalled();
   });
 
   it("gives current plans a subtle background and keeps the PRO premium fill only in light theme", () => {

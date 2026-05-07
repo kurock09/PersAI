@@ -53,6 +53,7 @@ import {
   type AssistantBillingPaymentIntentState,
   type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState,
+  type PublicPricingPlanState,
   type PostAssistantBillingChangePlanRequest,
   type PostAssistantBillingEnableAutoRenewRequest,
   type PostAssistantBillingPaymentIntentRequest,
@@ -103,6 +104,7 @@ import {
   getAssistantBillingPaymentIntent as getAssistantBillingPaymentIntentContract,
   getAssistantBillingSubscription as getAssistantBillingSubscriptionContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
+  getPublicPricingPlans as getPublicPricingPlansContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
@@ -2137,6 +2139,18 @@ export async function getAssistantBillingSubscription(
       throw new Error("Unexpected non-success response for GET /assistant/billing/subscription.");
     }
     return response.data.subscription;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function getPublicPricingPlans(): Promise<PublicPricingPlanState[]> {
+  try {
+    const response = await getPublicPricingPlansContract();
+    if (response.status !== 200) {
+      throw new Error("Unexpected non-success response for GET /public/plans/pricing.");
+    }
+    return response.data.plans;
   } catch (error) {
     throw new Error(toErrorMessage(error));
   }

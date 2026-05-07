@@ -29,6 +29,7 @@ import {
 import type {
   AssistantMemoryRegistryItemState,
   AssistantTaskRegistryItemState,
+  PublicPricingPlanState,
   UserPlanVisibilityState
 } from "@persai/contracts";
 import { useLocale, useTranslations } from "next-intl";
@@ -70,6 +71,7 @@ import {
   searchWorkspaceMemory,
   uploadAssistantAvatar,
   getAssistantBillingSubscription,
+  getPublicPricingPlans,
   postAssistantBillingEnableAutoRenew,
   postAssistantBillingDisableAutoRenew,
   type AssistantBillingSubscriptionActionResult,
@@ -77,6 +79,7 @@ import {
   type WorkspaceMemoryItem,
   type AssistantSkillsState
 } from "../assistant-api-client";
+import { PricingPageView } from "../../_components/pricing-page-view";
 import { AssistantAvatar } from "./assistant-avatar";
 import { resolveBillingSummaryCopy } from "./billing-summary";
 import {
@@ -264,14 +267,6 @@ function applyBillingActionResult(
     return;
   }
   setBillingSubscription(result.subscription);
-}
-
-function showBrowserConfirm(message: string): boolean {
-  try {
-    return window.confirm(message) !== false;
-  } catch {
-    return true;
-  }
 }
 
 function FeedbackLine({ fb }: { fb: ActionFeedback }) {
@@ -549,7 +544,7 @@ export function AssistantSettings({
   onOpenPricingPage
 }: AssistantSettingsProps) {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const t = useTranslations("settings");
   const locale = useLocale();
   const tp = useTranslations("persona");
@@ -563,6 +558,13 @@ export function AssistantSettings({
   const [billingSubscriptionLoaded, setBillingSubscriptionLoaded] = useState(false);
   const [enableAutoRenewPending, setEnableAutoRenewPending] = useState(false);
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
+  const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
+  const [billingPlanPickerOpen, setBillingPlanPickerOpen] = useState(false);
+  const [billingPlanPickerLoading, setBillingPlanPickerLoading] = useState(false);
+  const [billingPlanPickerFb, setBillingPlanPickerFb] = useState<ActionFeedback>(null);
+  const [billingPlanPickerPlans, setBillingPlanPickerPlans] = useState<PublicPricingPlanState[]>(
+    []
+  );
   const assistant = data.assistant;
   const statusLabel = t(
     (
@@ -784,10 +786,26 @@ export function AssistantSettings({
       timeStyle: "short"
     });
   }, []);
+  const resolveBillingToken = useCallback(async (): Promise<string | null> => {
+    if (!isLoaded) {
+      return null;
+    }
+    return (await getToken({ skipCache: true })) ?? (await getToken()) ?? null;
+  }, [getToken, isLoaded]);
   const loadBillingSubscription = useCallback(
     async (mode: "silent" | "blocking" = "blocking") => {
-      const token = await getToken();
+      const token = await resolveBillingToken();
       if (!token) {
+        if (isLoaded) {
+          setBillingSubscriptionFb({
+            type: "err",
+            text: t("billingSessionExpired")
+          });
+          setBillingSubscriptionLoaded(true);
+          if (mode === "blocking") {
+            setBillingSubscriptionLoading(false);
+          }
+        }
         return;
       }
       if (mode === "blocking") {
@@ -800,7 +818,10 @@ export function AssistantSettings({
       } catch (error) {
         setBillingSubscriptionFb({
           type: "err",
-          text: error instanceof Error ? error.message : t("billingSettingsLoadFailed")
+          text:
+            error instanceof Error
+              ? resolveBillingManagementErrorMessage(error, t)
+              : t("billingSettingsLoadFailed")
         });
       } finally {
         setBillingSubscriptionLoaded(true);
@@ -809,7 +830,7 @@ export function AssistantSettings({
         }
       }
     },
-    [getToken, t]
+    [isLoaded, resolveBillingToken, t]
   );
   const openBillingSettings = useCallback(async () => {
     setBillingSettingsOpen(true);
@@ -819,9 +840,34 @@ export function AssistantSettings({
     }
     void loadBillingSubscription("silent");
   }, [billingSubscription, billingSubscriptionLoaded, loadBillingSubscription]);
+  const openBillingPlanPicker = useCallback(async () => {
+    setBillingPlanPickerOpen(true);
+    setBillingPlanPickerFb(null);
+    if (billingPlanPickerPlans.length > 0) {
+      return;
+    }
+    setBillingPlanPickerLoading(true);
+    try {
+      const nextPlans = await getPublicPricingPlans();
+      setBillingPlanPickerPlans(nextPlans);
+    } catch {
+      setBillingPlanPickerFb({
+        type: "err",
+        text: t("billingPlanPickerLoadFailed")
+      });
+    } finally {
+      setBillingPlanPickerLoading(false);
+    }
+  }, [billingPlanPickerPlans.length, t]);
   const handleEnableAutoRenew = useCallback(async () => {
-    const token = await getToken();
+    const token = await resolveBillingToken();
     if (!token) {
+      if (isLoaded) {
+        setBillingSubscriptionFb({
+          type: "err",
+          text: t("billingSessionExpired")
+        });
+      }
       return;
     }
     setEnableAutoRenewPending(true);
@@ -848,13 +894,16 @@ export function AssistantSettings({
     } finally {
       setEnableAutoRenewPending(false);
     }
-  }, [getToken, router, t]);
-  const handleDisableAutoRenew = useCallback(async () => {
-    const token = await getToken();
+  }, [isLoaded, resolveBillingToken, router, t]);
+  const confirmDisableAutoRenew = useCallback(async () => {
+    const token = await resolveBillingToken();
     if (!token) {
-      return;
-    }
-    if (!showBrowserConfirm(t("billingDisableAutoRenewConfirm"))) {
+      if (isLoaded) {
+        setBillingSubscriptionFb({
+          type: "err",
+          text: t("billingSessionExpired")
+        });
+      }
       return;
     }
     setDisableAutoRenewPending(true);
@@ -862,6 +911,7 @@ export function AssistantSettings({
     try {
       const nextState = await postAssistantBillingDisableAutoRenew(token);
       setBillingSubscription(nextState);
+      setDisableAutoRenewConfirmOpen(false);
       setBillingSubscriptionFb({
         type: "ok",
         text: t("billingAutoRenewDisabled")
@@ -874,7 +924,7 @@ export function AssistantSettings({
     } finally {
       setDisableAutoRenewPending(false);
     }
-  }, [getToken, t]);
+  }, [isLoaded, resolveBillingToken, t]);
   const handleManagePaymentMethod = useCallback(() => {
     const url = billingSubscription?.managePaymentMethodUrl;
     if (!url) {
@@ -949,11 +999,14 @@ export function AssistantSettings({
   }, [initialSection]);
 
   useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
     if (data.plan === null) {
       return;
     }
     void loadBillingSubscription("blocking");
-  }, [data.plan, loadBillingSubscription]);
+  }, [data.plan, isLoaded, loadBillingSubscription]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2841,7 +2894,11 @@ export function AssistantSettings({
       {billingSettingsOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
-          onClick={() => setBillingSettingsOpen(false)}
+          onClick={() => {
+            setBillingSettingsOpen(false);
+            setDisableAutoRenewConfirmOpen(false);
+            setBillingPlanPickerOpen(false);
+          }}
         >
           <div
             className="w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
@@ -2860,7 +2917,11 @@ export function AssistantSettings({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setBillingSettingsOpen(false)}
+                  onClick={() => {
+                    setBillingSettingsOpen(false);
+                    setDisableAutoRenewConfirmOpen(false);
+                    setBillingPlanPickerOpen(false);
+                  }}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
                   aria-label={t("closeBillingSettings")}
                 >
@@ -2927,7 +2988,7 @@ export function AssistantSettings({
                     ) : null}
                     <button
                       type="button"
-                      onClick={() => onOpenPricingPage?.()}
+                      onClick={() => void openBillingPlanPicker()}
                       className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
                       {t("changePlan")}
@@ -2952,7 +3013,10 @@ export function AssistantSettings({
                     {billingSubscription?.canDisableAutoRenew ? (
                       <button
                         type="button"
-                        onClick={() => void handleDisableAutoRenew()}
+                        onClick={() => {
+                          setDisableAutoRenewConfirmOpen(true);
+                          setBillingSubscriptionFb(null);
+                        }}
                         disabled={disableAutoRenewPending || !billingSubscription.autoRenewEnabled}
                         className="inline-flex min-h-11 items-center justify-center rounded-full border border-amber-500/20 bg-amber-500/10 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -2967,8 +3031,111 @@ export function AssistantSettings({
                       </button>
                     ) : null}
                   </div>
+                  {disableAutoRenewConfirmOpen ? (
+                    <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                      <p className="text-sm font-medium text-text">
+                        {t("billingDisableAutoRenewConfirm")}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        {t("billingDisableAutoRenewConfirmHelp")}
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setDisableAutoRenewConfirmOpen(false)}
+                          className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                        >
+                          {t("billingConfirmCancel")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void confirmDisableAutoRenew()}
+                          disabled={disableAutoRenewPending}
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/15 px-4 text-sm font-medium text-text transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {disableAutoRenewPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : null}
+                          {t("billingConfirmDisableAutoRenew")}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   <FeedbackLine fb={billingSubscriptionFb} />
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {billingPlanPickerOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+          onClick={() => setBillingPlanPickerOpen(false)}
+        >
+          <div
+            className="flex h-[min(90vh,58rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[color:var(--surface)] shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-border/70 px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
+                    {t("paymentSettingsEyebrow")}
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold tracking-[-0.02em] text-text">
+                    {t("billingPlanPickerTitle")}
+                  </h3>
+                  <p className="mt-1 text-sm text-text-muted">
+                    {t("billingPlanPickerDescription")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBillingPlanPickerOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 text-text-muted transition-colors hover:text-text"
+                  aria-label={t("billingPlanPickerClose")}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1">
+              {billingPlanPickerLoading ? (
+                <div className="flex h-full items-center justify-center px-6 text-sm text-text-muted">
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t("billingPlanPickerLoading")}
+                  </span>
+                </div>
+              ) : billingPlanPickerPlans.length === 0 ? (
+                <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+                  <p className="max-w-md text-sm text-text-muted">
+                    {billingPlanPickerFb?.text ?? t("billingPlanPickerLoadFailed")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void openBillingPlanPicker()}
+                    className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                  >
+                    {t("billingPlanPickerRetry")}
+                  </button>
+                </div>
+              ) : (
+                <PricingPageView
+                  plans={billingPlanPickerPlans}
+                  currentPlanCode={
+                    billingSubscription?.planCode ?? data.plan?.effectivePlan.code ?? null
+                  }
+                  signedIn
+                  containedScroll
+                  embedded
+                  initialBillingSubscription={billingSubscription}
+                  onBillingSubscriptionChange={(nextSubscription) => {
+                    setBillingSubscription(nextSubscription);
+                    setBillingSubscriptionFb(null);
+                  }}
+                />
               )}
             </div>
           </div>

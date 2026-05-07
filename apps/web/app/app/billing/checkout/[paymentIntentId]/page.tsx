@@ -136,6 +136,17 @@ function isLegacyCloudpaymentsWidgetPayload(
   );
 }
 
+function resolveCheckoutLoadErrorMessage(
+  error: unknown,
+  t: ReturnType<typeof useTranslations>
+): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message.includes("Session expired")) {
+    return t("sessionExpired");
+  }
+  return message.length > 0 ? message : t("loadFailed");
+}
+
 function loadCloudpaymentsConstructorScript(): Promise<void> {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("CloudPayments payment form can only load in the browser."));
@@ -321,7 +332,7 @@ function applyEmbeddedIframeChrome(
 export default function BillingCheckoutPage({ params }: { params?: { paymentIntentId?: string } }) {
   const t = useTranslations("billingCheckout");
   const locale = useLocale();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const router = useRouter();
   const routeParams = useParams<{ paymentIntentId?: string | string[] }>();
   const paymentIntentId =
@@ -363,6 +374,9 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      if (!isLoaded) {
+        return;
+      }
       if (typeof paymentIntentId !== "string" || paymentIntentId.trim().length === 0) {
         if (!cancelled) {
           setError(t("loadFailed"));
@@ -370,7 +384,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
         }
         return;
       }
-      const token = await getToken();
+      const token = (await getToken({ skipCache: true })) ?? (await getToken());
       if (!token) {
         if (!cancelled) {
           setError(t("sessionExpired"));
@@ -387,11 +401,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(
-            nextError instanceof Error && nextError.message.trim().length > 0
-              ? nextError.message
-              : t("loadFailed")
-          );
+          setError(resolveCheckoutLoadErrorMessage(nextError, t));
         }
       } finally {
         if (!cancelled) {
@@ -402,7 +412,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
     return () => {
       cancelled = true;
     };
-  }, [getToken, paymentIntentId, t]);
+  }, [getToken, isLoaded, paymentIntentId, t]);
 
   const checkoutUrl =
     paymentIntent?.checkout.payload &&

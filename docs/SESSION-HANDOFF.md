@@ -1,5 +1,54 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-084 billing UX/auth follow-up) — keep review flow on degraded pricing and move change-plan into Payment settings
+
+### What changed
+
+- Kept the session bounded to the current billing UX/auth slice and closed the remaining product-flow gaps without touching backend recurring architecture.
+- Pricing no longer loses billing-management review logic when `/app/pricing` arrives with `bootstrap.plan.ok !== true`. `PricingPageView` now treats server billing subscription truth as the primary signed-in decision source, eagerly refreshes it when Clerk is ready, and blocks unsupported/degraded change-plan cases honestly instead of silently falling through to a raw pricing-card mutation.
+- Change-plan no longer lives only as a redirect out of `Assistant Settings -> Payment settings`. The billing modal can now open an in-product plan-picker overlay that reuses the same management-aware pricing flow, so upgrade/downgrade/FREE confirmations stay inside the payment-management contour instead of feeling like a jump to another surface.
+- Review coverage is now stricter: FREE downgrade, cheaper paid downgrade, and paid upgrade all pass through the product review modal, while unsupported paid-to-paid paths such as cross-period/cross-currency changes are blocked before submit with explicit UX instead of silently bypassing into a backend rejection.
+- Added focused regressions for the degraded signed-in pricing path, in-product plan picker entry from Payment settings, cheaper-paid downgrade review, and unsupported cross-period blocking.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice now keeps the full review/management behavior on degraded pricing bootstrap and from Payment settings, but it still needs one live `persai-dev` pass to validate the embedded plan-picker feel and cross-period block UX against real production data and routing timing.
+- Repo-wide AGENTS gates were not rerun in this narrow follow-up; only directly affected web tests/typecheck were rerun.
+
+### Next recommended step
+
+- Run one live `persai-dev` pass for: `/app/pricing` with degraded plan bootstrap, `Payment settings -> Change plan` embedded flow, FREE downgrade, cheaper-paid downgrade, paid upgrade, and an explicitly unsupported cross-period plan switch.
+
+## 2026-05-07 (ADR-084 billing UX/auth deploy tails) — stabilize Clerk reload, replace browser confirms, and restore upgrade checkout
+
+### What changed
+
+- Kept the session bounded to the already-landed recurring-management/billing UI surface and fixed only the three deploy-tail issues reported after reload and pricing/settings usage.
+- Fixed false `Session expired` states on billing surfaces after reload. Billing checkout, pricing actions, and settings billing reads now wait for Clerk auth rehydration before treating the session as missing, and billing paths prefer a fresh `getToken({ skipCache: true })` read before falling back to a cached token. This removes the fake-expired state that could appear during normal reload while keeping honest expired-session copy when Clerk is really done and no token exists.
+- Replaced the remaining browser confirm usage on the billing surface. `Assistant Settings -> Payment settings` now shows an in-product disable-auto-renew confirmation block instead of `window.confirm`, and pricing-card downgrades/free switches now open an internal billing review modal with clear effect/date copy before PersAI schedules the change.
+- Added the missing upgrade review step in pricing. Paid upgrades now open an internal modal that explains immediate activation, full new-plan charge, and billing-cycle reset before checkout starts.
+- Fixed the founder-reported `Could not start checkout` upgrade symptom by addressing the actual root cause on the web side: pricing was still launching billing requests against an auth context that could be temporarily unready after reload, and generic pricing error mapping hid the underlying session issue behind a fake checkout-start failure. Pricing now waits for Clerk readiness, prefers a fresh token, and maps true auth expiry honestly.
+- Refreshed focused web regressions for pricing review modals, checkout-page Clerk rehydration, and in-modal auto-renew disable confirmation.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This slice fixes the web-side false-expiry/upgrade-launch behavior, but one live `persai-dev` pass is still needed to confirm the exact post-reload Clerk timing on deployed infrastructure and to verify the upgrade modal -> checkout -> provider form flow end to end.
+- The broader repo-wide AGENTS verification gate was not rerun in this bounded tail session; only the directly affected billing web tests and web typecheck were rerun.
+
+### Next recommended step
+
+- Run one live `persai-dev` check covering: pricing reload with an active session, checkout-page reload with an active session, paid->FREE scheduling, paid->cheaper-paid scheduling, and paid upgrade from the pricing review modal into CloudPayments checkout.
+
 ## 2026-05-07 (ADR-084 recurring-management PROD cleanup) — harden paid-downgrade continuation, bind enablement, and managed-upgrade idempotency
 
 ### What changed
