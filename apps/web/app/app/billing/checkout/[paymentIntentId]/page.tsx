@@ -279,6 +279,22 @@ function buildThemeAwareCustomizationParams(
   };
 }
 
+function applyEmbeddedIframeChrome(
+  container: HTMLElement,
+  resolvedTheme: CheckoutResolvedTheme
+): void {
+  const iframe = container.querySelector("iframe");
+  if (iframe === null) {
+    return;
+  }
+  iframe.style.display = "block";
+  iframe.style.border = "0";
+  iframe.style.borderRadius = "1rem";
+  iframe.style.overflow = "hidden";
+  iframe.style.backgroundColor = resolvedTheme === "light" ? "#fcfaf5" : "#1f1d1b";
+  iframe.style.colorScheme = resolvedTheme;
+}
+
 export default function BillingCheckoutPage({ params }: { params?: { paymentIntentId?: string } }) {
   const t = useTranslations("billingCheckout");
   const locale = useLocale();
@@ -468,8 +484,12 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
           buildThemeAwareCustomizationParams(constructorPayload, resolvedTheme)
         );
         blocksApp.mount(embeddedContainerRef.current);
+        applyEmbeddedIframeChrome(embeddedContainerRef.current, resolvedTheme);
         revealTimer = window.setTimeout(() => {
           if (!cancelled) {
+            if (embeddedContainerRef.current !== null) {
+              applyEmbeddedIframeChrome(embeddedContainerRef.current, resolvedTheme);
+            }
             setPaymentFormVisible(true);
           }
         }, 180);
@@ -625,7 +645,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                       <div
                         ref={embeddedContainerRef}
                         className={cn(
-                          "min-h-[16rem] transition-opacity duration-200",
+                          "min-h-[16rem] bg-bg/60 rounded-2xl overflow-hidden transition-opacity duration-200",
                           mountingPaymentForm || !paymentFormVisible ? "opacity-0" : "opacity-100"
                         )}
                       />

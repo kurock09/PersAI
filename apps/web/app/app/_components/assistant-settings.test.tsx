@@ -797,7 +797,8 @@ describe("AssistantSettings limits", () => {
             currentPeriodEndsAt: null,
             isTrialPlan: true,
             trialFallbackPlanCode: null,
-            paidFallbackPlanCode: null
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
           },
           entitlements: {
             channelsAndSurfaces: {
@@ -976,7 +977,8 @@ describe("AssistantSettings limits", () => {
             currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
             isTrialPlan: false,
             trialFallbackPlanCode: null,
-            paidFallbackPlanCode: null
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
           },
           entitlements: {
             channelsAndSurfaces: {
@@ -1005,7 +1007,8 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Buy subscription" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
     expect(
@@ -1063,7 +1066,8 @@ describe("AssistantSettings limits", () => {
             currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
             isTrialPlan: false,
             trialFallbackPlanCode: null,
-            paidFallbackPlanCode: null
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
           },
           entitlements: {
             channelsAndSurfaces: {
@@ -1092,7 +1096,8 @@ describe("AssistantSettings limits", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Payment settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Buy subscription" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Buy subscription" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Payment settings" }));
 
@@ -1107,6 +1112,56 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
+  });
+
+  it("keeps zero-price plans outside payment settings and shows indefinite access", () => {
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "free",
+            displayName: "Free",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 0, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "free",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    expect(screen.getByText("Indefinite")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Payment settings" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Access until May 12")).toBeNull();
   });
 
   it("keeps payment settings entry reachable when recurring state refresh fails", async () => {
@@ -1130,7 +1185,8 @@ describe("AssistantSettings limits", () => {
             currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
             isTrialPlan: false,
             trialFallbackPlanCode: null,
-            paidFallbackPlanCode: null
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
           },
           entitlements: {
             channelsAndSurfaces: {
@@ -1186,7 +1242,8 @@ describe("AssistantSettings limits", () => {
             currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
             isTrialPlan: false,
             trialFallbackPlanCode: null,
-            paidFallbackPlanCode: null
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
           },
           entitlements: {
             channelsAndSurfaces: {

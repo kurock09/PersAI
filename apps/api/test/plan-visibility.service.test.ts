@@ -69,6 +69,13 @@ async function run(): Promise<void> {
               schema: "persai.planLifecyclePolicy.v1",
               trialFallbackPlanCode: "free"
             },
+            presentation: {
+              price: {
+                amount: 980,
+                currency: "RUB",
+                billingPeriod: "month"
+              }
+            },
             quotaAccounting: {
               tokenBudgetLimit: 5000
             }
@@ -357,6 +364,11 @@ async function run(): Promise<void> {
   assert.equal(visibility.effectivePlan.code, "pro");
   assert.equal(visibility.effectivePlan.displayName, "Pro");
   assert.equal(visibility.effectivePlan.trialFallbackPlanCode, "free");
+  assert.deepEqual(visibility.effectivePlan.price, {
+    amount: 980,
+    currency: "RUB",
+    billingPeriod: "month"
+  });
   assert.equal(visibility.entitlements.channelsAndSurfaces.telegram, true);
   assert.equal(visibility.entitlements.channelsAndSurfaces.whatsapp, false);
   assert.equal(visibility.limits.quotaBuckets.length, 4);

@@ -7,6 +7,7 @@
 import type { UserPlanVisibilityEffectivePlanStatus } from "./userPlanVisibilityEffectivePlanStatus";
 import type { UserPlanVisibilityEffectivePlanSource } from "./userPlanVisibilityEffectivePlanSource";
 import type { UserPlanVisibilityEffectivePlanSubscriptionStatus } from "./userPlanVisibilityEffectivePlanSubscriptionStatus";
+import type { AdminPlanPresentationPrice } from "./adminPlanPresentationPrice";
 
 export interface UserPlanVisibilityEffectivePlan {
   /** @nullable */
@@ -30,4 +31,5 @@ export interface UserPlanVisibilityEffectivePlan {
   trialFallbackPlanCode: string | null;
   /** @nullable */
   paidFallbackPlanCode: string | null;
+  price: AdminPlanPresentationPrice;
 }

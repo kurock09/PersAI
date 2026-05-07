@@ -37,6 +37,9 @@ function formatPlanPrice(
   const amount = plan.presentation.price.amount;
   const currency = plan.presentation.price.currency;
   const billingPeriod = plan.presentation.price.billingPeriod;
+  if (amount === 0) {
+    return t("freePrice");
+  }
   if (amount === null || currency === null || billingPeriod === null) {
     return t("priceOnRequest");
   }
@@ -183,7 +186,7 @@ export function PricingPageView({
                 const highlights = pickLocalizedList(locale, plan.presentation.highlightItems);
                 const facts = derivePlanFacts(plan, t);
                 const isCurrent = currentPlanCode === plan.code;
-                const isEmphasized = plan.presentation.highlighted || isCurrent;
+                const isPremiumHighlighted = plan.presentation.highlighted && !isCurrent;
                 const signUpHref = "/sign-up" as const;
                 const isSubmitting = submittingPlanKey === plan.code;
                 const planError = planErrors[plan.code] ?? null;
@@ -193,39 +196,35 @@ export function PricingPageView({
                     key={plan.code}
                     className={cn(
                       "relative flex h-full flex-col overflow-hidden rounded-[32px] border bg-surface/80 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.16)] backdrop-blur-sm transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_32px_96px_rgba(0,0,0,0.22)] sm:p-6 lg:min-h-[40rem]",
-                      isEmphasized
-                        ? "border-transparent [background:linear-gradient(var(--surface),var(--surface))_padding-box,linear-gradient(135deg,rgba(255,228,153,0.68),rgba(214,170,70,0.42),rgba(255,244,214,0.2),rgba(176,132,33,0.55))_border-box] hover:[background:linear-gradient(var(--surface),var(--surface))_padding-box,linear-gradient(135deg,rgba(255,235,179,0.84),rgba(219,178,84,0.56),rgba(255,248,230,0.28),rgba(186,141,39,0.68))_border-box]"
-                        : "border-border/80 hover:border-accent/35"
+                      isCurrent
+                        ? "border-border/80 bg-surface-raised/70 hover:border-border"
+                        : isPremiumHighlighted
+                          ? "border-transparent [background:linear-gradient(180deg,rgba(255,238,190,0.16),rgba(255,248,230,0.05))_padding-box,linear-gradient(135deg,rgba(255,226,150,0.82),rgba(214,170,70,0.48),rgba(255,248,230,0.24),rgba(176,132,33,0.58))_border-box] hover:[background:linear-gradient(180deg,rgba(255,238,190,0.22),rgba(255,248,230,0.08))_padding-box,linear-gradient(135deg,rgba(255,235,179,0.92),rgba(219,178,84,0.62),rgba(255,248,230,0.32),rgba(186,141,39,0.72))_border-box]"
+                          : "border-border/80 hover:border-accent/35"
                     )}
                   >
                     <div
                       className={cn(
                         "absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent",
-                        isEmphasized ? "via-[#f0d48a]/70" : "via-accent/40"
+                        isPremiumHighlighted
+                          ? "via-[#f0d48a]/80"
+                          : isCurrent
+                            ? "via-text-subtle/25"
+                            : "via-accent/40"
                       )}
                     />
 
-                    {badge || isCurrent ? (
+                    {badge ? (
                       <div className="flex min-h-8 items-center gap-2">
                         {badge ? (
                           <span className="rounded-full border border-accent/25 bg-accent/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-accent">
                             {badge}
                           </span>
                         ) : null}
-                        {isCurrent ? (
-                          <span className="rounded-full border border-success/30 bg-success/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-success">
-                            {t("currentPlan")}
-                          </span>
-                        ) : null}
                       </div>
                     ) : null}
 
-                    <div
-                      className={cn(
-                        "flex items-start justify-between gap-3",
-                        (badge || isCurrent) && "mt-4"
-                      )}
-                    >
+                    <div className={cn("flex items-start justify-between gap-3", badge && "mt-4")}>
                       <p className="text-xl font-semibold tracking-[-0.02em] text-text">{title}</p>
                       {plan.presentation.highlighted ? (
                         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent/80" />

@@ -183,7 +183,8 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
               currentPeriodEndsAt: null,
               isTrialPlan: true,
               trialFallbackPlanCode: null,
-              paidFallbackPlanCode: null
+              paidFallbackPlanCode: null,
+              price: { amount: 980, currency: "RUB", billingPeriod: "month" }
             },
             entitlements: {
               channelsAndSurfaces: {

@@ -218,7 +218,7 @@ async function run(): Promise<void> {
   await service.scheduleForLifecycleEventIds(["event-3"]);
   await service.scheduleForLifecycleEventIds(["event-4"]);
 
-  assert.equal(jobs.length, 6);
+  assert.equal(jobs.length, 7);
   assert.equal(jobs[0]?.channel, "email");
   assert.equal(jobs[0]?.status, "pending");
   assert.equal(jobs[0]?.recipientEmail, "user@example.com");
@@ -232,19 +232,26 @@ async function run(): Promise<void> {
   assert.match(String(outboxInputs[1]?.text), /manual billing reminder/i);
 
   const graceEndingJobs = jobs.filter((job) => job.notificationCode === "grace_ending");
-  assert.equal(graceEndingJobs.length, 2);
+  assert.equal(graceEndingJobs.length, 3);
   assert.equal(graceEndingJobs[0]?.channel, "email");
-  assert.equal(graceEndingJobs[1]?.channel, "assistant_notification");
   assert.equal(graceEndingJobs[0]?.lifecycleEventId, "event-4");
-  assert.equal(graceEndingJobs[1]?.lifecycleEventId, "event-4");
   assert.equal(graceEndingJobs[0]?.status, "pending");
-  assert.equal(graceEndingJobs[1]?.status, "pending");
   assert.equal(
     (graceEndingJobs[0]?.scheduledFor as Date).toISOString(),
     "2026-05-11T00:00:00.000Z"
   );
+  assert.equal(graceEndingJobs[1]?.channel, "assistant_notification");
+  assert.equal(graceEndingJobs[1]?.lifecycleEventId, "event-3");
+  assert.equal(graceEndingJobs[1]?.status, "enqueued");
   assert.equal(
     (graceEndingJobs[1]?.scheduledFor as Date).toISOString(),
+    "2026-05-07T00:00:00.000Z"
+  );
+  assert.equal(graceEndingJobs[2]?.channel, "assistant_notification");
+  assert.equal(graceEndingJobs[2]?.lifecycleEventId, "event-4");
+  assert.equal(graceEndingJobs[2]?.status, "pending");
+  assert.equal(
+    (graceEndingJobs[2]?.scheduledFor as Date).toISOString(),
     "2026-05-11T00:00:00.000Z"
   );
 }

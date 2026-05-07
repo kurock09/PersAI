@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-084 CloudPayments recurring constructor payload fix) — make provider recurring-start payload match PaymentBlocks
+
+### What changed
+
+- Fixed the CloudPayments constructor adapter so recurring-start checkout sends `recurrent` as a top-level `initializationParams` field instead of nesting it under `data.CloudPayments`.
+- Added recurring-start `accountId` fallback: if PersAI does not yet have a provider customer ref, the checkout uses the workspace id as a stable non-PII payer id, which CloudPayments requires for subscription creation.
+- Updated the focused adapter regression to assert the top-level recurrent shape, absence of legacy `data`, and account-id fallback for first-time recurring purchases.
+
+### Verification
+
+- `corepack pnpm --filter @persai/api exec tsx test/cloudpayments-constructor-billing-provider.adapter.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- This has not been deployed yet. The next live card/T-Pay test must verify that the CloudPayments `Pay` webhook now includes a provider subscription id and that PersAI stores `providerSubscriptionRef`.
+- CloudPayments current public subscription materials say recurring can be started through bank cards, T-Pay, Mir Pay, and SBP with guaranteed token receipt, but our product input still models checkout methods as `card` vs `sbp_qr`. If live T-Pay still does not return a subscription id after this payload fix, we should temporarily restrict provider methods for recurring-start or add explicit method-class handling.
+
+### Next recommended step
+
+- Deploy this backend fix to `persai-dev`, repeat one card/T-Pay recurring-start payment, then check `workspace_payment_intents`, `workspace_subscriptions.providerSubscriptionRef`, and CloudPayments webhook metadata before considering PROD rollout.
+
+## 2026-05-07 (ADR-084 zero-price billing UI hardening) — classify free plans by price, not lifecycle status
+
+### What changed
+
+- Exposed `effectivePlan.price` through user plan visibility and regenerated contracts so UI can distinguish free access by `amount === 0` instead of guessing from status/code.
+- Pricing cards now render `0` price as `Free` / `Бесплатно`. Current plan cards use a subtle surface shift, while admin-highlighted/recommended cards keep the premium treatment through a warm underlay, thin accent border, and top line.
+- `Assistant Settings -> Limits & Plan` now keeps zero-price plans out of the billing-like `Payment settings` contour, shows `Indefinite` / `Бессрочно` instead of an access/billing date, and uses `Payment settings` + `Change plan` for active paid plans instead of a primary `Buy subscription` CTA.
+- Added regression coverage that non-trial default/free lifecycle materializes as `active` with no paid period/provider refs, so it does not look like a paid subscription with a renewal/access window.
+
+### Verification
+
+- `corepack pnpm run contracts:generate`
+- `corepack pnpm --filter @persai/api exec tsx test/plan-visibility.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/subscription-state-resolve.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/sidebar.test.tsx --config vitest.config.ts`
+
+### Risks / residuals
+
+- This slice changes API shape by adding `effectivePlan.price`; generated contracts were refreshed, but broad typecheck/lint still need to run before commit/push.
+- CloudPayments iframe inner-background behavior remains separate provider-surface work.
+
+### Next recommended step
+
+- Run the full AGENTS verification gate, then visually re-check `/pricing`, `/app/pricing`, and `Assistant Settings -> Limits & Plan` for free, current paid, and highlighted PRO states in both themes.
+
 ## 2026-05-06 (ADR-084 CloudPayments constructor customization-arg fix) — return checkout theming to the documented `PaymentBlocks` API shape
 
 ### What changed

@@ -11,6 +11,14 @@ import {
 } from "../../application/billing-provider-credential-settings";
 import { PlatformRuntimeProviderSecretStoreService } from "../../application/platform-runtime-provider-secret-store.service";
 
+type CloudpaymentsRecurrentParams = {
+  interval: "Day" | "Week" | "Month";
+  period: number;
+  maxPeriods?: number;
+  amount?: number;
+  startDate?: string;
+};
+
 type CloudpaymentsConstructorPayload = {
   schema: "persai.billing.cloudpaymentsConstructorCheckout.v1";
   initializationParams: {
@@ -24,7 +32,7 @@ type CloudpaymentsConstructorPayload = {
     emailBehavior: "Required" | "Hidden" | "Optional";
     language: "ru-RU";
     tokenize?: boolean;
-    data?: Record<string, unknown>;
+    recurrent?: CloudpaymentsRecurrentParams;
     metadata: Record<string, unknown>;
   };
   customizationParams: {
@@ -87,45 +95,30 @@ function toMinorCurrencyUnits(amountMajor: number): number {
 
 function buildCloudpaymentsRecurringData(
   input: BillingProviderCheckoutSessionRequest
-): Record<string, unknown> | null {
+): CloudpaymentsRecurrentParams | null {
   if (input.checkoutKind !== "recurring_start" || input.recurringPlan === null) {
     return null;
   }
   return {
-    cloudPayments: {
-      recurrent: {
-        interval: input.recurringPlan.interval,
-        period: input.recurringPlan.period,
-        ...(input.recurringPlan.maxPeriods !== null
-          ? { maxPeriods: input.recurringPlan.maxPeriods }
-          : {}),
-        ...(input.recurringPlan.amountMinor !== null
-          ? { amount: toMajorCurrencyUnits(input.recurringPlan.amountMinor) }
-          : {}),
-        ...(input.recurringPlan.startDate !== null
-          ? { startDate: input.recurringPlan.startDate }
-          : {})
-      }
-    },
-    // The docs are inconsistent about `cloudPayments` vs `CloudPayments`.
-    // Sending both keeps the provider-specific recurrent contract explicit
-    // without making PersAI product truth depend on that casing ambiguity.
-    CloudPayments: {
-      recurrent: {
-        interval: input.recurringPlan.interval,
-        period: input.recurringPlan.period,
-        ...(input.recurringPlan.maxPeriods !== null
-          ? { maxPeriods: input.recurringPlan.maxPeriods }
-          : {}),
-        ...(input.recurringPlan.amountMinor !== null
-          ? { amount: toMajorCurrencyUnits(input.recurringPlan.amountMinor) }
-          : {}),
-        ...(input.recurringPlan.startDate !== null
-          ? { startDate: input.recurringPlan.startDate }
-          : {})
-      }
-    }
+    interval: input.recurringPlan.interval,
+    period: input.recurringPlan.period,
+    ...(input.recurringPlan.maxPeriods !== null
+      ? { maxPeriods: input.recurringPlan.maxPeriods }
+      : {}),
+    ...(input.recurringPlan.amountMinor !== null
+      ? { amount: toMajorCurrencyUnits(input.recurringPlan.amountMinor) }
+      : {}),
+    ...(input.recurringPlan.startDate !== null ? { startDate: input.recurringPlan.startDate } : {})
   };
+}
+
+function resolveCloudpaymentsAccountId(
+  input: BillingProviderCheckoutSessionRequest
+): string | null {
+  if (input.providerCustomerRef !== null) {
+    return input.providerCustomerRef;
+  }
+  return input.checkoutKind === "recurring_start" ? input.workspaceId : null;
 }
 
 function isSupportedRecurringInterval(value: unknown): value is "Day" | "Week" | "Month" {
@@ -146,6 +139,9 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
     const amount = toMajorCurrencyUnits(input.amountMinor);
     const recurrentData = buildCloudpaymentsRecurringData(input);
+    const accountId = resolveCloudpaymentsAccountId(input);
+    const recurrentParams: { recurrent: CloudpaymentsRecurrentParams } | Record<string, never> =
+      recurrentData !== null ? { recurrent: recurrentData } : {};
     const payload: CloudpaymentsConstructorPayload = {
       schema: "persai.billing.cloudpaymentsConstructorCheckout.v1",
       initializationParams: {
@@ -158,8 +154,8 @@ export class CloudpaymentsConstructorBillingProviderAdapter implements BillingPr
         emailBehavior: "Optional",
         language: "ru-RU",
         tokenize: input.paymentMethodClass === "card",
-        ...(recurrentData !== null ? { data: recurrentData } : {}),
-        ...(input.providerCustomerRef !== null ? { accountId: input.providerCustomerRef } : {}),
+        ...recurrentParams,
+        ...(accountId !== null ? { accountId } : {}),
         metadata: {
           paymentIntentId: input.paymentIntentId,
           workspaceId: input.workspaceId,

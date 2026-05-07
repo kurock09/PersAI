@@ -269,6 +269,10 @@ function hasPaidBillingSettings(
   );
 }
 
+function isZeroPriceEffectivePlan(plan: UserPlanVisibilityState["effectivePlan"] | null): boolean {
+  return plan?.price.amount === 0;
+}
+
 const AVATAR_EMOJIS = ["🌟", "🧠", "⚡", "🧘", "🤖", "🌙", "🔥", "🔮", "🌊", "💎", "✨", "🪐"];
 
 function ActionButton({
@@ -803,14 +807,19 @@ export function AssistantSettings({
     window.open(url, "_blank", "noopener,noreferrer");
   }, [billingSubscription]);
   const shouldShowRecurringBillingControls = isPaidRecurringSubscription(billingSubscription);
-  const shouldShowPaymentSettings = hasPaidBillingSettings(billingSubscription);
-  const shouldPreferBillingSettingsEntry =
+  const isEffectivePlanZeroPrice = isZeroPriceEffectivePlan(data.plan?.effectivePlan ?? null);
+  const effectivePlanCanHaveBillingSettings =
+    !isEffectivePlanZeroPrice &&
+    ["active", "grace_period", "past_due", "canceled"].includes(
+      data.plan?.effectivePlan.subscriptionStatus ?? "unconfigured"
+    ) &&
+    data.plan?.effectivePlan.currentPeriodEndsAt !== null;
+  const shouldShowPaymentSettings =
+    !isEffectivePlanZeroPrice && hasPaidBillingSettings(billingSubscription);
+  const shouldShowBillingSettingsEntry =
     shouldShowPaymentSettings ||
     ((!billingSubscriptionLoaded || billingSubscriptionFb?.type === "err") &&
-      ["active", "grace_period", "past_due", "canceled"].includes(
-        data.plan?.effectivePlan.subscriptionStatus ?? "unconfigured"
-      ) &&
-      data.plan?.effectivePlan.currentPeriodEndsAt !== null);
+      effectivePlanCanHaveBillingSettings);
   const nextChargeLabel = formatBillingDate(billingSubscription?.nextChargeAt ?? null);
   const currentPeriodEndsLabel = formatBillingDate(
     billingSubscription?.currentPeriodEndsAt ?? null
@@ -2583,22 +2592,27 @@ export function AssistantSettings({
                   {t("currentPlan")}
                 </p>
                 <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onOpenPricingPage?.()}
-                    className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
-                  >
-                    {shouldPreferBillingSettingsEntry ? t("buySubscription") : t("changePlan")}
-                  </button>
-                  {shouldPreferBillingSettingsEntry ? (
+                  {shouldShowBillingSettingsEntry ? (
                     <button
                       type="button"
                       onClick={() => void openBillingSettings()}
-                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-border/80 bg-surface-raised/60 px-3.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-accent/20 bg-accent/10 px-3.5 text-[11px] font-medium text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
                     >
                       {t("paymentSettings")}
                     </button>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onOpenPricingPage?.()}
+                    className={cn(
+                      "inline-flex min-h-9 items-center justify-center rounded-full px-3.5 text-[11px] font-medium transition-colors",
+                      shouldShowBillingSettingsEntry
+                        ? "border border-border/80 bg-surface-raised/60 text-text hover:bg-surface-hover"
+                        : "border border-accent/20 bg-accent/10 text-text transition-all hover:border-accent/35 hover:bg-accent/14 hover:shadow-[0_0_24px_var(--accent-glow)]"
+                    )}
+                  >
+                    {t("changePlan")}
+                  </button>
                 </div>
               </div>
 
@@ -2609,9 +2623,11 @@ export function AssistantSettings({
                       data.plan.effectivePlan.code ??
                       t("freePlan")}
                   </p>
-                  {billingSummary.dateKey && billingSummary.dateLabel && (
+                  {billingSummary.dateKey && (
                     <p className="mt-1 text-[11px] text-text-muted">
-                      {t(billingSummary.dateKey, { date: billingSummary.dateLabel })}
+                      {billingSummary.dateLabel
+                        ? t(billingSummary.dateKey, { date: billingSummary.dateLabel })
+                        : t(billingSummary.dateKey)}
                     </p>
                   )}
                 </div>
@@ -2842,7 +2858,7 @@ export function AssistantSettings({
                       onClick={() => onOpenPricingPage?.()}
                       className="inline-flex min-h-11 items-center justify-center rounded-full border border-border/80 bg-transparent px-4 text-sm font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
-                      {t("buySubscription")}
+                      {t("changePlan")}
                     </button>
                     {billingSubscription?.canDisableAutoRenew ? (
                       <button

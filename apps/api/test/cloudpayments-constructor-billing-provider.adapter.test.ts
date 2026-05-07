@@ -110,25 +110,45 @@ async function run(): Promise<void> {
     metadata: {}
   });
   const recurringData = (recurringSession.payload.initializationParams as Record<string, unknown>)
-    .data as Record<string, unknown>;
+    .recurrent as Record<string, unknown>;
   assert.deepEqual(recurringData, {
-    cloudPayments: {
-      recurrent: {
-        interval: "Month",
-        period: 1,
-        amount: 980,
-        startDate: "2026-05-05T12:00:00.000Z"
-      }
-    },
-    CloudPayments: {
-      recurrent: {
-        interval: "Month",
-        period: 1,
-        amount: 980,
-        startDate: "2026-05-05T12:00:00.000Z"
-      }
-    }
+    interval: "Month",
+    period: 1,
+    amount: 980,
+    startDate: "2026-05-05T12:00:00.000Z"
   });
+  assert.equal(
+    (recurringSession.payload.initializationParams as Record<string, unknown>).data,
+    undefined
+  );
+
+  const recurringSessionWithoutKnownCustomer = await adapter.createCheckoutSession({
+    paymentIntentId: "pi-4",
+    workspaceId: "ws-new",
+    userId: "user-1",
+    planCode: "basic",
+    action: "new_purchase",
+    amountMinor: 56000,
+    currency: "RUB",
+    billingPeriod: "month",
+    paymentMethodClass: "card",
+    returnUrl: "/app/chat",
+    providerCustomerRef: null,
+    checkoutKind: "recurring_start",
+    recurringPlan: {
+      interval: "Month",
+      period: 1,
+      maxPeriods: null,
+      amountMinor: 56000,
+      startDate: null
+    },
+    metadata: {}
+  });
+  assert.equal(
+    (recurringSessionWithoutKnownCustomer.payload.initializationParams as Record<string, unknown>)
+      .accountId,
+    "ws-new"
+  );
 
   const missingConfigAdapter = new CloudpaymentsConstructorBillingProviderAdapter({
     async resolveSecretValueByProviderKey(providerKey: string) {

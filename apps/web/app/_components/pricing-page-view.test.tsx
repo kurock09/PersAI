@@ -121,6 +121,7 @@ describe("PricingPageView", () => {
     );
 
     expect(screen.getByText("Already active")).toBeInTheDocument();
+    expect(screen.queryByText("Current plan")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Choose" }));
     await waitFor(() => {
       expect(billingMocks.postAssistantBillingPaymentIntent).toHaveBeenCalledWith(
@@ -136,7 +137,7 @@ describe("PricingPageView", () => {
     expect(screen.queryByText("Pay with SBP QR")).not.toBeInTheDocument();
   });
 
-  it("uses the same card background for current and highlighted plans while accenting them with a premium border", () => {
+  it("gives current plans a subtle background and recommended plans a premium accent", () => {
     renderView(
       <PricingPageView
         plans={[
@@ -174,15 +175,35 @@ describe("PricingPageView", () => {
     const highlightedCard = screen.getByText("Pro").closest("section");
     const regularCard = screen.getByText("Ultima").closest("section");
 
-    expect(currentCard?.className).toContain("border-transparent");
-    expect(currentCard?.className).toContain(
-      "[background:linear-gradient(var(--surface),var(--surface))_padding-box"
-    );
+    expect(currentCard?.className).toContain("bg-surface-raised/70");
+    expect(currentCard?.className).not.toContain("border-transparent");
     expect(highlightedCard?.className).toContain("border-transparent");
     expect(highlightedCard?.className).toContain(
-      "[background:linear-gradient(var(--surface),var(--surface))_padding-box"
+      "[background:linear-gradient(180deg,rgba(255,238,190,0.16)"
     );
     expect(regularCard?.className).toContain("border-border/80");
+  });
+
+  it("shows zero-price plans as free instead of a monthly currency price", () => {
+    renderView(
+      <PricingPageView
+        plans={[
+          makePlan({
+            code: "free",
+            displayName: "Free",
+            presentation: {
+              ...makePlan().presentation,
+              price: { amount: 0, currency: "RUB", billingPeriod: "month" },
+              title: { ru: "Бесплатно", en: "Free" }
+            }
+          })
+        ]}
+        signedIn
+      />
+    );
+
+    expect(screen.getAllByText("Free")).toHaveLength(2);
+    expect(screen.queryByText(/RUB|₽/i)).not.toBeInTheDocument();
   });
 
   it("uses Connect as the signed-in fallback CTA when plan copy is missing", () => {

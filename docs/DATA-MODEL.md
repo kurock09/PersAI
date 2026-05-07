@@ -130,6 +130,7 @@ Materialization prefers the live `persona_archetypes` row when it exists, and on
 
 Current active runtime-provider settings persistence includes:
 
+- user plan visibility exposes the effective plan's structured `presentation.price`, allowing product UI to classify zero-price plans by `amount === 0` and render them as free/indefinite access without inferring from lifecycle status.
 - `platform_runtime_provider_settings.available_models_by_provider` as the legacy chat-model alias used by existing text-routing/provider warmup paths.
 - `platform_runtime_provider_settings.available_model_catalog_by_provider` as the typed provider/model catalog. Each provider owns `models[]` profile rows with model key, capabilities (`chat`, `image`, `video`), token quota weights (`inputTokenWeight`, `cachedInputTokenWeight`, `outputTokenWeight`), and optional admin reference metadata. Older capability-list JSON is normalized into neutral default-weight profiles when read.
 - `platform_runtime_provider_settings.document_processing_policy` as the admin-owned ADR-079 Document Processing policy for default provider, high-quality fallback provider, local fallback, automatic fallback, and extraction-quality threshold.

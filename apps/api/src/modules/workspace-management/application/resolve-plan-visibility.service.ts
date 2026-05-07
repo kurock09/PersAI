@@ -29,6 +29,34 @@ function indexQuotaBuckets(
 
 const MONTHLY_MEDIA_QUOTA_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
 
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function resolvePlanPresentationPrice(
+  plan: {
+    billingProviderHints: unknown;
+  } | null
+): UserPlanVisibilityState["effectivePlan"]["price"] {
+  const billingProviderHints = asObject(plan?.billingProviderHints ?? null);
+  const presentation = asObject(billingProviderHints?.presentation);
+  const price = asObject(presentation?.price);
+  return {
+    amount:
+      typeof price?.amount === "number" && Number.isFinite(price.amount) ? price.amount : null,
+    currency:
+      typeof price?.currency === "string" && price.currency.trim().length > 0
+        ? price.currency
+        : null,
+    billingPeriod:
+      price?.billingPeriod === "month" || price?.billingPeriod === "year"
+        ? price.billingPeriod
+        : null
+  };
+}
+
 @Injectable()
 export class ResolvePlanVisibilityService {
   constructor(
@@ -89,7 +117,8 @@ export class ResolvePlanVisibilityService {
         currentPeriodEndsAt: subscription.currentPeriodEndsAt,
         isTrialPlan: plan?.isTrialPlan ?? false,
         trialFallbackPlanCode: lifecyclePolicy.trialFallbackPlanCode,
-        paidFallbackPlanCode: lifecyclePolicy.paidFallbackPlanCode
+        paidFallbackPlanCode: lifecyclePolicy.paidFallbackPlanCode,
+        price: resolvePlanPresentationPrice(plan)
       },
       entitlements: {
         channelsAndSurfaces: {

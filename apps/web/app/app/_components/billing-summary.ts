@@ -19,6 +19,10 @@ function formatBillingDate(value: string, locale: string): string | null {
   }).format(date);
 }
 
+function isZeroPricePlan(plan: EffectivePlanState): boolean {
+  return plan.price.amount === 0;
+}
+
 export function resolveBillingSummaryCopy(
   plan: EffectivePlanState | null | undefined,
   locale: string
@@ -27,6 +31,14 @@ export function resolveBillingSummaryCopy(
     return {
       statusKey: "billingStatusFree",
       dateKey: null,
+      dateLabel: null
+    };
+  }
+
+  if (isZeroPricePlan(plan)) {
+    return {
+      statusKey: "billingStatusFree",
+      dateKey: "billingDateIndefinite",
       dateLabel: null
     };
   }

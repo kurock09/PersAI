@@ -240,6 +240,86 @@ async function run(): Promise<void> {
   assert.notEqual(fallbackFromCatalog.trialEndsAt, null);
   assert.equal(catalogFallbackWriteCount, 1);
 
+  let freeDefaultWriteCount = 0;
+  const freeDefaultFromCatalog = await createService({
+    workspaceSubscriptionRepo: {
+      async findByWorkspaceId() {
+        return null;
+      },
+      async upsertFromBillingSnapshot(snapshot) {
+        freeDefaultWriteCount += 1;
+        assert.equal(snapshot.planCode, "free");
+        assert.equal(snapshot.status, "active");
+        assert.equal(snapshot.trialStartedAt, null);
+        assert.equal(snapshot.trialEndsAt, null);
+        assert.equal(snapshot.currentPeriodStartedAt, null);
+        assert.equal(snapshot.currentPeriodEndsAt, null);
+        assert.equal(snapshot.billingProvider, null);
+        assert.equal(snapshot.providerSubscriptionRef, null);
+        return {
+          id: "sub-free",
+          workspaceId: snapshot.workspaceId,
+          planCode: snapshot.planCode,
+          status: snapshot.status,
+          trialStartedAt: null,
+          trialEndsAt: null,
+          graceStartedAt: null,
+          graceEndsAt: null,
+          currentPeriodStartedAt: null,
+          currentPeriodEndsAt: null,
+          cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+          billingProvider: snapshot.billingProvider,
+          providerCustomerRef: snapshot.providerCustomerRef,
+          providerSubscriptionRef: snapshot.providerSubscriptionRef,
+          metadata: snapshot.metadata,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+    },
+    planRepo: {
+      async findByCode() {
+        return null;
+      },
+      async findDefaultRegistrationPlan() {
+        return {
+          id: "plan-free",
+          code: "free",
+          displayName: "Free",
+          description: null,
+          status: "active",
+          billingProviderHints: {
+            presentation: {
+              price: {
+                amount: 0,
+                currency: "RUB",
+                billingPeriod: "month"
+              }
+            }
+          },
+          entitlementModel: null,
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: true,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+      }
+    }
+  }).execute({
+    userId: "user-1",
+    workspaceId: "ws-1",
+    assistantId: "assistant-1",
+    assistantPlanOverrideCode: null,
+    assistantQuotaPlanCode: null
+  });
+  assert.equal(freeDefaultFromCatalog.source, "catalog_default_fallback");
+  assert.equal(freeDefaultFromCatalog.planCode, "free");
+  assert.equal(freeDefaultFromCatalog.status, "active");
+  assert.equal(freeDefaultFromCatalog.currentPeriodEndsAt, null);
+  assert.equal(freeDefaultWriteCount, 1);
+
   catalogFallbackWriteCount = 0;
   const readOnlyFallbackFromCatalog = await createService({
     workspaceSubscriptionRepo: {

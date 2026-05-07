@@ -35,6 +35,11 @@ export type UserPlanVisibilityState = {
     isTrialPlan: boolean;
     trialFallbackPlanCode: string | null;
     paidFallbackPlanCode: string | null;
+    price: {
+      amount: number | null;
+      currency: string | null;
+      billingPeriod: "month" | "year" | null;
+    };
   };
   entitlements: {
     channelsAndSurfaces: {

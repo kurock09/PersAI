@@ -7850,6 +7850,7 @@ components:
         - isTrialPlan
         - trialFallbackPlanCode
         - paidFallbackPlanCode
+        - price
       properties:
         code:
           type: string
@@ -7909,6 +7910,8 @@ components:
         paidFallbackPlanCode:
           type: string
           nullable: true
+        price:
+          $ref: "#/components/schemas/AdminPlanPresentationPrice"
     QuotaVisibilityBucketState:
       type: object
       required:
