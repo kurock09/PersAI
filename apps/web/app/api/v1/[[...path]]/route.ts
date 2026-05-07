@@ -82,11 +82,7 @@ function isEventStream(headers: Headers): boolean {
   return contentType.toLowerCase().includes("text/event-stream");
 }
 
-async function attachSessionAuthorizationIfMissing(headers: Headers): Promise<void> {
-  if (headers.has("authorization")) {
-    return;
-  }
-
+async function attachSessionAuthorization(headers: Headers): Promise<void> {
   const { getToken } = await auth();
   const token = await getToken();
   if (token) {
@@ -112,7 +108,7 @@ async function proxy(req: NextRequest, pathSegments: string[] | undefined): Prom
       headers.set(key, value);
     }
   });
-  await attachSessionAuthorizationIfMissing(headers);
+  await attachSessionAuthorization(headers);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {

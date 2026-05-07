@@ -1351,7 +1351,7 @@ export class TurnContextHydrationService {
     if (input.author === "user" && hasAttachments) {
       return "User sent attachments only.";
     }
-    return input.baseContent;
+    return "";
   }
 
   private async buildDirectInputSelection(

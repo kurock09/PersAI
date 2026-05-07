@@ -313,9 +313,23 @@ export class InternalRuntimeMediaJobsController {
           ? null
           : this.requiredString(row.filename, `attachments[${String(index)}].filename`),
       sizeBytes,
+      ...(row.aliases === undefined
+        ? {}
+        : {
+            aliases: this.stringArray(row.aliases, `attachments[${String(index)}].aliases`)
+          }),
       ...(row.fileRef === null || row.fileRef === undefined
         ? {}
         : { fileRef: this.requiredString(row.fileRef, `attachments[${String(index)}].fileRef`) })
     };
+  }
+
+  private stringArray(value: unknown, fieldName: string): string[] {
+    if (!Array.isArray(value)) {
+      throw new BadRequestException(`${fieldName} must be an array of strings.`);
+    }
+    return value.map((entry, index) =>
+      this.requiredString(entry, `${fieldName}[${String(index)}]`)
+    );
   }
 }

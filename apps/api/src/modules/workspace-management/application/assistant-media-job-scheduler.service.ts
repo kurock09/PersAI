@@ -294,6 +294,16 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       return;
     }
 
+    if (outcome.result.artifacts.length === 0) {
+      await this.failJob(
+        job,
+        false,
+        "media_job_artifacts_missing",
+        "Media job worker completed without any deliverable artifacts."
+      );
+      return;
+    }
+
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {

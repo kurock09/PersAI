@@ -157,6 +157,28 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.ok(finalUpdates[0]?.data?.nextRetryAt instanceof Date);
   });
 
+  test("fails jobs immediately when runtime returns no deliverable artifacts", async () => {
+    const { service, finalUpdates } = createService({
+      runtimeOutcome: {
+        ok: true,
+        result: {
+          assistantText: "",
+          artifacts: [],
+          usage: null,
+          toolInvocations: [{ name: "image_edit", iteration: 1, ok: true }],
+          rawText: null
+        }
+      }
+    });
+
+    const processed = await service.processDueJobsBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(finalUpdates.length, 1);
+    assert.equal(finalUpdates[0]?.data?.status, "failed");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "media_job_artifacts_missing");
+  });
+
   test("passes direct tool execution payloads through to runtime", async () => {
     let capturedRunInput: Record<string, unknown> | null = null;
     const { service } = createService({

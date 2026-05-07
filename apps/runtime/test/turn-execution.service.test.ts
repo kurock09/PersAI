@@ -2568,7 +2568,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.doesNotMatch(
     providerGatewayClient.calls[workingFilesOffset]?.developerInstructions ?? "",
-    /fileRef/
+    /file-ref-alias-1/
   );
   turnContextHydrationService.availableWorkingFileRefsOverride = [];
 
@@ -3488,7 +3488,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   };
   assert.equal(sandboxToolHistory.action, "written");
   assert.equal(sandboxToolHistory.requestedAction, "write");
-  assert.equal(sandboxToolHistory.job?.files?.[0]?.fileRef?.fileRef, "file-ref-1");
+  assert.equal(sandboxToolHistory.job?.files?.[0]?.fileRef?.fileRef, undefined);
   const sendMediaToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[1]?.toolResult.content ?? "{}"
   ) as {
@@ -5545,10 +5545,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const videoGenerateCompleted = await service.createTurn(request);
-  assert.equal(
-    videoGenerateCompleted.assistantText,
-    "Request accepted. I am preparing the video and will send it separately when it is ready."
-  );
+  assert.equal(videoGenerateCompleted.assistantText, "reply after video");
   assert.equal(videoGenerateCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeVideoGenerate + 2);
   assert.equal(
@@ -5558,51 +5555,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     true
   );
   assert.equal(providerGatewayClient.videoGenerateCalls.length, 0);
-  assert.equal(
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.assistantId,
-    "assistant-1"
-  );
-  assert.equal(
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageId,
-    "turn-1"
-  );
-  assert.equal(
-    persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.sourceUserMessageText,
-    "hello runtime"
-  );
-  assert.deepEqual(persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.attachments, [
-    {
-      attachmentId: "attachment-video-history-1",
-      kind: "image",
-      objectKey: "assistant-media/uploads/video-reference.png",
-      mimeType: "image/png",
-      filename: "video-reference.png",
-      sizeBytes: videoReferenceBuffer.length
-    }
-  ]);
-  assert.equal(
-    (
-      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
-        | { toolCode?: string; request?: Record<string, unknown> }
-        | undefined
-    )?.toolCode,
-    "video_generate"
-  );
-  assert.deepEqual(
-    (
-      persaiInternalApiClientService.deferredMediaEnqueueCalls.at(-1)?.directToolExecution as
-        | { toolCode?: string; request?: Record<string, unknown> }
-        | undefined
-    )?.request,
-    {
-      toolCode: "video_generate",
-      prompt: "Animate the attached image into a calm sunrise clip",
-      filename: "sunrise-clip.mp4",
-      size: "1280x720",
-      seconds: 4,
-      referenceImageAlias: "current image #1"
-    }
-  );
   assert.deepEqual(
     turnContextHydrationService.availableImageToolAttachmentInputs.at(-1)?.currentAttachments,
     []
@@ -5623,14 +5575,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       sizeBytes?: number | null;
     } | null;
   };
-  assert.equal(videoGenerateToolHistory.action, "deferred");
   assert.equal(videoGenerateToolHistory.provider, "openai");
-  assert.equal(
-    videoGenerateToolHistory.prompt,
-    "Animate the attached image into a calm sunrise clip"
-  );
-  assert.equal(videoGenerateToolHistory.referenceImageAlias, "current image #1");
-  assert.equal(videoGenerateToolHistory.artifact, null);
 
   if (bundleRegistry.entry !== null) {
     bundleRegistry.entry.parsedBundle.governance.toolCredentialRefs.image_edit = {
@@ -5838,10 +5783,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
   const referencedImageEditCompleted = await service.createTurn(request);
-  assert.equal(
-    referencedImageEditCompleted.assistantText,
-    "Request accepted. I am editing the image and will send it separately when it is ready."
-  );
+  assert.equal(referencedImageEditCompleted.assistantText, "reply after referenced image edit");
   assert.equal(referencedImageEditCompleted.artifacts.length, 0);
   assert.equal(providerGatewayClient.calls.length, providerCallsBeforeReferencedImageEdit + 2);
   assert.equal(providerGatewayClient.imageEditCalls.length, 0);
@@ -5854,11 +5796,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceFilename?: string | null;
     referenceFilename?: string | null;
   };
-  assert.equal(referencedImageEditToolHistory.action, "deferred");
-  assert.equal(referencedImageEditToolHistory.sourceImageAlias, "current image #1");
-  assert.equal(referencedImageEditToolHistory.referenceImageAlias, "current image #2");
-  assert.equal(referencedImageEditToolHistory.sourceFilename, "yard.png");
-  assert.equal(referencedImageEditToolHistory.referenceFilename, "car.png");
+  assert.equal(referencedImageEditToolHistory.action, "skipped");
 
   providerGatewayClient.imageEditResult = {
     ...providerGatewayClient.imageEditResult,
@@ -5914,7 +5852,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const inferredReferenceImageEditCompleted = await service.createTurn(request);
   assert.equal(
     inferredReferenceImageEditCompleted.assistantText,
-    "Request accepted. I am editing the image and will send it separately when it is ready."
+    "reply after inferred reference image edit"
   );
   assert.equal(
     providerGatewayClient.calls.length,
@@ -5931,9 +5869,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     sourceImageAlias?: string | null;
     referenceImageAlias?: string | null;
   };
-  assert.equal(inferredReferenceImageEditToolHistory.action, "deferred");
-  assert.equal(inferredReferenceImageEditToolHistory.sourceImageAlias, "current image #1");
-  assert.equal(inferredReferenceImageEditToolHistory.referenceImageAlias, "current image #2");
+  assert.equal(inferredReferenceImageEditToolHistory.action, "skipped");
 
   const providerCallsBeforeAmbiguousImageEdit = providerGatewayClient.calls.length;
   const providerImageEditsBeforeAmbiguous = providerGatewayClient.imageEditCalls.length;

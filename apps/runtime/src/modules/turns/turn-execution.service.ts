@@ -3033,7 +3033,7 @@ export class TurnExecutionService {
     const withoutExistingSection =
       existing === null
         ? ""
-        : existing.replace(/## Working Files[\s\S]*?(?=\n\n## |$)/m, "").trim();
+        : existing.replace(/## Working Files[\s\S]*?(?=\n\n#+ |$)/m, "").trim();
     if (workingFilesSection === null) {
       return withoutExistingSection.length === 0 ? null : withoutExistingSection;
     }

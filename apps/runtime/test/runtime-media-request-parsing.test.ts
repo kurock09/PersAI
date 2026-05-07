@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { InternalRuntimeMediaJobsController } from "../src/modules/turns/interface/http/internal-runtime-media-jobs.controller";
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
@@ -69,5 +70,60 @@ describe("runtime media request parsing", () => {
       referenceImageAlias: "last generated image"
     });
     assert.ok(!(parsed instanceof Error));
+  });
+
+  test("internal media-job parsing preserves attachment aliases", () => {
+    const controller = new InternalRuntimeMediaJobsController(
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      controller as unknown as {
+        parseInput(body: Record<string, unknown>): {
+          attachments: Array<{ aliases?: string[]; fileRef?: string }>;
+        };
+      }
+    ).parseInput({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      runtimeTier: "paid_shared_restricted",
+      runtimeBundleDocument: "{}",
+      job: {
+        id: "job-1",
+        surface: "web",
+        kind: "image",
+        chatId: "chat-1",
+        sourceUserMessageId: "message-1",
+        sourceUserMessageText: "edit this image",
+        sourceUserMessageCreatedAt: "2026-05-07T16:45:48.221Z"
+      },
+      attachments: [
+        {
+          attachmentId: "attachment-1",
+          kind: "image",
+          objectKey: "assistant-media/path.png",
+          mimeType: "image/png",
+          filename: "input.png",
+          sizeBytes: 123,
+          fileRef: "file-1",
+          aliases: ["current attachment #1", "current image #1"]
+        }
+      ],
+      directToolExecution: {
+        toolCode: "image_edit",
+        request: {
+          toolCode: "image_edit",
+          prompt: "make it brighter",
+          filename: "edit.png",
+          size: "1024x1024",
+          background: "auto",
+          sourceImageAlias: "current image #1"
+        }
+      }
+    });
+
+    assert.deepEqual(parsed.attachments[0]?.aliases, ["current attachment #1", "current image #1"]);
+    assert.equal(parsed.attachments[0]?.fileRef, "file-1");
   });
 });

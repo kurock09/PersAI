@@ -134,7 +134,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
 
   // Successful files.send / files.write_and_send results are deliberately
   // reduced for the model. The full internal payload still drives attachment
-  // delivery, but the model should not see fileRef/raw attachment metadata and
+  // delivery, but the model should not see raw selectors/attachment metadata and
   // copy it into the final user-visible answer.
   {
     const payload = {
@@ -166,7 +166,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(parsed.delivered, true);
     assert.equal(parsed.queuedAttachments, 1);
     assert.equal(parsed.fileRefs, undefined);
-    assert.match(parsed.instruction ?? "", /Do not print fileRef/);
+    assert.match(parsed.instruction ?? "", /Do not print raw selectors/);
   }
 
   // Non-delivery files results still keep user-meaningful metadata, but raw

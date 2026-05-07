@@ -52,7 +52,10 @@ describe("api v1 proxy route", () => {
     expect(fetchHeaders?.get("Authorization")).toBe("Bearer session-token");
   });
 
-  it("preserves explicit Authorization headers", async () => {
+  it("prefers a fresh Clerk bearer over an incoming Authorization header", async () => {
+    authMock.mockResolvedValue({
+      getToken: vi.fn().mockResolvedValue("session-token")
+    });
     global.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -70,7 +73,32 @@ describe("api v1 proxy route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(authMock).not.toHaveBeenCalled();
+    const fetchHeaders = (vi.mocked(global.fetch).mock.calls[0]?.[1] as RequestInit | undefined)
+      ?.headers as Headers | undefined;
+    expect(fetchHeaders?.get("Authorization")).toBe("Bearer session-token");
+  });
+
+  it("keeps the incoming Authorization header when Clerk does not return a session token", async () => {
+    authMock.mockResolvedValue({
+      getToken: vi.fn().mockResolvedValue(null)
+    });
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    ) as typeof fetch;
+
+    const response = await GET(
+      new NextRequest("https://persai.dev/api/v1/me", {
+        headers: { Authorization: "Bearer explicit-token" }
+      }),
+      {
+        params: Promise.resolve({ path: ["me"] })
+      }
+    );
+
+    expect(response.status).toBe(200);
     const fetchHeaders = (vi.mocked(global.fetch).mock.calls[0]?.[1] as RequestInit | undefined)
       ?.headers as Headers | undefined;
     expect(fetchHeaders?.get("Authorization")).toBe("Bearer explicit-token");

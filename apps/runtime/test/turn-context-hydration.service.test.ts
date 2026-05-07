@@ -261,6 +261,71 @@ class FakeRuntimeStatePrismaService {
   };
 
   assistantFile = {
+    findFirst: async (args: {
+      where: {
+        id?: string;
+        assistantId?: string;
+        workspaceId?: string;
+        relativePath?: string;
+      };
+      orderBy?: Array<{ createdAt?: "asc" | "desc"; id?: "asc" | "desc" }>;
+    }) => {
+      const rows = [...this.assistantFiles.values()].filter((entry) => {
+        if (args.where.id !== undefined && entry.id !== args.where.id) {
+          return false;
+        }
+        if (args.where.assistantId !== undefined && entry.assistantId !== args.where.assistantId) {
+          return false;
+        }
+        if (args.where.workspaceId !== undefined && entry.workspaceId !== args.where.workspaceId) {
+          return false;
+        }
+        if (
+          args.where.relativePath !== undefined &&
+          entry.relativePath !== args.where.relativePath
+        ) {
+          return false;
+        }
+        return true;
+      });
+      rows.sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+      return rows[0] ?? null;
+    },
+    findMany: async (args: {
+      where?: {
+        id?: { in: string[] };
+        assistantId?: string;
+        workspaceId?: string;
+      };
+      orderBy?: Array<
+        { relativePath?: "asc" | "desc" } | { createdAt?: "asc" | "desc" } | { id?: "asc" | "desc" }
+      >;
+      take?: number;
+    }) => {
+      const requestedIds = args.where?.id?.in;
+      const rows = [...this.assistantFiles.values()].filter((entry) => {
+        if (requestedIds !== undefined && !requestedIds.includes(entry.id)) {
+          return false;
+        }
+        if (args.where?.assistantId !== undefined && entry.assistantId !== args.where.assistantId) {
+          return false;
+        }
+        if (args.where?.workspaceId !== undefined && entry.workspaceId !== args.where.workspaceId) {
+          return false;
+        }
+        return true;
+      });
+      rows.sort((left, right) => {
+        if (left.relativePath !== right.relativePath) {
+          return left.relativePath.localeCompare(right.relativePath);
+        }
+        if (left.createdAt.getTime() !== right.createdAt.getTime()) {
+          return right.createdAt.getTime() - left.createdAt.getTime();
+        }
+        return right.id.localeCompare(left.id);
+      });
+      return typeof args.take === "number" ? rows.slice(0, args.take) : rows;
+    },
     upsert: async (args: {
       where: {
         assistantId_workspaceId_origin_objectKey: {
@@ -601,11 +666,16 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
     [
       {
         attachmentId: "attachment-4",
-        aliases: ["current attachment #1", "current image #1"]
+        aliases: [
+          "current attachment #1",
+          "current image #1",
+          "previous attachment #2",
+          "previous image #2"
+        ]
       },
       {
         attachmentId: "attachment-2",
-        aliases: ["previous attachment #1", "previous image #1", "last generated image"]
+        aliases: ["last generated image", "previous attachment #1", "previous image #1"]
       }
     ]
   );
@@ -627,10 +697,12 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
       "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-small.pdf"
     )
   );
-  assert.ok(
+  assert.equal(
     downloadedObjectKeys.includes(
       "assistant-media/assistants/assistant-1/chats/chat-1/messages/message-current/file-large.pdf"
-    )
+    ),
+    false,
+    "oversized direct provider attachments should be skipped"
   );
 
   prisma.chat = null;

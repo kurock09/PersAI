@@ -1,5 +1,68 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (ADR-081 alias follow-up regressions) — restore async media alias resolution and stabilize Working Files developer refresh
+
+### What changed
+
+- Investigated the founder-reported post-ADR-081 regression live in `persai-dev` instead of assuming a scheduler/background-task outage.
+- Live DB evidence showed async image jobs were being created and claimed, but failing with `completion_artifacts_missing` because the runtime worker returned `artifactsJson: []`.
+- Root cause 1: the ADR-081 alias-first attachment payload was not preserved across the internal async media seam. `assistant_media_jobs.requestJson` already stored attachment `aliases`, but `apps/runtime/src/modules/turns/interface/http/internal-runtime-media-jobs.controller.ts` dropped `aliases` while parsing the internal `/media-jobs/run` request. That made async `image_edit` / `video_generate` lose `sourceImageAlias` / `referenceImageAlias` resolution even though the same aliases still worked on the foreground turn path.
+- Fixed the controller to preserve attachment `aliases` on the runtime side, and added a focused regression proving internal media-job parsing keeps aliases intact.
+- Root cause 2: the API media-job scheduler treated a runtime run as successful whenever the HTTP call returned a syntactically valid `RuntimeMediaJobRunResult`, even if that result contained zero deliverable artifacts. That hid the real failure and only surfaced later as delivery-time `completion_artifacts_missing`.
+- Hardened `AssistantMediaJobSchedulerService` to fail such runs immediately with `media_job_artifacts_missing` instead of promoting them to `completion_pending`.
+- Separately verified the founder-observed developer-instructions duplication seam: `replaceWorkingFilesDeveloperSection(...)` only stopped at the next `##` heading, while the presence block uses `# Sense of Time`. Fixed the replacement regex to stop at any markdown heading level and added a focused regression to preserve neighboring `Sense of Time` / `Open Media Jobs` sections without duplicating `Working Files`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/runtime test -- runtime-media-request-parsing.test.ts`
+- `corepack pnpm --filter @persai/runtime test -- working-files-developer-section.test.ts runtime-media-request-parsing.test.ts`
+- `corepack pnpm --filter @persai/api test -- assistant-media-job-scheduler.service.test.ts`
+- live `kubectl` / Prisma inspection in `persai-dev` for:
+  - affected async image-edit jobs (`b97f23b1-4eb0-42a8-8f62-914658316c84`, `30f77814-ccf6-4367-89f3-9aeaff3ca631`)
+  - live materialized bundle tool exposure
+  - live runtime turn receipts and media-job rows
+  - raw internal rerun of one failed media job through `/api/v1/internal/runtime/media-jobs/run`
+
+### Risks / residuals
+
+- The code fix is local until fresh `runtime` and `api` builds are deployed to `persai-dev`; current pods will continue showing the pre-fix async media behavior until rollout.
+- The scheduler hardening makes future failures honest earlier, but previously failed jobs will remain failed; they are not retro-replayed automatically by this slice.
+
+### Next recommended step
+
+- Deploy updated `runtime` + `api` to `persai-dev`, then re-run the exact founder flows on Telegram and web: async `image_edit`, async `image_generate`, and a second-image/reference edit, confirming that the job row reaches deliverable artifacts and the user receives the completed media.
+
+## 2026-05-07 (ADR-084 billing POST auth seam fix) — make the web `/api/v1` proxy prefer the live server Clerk session over stale client bearer headers
+
+### What changed
+
+- Investigated the still-live `persai-dev` billing regression directly in cluster logs after the founder reproduced both `Enable auto-renew` and `Change plan -> FREE` failures.
+- The decisive evidence was an auth seam on billing mutations rather than a backend FREE-downgrade lifecycle bug:
+  - `GET /api/v1/assistant/billing/subscription` reached `api` with a real `userId` and returned `200`
+  - the following `POST /api/v1/assistant/billing/subscription/enable-auto-renew` and `POST /api/v1/assistant/billing/subscription/change-plan` reached `api` as `401 userId=null`
+  - `web` no longer showed the earlier `clerkMiddleware()` integration error, but it did log repeated Clerk warnings that the cookie-backed session token was missing the `azp` claim
+- Root cause: the web `/api/v1` proxy still treated any incoming browser `Authorization` header as authoritative and only called `auth().getToken()` when that header was missing. That let a stale or otherwise invalid client bearer override the still-valid same-origin Clerk cookie session during billing POST actions.
+- Fixed the proxy to prefer a fresh server-side Clerk bearer whenever `auth().getToken()` returns one, and only preserve the incoming `Authorization` header as a fallback when the server-side session token is unavailable. Same-origin product requests now follow the live web session instead of whatever bearer the browser happened to attach.
+- Added focused proxy regressions to lock both branches: server token wins when available, and explicit incoming auth is preserved only when Clerk returns no session token.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/api/v1/[[...path]]/route.test.ts app/_components/pricing-page-view.test.tsx app/app/_components/assistant-settings.test.tsx app/app/billing/checkout/[paymentIntentId]/page.test.tsx --config vitest.config.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check` — still fails on pre-existing unrelated `apps/runtime/test/turn-context-hydration.service.test.ts` formatting drift
+- live `kubectl logs` inspection in `persai-dev` for `web` + `api`
+
+### Risks / residuals
+
+- This fix is still local until the updated `web` build is rolled out to `persai-dev`; the cluster will continue showing the old `POST 401 userId=null` behavior until that deploy happens.
+- The Clerk warning about the cookie token missing the `azp` claim still appears in `web` logs. The proxy fix closes the current billing mutation seam, but the underlying Clerk-session warning is still worth tracking separately with Clerk.
+
+### Next recommended step
+
+- Deploy the updated `web` build to `persai-dev`, then re-run the two failing founder flows live: `Payment settings -> Enable auto-renew` and `Payment settings -> Change plan -> FREE`, confirming that `api` no longer logs `POST ... 401 userId=null` for those requests.
+
 ## 2026-05-07 (ADR-081 attachment-context alias split) — remove raw file selectors from model-visible history
 
 ### What changed
