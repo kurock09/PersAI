@@ -784,11 +784,9 @@ export function ChatArea({
                     ? t("chatMessageLimitBody")
                     : t("chatActiveLimitBody")}
                 </p>
-                <p className="mt-1 text-[11px] text-text-muted">
-                  {chat.issue?.classId === "chat_message_limit"
-                    ? t("chatMessageLimitDetail")
-                    : t("chatActiveLimitDetail")}
-                </p>
+                {chat.issue?.classId === "active_chat_cap" ? (
+                  <p className="mt-1 text-[11px] text-text-muted">{t("chatActiveLimitDetail")}</p>
+                ) : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {chat.issue?.classId === "chat_message_limit" ? (
                     <Link

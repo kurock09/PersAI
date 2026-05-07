@@ -34,6 +34,19 @@ async function run(): Promise<void> {
       }
     },
     pro: { isTrialPlan: false, trialDurationDays: null, billingProviderHints: null },
+    free: {
+      isTrialPlan: false,
+      trialDurationDays: null,
+      billingProviderHints: {
+        presentation: {
+          price: {
+            amount: 0,
+            currency: "RUB",
+            billingPeriod: "month"
+          }
+        }
+      }
+    },
     fresh_trial: {
       isTrialPlan: true,
       trialDurationDays: 7,
@@ -360,6 +373,11 @@ async function run(): Promise<void> {
   assert.equal(currentSubscription?.status, "active");
   assert.equal(currentSubscription?.trialStartedAt, null);
   assert.equal(currentSubscription?.trialEndsAt, null);
+
+  await assert.rejects(
+    () => service.setWorkspaceSubscription("admin-1", "user-1", { planCode: "free" }, "step-up-9"),
+    /Use Apply fallback now for FREE access instead of Apply workspace subscription/
+  );
 }
 
 void run();

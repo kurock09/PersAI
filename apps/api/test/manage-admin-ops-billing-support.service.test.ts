@@ -108,10 +108,36 @@ async function run(): Promise<void> {
       planCatalogPlan: {
         async findUnique(args: { where: { code: string } }) {
           if (args.where.code === "starter_trial") {
-            return { trialDurationDays: 7, isTrialPlan: true, status: "active" };
+            return {
+              trialDurationDays: 7,
+              isTrialPlan: true,
+              status: "active",
+              billingProviderHints: null
+            };
           }
           if (args.where.code === "pro") {
-            return { trialDurationDays: null, isTrialPlan: false, status: "active" };
+            return {
+              trialDurationDays: null,
+              isTrialPlan: false,
+              status: "active",
+              billingProviderHints: null
+            };
+          }
+          if (args.where.code === "free") {
+            return {
+              trialDurationDays: null,
+              isTrialPlan: false,
+              status: "active",
+              billingProviderHints: {
+                presentation: {
+                  price: {
+                    amount: 0,
+                    currency: "RUB",
+                    billingPeriod: "month"
+                  }
+                }
+              }
+            };
           }
           return null;
         }
@@ -300,6 +326,23 @@ async function run(): Promise<void> {
   assert.equal(lifecycleCalls[5]?.payload.eventCode, "payment_activated");
   assert.equal(lifecycleCalls[5]?.payload.refs?.metadata?.manualPayment?.billingPeriod, "month");
 
+  await assert.rejects(
+    () =>
+      service.execute(
+        "admin-1",
+        "user-1",
+        {
+          action: "activate_paid_manually",
+          manualPayment: {
+            planCode: "free",
+            billingPeriod: "month"
+          }
+        },
+        "step-up-7"
+      ),
+    /Manual paid activation cannot target FREE/
+  );
+
   assert.deepEqual(authCalls, [
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-0" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-1" },
@@ -307,7 +350,8 @@ async function run(): Promise<void> {
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-3" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-4" },
     { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-5" },
-    { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-6" }
+    { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-6" },
+    { userId: "admin-1", action: "admin.plan.update", stepUpToken: "step-up-7" }
   ]);
 }
 

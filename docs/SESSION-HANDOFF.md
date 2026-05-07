@@ -1,5 +1,82 @@
 # SESSION-HANDOFF
 
+## 2026-05-07 (web chat limit banner minimalism polish) — remove the justificatory detail line from the message-limit banner
+
+### What changed
+
+- Kept the session bounded to one UI-polish detail on the already-landed web chat-limit banner.
+- The founder called out the `chat_message_limit` detail copy (`На текущем тарифе...`) as sounding like justification instead of helpful product guidance.
+- `apps/web/app/app/_components/chat-area.tsx` now omits that extra detail paragraph for `chat_message_limit`, leaving the banner with only title, main body, and the existing `New chat` / pricing CTA pair. The rarer `active_chat_cap` banner still keeps its own detail line.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web run typecheck`
+
+### Risks / residuals
+
+- This is presentation-only polish; no runtime/API/chat-limit logic changed.
+
+### Next recommended step
+
+- Live-check the banner in `persai-dev` after the next web deploy to confirm the shorter message-limit card still feels balanced next to the compaction banner on mobile and desktop.
+
+## 2026-05-07 (billing settings launch + admin FREE guard + live subscription repair) — close the last billing UX/auth tails without reopening recurring scope
+
+### What changed
+
+- Kept the session bounded to the founder-reported billing tails that remained after the recurring-management slice: the 1-ruble bind checkout launch from `Payment settings`, the misleading scheduled-FREE CTA/state, and the unsafe admin/manual `FREE` activation path that had already corrupted live billing truth.
+- `apps/web` now closes `Payment settings` before handing off to bind checkout instead of leaving the checkout route hidden behind the still-open settings slide-over. `AssistantSettings` exposes a shell callback for billing-checkout launch, and `AppShell` uses it to dismiss settings first and then route to `/app/billing/checkout/:paymentIntentId`.
+- Scheduled `FREE` cancellation is now rendered honestly in settings: if the workspace can re-enable recurring while a `free` period-end change is pending, the CTA copy becomes `Restore subscription` / `Восстановить подписку` and the success/bind-follow-up feedback uses subscription-restore wording instead of the generic `Enable auto-renew`.
+- Blocked the root admin corruption seam on both backend manual paths. `Apply workspace subscription` now rejects zero-price targets and explicitly points operators to `Apply fallback now`; `activate_paid_manually` in Admin Ops also rejects `FREE` instead of creating a fake paid-active row with provider refs.
+- Added focused regressions for the new billing-settings CTA/launch behavior and both backend admin guards.
+- Repaired the already-corrupted live workspace for `info@general-fly.com` in `persai-dev` by aligning `workspace_subscription` to the latest successful paid `basic` activation (`providerSubscriptionRef = sc_e94789f00dd8a897260c5d74dbdc1`, period `2026-05-07T20:10:37Z -> 2026-06-07T20:10:37Z`) after confirming the real provider payment had landed while the billing event was ignored because of stale admin-written refs.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-workspace-subscription.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/manage-admin-ops-billing-support.service.test.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- live `kubectl exec` / Prisma inspection and manual repair for `info@general-fly.com` (`workspaceId = 24926096-953e-49b9-af56-f3551ce6f602`)
+
+### Risks / residuals
+
+- The code-side admin guard prevents the known `FREE as paid activation` corruption from recurring after deploy, but it does not retroactively clean other already-damaged workspaces; those still need manual repair if found.
+- The latest successful `payment_activated` billing event for `info@general-fly.com` remains historically stored as `ignored`; live entitlement truth was repaired directly on `workspace_subscription` to unblock the user now, but a future operator/reconciliation slice may still want a more formal replay/admin repair tool.
+
+### Next recommended step
+
+- Deploy the updated `web` and `api` builds, then re-run the founder flows live in `persai-dev`: `Payment settings -> Restore subscription`, `Payment settings -> Enable auto-renew` from a non-recurring paid workspace, and Admin UI attempts to set `FREE` via paid/manual activation should now fail loudly and route operators to fallback instead.
+
+## 2026-05-07 (web chat limit pre-header UX fix) — keep plan-limit refusals out of the pending-send “checking delivery” contour
+
+### What changed
+
+- Took the session as one bounded `apps/web` follow-up on the founder-reported regression where hitting `messagesPerChat` on `free` could show the ADR-075 pending-send helper (`Проверяем доставку`) instead of the calm product banner added in the earlier chat-limit slice.
+- Root cause was not the banner copy or `chat-area.tsx`. The regression lived in `apps/web/app/app/_components/use-chat.ts`: if the stream failed before `2xx` headers, the code always treated that path as a transport/send failure and forced `send_failed_unconfirmed`, even when `streamAssistantWebChatTurn()` had actually thrown a structured `ContractsApiError` such as `chat_message_limit_reached` or `active_chat_cap_reached`.
+- Hardened the pre-header stream-failure seam so it now classifies the issue first. Plan-owned chat-limit refusals (`chat_message_limit`, `active_chat_cap`) dismiss the optimistic local turn, clear the pending-send slot, and surface the existing above-composer banner state through `chat.issue`. Real pre-header network/timeout/abort failures still keep the old pending-send bubble with retry/cancel so mobile send-reliability UX is unchanged for genuine transport drops.
+- Added focused `use-chat` regressions that pin both structured limit cases before stream headers, proving they no longer degrade into `send_failed_unconfirmed`.
+
+### Verification
+
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+### Risks / residuals
+
+- This fix is intentionally narrow: only structured pre-header plan-limit refusals are rerouted to the banner issue path. Session-expiry and genuine transport failures still follow the existing pending-send contour.
+- Live validation is still recommended on mobile/web after deploy to confirm the exact founder `free`-plan limit repro now shows the calm banner and no longer leaves the temporary `Проверяем доставку` state on screen.
+
+### Next recommended step
+
+- Deploy the updated `web` build, then hit `messagesPerChat` and the rare `activeWebChatsLimit` admission refusal in `persai-dev` (preferably on mobile too) and confirm both now show the calm banner while offline/timeout send failures still use the pending-send retry/cancel UX.
+
 ## 2026-05-07 (PROD false media-claim honesty hardening) — block “image ready / sent attachment” hallucinations when no delivery happened
 
 ### What changed

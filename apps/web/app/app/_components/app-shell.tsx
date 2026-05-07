@@ -272,6 +272,11 @@ export function AppShell({
                   setSettingsInitialSection(undefined);
                   router.push("/app/pricing" as Route);
                 }}
+                onStartBillingCheckout={(paymentIntentId) => {
+                  setSettingsOpen(false);
+                  setSettingsInitialSection(undefined);
+                  router.push(`/app/billing/checkout/${paymentIntentId}` as Route);
+                }}
               />
             )}
           </SlideOver>

@@ -232,6 +232,9 @@ function isSnapshotDebugEnabled(): boolean {
     return false;
   }
 }
+function shouldSurfacePreHeaderIssueAsBanner(issue: WebChatUxIssue): boolean {
+  return issue.classId === "chat_message_limit" || issue.classId === "active_chat_cap";
+}
 function recordSnapshotDebugEvent(event: SnapshotDebugEvent): void {
   if (typeof window === "undefined") return;
   const debugWindow = window as typeof window & {
@@ -2256,6 +2259,27 @@ export function useChat(threadKey: string): UseChatReturn {
             status: "send_failed_unconfirmed"
           });
         };
+      const dismissPreHeaderTurnWithIssue = (issue: WebChatUxIssue): void => {
+        clearStoredActiveTurnClientTurnId(sendThreadKey, clientTurnId);
+        clearThreadLiveActivity(sendThreadKey, assistantMsgId);
+        setIssue(issue);
+        applyThreadMessages(sendThreadKey, (prev) => {
+          const idsToRemove = new Set<string>([userMsgId, assistantMsgId]);
+          for (const message of prev) {
+            if (!idsToRemove.has(message.id)) {
+              continue;
+            }
+            for (const attachment of message.attachments ?? []) {
+              if (attachment.localPreviewUrl !== undefined) {
+                URL.revokeObjectURL(attachment.localPreviewUrl);
+              }
+            }
+          }
+          return prev.filter((message) => !idsToRemove.has(message.id));
+        });
+        activeTurnSnapshotsRef.current.delete(sendThreadKey);
+        setThreadPendingSend(sendThreadKey, null);
+      };
       const userMsgBase: Omit<ChatMessage, "status"> = {
         id: userMsgId,
         role: "user",
@@ -3007,9 +3031,17 @@ export function useChat(threadKey: string): UseChatReturn {
         clearTimeout(headersTimer);
         flushBufferedAssistantState();
         if (!headersOk) {
-          /* Pre-headers failure: the request was aborted or never reached the */ /* server. The whole turn is "didn't fly" ��� flip the user bubble to */ /* send_failed and drop the unused assistant placeholder. Skip the */ /* existing issue banner: the bubble + composer helper carry the UX. */ sendFailedCleanup(
-            true
-          );
+          const preHeaderIssue =
+            error instanceof DOMException && error.name === "AbortError"
+              ? null
+              : toWebChatUxIssue(error);
+          if (preHeaderIssue !== null && shouldSurfacePreHeaderIssueAsBanner(preHeaderIssue)) {
+            dismissPreHeaderTurnWithIssue(preHeaderIssue);
+          } else {
+            /* Pre-headers failure: the request was aborted or never reached the */ /* server. The whole turn is "didn't fly" ��� flip the user bubble to */ /* send_failed and drop the unused assistant placeholder. Skip the */ /* existing issue banner: the bubble + composer helper carry the UX. */ sendFailedCleanup(
+              true
+            );
+          }
         } else if (
           isPassiveStreamDisconnect(error) &&
           !hardStoppedClientTurnIdsRef.current.has(clientTurnId)

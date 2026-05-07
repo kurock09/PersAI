@@ -2611,6 +2611,64 @@ describe("useChat", () => {
       expect(result.current.messages.some((m) => m.role === "assistant")).toBe(false);
     });
 
+    it("surfaces chat_message_limit as a banner issue instead of a send_failed bubble", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new ContractsApiError(
+          "This chat has reached its message limit.",
+          409,
+          {
+            error: {
+              code: "chat_message_limit_reached",
+              message: "This chat has reached its message limit."
+            }
+          },
+          "chat_message_limit_reached"
+        )
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("limit me");
+      });
+
+      expect(result.current.issue).toMatchObject({
+        classId: "chat_message_limit",
+        message: "This chat has reached its message limit."
+      });
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages).toHaveLength(0);
+    });
+
+    it("surfaces active_chat_cap as a banner issue instead of a send_failed bubble", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn.mockRejectedValueOnce(
+        new ContractsApiError(
+          "You already have the maximum number of active chats for this plan.",
+          409,
+          {
+            error: {
+              code: "active_chat_cap_reached",
+              message: "You already have the maximum number of active chats for this plan."
+            }
+          },
+          "active_chat_cap_reached"
+        )
+      );
+
+      const { result } = renderHook(() => useChat("thread-1"));
+
+      await act(async () => {
+        await result.current.send("new chat please");
+      });
+
+      expect(result.current.issue).toMatchObject({
+        classId: "active_chat_cap",
+        message: "You already have the maximum number of active chats for this plan."
+      });
+      expect(result.current.pendingSendStatus).toBeNull();
+      expect(result.current.messages).toHaveLength(0);
+    });
+
     it("retryPendingSend re-dispatches the same payload and clears the slot on success", async () => {
       let callCount = 0;
       assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(

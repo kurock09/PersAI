@@ -395,7 +395,8 @@ export class ManageAdminOpsBillingSupportService {
       where: { code: planCode },
       select: {
         status: true,
-        isTrialPlan: true
+        isTrialPlan: true,
+        billingProviderHints: true
       }
     });
     if (plan === null || plan.status !== "active") {
@@ -403,6 +404,11 @@ export class ManageAdminOpsBillingSupportService {
     }
     if (plan.isTrialPlan) {
       throw new BadRequestException("Manual paid activation cannot target a trial plan.");
+    }
+    if (isZeroPricePlan(plan.billingProviderHints)) {
+      throw new BadRequestException(
+        "Manual paid activation cannot target FREE. Use Apply fallback now instead."
+      );
     }
     return planCode;
   }
@@ -418,4 +424,17 @@ export class ManageAdminOpsBillingSupportService {
       value === "activate_paid_manually"
     );
   }
+}
+
+function isZeroPricePlan(billingProviderHints: unknown): boolean {
+  const hints = asObject(billingProviderHints);
+  const presentation = asObject(hints?.presentation);
+  const price = asObject(presentation?.price);
+  return typeof price?.amount === "number" && price.amount <= 0;
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

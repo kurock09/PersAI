@@ -98,6 +98,7 @@ interface AssistantSettingsProps {
   initialSection?: string | undefined;
   onOpenTelegramSettings?: (() => void) | undefined;
   onOpenPricingPage?: (() => void) | undefined;
+  onStartBillingCheckout?: ((paymentIntentId: string) => void) | undefined;
 }
 
 type ActionFeedback = { type: "ok" | "err"; text: string } | null;
@@ -257,10 +258,15 @@ function resolveBillingManagementErrorMessage(
 function applyBillingActionResult(
   result: AssistantBillingSubscriptionActionResult,
   router: ReturnType<typeof useRouter>,
-  setBillingSubscription: (value: AssistantBillingSubscriptionManagementState) => void
+  setBillingSubscription: (value: AssistantBillingSubscriptionManagementState) => void,
+  onStartBillingCheckout?: ((paymentIntentId: string) => void) | undefined
 ): void {
   if (result.mode === "checkout") {
-    router.push(`/app/billing/checkout/${result.paymentIntent.id}` as Route);
+    if (onStartBillingCheckout) {
+      onStartBillingCheckout(result.paymentIntent.id);
+    } else {
+      router.push(`/app/billing/checkout/${result.paymentIntent.id}` as Route);
+    }
     return;
   }
   setBillingSubscription(result.subscription);
@@ -538,7 +544,8 @@ export function AssistantSettings({
   data,
   initialSection,
   onOpenTelegramSettings,
-  onOpenPricingPage
+  onOpenPricingPage,
+  onStartBillingCheckout
 }: AssistantSettingsProps) {
   const router = useRouter();
   const { getToken, isLoaded } = useAuth();
@@ -831,6 +838,9 @@ export function AssistantSettings({
     }
     void loadBillingSubscription("silent");
   }, [billingSubscription, billingSubscriptionLoaded, loadBillingSubscription]);
+  const scheduledFreeChangePending =
+    billingSubscription?.scheduledPlanChange?.changeKind === "free" &&
+    billingSubscription.canEnableAutoRenew;
   const handleEnableAutoRenew = useCallback(async () => {
     const token = await resolveBillingToken();
     if (!token) {
@@ -850,13 +860,17 @@ export function AssistantSettings({
         idempotencyKey: `settings:enable-auto-renew:${Date.now()}`,
         returnUrl: "/app/chat"
       });
-      applyBillingActionResult(result, router, setBillingSubscription);
+      applyBillingActionResult(result, router, setBillingSubscription, onStartBillingCheckout);
       setBillingSubscriptionFb({
         type: "ok",
         text:
           result.mode === "checkout"
-            ? t("billingAutoRenewBindStarted")
-            : t("billingAutoRenewEnabled")
+            ? scheduledFreeChangePending
+              ? t("billingRestoreSubscriptionBindStarted")
+              : t("billingAutoRenewBindStarted")
+            : scheduledFreeChangePending
+              ? t("billingSubscriptionRestored")
+              : t("billingAutoRenewEnabled")
       });
     } catch (error) {
       setBillingSubscriptionFb({
@@ -866,7 +880,14 @@ export function AssistantSettings({
     } finally {
       setEnableAutoRenewPending(false);
     }
-  }, [isLoaded, resolveBillingToken, router, t]);
+  }, [
+    isLoaded,
+    onStartBillingCheckout,
+    resolveBillingToken,
+    router,
+    scheduledFreeChangePending,
+    t
+  ]);
   const confirmDisableAutoRenew = useCallback(async () => {
     const token = await resolveBillingToken();
     if (!token) {
@@ -2975,6 +2996,8 @@ export function AssistantSettings({
                             <Loader2 className="h-4 w-4 animate-spin" />
                             {t("billingEnabling")}
                           </span>
+                        ) : scheduledFreeChangePending ? (
+                          t("billingRestoreSubscription")
                         ) : (
                           t("billingEnableAutoRenew")
                         )}

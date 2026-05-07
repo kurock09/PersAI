@@ -216,6 +216,11 @@ export class ManageAdminWorkspaceSubscriptionService {
     // status="active" and null trial windows on a plan marked isTrialPlan=true, so the user
     // technically moved to the new plan but was never actually in a trial window.
     const plan = await this.planCatalogRepository.findByCode(planCode);
+    if (this.isZeroPricePlan(plan?.billingProviderHints ?? null)) {
+      throw new BadRequestException(
+        "Use Apply fallback now for FREE access instead of Apply workspace subscription."
+      );
+    }
     const trialDefaults = await this.resolveTrialDefaultsForPlan(plan, input);
 
     return {
@@ -436,4 +441,17 @@ export class ManageAdminWorkspaceSubscriptionService {
     }
     return value as Record<string, unknown>;
   }
+
+  private isZeroPricePlan(billingProviderHints: unknown): boolean {
+    const hints = asObject(billingProviderHints);
+    const presentation = asObject(hints?.presentation);
+    const price = asObject(presentation?.price);
+    return typeof price?.amount === "number" && price.amount <= 0;
+  }
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }

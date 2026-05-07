@@ -15,6 +15,7 @@ const clerkMocks = vi.hoisted(() => ({
 }));
 
 const routerMocks = vi.hoisted(() => ({
+  push: vi.fn(),
   replace: vi.fn()
 }));
 
@@ -42,6 +43,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   deleteAssistantFile: vi.fn(),
   uploadAssistantAvatar: vi.fn(),
   getAssistantBillingSubscription: vi.fn(),
+  postAssistantBillingEnableAutoRenew: vi.fn(),
   postAssistantBillingDisableAutoRenew: vi.fn(),
   postAssistantBillingChangePlan: vi.fn()
 }));
@@ -85,6 +87,7 @@ vi.mock("../assistant-api-client", async () => {
     deleteAssistantFile: assistantApiMocks.deleteAssistantFile,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
     getAssistantBillingSubscription: assistantApiMocks.getAssistantBillingSubscription,
+    postAssistantBillingEnableAutoRenew: assistantApiMocks.postAssistantBillingEnableAutoRenew,
     postAssistantBillingDisableAutoRenew: assistantApiMocks.postAssistantBillingDisableAutoRenew,
     postAssistantBillingChangePlan: assistantApiMocks.postAssistantBillingChangePlan
   };
@@ -271,6 +274,27 @@ beforeEach(() => {
     managePaymentMethodMode: "unavailable",
     cancelUrl: null,
     warning: null
+  });
+  assistantApiMocks.postAssistantBillingEnableAutoRenew.mockResolvedValue({
+    mode: "subscription_updated",
+    subscription: {
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: true,
+      canEnableAutoRenew: false,
+      canDisableAutoRenew: true,
+      nextChargeAt: "2026-06-12T00:00:00.000Z",
+      currentPeriodEndsAt: "2026-06-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      scheduledPlanChange: null,
+      warning: null
+    }
   });
   assistantApiMocks.postAssistantBillingDisableAutoRenew.mockResolvedValue({
     planCode: "pro",
@@ -1120,6 +1144,176 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Payment method unknown")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update payment method" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable auto-renew" })).not.toBeInTheDocument();
+  }, 15000);
+
+  it("shows restore subscription CTA for scheduled FREE and updates billing state", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "canceled",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: "sub-provider-1",
+      autoRenewEnabled: false,
+      canEnableAutoRenew: true,
+      canDisableAutoRenew: false,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: "Bank card",
+      managePaymentMethodUrl: "https://my.cloudpayments.ru/",
+      managePaymentMethodMode: "provider_portal",
+      cancelUrl: "https://my.cloudpayments.ru/unsubscribe",
+      scheduledPlanChange: {
+        changeKind: "free",
+        targetPlanCode: "free",
+        targetPlanDisplayName: "Free",
+        effectiveAt: "2026-05-12T00:00:00.000Z"
+      },
+      warning: "Your current paid access stays active until May 12."
+    });
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "canceled",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits"
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore subscription" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.postAssistantBillingEnableAutoRenew).toHaveBeenCalledWith(
+        "token-1",
+        {
+          paymentMethodClass: "card",
+          idempotencyKey: expect.stringContaining("settings:enable-auto-renew:"),
+          returnUrl: "/app/chat"
+        }
+      );
+    });
+    expect(
+      await screen.findByText("Subscription restored and auto-renew is enabled again.")
+    ).toBeInTheDocument();
+  }, 15000);
+
+  it("hands bind checkout off to the shell callback instead of leaving settings open", async () => {
+    assistantApiMocks.getAssistantBillingSubscription.mockResolvedValue({
+      planCode: "pro",
+      planDisplayName: "Pro",
+      subscriptionStatus: "active",
+      billingProvider: "cloudpayments",
+      providerSubscriptionRef: null,
+      autoRenewEnabled: false,
+      canEnableAutoRenew: true,
+      canDisableAutoRenew: false,
+      nextChargeAt: null,
+      currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+      paymentMethodLabel: null,
+      managePaymentMethodUrl: null,
+      managePaymentMethodMode: "unavailable",
+      cancelUrl: null,
+      scheduledPlanChange: null,
+      warning: null
+    });
+    assistantApiMocks.postAssistantBillingEnableAutoRenew.mockResolvedValue({
+      mode: "checkout",
+      paymentIntent: {
+        id: "intent-bind-1",
+        checkoutUrl: "/app/billing/checkout/intent-bind-1"
+      }
+    });
+    const onStartBillingCheckout = vi.fn();
+
+    renderSettings(
+      makeAppData({
+        plan: {
+          effectivePlan: {
+            code: "pro",
+            displayName: "Pro",
+            status: "active",
+            source: "plan",
+            subscriptionStatus: "active",
+            trialEndsAt: null,
+            graceStartedAt: null,
+            graceEndsAt: null,
+            currentPeriodEndsAt: "2026-05-12T00:00:00.000Z",
+            isTrialPlan: false,
+            trialFallbackPlanCode: null,
+            paidFallbackPlanCode: null,
+            price: { amount: 980, currency: "RUB", billingPeriod: "month" }
+          },
+          entitlements: {
+            channelsAndSurfaces: {
+              webChat: true,
+              telegram: true,
+              whatsapp: false,
+              max: false
+            }
+          },
+          limits: {
+            quotaBuckets: [],
+            monthlyMediaQuotas: {
+              planCode: "pro",
+              periodStartedAt: null,
+              periodEndsAt: null,
+              periodSource: "subscription_period",
+              tools: []
+            },
+            toolDailyLimits: []
+          },
+          updatedAt: "2026-04-01T10:00:00.000Z"
+        } as unknown as AppData["plan"]
+      }),
+      "limits",
+      { onStartBillingCheckout }
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Payment settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Enable auto-renew" }));
+
+    await waitFor(() => {
+      expect(onStartBillingCheckout).toHaveBeenCalledWith("intent-bind-1");
+    });
+    expect(routerMocks.push).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Finish linking your card to enable auto-renew.")
+    ).toBeInTheDocument();
   }, 15000);
 
   it("redirects change plan from payment settings to the standard pricing page", async () => {
